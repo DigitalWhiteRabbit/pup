@@ -31,7 +31,19 @@
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-[Gates determined based on constitution file]
+- [ ] **I** — pnpm used exclusively (no npm/yarn commands introduced)
+- [ ] **II** — TypeScript strict mode on; no `any` types; unknown narrowed via Zod
+- [ ] **III** — All new API routes have Zod input + output schemas
+- [ ] **IV** — No new packages added without written justification in PR
+- [ ] **V** — DB migration plan includes backup step (pg_dump / dev.db copy)
+- [ ] **VI** — Server-only modules protected with `server-only` package
+- [ ] **VII** — No secrets in code; `.env.example` updated if new vars added
+- [ ] **VIII** — Business logic placed in `/lib/services/`; routes are thin
+- [ ] **IX** — File operations go through `FileStorage` interface
+- [ ] **X** — Notifications sent via `NotificationService` only
+- [ ] **XIV** — Commits follow Conventional Commits (feat/fix/chore/docs/refactor/test)
+- [ ] **XIX** — No N+1 queries; Prisma `include`/`select` used for relations
+- [ ] **XX** — Lists with 50+ items implement pagination
 
 ## Project Structure
 
