@@ -25,7 +25,8 @@
 - [ ] T002 Configure TypeScript: `strict: true`, `noUncheckedIndexedAccess: true` in `tsconfig.json`
 - [ ] T003 [P] Install and configure Tailwind CSS 3 in `tailwind.config.ts` and `app/globals.css`
 - [ ] T004 [P] Initialize shadcn/ui: run `pnpm dlx shadcn-ui@latest init`, configure `components.json`
-- [ ] T005 [P] Install core dependencies: `pnpm add prisma @prisma/client next-auth@5 zod @tanstack/react-query @dnd-kit/core @dnd-kit/sortable @dnd-kit/utilities react-hook-form @hookform/resolvers bcrypt date-fns server-only node-telegram-bot-api`
+- [ ] T005 [P] Install core dependencies: `pnpm add prisma @prisma/client next-auth@beta zod @tanstack/react-query @dnd-kit/core @dnd-kit/sortable @dnd-kit/utilities react-hook-form @hookform/resolvers bcrypt date-fns server-only node-telegram-bot-api`
+      _(next-auth@5 → next-auth@beta: v5 находится в beta; см. research.md §2 для обоснования)_
 - [ ] T006 [P] Install dev dependencies: `pnpm add -D @types/bcrypt @types/node vitest husky lint-staged prettier eslint-config-next`
 - [ ] T007 [P] Create `.env.example` with all env vars (DATABASE_URL, NEXTAUTH_SECRET, NEXTAUTH_URL, TELEGRAM_BOT_TOKEN, STORAGE_DRIVER, UPLOAD_DIR, INITIAL_ADMIN_LOGIN, INITIAL_ADMIN_EMAIL, INITIAL_ADMIN_PASSWORD)
 - [ ] T008 [P] Configure `.gitignore`: add `uploads/`, `prisma/dev.db`, `.env`, `dev.db.bak`
