@@ -1,7 +1,7 @@
 import "server-only";
 import { db } from "@/lib/db";
 import { ApiError } from "@/lib/api-error";
-import { isWorkColumn } from "@/lib/utils/columns";
+import { handleColumnRename, calcTimeFields } from "./timer.service";
 import type { MemberRole } from "@prisma/client";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -196,8 +196,6 @@ export async function getProjectById(
     }
   }
 
-  const now = Date.now();
-
   return {
     id: project.id,
     name: project.name,
@@ -214,17 +212,8 @@ export async function getProjectById(
       name: col.name,
       position: col.position,
       tasks: col.tasks.map((task) => {
-        let totalTimeMs = 0;
-        let isInProgress = false;
-        for (const interval of task.timeIntervals) {
-          const end = interval.endedAt ? interval.endedAt.getTime() : now;
-          totalTimeMs += end - interval.startedAt.getTime();
-          if (!interval.endedAt) isInProgress = true;
-        }
-        let lastIntervalStartedAt: Date | null = null;
-        for (const interval of task.timeIntervals) {
-          if (!interval.endedAt) lastIntervalStartedAt = interval.startedAt;
-        }
+        const { totalTimeMs, isInProgress, lastIntervalStartedAt } =
+          calcTimeFields(task.timeIntervals);
         return {
           id: task.id,
           columnId: col.id,
@@ -382,31 +371,18 @@ export async function renameColumn(
   return db.$transaction(async (tx) => {
     const column = await tx.column.findUnique({
       where: { id: columnId },
-      include: { tasks: { select: { id: true } } },
     });
     if (!column) throw new ApiError("Колонка не найдена", "NOT_FOUND", 404);
 
-    const wasWork = isWorkColumn(column.name);
-    const willBeWork = isWorkColumn(newName);
-    const taskIds = column.tasks.map((t) => t.id);
+    const oldName = column.name;
 
     await tx.column.update({
       where: { id: columnId },
       data: { name: newName },
     });
 
-    if (!wasWork && willBeWork && taskIds.length > 0) {
-      // Becoming "В работе" → open intervals for all tasks in column
-      await tx.timeInterval.createMany({
-        data: taskIds.map((taskId) => ({ taskId })),
-      });
-    } else if (wasWork && !willBeWork && taskIds.length > 0) {
-      // Leaving "В работе" → close all open intervals
-      await tx.timeInterval.updateMany({
-        where: { taskId: { in: taskIds }, endedAt: null },
-        data: { endedAt: new Date() },
-      });
-    }
+    // Timer logic (delegated to timer.service)
+    await handleColumnRename(tx, columnId, oldName, newName);
 
     return { id: columnId, name: newName };
   });

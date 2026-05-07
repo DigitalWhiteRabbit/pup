@@ -3,6 +3,11 @@ import { db } from "@/lib/db";
 import { ApiError } from "@/lib/api-error";
 import { checkMembership } from "./project.service";
 import { isWorkColumn } from "@/lib/utils/columns";
+import {
+  openInterval,
+  handleColumnTransition,
+  calcTimeFields,
+} from "./timer.service";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -44,32 +49,6 @@ export type TaskFull = TaskSummary & {
     movedAt: Date;
   }>;
 };
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function calcTimeFields(
-  intervals: Array<{ startedAt: Date; endedAt: Date | null }>,
-): {
-  totalTimeMs: number;
-  isInProgress: boolean;
-  lastIntervalStartedAt: Date | null;
-} {
-  const now = Date.now();
-  let totalTimeMs = 0;
-  let isInProgress = false;
-  let lastIntervalStartedAt: Date | null = null;
-
-  for (const interval of intervals) {
-    const end = interval.endedAt ? interval.endedAt.getTime() : now;
-    totalTimeMs += end - interval.startedAt.getTime();
-    if (!interval.endedAt) {
-      isInProgress = true;
-      lastIntervalStartedAt = interval.startedAt;
-    }
-  }
-
-  return { totalTimeMs, isInProgress, lastIntervalStartedAt };
-}
 
 // ─── createTask ───────────────────────────────────────────────────────────────
 
@@ -124,7 +103,7 @@ export async function createTask(
     });
 
     if (willBeInProgress) {
-      await tx.timeInterval.create({ data: { taskId: created.id } });
+      await openInterval(tx, created.id);
     }
 
     return { task: created, willBeInProgress };
@@ -277,8 +256,6 @@ export async function moveTask(
       );
     }
 
-    const isWorkSrc = isWorkColumn(task.column.name);
-    const isWorkTgt = isWorkColumn(targetColumn.name);
     const columnChanged = task.columnId !== targetColumnId;
 
     // 4. Update task position and column
@@ -299,18 +276,13 @@ export async function moveTask(
       });
     }
 
-    // 6. Timer logic
-    if (isWorkSrc && !isWorkTgt) {
-      // Leaving "В работе" → close open interval
-      await tx.timeInterval.updateMany({
-        where: { taskId, endedAt: null },
-        data: { endedAt: new Date() },
-      });
-    } else if (!isWorkSrc && isWorkTgt) {
-      // Entering "В работе" → open new interval
-      await tx.timeInterval.create({ data: { taskId } });
-    }
-    // Both work or both non-work → timer unchanged
+    // 6. Timer logic (delegated to timer.service)
+    await handleColumnTransition(
+      tx,
+      taskId,
+      task.column.name,
+      targetColumn.name,
+    );
 
     // 7. TODO: notify MOVED in T064 (US6 Phase 8)
 
