@@ -20,6 +20,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toastSuccess, toastApiError } from "@/lib/toast";
+import { Board } from "@/components/board/Board";
 import {
   addMemberSchema,
   updateProjectSchema,
@@ -247,15 +248,8 @@ export function ProjectBoardShell({
         </div>
       </div>
 
-      {/* Board placeholder */}
-      <div className="rounded-lg border border-dashed bg-muted/30 py-16 text-center text-muted-foreground">
-        <p className="text-sm">
-          Доска будет здесь — реализация в Phase 5 (US3)
-        </p>
-        <p className="mt-1 text-xs">
-          Проект содержит {project.columns.length} колонки
-        </p>
-      </div>
+      {/* Kanban Board */}
+      <Board initialData={project} projectId={project.id} />
 
       {/* Add member dialog */}
       <Dialog open={addMemberOpen} onOpenChange={setAddMemberOpen}>

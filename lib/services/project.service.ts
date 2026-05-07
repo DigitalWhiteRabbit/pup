@@ -1,6 +1,7 @@
 import "server-only";
 import { db } from "@/lib/db";
 import { ApiError } from "@/lib/api-error";
+import { isWorkColumn } from "@/lib/utils/columns";
 import type { MemberRole } from "@prisma/client";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -31,12 +32,14 @@ export type ProjectBoard = {
     position: number;
     tasks: Array<{
       id: string;
+      columnId: string;
       title: string;
       description: string | null;
       position: number;
       assignee: { id: string; login: string; isActive: boolean } | null;
       totalTimeMs: number;
       isInProgress: boolean;
+      lastIntervalStartedAt: Date | null;
       createdAt: Date;
     }>;
   }>;
@@ -218,14 +221,20 @@ export async function getProjectById(
           totalTimeMs += end - interval.startedAt.getTime();
           if (!interval.endedAt) isInProgress = true;
         }
+        let lastIntervalStartedAt: Date | null = null;
+        for (const interval of task.timeIntervals) {
+          if (!interval.endedAt) lastIntervalStartedAt = interval.startedAt;
+        }
         return {
           id: task.id,
+          columnId: col.id,
           title: task.title,
           description: task.description,
           position: task.position,
           assignee: task.assignee,
           totalTimeMs,
           isInProgress,
+          lastIntervalStartedAt,
           createdAt: task.createdAt,
         };
       }),
@@ -324,6 +333,135 @@ export async function addMember(
     email: user.email,
     role: "MEMBER",
   };
+}
+
+// ─── Column service ────────────────────────────────────────────────────────────
+
+export async function createColumn(input: {
+  projectId: string;
+  name: string;
+  requesterId: string;
+  requesterRole: "ADMIN" | "USER";
+}): Promise<{ id: string; name: string; position: number }> {
+  const membership = await checkMembership(input.projectId, input.requesterId);
+  if (!membership && input.requesterRole !== "ADMIN") {
+    throw new ApiError("Нет доступа к проекту", "FORBIDDEN", 403);
+  }
+
+  const maxCol = await db.column.findFirst({
+    where: { projectId: input.projectId },
+    orderBy: { position: "desc" },
+    select: { position: true },
+  });
+  const position = maxCol ? maxCol.position + 1 : 0;
+
+  return db.column.create({
+    data: { projectId: input.projectId, name: input.name, position },
+    select: { id: true, name: true, position: true },
+  });
+}
+
+export async function renameColumn(
+  columnId: string,
+  newName: string,
+  requesterId: string,
+  requesterRole: "ADMIN" | "USER",
+): Promise<{ id: string; name: string }> {
+  // Membership check before transaction
+  const columnCheck = await db.column.findUnique({
+    where: { id: columnId },
+    select: { projectId: true },
+  });
+  if (!columnCheck) throw new ApiError("Колонка не найдена", "NOT_FOUND", 404);
+
+  const membership = await checkMembership(columnCheck.projectId, requesterId);
+  if (!membership && requesterRole !== "ADMIN") {
+    throw new ApiError("Нет доступа", "FORBIDDEN", 403);
+  }
+
+  return db.$transaction(async (tx) => {
+    const column = await tx.column.findUnique({
+      where: { id: columnId },
+      include: { tasks: { select: { id: true } } },
+    });
+    if (!column) throw new ApiError("Колонка не найдена", "NOT_FOUND", 404);
+
+    const wasWork = isWorkColumn(column.name);
+    const willBeWork = isWorkColumn(newName);
+    const taskIds = column.tasks.map((t) => t.id);
+
+    await tx.column.update({
+      where: { id: columnId },
+      data: { name: newName },
+    });
+
+    if (!wasWork && willBeWork && taskIds.length > 0) {
+      // Becoming "В работе" → open intervals for all tasks in column
+      await tx.timeInterval.createMany({
+        data: taskIds.map((taskId) => ({ taskId })),
+      });
+    } else if (wasWork && !willBeWork && taskIds.length > 0) {
+      // Leaving "В работе" → close all open intervals
+      await tx.timeInterval.updateMany({
+        where: { taskId: { in: taskIds }, endedAt: null },
+        data: { endedAt: new Date() },
+      });
+    }
+
+    return { id: columnId, name: newName };
+  });
+}
+
+export async function deleteColumn(
+  columnId: string,
+  requesterId: string,
+  requesterRole: "ADMIN" | "USER",
+): Promise<void> {
+  const column = await db.column.findUnique({
+    where: { id: columnId },
+    include: { _count: { select: { tasks: true } } },
+  });
+  if (!column) throw new ApiError("Колонка не найдена", "NOT_FOUND", 404);
+
+  const membership = await checkMembership(column.projectId, requesterId);
+  if (!membership && requesterRole !== "ADMIN") {
+    throw new ApiError("Нет доступа", "FORBIDDEN", 403);
+  }
+
+  if (column._count.tasks > 0) {
+    throw new ApiError(
+      "Нельзя удалить колонку с задачами. Сначала переместите все задачи.",
+      "COLUMN_HAS_TASKS",
+      400,
+    );
+  }
+
+  await db.column.delete({ where: { id: columnId } });
+}
+
+export async function reorderColumn(
+  columnId: string,
+  newPosition: number,
+  requesterId: string,
+  requesterRole: "ADMIN" | "USER",
+): Promise<{ id: string; position: number }> {
+  const column = await db.column.findUnique({
+    where: { id: columnId },
+    select: { projectId: true },
+  });
+  if (!column) throw new ApiError("Колонка не найдена", "NOT_FOUND", 404);
+
+  const membership = await checkMembership(column.projectId, requesterId);
+  if (!membership && requesterRole !== "ADMIN") {
+    throw new ApiError("Нет доступа", "FORBIDDEN", 403);
+  }
+
+  await db.column.update({
+    where: { id: columnId },
+    data: { position: newPosition },
+  });
+
+  return { id: columnId, position: newPosition };
 }
 
 export async function removeMember(

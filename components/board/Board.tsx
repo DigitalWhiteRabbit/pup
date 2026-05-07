@@ -1,0 +1,390 @@
+"use client";
+
+import { useState } from "react";
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  closestCorners,
+  type DragStartEvent,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  horizontalListSortingStrategy,
+  arrayMove,
+} from "@dnd-kit/sortable";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Plus } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Column } from "./Column";
+import { toastError } from "@/lib/toast";
+import type { ProjectBoard } from "@/lib/services/project.service";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type ActiveDrag =
+  | { type: "column"; id: string; name: string }
+  | { type: "task"; id: string; title: string; columnId: string }
+  | null;
+
+type Props = {
+  initialData: ProjectBoard;
+  projectId: string;
+};
+
+// ─── Board ────────────────────────────────────────────────────────────────────
+
+export function Board({ initialData, projectId }: Props) {
+  const queryClient = useQueryClient();
+
+  // TanStack Query manages board state; initialData from SSR for instant render
+  const { data: board } = useQuery({
+    queryKey: ["project", projectId],
+    queryFn: async () => {
+      const res = await fetch(`/api/projects/${projectId}`);
+      if (!res.ok) throw new Error("Failed to load board");
+      return res.json() as Promise<ProjectBoard>;
+    },
+    initialData,
+    staleTime: 30_000,
+  });
+
+  const [activeDrag, setActiveDrag] = useState<ActiveDrag>(null);
+  const [addingColumn, setAddingColumn] = useState(false);
+  const [newColumnName, setNewColumnName] = useState("");
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+  );
+
+  // ─── Move task mutation (T046) ─────────────────────────────────────────────
+  const moveTaskMutation = useMutation({
+    mutationFn: async ({
+      taskId,
+      columnId,
+      position,
+    }: {
+      taskId: string;
+      columnId: string;
+      position: number;
+    }) => {
+      const res = await fetch(`/api/tasks/${taskId}/move`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ columnId, position }),
+      });
+      if (!res.ok) throw await res.json();
+      return res.json();
+    },
+    // Snapshot → optimistic update → (error: rollback) → invalidate
+    onMutate: async ({ taskId, columnId: targetColumnId, position }) => {
+      await queryClient.cancelQueries({ queryKey: ["project", projectId] });
+      const previous = queryClient.getQueryData<ProjectBoard>([
+        "project",
+        projectId,
+      ]);
+
+      queryClient.setQueryData<ProjectBoard>(["project", projectId], (old) => {
+        if (!old) return old;
+
+        // Remove task from its current column
+        let moved: ProjectBoard["columns"][0]["tasks"][0] | undefined;
+        const cols = old.columns.map((col) => ({
+          ...col,
+          tasks: col.tasks.filter((t) => {
+            if (t.id === taskId) {
+              moved = t;
+              return false;
+            }
+            return true;
+          }),
+        }));
+
+        if (!moved) return old;
+
+        const updatedTask = { ...moved, columnId: targetColumnId, position };
+
+        return {
+          ...old,
+          columns: cols.map((col) => {
+            if (col.id !== targetColumnId) return col;
+            // Insert at position and re-index
+            const tasks = [...col.tasks, updatedTask].sort(
+              (a, b) => a.position - b.position,
+            );
+            return { ...col, tasks };
+          }),
+        };
+      });
+
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      // Rollback (Constitution XVI)
+      if (context?.previous) {
+        queryClient.setQueryData(["project", projectId], context.previous);
+      }
+      toastError("Не удалось переместить задачу. Изменения отменены.");
+    },
+    onSettled: () => {
+      // Sync with server — picks up new totalTimeMs/isInProgress after timer logic
+      void queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+    },
+  });
+
+  // ─── Reorder column mutation (T046) ───────────────────────────────────────
+  const reorderColumnMutation = useMutation({
+    mutationFn: async ({
+      columnId,
+      position,
+    }: {
+      columnId: string;
+      position: number;
+    }) => {
+      const res = await fetch(`/api/columns/${columnId}/position`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ position }),
+      });
+      if (!res.ok) throw await res.json();
+      return res.json();
+    },
+    onMutate: async ({ columnId, position: newIndex }) => {
+      await queryClient.cancelQueries({ queryKey: ["project", projectId] });
+      const previous = queryClient.getQueryData<ProjectBoard>([
+        "project",
+        projectId,
+      ]);
+
+      queryClient.setQueryData<ProjectBoard>(["project", projectId], (old) => {
+        if (!old) return old;
+        const sorted = [...old.columns].sort((a, b) => a.position - b.position);
+        const oldIndex = sorted.findIndex((c) => c.id === columnId);
+        if (oldIndex === -1) return old;
+        const reordered = arrayMove(sorted, oldIndex, newIndex);
+        return {
+          ...old,
+          columns: reordered.map((c, i) => ({ ...c, position: i })),
+        };
+      });
+
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(["project", projectId], context.previous);
+      }
+      toastError("Не удалось переместить колонку. Изменения отменены.");
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+    },
+  });
+
+  // ─── Drag handlers ────────────────────────────────────────────────────────
+  function handleDragStart(event: DragStartEvent) {
+    const { active } = event;
+    const data = active.data.current as
+      | { type: "column" | "task"; columnId?: string }
+      | undefined;
+    if (!data) return;
+
+    if (data.type === "column") {
+      const col = board.columns.find((c) => c.id === String(active.id));
+      setActiveDrag({
+        type: "column",
+        id: String(active.id),
+        name: col?.name ?? "",
+      });
+    } else {
+      const task = board.columns
+        .flatMap((c) => c.tasks)
+        .find((t) => t.id === String(active.id));
+      setActiveDrag({
+        type: "task",
+        id: String(active.id),
+        title: task?.title ?? "",
+        columnId: data.columnId ?? "",
+      });
+    }
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    setActiveDrag(null);
+
+    if (!over || active.id === over.id) return;
+
+    const activeData = active.data.current as
+      | { type: string; columnId?: string }
+      | undefined;
+    const overData = over.data.current as
+      | { type: string; columnId?: string }
+      | undefined;
+
+    if (!activeData) return;
+
+    if (activeData.type === "column") {
+      // ── Column reorder ──
+      const sorted = [...board.columns].sort((a, b) => a.position - b.position);
+      const newIndex = sorted.findIndex((c) => c.id === String(over.id));
+      if (newIndex === -1) return;
+      reorderColumnMutation.mutate({
+        columnId: String(active.id),
+        position: newIndex,
+      });
+    } else if (activeData.type === "task") {
+      // ── Task move ──
+      let targetColumnId: string;
+      let targetPosition: number;
+
+      if (overData?.type === "column") {
+        // Dropped directly on a column (empty area)
+        targetColumnId = String(over.id);
+        const targetCol = board.columns.find((c) => c.id === targetColumnId);
+        targetPosition = targetCol ? targetCol.tasks.length : 0;
+      } else if (overData?.type === "task") {
+        // Dropped on another task
+        targetColumnId = overData.columnId ?? activeData.columnId ?? "";
+        const targetCol = board.columns.find((c) => c.id === targetColumnId);
+        if (!targetCol) return;
+        const targetIndex = targetCol.tasks.findIndex(
+          (t) => t.id === String(over.id),
+        );
+        targetPosition =
+          targetIndex >= 0 ? targetIndex : targetCol.tasks.length;
+      } else {
+        return;
+      }
+
+      moveTaskMutation.mutate({
+        taskId: String(active.id),
+        columnId: targetColumnId,
+        position: targetPosition,
+      });
+    }
+  }
+
+  // ─── Add column ───────────────────────────────────────────────────────────
+  async function handleAddColumn() {
+    const name = newColumnName.trim();
+    if (!name) return;
+    setAddingColumn(true);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/columns`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      if (!res.ok) throw await res.json();
+      setNewColumnName("");
+      await queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+    } catch {
+      toastError("Не удалось создать колонку");
+    } finally {
+      setAddingColumn(false);
+    }
+  }
+
+  const sortedColumns = [...board.columns].sort(
+    (a, b) => a.position - b.position,
+  );
+
+  // ─── Render ───────────────────────────────────────────────────────────────
+  return (
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCorners}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+    >
+      <SortableContext
+        items={sortedColumns.map((c) => c.id)}
+        strategy={horizontalListSortingStrategy}
+      >
+        <div
+          className="flex gap-4 overflow-x-auto pb-6"
+          style={{ touchAction: "none" }}
+        >
+          {sortedColumns.map((column) => (
+            <Column
+              key={column.id}
+              column={column}
+              projectId={projectId}
+              members={board.members}
+            />
+          ))}
+
+          {/* Add column */}
+          <div className="flex-shrink-0 w-72">
+            {addingColumn ? (
+              <div className="rounded-lg border bg-muted/20 p-3 space-y-2">
+                <input
+                  autoFocus
+                  value={newColumnName}
+                  onChange={(e) => setNewColumnName(e.target.value)}
+                  placeholder="Название колонки"
+                  className="w-full rounded-md border border-input bg-background px-3 h-8 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void handleAddColumn();
+                    if (e.key === "Escape") {
+                      setAddingColumn(false);
+                      setNewColumnName("");
+                    }
+                  }}
+                />
+                <div className="flex gap-1">
+                  <Button
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => void handleAddColumn()}
+                    disabled={!newColumnName.trim()}
+                  >
+                    Создать
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => {
+                      setAddingColumn(false);
+                      setNewColumnName("");
+                    }}
+                  >
+                    Отмена
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <Button
+                variant="outline"
+                className="w-full h-12 border-dashed text-muted-foreground"
+                onClick={() => setAddingColumn(true)}
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                Добавить колонку
+              </Button>
+            )}
+          </div>
+        </div>
+      </SortableContext>
+
+      {/* Drag preview overlay */}
+      <DragOverlay>
+        {activeDrag?.type === "column" && (
+          <div className="w-72 rounded-lg border bg-card p-3 shadow-2xl rotate-2 opacity-90">
+            <p className="text-sm font-semibold">{activeDrag.name}</p>
+          </div>
+        )}
+        {activeDrag?.type === "task" && (
+          <div className="rounded-lg border bg-card p-3 shadow-2xl rotate-1 opacity-90">
+            <p className="text-sm font-medium">{activeDrag.title}</p>
+          </div>
+        )}
+      </DragOverlay>
+    </DndContext>
+  );
+}

@@ -18,7 +18,7 @@ export function apiError(
 
 /** Wrap a route handler with consistent error handling */
 export async function withErrorHandler<T>(
-  handler: () => Promise<NextResponse<T>>,
+  handler: () => Promise<NextResponse<T | ApiErrorResponse>>,
 ): Promise<NextResponse<T | ApiErrorResponse>> {
   try {
     return await handler();
