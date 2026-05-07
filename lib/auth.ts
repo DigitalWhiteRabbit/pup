@@ -12,6 +12,7 @@ interface AppJWT extends JWT {
 }
 
 export const { auth, handlers, signIn, signOut } = NextAuth({
+  trustHost: true,
   session: { strategy: "jwt" },
   pages: {
     signIn: "/login",
@@ -26,7 +27,12 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
         const loginOrEmail = credentials.loginOrEmail as string;
         const password = credentials.password as string;
 
-        if (!loginOrEmail || !password) return null;
+        console.log("[auth] authorize called, loginOrEmail:", loginOrEmail);
+
+        if (!loginOrEmail || !password) {
+          console.log("[auth] missing credentials");
+          return null;
+        }
 
         const user = await db.user.findFirst({
           where: {
@@ -34,9 +40,17 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
           },
         });
 
+        console.log(
+          "[auth] user found:",
+          !!user,
+          "| isActive:",
+          user?.isActive,
+        );
+
         if (!user || !user.isActive) return null;
 
         const passwordMatch = await bcrypt.compare(password, user.password);
+        console.log("[auth] passwordMatch:", passwordMatch);
         if (!passwordMatch) return null;
 
         return {
@@ -60,14 +74,21 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
       }
 
       // On every request: re-check isActive from DB (FR-004a)
-      // Returning null from jwt callback invalidates session in NextAuth v5
       const userId = appToken.id;
+      console.log(
+        "[auth] jwt callback, userId:",
+        userId,
+        "trigger:",
+        user ? "sign-in" : "session-refresh",
+      );
       if (userId) {
         const dbUser = await db.user.findUnique({
           where: { id: userId },
           select: { isActive: true, role: true },
         });
+        console.log("[auth] jwt dbUser:", dbUser);
         if (!dbUser || !dbUser.isActive) {
+          console.log("[auth] jwt returning null — user inactive or not found");
           return null;
         }
         appToken.role = dbUser.role;
