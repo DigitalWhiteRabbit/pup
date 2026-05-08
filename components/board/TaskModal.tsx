@@ -72,6 +72,14 @@ type TaskFullResponse = Omit<
   }>;
 };
 
+const priorityOptions = [
+  { value: "NONE", label: "Без приоритета" },
+  { value: "LOW", label: "Низкий" },
+  { value: "MEDIUM", label: "Средний" },
+  { value: "HIGH", label: "Высокий" },
+  { value: "URGENT", label: "Срочный" },
+] as const;
+
 type Props = {
   taskId: string;
   projectId: string;
@@ -101,14 +109,16 @@ export function TaskModal({ taskId, projectId, members, onClose }: Props) {
 
   const [editTitle, setEditTitle] = useState("");
   const [editDesc, setEditDesc] = useState("");
-  const [editAssignee, setEditAssignee] = useState<string>("");
+  const [editAssigneeIds, setEditAssigneeIds] = useState<string[]>([]);
+  const [editPriority, setEditPriority] = useState("NONE");
   const [liveMs, setLiveMs] = useState(0);
 
   useEffect(() => {
     if (!task) return;
     setEditTitle(task.title);
     setEditDesc(task.description ?? "");
-    setEditAssignee(task.assignee?.id ?? "");
+    setEditAssigneeIds(task.assignees.map((a) => a.id));
+    setEditPriority(task.priority);
     setLiveMs(task.totalTimeMs);
   }, [task]);
 
@@ -135,7 +145,8 @@ export function TaskModal({ taskId, projectId, members, onClose }: Props) {
     mutationFn: async (data: {
       title?: string;
       description?: string | null;
-      assigneeId?: string | null;
+      assigneeIds?: string[];
+      priority?: string;
     }) => {
       const res = await fetch(`/api/tasks/${taskId}`, {
         method: "PATCH",
@@ -167,13 +178,18 @@ export function TaskModal({ taskId, projectId, members, onClose }: Props) {
       onClose();
       return;
     }
-    const assigneeId = editAssignee || null;
     const description = editDesc.trim() || null;
+    const oldAssigneeIds = task.assignees
+      .map((a) => a.id)
+      .sort()
+      .join(",");
+    const newAssigneeIds = [...editAssigneeIds].sort().join(",");
 
     const hasChanges =
       editTitle !== task.title ||
       description !== task.description ||
-      assigneeId !== (task.assignee?.id ?? null);
+      oldAssigneeIds !== newAssigneeIds ||
+      editPriority !== task.priority;
 
     if (!hasChanges) {
       onClose();
@@ -184,7 +200,8 @@ export function TaskModal({ taskId, projectId, members, onClose }: Props) {
       {
         title: editTitle.trim() || task.title,
         description,
-        assigneeId,
+        assigneeIds: editAssigneeIds,
+        priority: editPriority,
       },
       {
         onSuccess: () => {
@@ -239,21 +256,52 @@ export function TaskModal({ taskId, projectId, members, onClose }: Props) {
               />
             </div>
 
-            {/* Assignee */}
+            {/* Priority */}
             <div className="space-y-1">
-              <Label>Исполнитель</Label>
+              <Label>Приоритет</Label>
               <select
-                value={editAssignee}
-                onChange={(e) => setEditAssignee(e.target.value)}
+                value={editPriority}
+                onChange={(e) => setEditPriority(e.target.value)}
                 className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               >
-                <option value="">— Не назначен —</option>
-                {members.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.login} {m.role === "OWNER" ? "(Владелец)" : "(Участник)"}
+                {priorityOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
                   </option>
                 ))}
               </select>
+            </div>
+
+            {/* Assignees */}
+            <div className="space-y-1">
+              <Label>Исполнители</Label>
+              <div className="rounded-md border border-input p-2 space-y-1 max-h-40 overflow-y-auto">
+                {members.map((m) => (
+                  <label
+                    key={m.id}
+                    className="flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-accent cursor-pointer"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={editAssigneeIds.includes(m.id)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setEditAssigneeIds((prev) => [...prev, m.id]);
+                        } else {
+                          setEditAssigneeIds((prev) =>
+                            prev.filter((id) => id !== m.id),
+                          );
+                        }
+                      }}
+                      className="h-4 w-4 rounded border-input"
+                    />
+                    <span>{m.login}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {m.role === "OWNER" ? "(Владелец)" : "(Участник)"}
+                    </span>
+                  </label>
+                ))}
+              </div>
             </div>
 
             {/* Time info */}

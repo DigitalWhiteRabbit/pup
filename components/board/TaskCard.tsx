@@ -8,6 +8,16 @@ import { Badge } from "@/components/ui/badge";
 import { Clock, Timer, GripVertical } from "lucide-react";
 import type { ProjectBoard } from "@/lib/services/project.service";
 
+const priorityConfig: Record<
+  string,
+  { label: string; color: string } | undefined
+> = {
+  LOW: { label: "Низкий", color: "bg-blue-100 text-blue-700" },
+  MEDIUM: { label: "Средний", color: "bg-yellow-100 text-yellow-700" },
+  HIGH: { label: "Высокий", color: "bg-orange-100 text-orange-700" },
+  URGENT: { label: "Срочный", color: "bg-red-100 text-red-700" },
+};
+
 type Task = ProjectBoard["columns"][0]["tasks"][0];
 
 // ─── Time formatting ──────────────────────────────────────────────────────────
@@ -91,29 +101,32 @@ export function TaskCard({ task, columnId, onClick }: Props) {
         </div>
 
         <div className="flex-1 min-w-0">
+          {task.priority &&
+            task.priority !== "NONE" &&
+            priorityConfig[task.priority] && (
+              <span
+                className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium ${priorityConfig[task.priority]!.color}`}
+              >
+                {priorityConfig[task.priority]!.label}
+              </span>
+            )}
           <p className="text-sm font-medium leading-snug break-words">
             {task.title}
           </p>
 
-          {/* Footer: assignee + time */}
+          {/* Footer: assignees + time */}
           <div className="mt-2 flex items-center justify-between gap-2">
-            <div>
-              {task.assignee && (
-                <Avatar className="h-6 w-6">
+            <div className="flex -space-x-1.5">
+              {task.assignees.map((a) => (
+                <Avatar key={a.id} className="h-6 w-6 border-2 border-card">
                   <AvatarFallback
-                    className={`text-[10px] ${
-                      !task.assignee.isActive ? "opacity-40" : ""
-                    }`}
-                    title={
-                      task.assignee.isActive
-                        ? task.assignee.login
-                        : `${task.assignee.login} (деактивирован)`
-                    }
+                    className={`text-[10px] ${!a.isActive ? "opacity-40" : ""}`}
+                    title={a.isActive ? a.login : `${a.login} (деактивирован)`}
                   >
-                    {task.assignee.login.slice(0, 2).toUpperCase()}
+                    {a.login.slice(0, 2).toUpperCase()}
                   </AvatarFallback>
                 </Avatar>
-              )}
+              ))}
             </div>
 
             {showTimeBadge && (

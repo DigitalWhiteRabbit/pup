@@ -9,8 +9,11 @@ import {
   calcTimeFields,
 } from "./timer.service";
 import { notify } from "./notification.service";
+import type { TaskPriority } from "@prisma/client";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
+
+type Assignee = { id: string; login: string; isActive: boolean };
 
 export type TaskSummary = {
   id: string;
@@ -18,8 +21,9 @@ export type TaskSummary = {
   columnId: string;
   title: string;
   description: string | null;
+  priority: TaskPriority;
   position: number;
-  assignee: { id: string; login: string; isActive: boolean } | null;
+  assignees: Assignee[];
   totalTimeMs: number;
   isInProgress: boolean;
   lastIntervalStartedAt: Date | null;
@@ -51,6 +55,14 @@ export type TaskFull = TaskSummary & {
   }>;
 };
 
+const assigneeSelect = {
+  user: { select: { id: true, login: true, isActive: true } },
+} as const;
+
+function mapAssignees(assignees: Array<{ user: Assignee }>): Assignee[] {
+  return assignees.map((a) => a.user);
+}
+
 // ─── createTask ───────────────────────────────────────────────────────────────
 
 export async function createTask(
@@ -58,19 +70,20 @@ export async function createTask(
     title: string;
     description?: string | null;
     columnId: string;
-    assigneeId?: string | null;
+    assigneeIds?: string[];
+    priority?: TaskPriority;
     projectId: string;
   },
   userId: string,
   userRole: "ADMIN" | "USER",
 ): Promise<TaskSummary> {
-  // Membership check outside transaction (read-only)
   const membership = await checkMembership(input.projectId, userId);
   if (!membership && userRole !== "ADMIN") {
     throw new ApiError("Нет доступа к проекту", "FORBIDDEN", 403);
   }
 
-  // All reads + write in one transaction to avoid race condition on position
+  const assigneeIds = input.assigneeIds ?? [];
+
   const task = await db.$transaction(async (tx) => {
     const column = await tx.column.findUnique({
       where: { id: input.columnId },
@@ -93,14 +106,16 @@ export async function createTask(
       data: {
         title: input.title,
         description: input.description ?? null,
+        priority: input.priority ?? "NONE",
         columnId: input.columnId,
         projectId: input.projectId,
-        assigneeId: input.assigneeId ?? null,
         position,
+        assignees:
+          assigneeIds.length > 0
+            ? { create: assigneeIds.map((uid) => ({ userId: uid })) }
+            : undefined,
       },
-      include: {
-        assignee: { select: { id: true, login: true, isActive: true } },
-      },
+      include: { assignees: { include: assigneeSelect } },
     });
 
     if (willBeInProgress) {
@@ -110,14 +125,17 @@ export async function createTask(
     return { task: created, willBeInProgress };
   });
 
-  if (task.task.assigneeId && task.task.assigneeId !== userId) {
-    await notify({
-      type: "ASSIGNED",
-      recipientId: task.task.assigneeId,
-      actorId: userId,
-      taskId: task.task.id,
-      projectId: task.task.projectId,
-    });
+  // Notify new assignees (except self)
+  for (const uid of assigneeIds) {
+    if (uid !== userId) {
+      await notify({
+        type: "ASSIGNED",
+        recipientId: uid,
+        actorId: userId,
+        taskId: task.task.id,
+        projectId: task.task.projectId,
+      });
+    }
   }
 
   const now = new Date();
@@ -127,8 +145,9 @@ export async function createTask(
     columnId: task.task.columnId,
     title: task.task.title,
     description: task.task.description,
+    priority: task.task.priority,
     position: task.task.position,
-    assignee: task.task.assignee,
+    assignees: mapAssignees(task.task.assignees),
     totalTimeMs: 0,
     isInProgress: task.willBeInProgress,
     lastIntervalStartedAt: task.willBeInProgress ? now : null,
@@ -143,14 +162,18 @@ export async function updateTask(
   data: {
     title?: string;
     description?: string | null;
-    assigneeId?: string | null;
+    assigneeIds?: string[];
+    priority?: TaskPriority;
   },
   userId: string,
   userRole: "ADMIN" | "USER",
 ): Promise<TaskSummary> {
   const task = await db.task.findUnique({
     where: { id },
-    select: { projectId: true, assigneeId: true },
+    select: {
+      projectId: true,
+      assignees: { select: { userId: true } },
+    },
   });
   if (!task) throw new ApiError("Задача не найдена", "NOT_FOUND", 404);
 
@@ -159,29 +182,47 @@ export async function updateTask(
     throw new ApiError("Нет доступа", "FORBIDDEN", 403);
   }
 
-  const oldAssigneeId = task.assigneeId;
+  const oldAssigneeIds = new Set(task.assignees.map((a) => a.userId));
 
-  const updated = await db.task.update({
-    where: { id },
-    data,
-    include: {
-      assignee: { select: { id: true, login: true, isActive: true } },
-      timeIntervals: { select: { startedAt: true, endedAt: true } },
-    },
+  const updated = await db.$transaction(async (tx) => {
+    // Update assignees if provided
+    if (data.assigneeIds !== undefined) {
+      // Delete all current, re-create
+      await tx.taskAssignee.deleteMany({ where: { taskId: id } });
+      if (data.assigneeIds.length > 0) {
+        await tx.taskAssignee.createMany({
+          data: data.assigneeIds.map((uid) => ({ taskId: id, userId: uid })),
+        });
+      }
+    }
+
+    return tx.task.update({
+      where: { id },
+      data: {
+        title: data.title,
+        description: data.description,
+        priority: data.priority,
+      },
+      include: {
+        assignees: { include: assigneeSelect },
+        timeIntervals: { select: { startedAt: true, endedAt: true } },
+      },
+    });
   });
 
-  if (
-    data.assigneeId &&
-    data.assigneeId !== oldAssigneeId &&
-    data.assigneeId !== userId
-  ) {
-    await notify({
-      type: "ASSIGNED",
-      recipientId: data.assigneeId,
-      actorId: userId,
-      taskId: id,
-      projectId: task.projectId,
-    });
+  // Notify newly added assignees
+  if (data.assigneeIds !== undefined) {
+    for (const uid of data.assigneeIds) {
+      if (!oldAssigneeIds.has(uid) && uid !== userId) {
+        await notify({
+          type: "ASSIGNED",
+          recipientId: uid,
+          actorId: userId,
+          taskId: id,
+          projectId: task.projectId,
+        });
+      }
+    }
   }
 
   const { totalTimeMs, isInProgress, lastIntervalStartedAt } = calcTimeFields(
@@ -194,8 +235,9 @@ export async function updateTask(
     columnId: updated.columnId,
     title: updated.title,
     description: updated.description,
+    priority: updated.priority,
     position: updated.position,
-    assignee: updated.assignee,
+    assignees: mapAssignees(updated.assignees),
     totalTimeMs,
     isInProgress,
     lastIntervalStartedAt,
@@ -221,7 +263,6 @@ export async function deleteTask(
     throw new ApiError("Нет доступа", "FORBIDDEN", 403);
   }
 
-  // Cascade: TimeInterval, ColumnMoveLog, Comment, Attachment deleted by Prisma schema
   await db.task.delete({ where: { id } });
 }
 
@@ -241,7 +282,6 @@ export async function moveTask(
   isInProgress: boolean;
   lastIntervalStartedAt: Date | null;
 }> {
-  // Membership check before transaction (read-only, no need to be atomic)
   const taskCheck = await db.task.findUnique({
     where: { id: taskId },
     select: { column: { select: { projectId: true } } },
@@ -254,14 +294,15 @@ export async function moveTask(
   }
 
   const result = await db.$transaction(async (tx) => {
-    // 1. Get task with source column
     const task = await tx.task.findUnique({
       where: { id: taskId },
-      include: { column: { select: { name: true, projectId: true } } },
+      include: {
+        column: { select: { name: true, projectId: true } },
+        assignees: { select: { userId: true } },
+      },
     });
     if (!task) throw new ApiError("Задача не найдена", "NOT_FOUND", 404);
 
-    // 2. Get target column
     const targetColumn = await tx.column.findUnique({
       where: { id: targetColumnId },
       select: { name: true, projectId: true },
@@ -270,7 +311,6 @@ export async function moveTask(
       throw new ApiError("Целевая колонка не найдена", "NOT_FOUND", 404);
     }
 
-    // 3. Same project check (no cross-project moves)
     if (targetColumn.projectId !== task.column.projectId) {
       throw new ApiError(
         "Нельзя перемещать задачи между проектами",
@@ -281,13 +321,11 @@ export async function moveTask(
 
     const columnChanged = task.columnId !== targetColumnId;
 
-    // 4. Update task position and column
     await tx.task.update({
       where: { id: taskId },
       data: { columnId: targetColumnId, position: targetPosition },
     });
 
-    // 5. Log move only when column actually changes
     if (columnChanged) {
       await tx.columnMoveLog.create({
         data: {
@@ -299,7 +337,6 @@ export async function moveTask(
       });
     }
 
-    // 6. Timer logic (delegated to timer.service)
     await handleColumnTransition(
       tx,
       taskId,
@@ -307,7 +344,6 @@ export async function moveTask(
       targetColumn.name,
     );
 
-    // 7. Calculate updated totals
     const intervals = await tx.timeInterval.findMany({
       where: { taskId },
       select: { startedAt: true, endedAt: true },
@@ -323,20 +359,22 @@ export async function moveTask(
       totalTimeMs,
       isInProgress,
       lastIntervalStartedAt,
-      _assigneeId: task.assigneeId,
+      _assigneeIds: task.assignees.map((a) => a.userId),
       _projectId: task.column.projectId,
     };
   });
 
-  // Notify MOVED after transaction (fire-and-forget Telegram inside notify)
-  if (result._assigneeId && result._assigneeId !== userId) {
-    await notify({
-      type: "MOVED",
-      recipientId: result._assigneeId,
-      actorId: userId,
-      taskId,
-      projectId: result._projectId,
-    });
+  // Notify all assignees about the move
+  for (const uid of result._assigneeIds) {
+    if (uid !== userId) {
+      await notify({
+        type: "MOVED",
+        recipientId: uid,
+        actorId: userId,
+        taskId,
+        projectId: result._projectId,
+      });
+    }
   }
 
   return {
@@ -387,7 +425,7 @@ export async function getTaskById(
     where: { id },
     include: {
       column: { select: { name: true } },
-      assignee: { select: { id: true, login: true, isActive: true } },
+      assignees: { include: assigneeSelect },
       timeIntervals: { select: { startedAt: true, endedAt: true } },
       comments: {
         orderBy: { createdAt: "asc" },
@@ -422,8 +460,9 @@ export async function getTaskById(
     columnName: task.column.name,
     title: task.title,
     description: task.description,
+    priority: task.priority,
     position: task.position,
-    assignee: task.assignee,
+    assignees: mapAssignees(task.assignees),
     totalTimeMs,
     isInProgress,
     lastIntervalStartedAt,

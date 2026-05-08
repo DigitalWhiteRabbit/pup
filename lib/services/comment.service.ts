@@ -14,13 +14,19 @@ export type CommentView = {
 
 async function getTaskWithProject(
   taskId: string,
-): Promise<{ projectId: string; assigneeId: string | null }> {
+): Promise<{ projectId: string; assigneeIds: string[] }> {
   const task = await db.task.findUnique({
     where: { id: taskId },
-    select: { projectId: true, assigneeId: true },
+    select: {
+      projectId: true,
+      assignees: { select: { userId: true } },
+    },
   });
   if (!task) throw new ApiError("Задача не найдена", "NOT_FOUND", 404);
-  return task;
+  return {
+    projectId: task.projectId,
+    assigneeIds: task.assignees.map((a) => a.userId),
+  };
 }
 
 export async function createComment(
@@ -42,14 +48,16 @@ export async function createComment(
     include: { author: { select: { id: true, login: true } } },
   });
 
-  if (taskInfo.assigneeId && taskInfo.assigneeId !== input.authorId) {
-    await notify({
-      type: "COMMENTED",
-      recipientId: taskInfo.assigneeId,
-      actorId: input.authorId,
-      taskId: input.taskId,
-      projectId: taskInfo.projectId,
-    });
+  for (const uid of taskInfo.assigneeIds) {
+    if (uid !== input.authorId) {
+      await notify({
+        type: "COMMENTED",
+        recipientId: uid,
+        actorId: input.authorId,
+        taskId: input.taskId,
+        projectId: taskInfo.projectId,
+      });
+    }
   }
 
   return {

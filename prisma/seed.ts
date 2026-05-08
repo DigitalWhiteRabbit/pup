@@ -106,7 +106,6 @@ async function main() {
         description:
           "Установить зависимости, создать .env файл, запустить миграции",
         position: 0,
-        assigneeId: admin.id,
       },
       {
         id: SEED_IDS.TASK_2,
@@ -123,7 +122,6 @@ async function main() {
         title: "Реализовать канбан-доску",
         description: "Drag & drop с оптимистичными обновлениями",
         position: 0,
-        assigneeId: admin.id,
       },
       {
         id: SEED_IDS.TASK_4,
@@ -132,7 +130,6 @@ async function main() {
         title: "Инициализировать проект",
         description: "Next.js 14, TypeScript, Prisma, shadcn/ui",
         position: 0,
-        assigneeId: admin.id,
       },
       {
         id: SEED_IDS.TASK_5,

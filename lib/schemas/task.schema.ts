@@ -1,5 +1,13 @@
 import { z } from "zod";
 
+export const taskPriorityEnum = z.enum([
+  "NONE",
+  "LOW",
+  "MEDIUM",
+  "HIGH",
+  "URGENT",
+]);
+
 export const createTaskSchema = z.object({
   title: z
     .string()
@@ -7,13 +15,15 @@ export const createTaskSchema = z.object({
     .max(255, "Максимум 255 символов"),
   description: z.string().max(5000, "Максимум 5000 символов").optional(),
   columnId: z.string().min(1),
-  assigneeId: z.string().optional().nullable(),
+  assigneeIds: z.array(z.string()).optional().default([]),
+  priority: taskPriorityEnum.optional().default("NONE"),
 });
 
 export const updateTaskSchema = z.object({
   title: z.string().min(1).max(255).optional(),
   description: z.string().max(5000).optional().nullable(),
-  assigneeId: z.string().optional().nullable(),
+  assigneeIds: z.array(z.string()).optional(),
+  priority: taskPriorityEnum.optional(),
 });
 
 export const moveTaskSchema = z.object({

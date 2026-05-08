@@ -36,8 +36,9 @@ export type ProjectBoard = {
       columnId: string;
       title: string;
       description: string | null;
+      priority: string;
       position: number;
-      assignee: { id: string; login: string; isActive: boolean } | null;
+      assignees: Array<{ id: string; login: string; isActive: boolean }>;
       totalTimeMs: number;
       isInProgress: boolean;
       lastIntervalStartedAt: Date | null;
@@ -176,7 +177,11 @@ export async function getProjectById(
           tasks: {
             orderBy: { position: "asc" },
             include: {
-              assignee: { select: { id: true, login: true, isActive: true } },
+              assignees: {
+                include: {
+                  user: { select: { id: true, login: true, isActive: true } },
+                },
+              },
               timeIntervals: { select: { startedAt: true, endedAt: true } },
             },
           },
@@ -220,8 +225,9 @@ export async function getProjectById(
           columnId: col.id,
           title: task.title,
           description: task.description,
+          priority: task.priority,
           position: task.position,
-          assignee: task.assignee,
+          assignees: task.assignees.map((a) => a.user),
           totalTimeMs,
           isInProgress,
           lastIntervalStartedAt,

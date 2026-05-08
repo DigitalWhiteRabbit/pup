@@ -46,6 +46,12 @@ async function apiSearchUsers(
   return res.json() as Promise<UserSearchResult[]>;
 }
 
+async function apiFetchProject(projectId: string): Promise<ProjectBoard> {
+  const res = await fetch(`/api/projects/${projectId}`);
+  if (!res.ok) throw new Error("Failed to fetch project");
+  return res.json() as Promise<ProjectBoard>;
+}
+
 async function apiAddMember(projectId: string, loginOrEmail: string) {
   const res = await fetch(`/api/projects/${projectId}/members`, {
     method: "POST",
@@ -95,6 +101,22 @@ export function ProjectBoardShell({
   const queryClient = useQueryClient();
 
   const [project, setProject] = useState(initialProject);
+
+  // Sync state when server component re-renders with new props
+  useEffect(() => {
+    setProject(initialProject);
+  }, [initialProject]);
+
+  const refreshProject = useCallback(async () => {
+    try {
+      const fresh = await apiFetchProject(project.id);
+      setProject(fresh);
+    } catch {
+      // fallback to router refresh
+      router.refresh();
+    }
+  }, [project.id, router]);
+
   const isOwner =
     currentUserRole === "ADMIN" ||
     project.members.some((m) => m.id === currentUserId && m.role === "OWNER");
@@ -134,13 +156,13 @@ export function ProjectBoardShell({
   const addMemberMutation = useMutation({
     mutationFn: (loginOrEmail: string) =>
       apiAddMember(project.id, loginOrEmail),
-    onSuccess: () => {
+    onSuccess: async () => {
       void queryClient.invalidateQueries({ queryKey: ["project", project.id] });
       toastSuccess("Участник добавлен");
       setMemberSearch("");
       setSearchResults([]);
       setAddMemberOpen(false);
-      router.refresh();
+      await refreshProject();
     },
     onError: toastApiError,
   });
@@ -187,9 +209,9 @@ export function ProjectBoardShell({
 
   const removeMemberMutation = useMutation({
     mutationFn: (userId: string) => apiRemoveMember(project.id, userId),
-    onSuccess: () => {
+    onSuccess: async () => {
       toastSuccess("Участник удалён");
-      router.refresh();
+      await refreshProject();
     },
     onError: toastApiError,
   });
