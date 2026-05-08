@@ -1,26 +1,11 @@
 import { z } from "zod";
 
-// Max file size: 20 MB
-export const MAX_FILE_SIZE = 20 * 1024 * 1024;
-
-export const ALLOWED_MIME_TYPES = [
-  "image/jpeg",
-  "image/png",
-  "image/gif",
-  "image/webp",
-  "application/pdf",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "application/vnd.ms-excel",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "text/plain",
-  "text/csv",
-  "application/zip",
-] as const;
+// No file size limit enforced at application level (spec FR-025)
+// Disk space management is an infrastructure responsibility
 
 export const attachmentMetaSchema = z.object({
   originalName: z.string().min(1).max(255),
-  size: z.number().int().min(1).max(MAX_FILE_SIZE),
+  size: z.number().int().min(1),
   mimeType: z.string().min(1),
 });
 
