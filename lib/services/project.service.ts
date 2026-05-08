@@ -38,7 +38,12 @@ export type ProjectBoard = {
       description: string | null;
       priority: string;
       position: number;
+      startDate: Date | null;
+      dueDate: Date | null;
       assignees: Array<{ id: string; login: string; isActive: boolean }>;
+      labels: Array<{ id: string; name: string; color: string }>;
+      checklistTotal: number;
+      checklistDone: number;
       totalTimeMs: number;
       isInProgress: boolean;
       lastIntervalStartedAt: Date | null;
@@ -182,6 +187,8 @@ export async function getProjectById(
                   user: { select: { id: true, login: true, isActive: true } },
                 },
               },
+              labels: { include: { label: true } },
+              checklistItems: { select: { checked: true } },
               timeIntervals: { select: { startedAt: true, endedAt: true } },
             },
           },
@@ -227,7 +234,12 @@ export async function getProjectById(
           description: task.description,
           priority: task.priority,
           position: task.position,
+          startDate: task.startDate,
+          dueDate: task.dueDate,
           assignees: task.assignees.map((a) => a.user),
+          labels: task.labels.map((tl) => tl.label),
+          checklistTotal: task.checklistItems.length,
+          checklistDone: task.checklistItems.filter((i) => i.checked).length,
           totalTimeMs,
           isInProgress,
           lastIntervalStartedAt,

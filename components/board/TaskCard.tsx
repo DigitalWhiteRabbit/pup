@@ -5,7 +5,13 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { Clock, Timer, GripVertical } from "lucide-react";
+import {
+  Clock,
+  Timer,
+  GripVertical,
+  CheckSquare,
+  Calendar,
+} from "lucide-react";
 import type { ProjectBoard } from "@/lib/services/project.service";
 
 const priorityConfig: Record<
@@ -113,6 +119,44 @@ export function TaskCard({ task, columnId, onClick }: Props) {
           <p className="text-sm font-medium leading-snug break-words">
             {task.title}
           </p>
+
+          {/* Labels */}
+          {task.labels.length > 0 && (
+            <div className="mt-1.5 flex flex-wrap gap-1">
+              {task.labels.map((l) => (
+                <span
+                  key={l.id}
+                  className="rounded-full px-2 py-0.5 text-[10px] font-medium text-white"
+                  style={{ backgroundColor: l.color }}
+                >
+                  {l.name}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Indicators row: due date + checklist */}
+          {(task.dueDate || task.checklistTotal > 0) && (
+            <div className="mt-1.5 flex items-center gap-2 text-[10px] text-muted-foreground">
+              {task.dueDate && (
+                <span className="flex items-center gap-0.5">
+                  <Calendar className="h-3 w-3" />
+                  {new Date(task.dueDate).toLocaleDateString("ru-RU", {
+                    day: "2-digit",
+                    month: "short",
+                  })}
+                </span>
+              )}
+              {task.checklistTotal > 0 && (
+                <span
+                  className={`flex items-center gap-0.5 ${task.checklistDone === task.checklistTotal ? "text-primary" : ""}`}
+                >
+                  <CheckSquare className="h-3 w-3" />
+                  {task.checklistDone}/{task.checklistTotal}
+                </span>
+              )}
+            </div>
+          )}
 
           {/* Footer: assignees + time */}
           <div className="mt-2 flex items-center justify-between gap-2">

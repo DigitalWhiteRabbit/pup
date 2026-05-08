@@ -31,6 +31,11 @@ import {
   Send,
   Eye,
   FileText,
+  Plus,
+  Tag,
+  Calendar,
+  CheckSquare,
+  Square,
 } from "lucide-react";
 import { toastSuccess, toastApiError } from "@/lib/toast";
 import { formatDuration } from "./TaskCard";
@@ -43,12 +48,16 @@ type TaskFullResponse = Omit<
   TaskFull,
   | "createdAt"
   | "lastIntervalStartedAt"
+  | "startDate"
+  | "dueDate"
   | "comments"
   | "attachments"
   | "moveHistory"
 > & {
   createdAt: string;
   lastIntervalStartedAt: string | null;
+  startDate: string | null;
+  dueDate: string | null;
   comments: Array<{
     id: string;
     text: string;
@@ -72,6 +81,8 @@ type TaskFullResponse = Omit<
   }>;
 };
 
+type LabelData = { id: string; name: string; color: string };
+
 const priorityOptions = [
   { value: "NONE", label: "Без приоритета" },
   { value: "LOW", label: "Низкий" },
@@ -79,6 +90,16 @@ const priorityOptions = [
   { value: "HIGH", label: "Высокий" },
   { value: "URGENT", label: "Срочный" },
 ] as const;
+
+const defaultLabelColors = [
+  "#ef4444",
+  "#f97316",
+  "#eab308",
+  "#22c55e",
+  "#3b82f6",
+  "#8b5cf6",
+  "#ec4899",
+];
 
 type Props = {
   taskId: string;
@@ -91,6 +112,11 @@ function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function toDateInputValue(iso: string | null): string {
+  if (!iso) return "";
+  return iso.slice(0, 10);
 }
 
 export function TaskModal({ taskId, projectId, members, onClose }: Props) {
@@ -111,6 +137,9 @@ export function TaskModal({ taskId, projectId, members, onClose }: Props) {
   const [editDesc, setEditDesc] = useState("");
   const [editAssigneeIds, setEditAssigneeIds] = useState<string[]>([]);
   const [editPriority, setEditPriority] = useState("NONE");
+  const [editStartDate, setEditStartDate] = useState("");
+  const [editDueDate, setEditDueDate] = useState("");
+  const [editLabelIds, setEditLabelIds] = useState<string[]>([]);
   const [liveMs, setLiveMs] = useState(0);
 
   useEffect(() => {
@@ -119,6 +148,9 @@ export function TaskModal({ taskId, projectId, members, onClose }: Props) {
     setEditDesc(task.description ?? "");
     setEditAssigneeIds(task.assignees.map((a) => a.id));
     setEditPriority(task.priority);
+    setEditStartDate(toDateInputValue(task.startDate));
+    setEditDueDate(toDateInputValue(task.dueDate));
+    setEditLabelIds(task.labels.map((l) => l.id));
     setLiveMs(task.totalTimeMs);
   }, [task]);
 
@@ -127,7 +159,6 @@ export function TaskModal({ taskId, projectId, members, onClose }: Props) {
     if (!task?.isInProgress || !task.lastIntervalStartedAt) return;
     const startedAt = new Date(task.lastIntervalStartedAt).getTime();
     const baseMs = task.totalTimeMs;
-
     function tick() {
       setLiveMs(baseMs + (Date.now() - startedAt));
     }
@@ -142,12 +173,7 @@ export function TaskModal({ taskId, projectId, members, onClose }: Props) {
   };
 
   const updateMutation = useMutation({
-    mutationFn: async (data: {
-      title?: string;
-      description?: string | null;
-      assigneeIds?: string[];
-      priority?: string;
-    }) => {
+    mutationFn: async (data: Record<string, unknown>) => {
       const res = await fetch(`/api/tasks/${taskId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -179,17 +205,25 @@ export function TaskModal({ taskId, projectId, members, onClose }: Props) {
       return;
     }
     const description = editDesc.trim() || null;
-    const oldAssigneeIds = task.assignees
+    const oldAssignees = task.assignees
       .map((a) => a.id)
       .sort()
       .join(",");
-    const newAssigneeIds = [...editAssigneeIds].sort().join(",");
+    const newAssignees = [...editAssigneeIds].sort().join(",");
+    const oldLabels = task.labels
+      .map((l) => l.id)
+      .sort()
+      .join(",");
+    const newLabels = [...editLabelIds].sort().join(",");
 
     const hasChanges =
       editTitle !== task.title ||
       description !== task.description ||
-      oldAssigneeIds !== newAssigneeIds ||
-      editPriority !== task.priority;
+      oldAssignees !== newAssignees ||
+      editPriority !== task.priority ||
+      editStartDate !== toDateInputValue(task.startDate) ||
+      editDueDate !== toDateInputValue(task.dueDate) ||
+      oldLabels !== newLabels;
 
     if (!hasChanges) {
       onClose();
@@ -202,6 +236,9 @@ export function TaskModal({ taskId, projectId, members, onClose }: Props) {
         description,
         assigneeIds: editAssigneeIds,
         priority: editPriority,
+        startDate: editStartDate || null,
+        dueDate: editDueDate || null,
+        labelIds: editLabelIds,
       },
       {
         onSuccess: () => {
@@ -229,7 +266,6 @@ export function TaskModal({ taskId, projectId, members, onClose }: Props) {
             <Skeleton className="h-9 w-full" />
             <Skeleton className="h-24 w-full" />
             <Skeleton className="h-6 w-40" />
-            <Skeleton className="h-6 w-32" />
           </div>
         )}
 
@@ -256,20 +292,44 @@ export function TaskModal({ taskId, projectId, members, onClose }: Props) {
               />
             </div>
 
-            {/* Priority */}
-            <div className="space-y-1">
-              <Label>Приоритет</Label>
-              <select
-                value={editPriority}
-                onChange={(e) => setEditPriority(e.target.value)}
-                className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              >
-                {priorityOptions.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
+            {/* Priority + Dates row */}
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-1">
+                <Label>Приоритет</Label>
+                <select
+                  value={editPriority}
+                  onChange={(e) => setEditPriority(e.target.value)}
+                  className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  {priorityOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <Label className="flex items-center gap-1">
+                  <Calendar className="h-3.5 w-3.5" />
+                  Начало
+                </Label>
+                <Input
+                  type="date"
+                  value={editStartDate}
+                  onChange={(e) => setEditStartDate(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="flex items-center gap-1">
+                  <Calendar className="h-3.5 w-3.5" />
+                  Срок
+                </Label>
+                <Input
+                  type="date"
+                  value={editDueDate}
+                  onChange={(e) => setEditDueDate(e.target.value)}
+                />
+              </div>
             </div>
 
             {/* Assignees */}
@@ -285,13 +345,12 @@ export function TaskModal({ taskId, projectId, members, onClose }: Props) {
                       type="checkbox"
                       checked={editAssigneeIds.includes(m.id)}
                       onChange={(e) => {
-                        if (e.target.checked) {
-                          setEditAssigneeIds((prev) => [...prev, m.id]);
-                        } else {
-                          setEditAssigneeIds((prev) =>
-                            prev.filter((id) => id !== m.id),
+                        if (e.target.checked)
+                          setEditAssigneeIds((p) => [...p, m.id]);
+                        else
+                          setEditAssigneeIds((p) =>
+                            p.filter((id) => id !== m.id),
                           );
-                        }
                       }}
                       className="h-4 w-4 rounded border-input"
                     />
@@ -303,6 +362,21 @@ export function TaskModal({ taskId, projectId, members, onClose }: Props) {
                 ))}
               </div>
             </div>
+
+            {/* Labels */}
+            <LabelsSection
+              projectId={projectId}
+              selectedIds={editLabelIds}
+              taskLabels={task.labels}
+              onChange={setEditLabelIds}
+            />
+
+            {/* Checklist */}
+            <ChecklistSection
+              taskId={taskId}
+              items={task.checklistItems}
+              onMutated={invalidateAll}
+            />
 
             {/* Time info */}
             <div className="flex items-center gap-3 rounded-lg bg-muted/50 p-3">
@@ -374,7 +448,7 @@ export function TaskModal({ taskId, projectId, members, onClose }: Props) {
               </div>
             )}
 
-            {/* Comments section */}
+            {/* Comments */}
             <CommentsSection
               taskId={taskId}
               comments={task.comments}
@@ -382,7 +456,7 @@ export function TaskModal({ taskId, projectId, members, onClose }: Props) {
               onMutated={invalidateAll}
             />
 
-            {/* Attachments section */}
+            {/* Attachments */}
             <AttachmentsSection
               taskId={taskId}
               attachments={task.attachments}
@@ -416,6 +490,284 @@ export function TaskModal({ taskId, projectId, members, onClose }: Props) {
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ─── Labels ──────────────────────────────────────────────────────────────────
+
+function LabelsSection({
+  projectId,
+  selectedIds,
+  taskLabels,
+  onChange,
+}: {
+  projectId: string;
+  selectedIds: string[];
+  taskLabels: LabelData[];
+  onChange: (ids: string[]) => void;
+}) {
+  const queryClient = useQueryClient();
+  const [showManager, setShowManager] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newColor, setNewColor] = useState(defaultLabelColors[0]);
+
+  const { data: allLabels = [] } = useQuery({
+    queryKey: ["labels", projectId],
+    queryFn: async () => {
+      const res = await fetch(`/api/projects/${projectId}/labels`);
+      if (!res.ok) return taskLabels;
+      return res.json() as Promise<LabelData[]>;
+    },
+  });
+
+  const createMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/projects/${projectId}/labels`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newName.trim(), color: newColor }),
+      });
+      if (!res.ok) throw await res.json();
+      return res.json() as Promise<LabelData>;
+    },
+    onSuccess: (label) => {
+      void queryClient.invalidateQueries({ queryKey: ["labels", projectId] });
+      onChange([...selectedIds, label.id]);
+      setNewName("");
+      toastSuccess("Метка создана");
+    },
+    onError: toastApiError,
+  });
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <Label className="flex items-center gap-1">
+          <Tag className="h-3.5 w-3.5" />
+          Метки
+        </Label>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 text-xs"
+          onClick={() => setShowManager(!showManager)}
+        >
+          {showManager ? "Скрыть" : "Управление"}
+        </Button>
+      </div>
+
+      {/* Selected labels display */}
+      <div className="flex flex-wrap gap-1.5">
+        {allLabels
+          .filter((l) => selectedIds.includes(l.id))
+          .map((l) => (
+            <span
+              key={l.id}
+              className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium text-white"
+              style={{ backgroundColor: l.color }}
+            >
+              {l.name}
+              <button
+                onClick={() =>
+                  onChange(selectedIds.filter((id) => id !== l.id))
+                }
+                className="hover:opacity-70"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          ))}
+      </div>
+
+      {showManager && (
+        <div className="rounded-md border p-2 space-y-2">
+          {/* Existing labels */}
+          <div className="space-y-1 max-h-32 overflow-y-auto">
+            {allLabels.map((l) => (
+              <label
+                key={l.id}
+                className="flex items-center gap-2 rounded px-2 py-1 text-sm hover:bg-accent cursor-pointer"
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedIds.includes(l.id)}
+                  onChange={(e) => {
+                    if (e.target.checked) onChange([...selectedIds, l.id]);
+                    else onChange(selectedIds.filter((id) => id !== l.id));
+                  }}
+                  className="h-4 w-4 rounded"
+                />
+                <span
+                  className="h-3 w-3 rounded-full shrink-0"
+                  style={{ backgroundColor: l.color }}
+                />
+                <span>{l.name}</span>
+              </label>
+            ))}
+          </div>
+          {/* Create new */}
+          <div className="flex gap-2 items-end border-t pt-2">
+            <Input
+              placeholder="Новая метка..."
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              className="text-sm h-8"
+            />
+            <input
+              type="color"
+              value={newColor}
+              onChange={(e) => setNewColor(e.target.value)}
+              className="h-8 w-8 rounded border cursor-pointer shrink-0"
+            />
+            <Button
+              size="sm"
+              className="h-8"
+              disabled={!newName.trim() || createMutation.isPending}
+              onClick={() => createMutation.mutate()}
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Checklist ───────────────────────────────────────────────────────────────
+
+function ChecklistSection({
+  taskId,
+  items,
+  onMutated,
+}: {
+  taskId: string;
+  items: Array<{
+    id: string;
+    text: string;
+    checked: boolean;
+    position: number;
+  }>;
+  onMutated: () => void;
+}) {
+  const [newText, setNewText] = useState("");
+  const doneCount = items.filter((i) => i.checked).length;
+
+  const addMutation = useMutation({
+    mutationFn: async (text: string) => {
+      const res = await fetch(`/api/tasks/${taskId}/checklist`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      if (!res.ok) throw await res.json();
+    },
+    onSuccess: () => {
+      setNewText("");
+      onMutated();
+    },
+    onError: toastApiError,
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: async ({ id, checked }: { id: string; checked: boolean }) => {
+      const res = await fetch(`/api/checklist/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ checked }),
+      });
+      if (!res.ok) throw await res.json();
+    },
+    onSuccess: onMutated,
+    onError: toastApiError,
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/checklist/${id}`, { method: "DELETE" });
+      if (!res.ok) throw await res.json();
+    },
+    onSuccess: onMutated,
+    onError: toastApiError,
+  });
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <Label className="flex items-center gap-1">
+          <CheckSquare className="h-3.5 w-3.5" />
+          Чек-лист {items.length > 0 && `(${doneCount}/${items.length})`}
+        </Label>
+      </div>
+
+      {/* Progress bar */}
+      {items.length > 0 && (
+        <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+          <div
+            className="h-full bg-primary transition-all duration-300 rounded-full"
+            style={{ width: `${(doneCount / items.length) * 100}%` }}
+          />
+        </div>
+      )}
+
+      {/* Items */}
+      {items.length > 0 && (
+        <div className="space-y-1 rounded-lg border p-2">
+          {items.map((item) => (
+            <div key={item.id} className="flex items-center gap-2 group">
+              <button
+                onClick={() =>
+                  toggleMutation.mutate({ id: item.id, checked: !item.checked })
+                }
+                className="shrink-0 text-muted-foreground hover:text-foreground"
+              >
+                {item.checked ? (
+                  <CheckSquare className="h-4 w-4 text-primary" />
+                ) : (
+                  <Square className="h-4 w-4" />
+                )}
+              </button>
+              <span
+                className={`text-sm flex-1 ${item.checked ? "line-through text-muted-foreground" : ""}`}
+              >
+                {item.text}
+              </span>
+              <button
+                onClick={() => deleteMutation.mutate(item.id)}
+                className="shrink-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Add item */}
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          const t = newText.trim();
+          if (t) addMutation.mutate(t);
+        }}
+        className="flex gap-2"
+      >
+        <Input
+          placeholder="Добавить пункт..."
+          value={newText}
+          onChange={(e) => setNewText(e.target.value)}
+          className="text-sm"
+        />
+        <Button
+          type="submit"
+          size="icon"
+          variant="ghost"
+          disabled={addMutation.isPending || !newText.trim()}
+        >
+          <Plus className="h-4 w-4" />
+        </Button>
+      </form>
+    </div>
   );
 }
 
@@ -480,20 +832,12 @@ function CommentsSection({
     onError: toastApiError,
   });
 
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    const trimmed = newText.trim();
-    if (!trimmed) return;
-    addMutation.mutate(trimmed);
-  }
-
   return (
     <div className="space-y-3">
       <p className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-        <MessageSquare className="h-3.5 w-3.5" />
-        Комментарии ({comments.length})
+        <MessageSquare className="h-3.5 w-3.5" /> Комментарии ({comments.length}
+        )
       </p>
-
       {comments.length > 0 && (
         <div className="space-y-3 rounded-lg border p-3">
           {comments.map((c) => (
@@ -531,7 +875,6 @@ function CommentsSection({
                   </span>
                 )}
               </div>
-
               {editingId === c.id ? (
                 <div className="flex gap-2">
                   <Textarea
@@ -547,9 +890,8 @@ function CommentsSection({
                       className="h-7 w-7"
                       disabled={updateMutation.isPending}
                       onClick={() => {
-                        const trimmed = editText.trim();
-                        if (!trimmed) return;
-                        updateMutation.mutate({ id: c.id, text: trimmed });
+                        const t = editText.trim();
+                        if (t) updateMutation.mutate({ id: c.id, text: t });
                       }}
                     >
                       <Check className="h-3.5 w-3.5" />
@@ -571,9 +913,14 @@ function CommentsSection({
           ))}
         </div>
       )}
-
-      {/* Add comment form */}
-      <form onSubmit={handleSubmit} className="flex gap-2">
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          const t = newText.trim();
+          if (t) addMutation.mutate(t);
+        }}
+        className="flex gap-2"
+      >
         <Input
           placeholder="Написать комментарий..."
           value={newText}
@@ -610,11 +957,9 @@ function AttachmentsSection({
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [previewId, setPreviewId] = useState<string | null>(null);
-
   const isOwner = members.some(
     (m) => m.id === currentUserId && m.role === "OWNER",
   );
-
   const previewAttachment = previewId
     ? attachments.find((a) => a.id === previewId)
     : null;
@@ -652,24 +997,14 @@ function AttachmentsSection({
     onError: toastApiError,
   });
 
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    uploadMutation.mutate(file);
-  }
-
-  function canDelete(uploadedById: string): boolean {
-    return uploadedById === currentUserId || isOwner;
-  }
+  const canDelete = (uploadedById: string) =>
+    uploadedById === currentUserId || isOwner;
 
   return (
     <div className="space-y-3">
       <p className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-        <Paperclip className="h-3.5 w-3.5" />
-        Вложения ({attachments.length})
+        <Paperclip className="h-3.5 w-3.5" /> Вложения ({attachments.length})
       </p>
-
-      {/* Inline preview */}
       {previewAttachment && (
         <div className="rounded-lg border bg-muted/30 p-2">
           <div className="flex items-center justify-between mb-2">
@@ -700,17 +1035,15 @@ function AttachmentsSection({
             />
           ) : (
             <div className="flex items-center justify-center h-24 text-sm text-muted-foreground">
-              Предпросмотр недоступен для этого типа файла
+              Предпросмотр недоступен
             </div>
           )}
         </div>
       )}
-
       {attachments.length > 0 && (
         <div className="space-y-2 rounded-lg border p-3">
           {attachments.map((a) => (
             <div key={a.id} className="space-y-1.5">
-              {/* Image thumbnail */}
               {isImage(a.mimeType) && (
                 <button
                   onClick={() => setPreviewId(previewId === a.id ? null : a.id)}
@@ -776,13 +1109,14 @@ function AttachmentsSection({
           ))}
         </div>
       )}
-
-      {/* Upload */}
       <div className="flex items-center gap-2">
         <input
           ref={fileInputRef}
           type="file"
-          onChange={handleFileChange}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) uploadMutation.mutate(f);
+          }}
           className="hidden"
         />
         <Button
@@ -791,7 +1125,7 @@ function AttachmentsSection({
           disabled={uploadMutation.isPending}
           onClick={() => fileInputRef.current?.click()}
         >
-          <Upload className="mr-1 h-4 w-4" />
+          <Upload className="mr-1 h-4 w-4" />{" "}
           {uploadMutation.isPending ? "Загрузка..." : "Прикрепить файл"}
         </Button>
       </div>
@@ -801,14 +1135,12 @@ function AttachmentsSection({
 
 // ─── Preview helpers ─────────────────────────────────────────────────────────
 
-function isImage(mimeType: string): boolean {
+function isImage(mimeType: string) {
   return mimeType.startsWith("image/");
 }
-
-function isPdf(mimeType: string): boolean {
+function isPdf(mimeType: string) {
   return mimeType === "application/pdf";
 }
-
-function canPreview(mimeType: string): boolean {
+function canPreview(mimeType: string) {
   return isImage(mimeType) || isPdf(mimeType);
 }

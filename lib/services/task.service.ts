@@ -15,6 +15,14 @@ import type { TaskPriority } from "@prisma/client";
 
 type Assignee = { id: string; login: string; isActive: boolean };
 
+export type LabelView = { id: string; name: string; color: string };
+export type ChecklistItemView = {
+  id: string;
+  text: string;
+  checked: boolean;
+  position: number;
+};
+
 export type TaskSummary = {
   id: string;
   projectId: string;
@@ -23,7 +31,12 @@ export type TaskSummary = {
   description: string | null;
   priority: TaskPriority;
   position: number;
+  startDate: Date | null;
+  dueDate: Date | null;
   assignees: Assignee[];
+  labels: LabelView[];
+  checklistTotal: number;
+  checklistDone: number;
   totalTimeMs: number;
   isInProgress: boolean;
   lastIntervalStartedAt: Date | null;
@@ -32,6 +45,7 @@ export type TaskSummary = {
 
 export type TaskFull = TaskSummary & {
   columnName: string;
+  checklistItems: ChecklistItemView[];
   comments: Array<{
     id: string;
     text: string;
@@ -147,7 +161,12 @@ export async function createTask(
     description: task.task.description,
     priority: task.task.priority,
     position: task.task.position,
+    startDate: task.task.startDate,
+    dueDate: task.task.dueDate,
     assignees: mapAssignees(task.task.assignees),
+    labels: [],
+    checklistTotal: 0,
+    checklistDone: 0,
     totalTimeMs: 0,
     isInProgress: task.willBeInProgress,
     lastIntervalStartedAt: task.willBeInProgress ? now : null,
@@ -164,6 +183,9 @@ export async function updateTask(
     description?: string | null;
     assigneeIds?: string[];
     priority?: TaskPriority;
+    startDate?: string | null;
+    dueDate?: string | null;
+    labelIds?: string[];
   },
   userId: string,
   userRole: "ADMIN" | "USER",
@@ -185,13 +207,20 @@ export async function updateTask(
   const oldAssigneeIds = new Set(task.assignees.map((a) => a.userId));
 
   const updated = await db.$transaction(async (tx) => {
-    // Update assignees if provided
     if (data.assigneeIds !== undefined) {
-      // Delete all current, re-create
       await tx.taskAssignee.deleteMany({ where: { taskId: id } });
       if (data.assigneeIds.length > 0) {
         await tx.taskAssignee.createMany({
           data: data.assigneeIds.map((uid) => ({ taskId: id, userId: uid })),
+        });
+      }
+    }
+
+    if (data.labelIds !== undefined) {
+      await tx.taskLabel.deleteMany({ where: { taskId: id } });
+      if (data.labelIds.length > 0) {
+        await tx.taskLabel.createMany({
+          data: data.labelIds.map((lid) => ({ taskId: id, labelId: lid })),
         });
       }
     }
@@ -202,9 +231,23 @@ export async function updateTask(
         title: data.title,
         description: data.description,
         priority: data.priority,
+        startDate:
+          data.startDate !== undefined
+            ? data.startDate
+              ? new Date(data.startDate)
+              : null
+            : undefined,
+        dueDate:
+          data.dueDate !== undefined
+            ? data.dueDate
+              ? new Date(data.dueDate)
+              : null
+            : undefined,
       },
       include: {
         assignees: { include: assigneeSelect },
+        labels: { include: { label: true } },
+        checklistItems: { orderBy: { position: "asc" } },
         timeIntervals: { select: { startedAt: true, endedAt: true } },
       },
     });
@@ -237,7 +280,12 @@ export async function updateTask(
     description: updated.description,
     priority: updated.priority,
     position: updated.position,
+    startDate: updated.startDate,
+    dueDate: updated.dueDate,
     assignees: mapAssignees(updated.assignees),
+    labels: updated.labels.map((tl) => tl.label),
+    checklistTotal: updated.checklistItems.length,
+    checklistDone: updated.checklistItems.filter((i) => i.checked).length,
     totalTimeMs,
     isInProgress,
     lastIntervalStartedAt,
@@ -426,6 +474,8 @@ export async function getTaskById(
     include: {
       column: { select: { name: true } },
       assignees: { include: assigneeSelect },
+      labels: { include: { label: true } },
+      checklistItems: { orderBy: { position: "asc" } },
       timeIntervals: { select: { startedAt: true, endedAt: true } },
       comments: {
         orderBy: { createdAt: "asc" },
@@ -462,7 +512,18 @@ export async function getTaskById(
     description: task.description,
     priority: task.priority,
     position: task.position,
+    startDate: task.startDate,
+    dueDate: task.dueDate,
     assignees: mapAssignees(task.assignees),
+    labels: task.labels.map((tl) => tl.label),
+    checklistTotal: task.checklistItems.length,
+    checklistDone: task.checklistItems.filter((i) => i.checked).length,
+    checklistItems: task.checklistItems.map((i) => ({
+      id: i.id,
+      text: i.text,
+      checked: i.checked,
+      position: i.position,
+    })),
     totalTimeMs,
     isInProgress,
     lastIntervalStartedAt,

@@ -24,6 +24,9 @@ export const updateTaskSchema = z.object({
   description: z.string().max(5000).optional().nullable(),
   assigneeIds: z.array(z.string()).optional(),
   priority: taskPriorityEnum.optional(),
+  startDate: z.string().optional().nullable(),
+  dueDate: z.string().optional().nullable(),
+  labelIds: z.array(z.string()).optional(),
 });
 
 export const moveTaskSchema = z.object({
