@@ -2,6 +2,7 @@ import "server-only";
 import { db } from "@/lib/db";
 import { ApiError } from "@/lib/api-error";
 import { checkMembership } from "./project.service";
+import { notify } from "./notification.service";
 
 export type CommentView = {
   id: string;
@@ -11,21 +12,23 @@ export type CommentView = {
   updatedAt: Date;
 };
 
-async function getTaskProjectId(taskId: string): Promise<string> {
+async function getTaskWithProject(
+  taskId: string,
+): Promise<{ projectId: string; assigneeId: string | null }> {
   const task = await db.task.findUnique({
     where: { id: taskId },
-    select: { projectId: true },
+    select: { projectId: true, assigneeId: true },
   });
   if (!task) throw new ApiError("Задача не найдена", "NOT_FOUND", 404);
-  return task.projectId;
+  return task;
 }
 
 export async function createComment(
   input: { taskId: string; authorId: string; text: string },
   userRole: "ADMIN" | "USER",
 ): Promise<CommentView> {
-  const projectId = await getTaskProjectId(input.taskId);
-  const membership = await checkMembership(projectId, input.authorId);
+  const taskInfo = await getTaskWithProject(input.taskId);
+  const membership = await checkMembership(taskInfo.projectId, input.authorId);
   if (!membership && userRole !== "ADMIN") {
     throw new ApiError("Нет доступа к проекту", "FORBIDDEN", 403);
   }
@@ -39,7 +42,15 @@ export async function createComment(
     include: { author: { select: { id: true, login: true } } },
   });
 
-  // TODO: notify COMMENTED in T064 (US6 Phase 8) for task.assignee !== authorId
+  if (taskInfo.assigneeId && taskInfo.assigneeId !== input.authorId) {
+    await notify({
+      type: "COMMENTED",
+      recipientId: taskInfo.assigneeId,
+      actorId: input.authorId,
+      taskId: input.taskId,
+      projectId: taskInfo.projectId,
+    });
+  }
 
   return {
     id: comment.id,

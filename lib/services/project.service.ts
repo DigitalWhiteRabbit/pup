@@ -2,6 +2,7 @@ import "server-only";
 import { db } from "@/lib/db";
 import { ApiError } from "@/lib/api-error";
 import { handleColumnRename, calcTimeFields } from "./timer.service";
+import { notify } from "./notification.service";
 import type { MemberRole } from "@prisma/client";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -314,7 +315,12 @@ export async function addMember(
     data: { projectId, userId: user.id, role: "MEMBER" },
   });
 
-  // NOTE: notification.service will be integrated in Phase 8 (T064)
+  await notify({
+    type: "PROJECT_ADDED",
+    recipientId: user.id,
+    actorId: requesterId,
+    projectId,
+  });
 
   return {
     userId: user.id,

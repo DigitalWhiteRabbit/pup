@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { NotificationBell } from "@/components/notifications/NotificationBell";
 
 type NavItem = {
   href: string;
@@ -62,9 +63,10 @@ function SidebarContent({
 
   return (
     <div className="flex h-full flex-col">
-      {/* Logo */}
-      <div className="px-4 py-5">
+      {/* Logo + Notifications */}
+      <div className="flex items-center justify-between px-4 py-5">
         <span className="text-lg font-bold tracking-tight">CRM</span>
+        <NotificationBell />
       </div>
 
       {/* Navigation */}
@@ -147,7 +149,8 @@ export function Sidebar({ userLogin, userRole }: Props) {
             />
           </SheetContent>
         </Sheet>
-        <span className="ml-3 text-sm font-semibold">CRM</span>
+        <span className="ml-3 flex-1 text-sm font-semibold">CRM</span>
+        <NotificationBell />
       </div>
     </>
   );

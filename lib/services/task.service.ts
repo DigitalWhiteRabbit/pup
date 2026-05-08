@@ -8,6 +8,7 @@ import {
   handleColumnTransition,
   calcTimeFields,
 } from "./timer.service";
+import { notify } from "./notification.service";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -109,7 +110,15 @@ export async function createTask(
     return { task: created, willBeInProgress };
   });
 
-  // TODO: notify ASSIGNED in T064 (US6 Phase 8) if assigneeId && assigneeId !== userId
+  if (task.task.assigneeId && task.task.assigneeId !== userId) {
+    await notify({
+      type: "ASSIGNED",
+      recipientId: task.task.assigneeId,
+      actorId: userId,
+      taskId: task.task.id,
+      projectId: task.task.projectId,
+    });
+  }
 
   const now = new Date();
   return {
@@ -141,7 +150,7 @@ export async function updateTask(
 ): Promise<TaskSummary> {
   const task = await db.task.findUnique({
     where: { id },
-    select: { projectId: true },
+    select: { projectId: true, assigneeId: true },
   });
   if (!task) throw new ApiError("Задача не найдена", "NOT_FOUND", 404);
 
@@ -150,7 +159,7 @@ export async function updateTask(
     throw new ApiError("Нет доступа", "FORBIDDEN", 403);
   }
 
-  // TODO: notify ASSIGNED in T064 (US6 Phase 8) if assigneeId changed
+  const oldAssigneeId = task.assigneeId;
 
   const updated = await db.task.update({
     where: { id },
@@ -160,6 +169,20 @@ export async function updateTask(
       timeIntervals: { select: { startedAt: true, endedAt: true } },
     },
   });
+
+  if (
+    data.assigneeId &&
+    data.assigneeId !== oldAssigneeId &&
+    data.assigneeId !== userId
+  ) {
+    await notify({
+      type: "ASSIGNED",
+      recipientId: data.assigneeId,
+      actorId: userId,
+      taskId: id,
+      projectId: task.projectId,
+    });
+  }
 
   const { totalTimeMs, isInProgress, lastIntervalStartedAt } = calcTimeFields(
     updated.timeIntervals,
@@ -230,7 +253,7 @@ export async function moveTask(
     throw new ApiError("Нет доступа", "FORBIDDEN", 403);
   }
 
-  return db.$transaction(async (tx) => {
+  const result = await db.$transaction(async (tx) => {
     // 1. Get task with source column
     const task = await tx.task.findUnique({
       where: { id: taskId },
@@ -284,9 +307,7 @@ export async function moveTask(
       targetColumn.name,
     );
 
-    // 7. TODO: notify MOVED in T064 (US6 Phase 8)
-
-    // 8. Calculate updated totals
+    // 7. Calculate updated totals
     const intervals = await tx.timeInterval.findMany({
       where: { taskId },
       select: { startedAt: true, endedAt: true },
@@ -302,8 +323,30 @@ export async function moveTask(
       totalTimeMs,
       isInProgress,
       lastIntervalStartedAt,
+      _assigneeId: task.assigneeId,
+      _projectId: task.column.projectId,
     };
   });
+
+  // Notify MOVED after transaction (fire-and-forget Telegram inside notify)
+  if (result._assigneeId && result._assigneeId !== userId) {
+    await notify({
+      type: "MOVED",
+      recipientId: result._assigneeId,
+      actorId: userId,
+      taskId,
+      projectId: result._projectId,
+    });
+  }
+
+  return {
+    taskId: result.taskId,
+    columnId: result.columnId,
+    position: result.position,
+    totalTimeMs: result.totalTimeMs,
+    isInProgress: result.isInProgress,
+    lastIntervalStartedAt: result.lastIntervalStartedAt,
+  };
 }
 
 // ─── reorderTask ──────────────────────────────────────────────────────────────

@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { UserPlus, Settings, Trash2, Crown, User } from "lucide-react";
+import { UserPlus, Settings, Trash2, Crown, User, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -22,9 +22,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toastSuccess, toastApiError } from "@/lib/toast";
 import { Board } from "@/components/board/Board";
 import {
-  addMemberSchema,
   updateProjectSchema,
-  type AddMemberInput,
   type UpdateProjectInput,
 } from "@/lib/schemas/project.schema";
 import type { ProjectBoard } from "@/lib/services/project.service";
@@ -34,6 +32,19 @@ type Props = {
   currentUserId: string;
   currentUserRole: "ADMIN" | "USER";
 };
+
+type UserSearchResult = { id: string; login: string; email: string };
+
+async function apiSearchUsers(
+  q: string,
+  projectId: string,
+): Promise<UserSearchResult[]> {
+  const res = await fetch(
+    `/api/users/search?q=${encodeURIComponent(q)}&projectId=${projectId}`,
+  );
+  if (!res.ok) return [];
+  return res.json() as Promise<UserSearchResult[]>;
+}
 
 async function apiAddMember(projectId: string, loginOrEmail: string) {
   const res = await fetch(`/api/projects/${projectId}/members`, {
@@ -90,20 +101,44 @@ export function ProjectBoardShell({
 
   // Add member dialog
   const [addMemberOpen, setAddMemberOpen] = useState(false);
-  const {
-    register: registerMember,
-    handleSubmit: handleMemberSubmit,
-    reset: resetMember,
-    formState: { errors: memberErrors },
-  } = useForm<AddMemberInput>({ resolver: zodResolver(addMemberSchema) });
+  const [memberSearch, setMemberSearch] = useState("");
+  const [searchResults, setSearchResults] = useState<UserSearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const searchRef = useRef<HTMLDivElement>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+
+  const doSearch = useCallback(
+    (q: string) => {
+      if (q.length < 2) {
+        setSearchResults([]);
+        setShowDropdown(false);
+        return;
+      }
+      setSearching(true);
+      apiSearchUsers(q, project.id).then((results) => {
+        setSearchResults(results);
+        setShowDropdown(true);
+        setSearching(false);
+      });
+    },
+    [project.id],
+  );
+
+  useEffect(() => {
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => doSearch(memberSearch), 300);
+    return () => clearTimeout(debounceRef.current);
+  }, [memberSearch, doSearch]);
 
   const addMemberMutation = useMutation({
-    mutationFn: ({ loginOrEmail }: AddMemberInput) =>
+    mutationFn: (loginOrEmail: string) =>
       apiAddMember(project.id, loginOrEmail),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["project", project.id] });
       toastSuccess("Участник добавлен");
-      resetMember();
+      setMemberSearch("");
+      setSearchResults([]);
       setAddMemberOpen(false);
       router.refresh();
     },
@@ -252,26 +287,69 @@ export function ProjectBoardShell({
       <Board initialData={project} projectId={project.id} />
 
       {/* Add member dialog */}
-      <Dialog open={addMemberOpen} onOpenChange={setAddMemberOpen}>
+      <Dialog
+        open={addMemberOpen}
+        onOpenChange={(v) => {
+          setAddMemberOpen(v);
+          if (!v) {
+            setMemberSearch("");
+            setSearchResults([]);
+            setShowDropdown(false);
+          }
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Добавить участника</DialogTitle>
           </DialogHeader>
-          <form
-            onSubmit={handleMemberSubmit((v) => addMemberMutation.mutate(v))}
-            className="space-y-4"
-          >
-            <div className="space-y-1">
-              <Label htmlFor="loginOrEmail">Логин или Email</Label>
-              <Input
-                id="loginOrEmail"
-                placeholder="user@example.com"
-                {...registerMember("loginOrEmail")}
-              />
-              {memberErrors.loginOrEmail && (
-                <p className="text-xs text-destructive">
-                  {memberErrors.loginOrEmail.message}
-                </p>
+          <div className="space-y-4">
+            <div className="space-y-1" ref={searchRef}>
+              <Label htmlFor="memberSearch">Поиск по логину или email</Label>
+              <div className="relative">
+                <Input
+                  id="memberSearch"
+                  placeholder="Начните вводить логин или email..."
+                  value={memberSearch}
+                  onChange={(e) => setMemberSearch(e.target.value)}
+                  autoComplete="off"
+                />
+                {searching && (
+                  <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
+                )}
+              </div>
+              {showDropdown && (
+                <div className="mt-1 max-h-48 overflow-y-auto rounded-md border bg-popover shadow-md">
+                  {searchResults.length === 0 ? (
+                    <p className="px-3 py-2 text-sm text-muted-foreground">
+                      Пользователи не найдены
+                    </p>
+                  ) : (
+                    searchResults.map((u) => (
+                      <button
+                        key={u.id}
+                        type="button"
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent"
+                        disabled={addMemberMutation.isPending}
+                        onClick={() => {
+                          setShowDropdown(false);
+                          addMemberMutation.mutate(u.login);
+                        }}
+                      >
+                        <Avatar className="h-6 w-6">
+                          <AvatarFallback className="text-xs">
+                            {u.login.slice(0, 2).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0 flex-1">
+                          <span className="font-medium">{u.login}</span>
+                          <span className="ml-2 text-muted-foreground">
+                            {u.email}
+                          </span>
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
               )}
             </div>
             <DialogFooter>
@@ -280,16 +358,14 @@ export function ProjectBoardShell({
                 variant="outline"
                 onClick={() => {
                   setAddMemberOpen(false);
-                  resetMember();
+                  setMemberSearch("");
+                  setSearchResults([]);
                 }}
               >
                 Отмена
               </Button>
-              <Button type="submit" disabled={addMemberMutation.isPending}>
-                {addMemberMutation.isPending ? "Добавление..." : "Добавить"}
-              </Button>
             </DialogFooter>
-          </form>
+          </div>
         </DialogContent>
       </Dialog>
 

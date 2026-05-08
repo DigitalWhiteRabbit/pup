@@ -162,8 +162,11 @@ export function TaskModal({ taskId, projectId, members, onClose }: Props) {
     onError: toastApiError,
   });
 
-  function handleSave() {
-    if (!task) return;
+  function handleSaveAndClose() {
+    if (!task) {
+      onClose();
+      return;
+    }
     const assigneeId = editAssignee || null;
     const description = editDesc.trim() || null;
 
@@ -172,13 +175,24 @@ export function TaskModal({ taskId, projectId, members, onClose }: Props) {
       description !== task.description ||
       assigneeId !== (task.assignee?.id ?? null);
 
-    if (!hasChanges) return;
+    if (!hasChanges) {
+      onClose();
+      return;
+    }
 
-    updateMutation.mutate({
-      title: editTitle.trim() || task.title,
-      description,
-      assigneeId,
-    });
+    updateMutation.mutate(
+      {
+        title: editTitle.trim() || task.title,
+        description,
+        assigneeId,
+      },
+      {
+        onSuccess: () => {
+          toastSuccess("Задача сохранена");
+          onClose();
+        },
+      },
+    );
   }
 
   return (
@@ -210,7 +224,6 @@ export function TaskModal({ taskId, projectId, members, onClose }: Props) {
               <Input
                 value={editTitle}
                 onChange={(e) => setEditTitle(e.target.value)}
-                onBlur={handleSave}
                 className="font-medium"
               />
             </div>
@@ -221,7 +234,6 @@ export function TaskModal({ taskId, projectId, members, onClose }: Props) {
               <Textarea
                 value={editDesc}
                 onChange={(e) => setEditDesc(e.target.value)}
-                onBlur={handleSave}
                 rows={3}
                 placeholder="Описание задачи..."
               />
@@ -233,7 +245,6 @@ export function TaskModal({ taskId, projectId, members, onClose }: Props) {
               <select
                 value={editAssignee}
                 onChange={(e) => setEditAssignee(e.target.value)}
-                onBlur={handleSave}
                 className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               >
                 <option value="">— Не назначен —</option>
@@ -345,8 +356,12 @@ export function TaskModal({ taskId, projectId, members, onClose }: Props) {
                 <Trash2 className="mr-1 h-4 w-4" />
                 {deleteMutation.isPending ? "Удаление..." : "Удалить"}
               </Button>
-              <Button variant="outline" size="sm" onClick={onClose}>
-                Закрыть
+              <Button
+                size="sm"
+                disabled={updateMutation.isPending}
+                onClick={handleSaveAndClose}
+              >
+                {updateMutation.isPending ? "Сохранение..." : "Сохранить"}
               </Button>
             </div>
           </div>
