@@ -352,24 +352,32 @@ function setupHandlers(bot: TelegramBot): void {
       // Route by prefix
       if (data === "cmd:tasks") {
         await bot.answerCallbackQuery(query.id);
+        if (messageId)
+          await bot.deleteMessage(chatId, messageId).catch(() => {});
         await sendTasksList(bot, chatId);
         return;
       }
 
       if (data === "cmd:dashboard") {
         await bot.answerCallbackQuery(query.id);
+        if (messageId)
+          await bot.deleteMessage(chatId, messageId).catch(() => {});
         await sendDashboard(bot, chatId, null);
         return;
       }
 
       if (data.startsWith("dashboard:")) {
         await bot.answerCallbackQuery(query.id);
+        if (messageId)
+          await bot.deleteMessage(chatId, messageId).catch(() => {});
         await sendDashboard(bot, chatId, data.slice(10));
         return;
       }
 
       if (data.startsWith("task:")) {
         await bot.answerCallbackQuery(query.id);
+        if (messageId)
+          await bot.deleteMessage(chatId, messageId).catch(() => {});
         await sendTaskCard(bot, chatId, data.slice(5));
         return;
       }
