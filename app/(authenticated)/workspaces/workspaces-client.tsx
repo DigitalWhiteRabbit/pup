@@ -5,7 +5,14 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, FolderOpen, Users, CalendarDays } from "lucide-react";
+import {
+  Plus,
+  FolderOpen,
+  Users,
+  CalendarDays,
+  Settings,
+  Trash2,
+} from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { Button } from "@/components/ui/button";
@@ -21,6 +28,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import { toastSuccess, toastApiError } from "@/lib/toast";
 import {
   createWorkspaceSchema,
@@ -62,6 +70,65 @@ export function WorkspacesClient({
   const router = useRouter();
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [settingsWorkspace, setSettingsWorkspace] =
+    useState<WorkspaceSummary | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<WorkspaceSummary | null>(
+    null,
+  );
+
+  const { data: modulesData } = useQuery<
+    { moduleKey: string; enabled: boolean }[]
+  >({
+    queryKey: ["workspace", settingsWorkspace?.id, "modules"],
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/workspaces/${settingsWorkspace!.id}/modules`,
+      );
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!settingsWorkspace,
+  });
+
+  const toggleModuleMutation = useMutation({
+    mutationFn: async ({
+      moduleKey,
+      enabled,
+    }: {
+      moduleKey: string;
+      enabled: boolean;
+    }) => {
+      const res = await fetch(
+        `/api/workspaces/${settingsWorkspace!.id}/modules/${moduleKey}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enabled }),
+        },
+      );
+      if (!res.ok) throw await res.json();
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["workspace", settingsWorkspace?.id, "modules"],
+      });
+    },
+    onError: toastApiError,
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/workspaces/${id}`, { method: "DELETE" });
+      if (!res.ok) throw await res.json();
+    },
+    onSuccess: () => {
+      setDeleteConfirm(null);
+      toastSuccess("Проект удалён");
+      void queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+      void queryClient.invalidateQueries({ queryKey: ["workspaces-switcher"] });
+    },
+    onError: toastApiError,
+  });
 
   const { data, isLoading } = useQuery({
     queryKey: ["workspaces"],
@@ -83,10 +150,11 @@ export function WorkspacesClient({
     mutationFn: createWorkspaceApi,
     onSuccess: (workspace) => {
       void queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+      void queryClient.invalidateQueries({ queryKey: ["workspaces-switcher"] });
       toastSuccess(`Проект "${workspace.name}" создан`);
       reset();
       setDialogOpen(false);
-      router.push(`/workspaces/${workspace.id}`);
+      router.push(`/workspaces/${workspace.id}/dashboard`);
     },
     onError: (err) => {
       toastApiError(err);
@@ -141,12 +209,39 @@ export function WorkspacesClient({
             <Card
               key={workspace.id}
               className="cursor-pointer transition-shadow hover:shadow-md"
-              onClick={() => router.push(`/workspaces/${workspace.id}`)}
+              onClick={() =>
+                router.push(`/workspaces/${workspace.id}/dashboard`)
+              }
             >
               <CardHeader className="pb-2">
-                <CardTitle className="truncate text-base">
-                  {workspace.name}
-                </CardTitle>
+                <div className="flex items-start justify-between gap-2">
+                  <CardTitle className="truncate text-base flex-1">
+                    {workspace.name}
+                  </CardTitle>
+                  <div
+                    className="flex gap-1 shrink-0"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      title="Настройки"
+                      onClick={() => setSettingsWorkspace(workspace)}
+                    >
+                      <Settings className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-destructive hover:text-destructive"
+                      title="Удалить"
+                      onClick={() => setDeleteConfirm(workspace)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent className="space-y-3">
                 {workspace.description && (
@@ -172,6 +267,87 @@ export function WorkspacesClient({
           ))}
         </div>
       )}
+
+      {/* Settings dialog */}
+      <Dialog
+        open={!!settingsWorkspace}
+        onOpenChange={(o) => !o && setSettingsWorkspace(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Модули — {settingsWorkspace?.name}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            {(modulesData ?? []).map((m) => {
+              const labels: Record<string, string> = {
+                crm: "CRM-доска",
+                knowledge: "База знаний",
+                tickets: "Тикеты",
+                logs: "Логи",
+                chat: "Чат",
+                marketing: "Маркетинг",
+                analytics: "Аналитика",
+                users: "Пользователи",
+              };
+              return (
+                <div
+                  key={m.moduleKey}
+                  className="flex items-center justify-between"
+                >
+                  <Label>{labels[m.moduleKey] ?? m.moduleKey}</Label>
+                  <Switch
+                    checked={m.enabled}
+                    onCheckedChange={(enabled) =>
+                      toggleModuleMutation.mutate({
+                        moduleKey: m.moduleKey,
+                        enabled,
+                      })
+                    }
+                  />
+                </div>
+              );
+            })}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setSettingsWorkspace(null)}
+            >
+              Закрыть
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete confirm dialog */}
+      <Dialog
+        open={!!deleteConfirm}
+        onOpenChange={(o) => !o && setDeleteConfirm(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Удалить проект?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Проект <strong>{deleteConfirm?.name}</strong> и все его данные будут
+            удалены безвозвратно.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteConfirm(null)}>
+              Отмена
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={deleteMutation.isPending}
+              onClick={() =>
+                deleteConfirm && deleteMutation.mutate(deleteConfirm.id)
+              }
+            >
+              {deleteMutation.isPending ? "Удаление..." : "Удалить"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>

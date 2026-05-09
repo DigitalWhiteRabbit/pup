@@ -125,9 +125,9 @@ function WorkspaceSwitcher({
   const router = useRouter();
 
   const { data } = useQuery({
-    queryKey: ["workspaces"],
+    queryKey: ["workspaces-switcher"],
     queryFn: fetchAllWorkspaces,
-    staleTime: 60_000,
+    staleTime: 0,
   });
 
   const workspaces: WorkspaceSummary[] = Array.isArray(data) ? data : [];
