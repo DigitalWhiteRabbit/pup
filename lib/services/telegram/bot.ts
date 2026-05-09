@@ -204,7 +204,7 @@ function setupHandlers(bot: TelegramBot): void {
 
       await bot.sendMessage(
         chatId,
-        `Telegram привязан к аккаунту <b>${token.user.login}</b>!\n\nДоступные команды:\n/tasks — мои задачи\n/my — сводка\n/help — справка`,
+        `Telegram привязан к аккаунту <b>${token.user.login}</b>!\n\nДоступные команды:\n/dashboard — дашборд\n/tasks — мои задачи\n/my — сводка\n/help — справка`,
         { parse_mode: "HTML" },
       );
     } catch (error) {
@@ -336,6 +336,12 @@ function setupHandlers(bot: TelegramBot): void {
     await sendTasksList(bot, chatId);
   });
 
+  // ─── /dashboard — general + per-workspace ─────────────────────────────
+  bot.onText(/\/dashboard/, async (msg) => {
+    const chatId = String(msg.chat.id);
+    await sendDashboard(bot, chatId, null);
+  });
+
   // ─── Callback query router ────────────────────────────────────────────
   bot.on("callback_query", async (query) => {
     const chatId = String(query.message?.chat.id);
@@ -347,6 +353,18 @@ function setupHandlers(bot: TelegramBot): void {
       if (data === "cmd:tasks") {
         await bot.answerCallbackQuery(query.id);
         await sendTasksList(bot, chatId);
+        return;
+      }
+
+      if (data === "cmd:dashboard") {
+        await bot.answerCallbackQuery(query.id);
+        await sendDashboard(bot, chatId, null);
+        return;
+      }
+
+      if (data.startsWith("dashboard:")) {
+        await bot.answerCallbackQuery(query.id);
+        await sendDashboard(bot, chatId, data.slice(10));
         return;
       }
 
@@ -450,6 +468,186 @@ function setupHandlers(bot: TelegramBot): void {
   bot.on("polling_error", (error) => {
     console.error("[Telegram polling]", error.message);
   });
+}
+
+// ─── /dashboard ─────────────────────────────────────────────────────────────
+
+function isDone(colName: string) {
+  const n = colName.toLowerCase();
+  return (
+    n.includes("готов") ||
+    n.includes("done") ||
+    n.includes("завершен") ||
+    n.includes("complete")
+  );
+}
+
+async function sendDashboard(
+  bot: TelegramBot,
+  chatId: string,
+  workspaceId: string | null,
+) {
+  const user = await getUserByChatId(chatId);
+  if (!user) {
+    await bot.sendMessage(
+      chatId,
+      "Аккаунт не привязан. Используйте /start <код>.",
+    );
+    return;
+  }
+
+  try {
+    const db = await getDb();
+
+    if (workspaceId) {
+      // ── Workspace dashboard ──
+      const workspace = await db.workspace.findUnique({
+        where: { id: workspaceId },
+        include: {
+          columns: {
+            orderBy: { position: "asc" },
+            include: {
+              tasks: {
+                include: { assignees: { select: { userId: true } } },
+              },
+            },
+          },
+        },
+      });
+
+      if (!workspace) {
+        await bot.sendMessage(chatId, "Проект не найден.");
+        return;
+      }
+
+      const allTasks = workspace.columns.flatMap((c) =>
+        c.tasks.map((t) => ({ ...t, columnName: c.name })),
+      );
+      const total = allTasks.length;
+      const done = allTasks.filter((t) => isDone(t.columnName)).length;
+      const inProgress = allTasks.filter((t) => {
+        const n = t.columnName.toLowerCase();
+        return (
+          n.includes("работ") || n.includes("прогресс") || n.includes("process")
+        );
+      }).length;
+      const myTasks = allTasks.filter(
+        (t) =>
+          !isDone(t.columnName) &&
+          t.assignees.some((a) => a.userId === user.id),
+      );
+
+      const lines = [
+        `<b>📊 ${escapeHtml(workspace.name)}</b>`,
+        ``,
+        `📋 Всего задач: <b>${total}</b>`,
+        `✅ Готово: <b>${done}</b>`,
+        `🔨 В работе: <b>${inProgress}</b>`,
+        `👤 Мои задачи: <b>${myTasks.length}</b>`,
+      ];
+
+      // Tasks by column
+      lines.push(`\n<b>По колонкам:</b>`);
+      for (const col of workspace.columns) {
+        lines.push(`  • ${escapeHtml(col.name)}: ${col.tasks.length}`);
+      }
+
+      if (myTasks.length > 0) {
+        lines.push(`\n<b>Мои задачи:</b>`);
+        for (const t of myTasks.slice(0, 8)) {
+          lines.push(
+            `  ${PRIORITY_EMOJI[t.priority] ?? "⚪"} ${escapeHtml(t.title)} [${escapeHtml(t.columnName)}]`,
+          );
+        }
+        if (myTasks.length > 8) lines.push(`  …и ещё ${myTasks.length - 8}`);
+      }
+
+      const keyboard: TelegramBot.InlineKeyboardButton[][] = [];
+      if (myTasks.length > 0) {
+        keyboard.push([{ text: "📋 Мои задачи", callback_data: "cmd:tasks" }]);
+      }
+      keyboard.push([
+        { text: "⬅️ Все проекты", callback_data: "cmd:dashboard" },
+      ]);
+
+      await bot.sendMessage(chatId, lines.join("\n"), {
+        parse_mode: "HTML",
+        reply_markup: { inline_keyboard: keyboard },
+      });
+    } else {
+      // ── General dashboard ──
+      const memberships = await db.workspaceMember.findMany({
+        where: { userId: user.id },
+        include: {
+          workspace: {
+            include: {
+              columns: {
+                include: {
+                  tasks: {
+                    include: { assignees: { select: { userId: true } } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+
+      const allAssigned = await db.taskAssignee.findMany({
+        where: { userId: user.id },
+        include: {
+          task: {
+            select: { columnId: true, column: { select: { name: true } } },
+          },
+        },
+      });
+
+      const myTotal = allAssigned.length;
+      const myActive = allAssigned.filter(
+        (a) => !isDone(a.task.column.name),
+      ).length;
+      const myDone = myTotal - myActive;
+
+      const lines = [
+        `<b>🏠 Dashboard — ${escapeHtml(user.login)}</b>`,
+        ``,
+        `📋 Всего моих задач: <b>${myTotal}</b>`,
+        `🔨 Активных: <b>${myActive}</b>`,
+        `✅ Завершённых: <b>${myDone}</b>`,
+        ``,
+        `<b>Проекты (${memberships.length}):</b>`,
+      ];
+
+      const keyboard: TelegramBot.InlineKeyboardButton[][] = [];
+
+      for (const m of memberships) {
+        const ws = m.workspace;
+        const allTasks = ws.columns.flatMap((c) => c.tasks);
+        const myWsTasks = allTasks.filter((t) =>
+          t.assignees.some((a) => a.userId === user.id),
+        );
+        lines.push(
+          `  📁 ${escapeHtml(ws.name)}: ${allTasks.length} задач, моих ${myWsTasks.length}`,
+        );
+        keyboard.push([
+          {
+            text: `📁 ${ws.name} (${myWsTasks.length} моих)`,
+            callback_data: `dashboard:${ws.id}`,
+          },
+        ]);
+      }
+
+      keyboard.push([{ text: "📋 Мои задачи", callback_data: "cmd:tasks" }]);
+
+      await bot.sendMessage(chatId, lines.join("\n"), {
+        parse_mode: "HTML",
+        reply_markup: { inline_keyboard: keyboard },
+      });
+    }
+  } catch (error) {
+    console.error("[Telegram bot] /dashboard error:", error);
+    await bot.sendMessage(chatId, "Ошибка при загрузке дашборда.");
+  }
 }
 
 // ─── /tasks list ────────────────────────────────────────────────────────────
@@ -1040,6 +1238,7 @@ export function getTelegramBot(): TelegramBot | null {
     globalForBot.__tgBotInitialized = true;
     setupHandlers(bot);
     bot.setMyCommands([
+      { command: "dashboard", description: "🏠 Дашборд (общий и по проектам)" },
       { command: "tasks", description: "📋 Мои задачи" },
       { command: "my", description: "📊 Сводка" },
       { command: "help", description: "📖 Справка" },
