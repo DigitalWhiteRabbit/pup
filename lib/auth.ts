@@ -74,6 +74,7 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
       }
 
       // On every request: re-check isActive from DB (FR-004a)
+      if (!appToken.id && token.sub) appToken.id = token.sub;
       const userId = appToken.id;
       console.log(
         "[auth] jwt callback, userId:",
@@ -98,9 +99,7 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
     },
     async session({ session, token }) {
       const appToken = token as Partial<AppJWT>;
-      if (appToken.id) {
-        session.user.id = appToken.id;
-      }
+      session.user.id = appToken.id ?? (token.sub as string);
       if (appToken.role) {
         session.user.role = appToken.role;
       }
