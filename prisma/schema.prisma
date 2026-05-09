@@ -19,7 +19,8 @@ model User {
   email     String   @unique
   password  String // bcrypt hash
   role      Role     @default(USER)
-  isActive  Boolean  @default(true)
+  isActive   Boolean   @default(true)
+  lastSeenAt DateTime?
   createdAt DateTime @default(now())
 
   // Telegram
@@ -27,18 +28,18 @@ model User {
   tgNotifyAssign  Boolean  @default(true)
   tgNotifyComment Boolean  @default(true)
   tgNotifyMove    Boolean  @default(true)
-  tgNotifyProject Boolean  @default(true)
+  tgNotifyProject Boolean  @default(true) // kept for compat with existing records
 
   // Relations
-  ownedProjects  Project[]           @relation("ProjectOwner")
-  memberships    ProjectMember[]
-  taskAssignments TaskAssignee[]     @relation("TaskAssignee")
-  comments       Comment[]
-  attachments    Attachment[]
-  notifications      Notification[]  @relation("NotificationRecipient")
-  actedNotifications Notification[]  @relation("NotificationActor")
+  ownedWorkspaces    Workspace[]         @relation("WorkspaceOwner")
+  memberships        WorkspaceMember[]
+  taskAssignments    TaskAssignee[]      @relation("TaskAssignee")
+  comments           Comment[]
+  attachments        Attachment[]
+  notifications      Notification[]      @relation("NotificationRecipient")
+  actedNotifications Notification[]      @relation("NotificationActor")
   movedTasks         ColumnMoveLog[]
-  telegramTokens TelegramLinkToken[]
+  telegramTokens     TelegramLinkToken[]
 
   @@index([email])
   @@index([login])
@@ -50,19 +51,20 @@ enum Role {
 }
 
 // ─────────────────────────────────────────
-// ПРОЕКТЫ
+// WORKSPACE (бывший Project)
 // ─────────────────────────────────────────
 
-model Project {
+model Workspace {
   id          String  @id @default(cuid())
   name        String
   description String?
   createdAt   DateTime @default(now())
 
   ownerId String
-  owner   User   @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: Restrict) // owners only deactivate, never deleted
+  owner   User   @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Restrict)
 
-  members       ProjectMember[]
+  members       WorkspaceMember[]
+  modules       WorkspaceModule[]
   columns       Column[]
   tasks         Task[]
   labels        Label[]
@@ -71,24 +73,41 @@ model Project {
   @@index([ownerId])
 }
 
-model ProjectMember {
-  id        String     @id @default(cuid())
-  projectId String
-  userId    String
-  role      MemberRole @default(MEMBER)
-  joinedAt  DateTime   @default(now())
+model WorkspaceMember {
+  id          String     @id @default(cuid())
+  workspaceId String
+  userId      String
+  role        MemberRole @default(MEMBER)
+  joinedAt    DateTime   @default(now())
 
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([projectId, userId])
-  @@index([projectId])
+  @@unique([workspaceId, userId])
+  @@index([workspaceId])
   @@index([userId])
 }
 
 enum MemberRole {
   OWNER
   MEMBER
+}
+
+// ─────────────────────────────────────────
+// МОДУЛИ WORKSPACE
+// ─────────────────────────────────────────
+
+model WorkspaceModule {
+  id          String   @id @default(cuid())
+  workspaceId String
+  moduleKey   String   // "crm" | "knowledge" | "tickets" | "logs" | "chat" | "marketing" | "analytics" | "users"
+  enabled     Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, moduleKey])
+  @@index([workspaceId])
 }
 
 enum TaskPriority {
@@ -104,17 +123,17 @@ enum TaskPriority {
 // ─────────────────────────────────────────
 
 model Column {
-  id        String   @id @default(cuid())
-  projectId String
-  name      String
-  position  Int // порядок на доске
-  createdAt DateTime @default(now())
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  position    Int // порядок на доске
+  createdAt   DateTime @default(now())
 
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  tasks   Task[]
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  tasks     Task[]
 
-  @@index([projectId, position])
-  @@index([projectId])
+  @@index([workspaceId, position])
+  @@index([workspaceId])
 }
 
 // ─────────────────────────────────────────
@@ -123,7 +142,7 @@ model Column {
 
 model Task {
   id          String       @id @default(cuid())
-  projectId   String
+  workspaceId String
   columnId    String
   title       String
   description String?
@@ -133,8 +152,8 @@ model Task {
   dueDate     DateTime?
   createdAt   DateTime     @default(now())
 
-  project  Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  column   Column  @relation(fields: [columnId], references: [id], onDelete: Restrict) // FR-011: cannot delete column with tasks
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  column    Column    @relation(fields: [columnId], references: [id], onDelete: Restrict)
 
   assignees      TaskAssignee[]
   labels         TaskLabel[]
@@ -145,7 +164,7 @@ model Task {
   attachments    Attachment[]
   notifications  Notification[]
 
-  @@index([projectId])
+  @@index([workspaceId])
   @@index([columnId])
 }
 
@@ -167,16 +186,16 @@ model TaskAssignee {
 // ─────────────────────────────────────────
 
 model Label {
-  id        String @id @default(cuid())
-  projectId String
-  name      String
-  color     String // hex color, e.g. "#ef4444"
+  id          String @id @default(cuid())
+  workspaceId String
+  name        String
+  color       String // hex color, e.g. "#ef4444"
 
-  project Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  tasks   TaskLabel[]
+  workspace Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  tasks     TaskLabel[]
 
-  @@unique([projectId, name])
-  @@index([projectId])
+  @@unique([workspaceId, name])
+  @@index([workspaceId])
 }
 
 model TaskLabel {
@@ -221,7 +240,7 @@ model TimeInterval {
 
   task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
-  @@index([taskId, endedAt]) // для быстрого расчёта суммарного времени
+  @@index([taskId, endedAt])
 }
 
 // ─────────────────────────────────────────
@@ -229,11 +248,11 @@ model TimeInterval {
 // ─────────────────────────────────────────
 
 model ColumnMoveLog {
-  id            String   @id @default(cuid())
-  taskId        String
-  movedByUserId String
-  movedAt       DateTime @default(now())
-  fromColumnName String // snapshot имени на момент перемещения
+  id             String   @id @default(cuid())
+  taskId         String
+  movedByUserId  String
+  movedAt        DateTime @default(now())
+  fromColumnName String
   toColumnName   String
 
   task    Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
@@ -271,7 +290,7 @@ model Attachment {
   originalName String
   size         Int // bytes
   mimeType     String
-  storagePath  String // uploads/{projectId}/{taskId}/{uuid}-{originalName}
+  storagePath  String // uploads/{workspaceId}/{taskId}/{uuid}-{originalName}
   uploadedAt   DateTime @default(now())
 
   task       Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
@@ -290,23 +309,23 @@ model Notification {
   actorId     String?
   type        NotificationType
   taskId      String?
-  projectId   String?
+  workspaceId String?
   isRead      Boolean          @default(false)
   createdAt   DateTime         @default(now())
 
-  recipient User     @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
-  actor     User?    @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
-  task      Task?    @relation(fields: [taskId], references: [id], onDelete: SetNull)
-  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  recipient User      @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  actor     User?     @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
+  task      Task?     @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
 
   @@index([recipientId, isRead])
 }
 
 enum NotificationType {
-  ASSIGNED // назначен на задачу
-  COMMENTED // комментарий к твоей задаче
-  MOVED // твоя задача перемещена
-  PROJECT_ADDED // добавлен в проект
+  ASSIGNED
+  COMMENTED
+  MOVED
+  PROJECT_ADDED
 }
 
 // ─────────────────────────────────────────

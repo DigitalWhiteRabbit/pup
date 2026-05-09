@@ -15,18 +15,18 @@ import { TaskCard } from "./TaskCard";
 import { TaskModal } from "./TaskModal";
 import { toastSuccess, toastApiError } from "@/lib/toast";
 import { toastError } from "@/lib/toast";
-import type { ProjectBoard } from "@/lib/services/project.service";
+import type { WorkspaceBoard } from "@/lib/services/workspace.service";
 
-type ColumnData = ProjectBoard["columns"][0];
-type Member = ProjectBoard["members"][0];
+type ColumnData = WorkspaceBoard["columns"][0];
+type Member = WorkspaceBoard["members"][0];
 
 type Props = {
   column: ColumnData;
-  projectId: string;
+  workspaceId: string;
   members: Member[];
 };
 
-export function Column({ column, projectId, members }: Props) {
+export function Column({ column, workspaceId, members }: Props) {
   const queryClient = useQueryClient();
 
   // ─── Sortable (column drag) ────────────────────────────────────────────────
@@ -63,30 +63,35 @@ export function Column({ column, projectId, members }: Props) {
       return res.json() as Promise<{ id: string; name: string }>;
     },
     onMutate: async (newName) => {
-      await queryClient.cancelQueries({ queryKey: ["project", projectId] });
-      const previous = queryClient.getQueryData<ProjectBoard>([
-        "project",
-        projectId,
+      await queryClient.cancelQueries({ queryKey: ["workspace", workspaceId] });
+      const previous = queryClient.getQueryData<WorkspaceBoard>([
+        "workspace",
+        workspaceId,
       ]);
-      queryClient.setQueryData<ProjectBoard>(["project", projectId], (old) => {
-        if (!old) return old;
-        return {
-          ...old,
-          columns: old.columns.map((c) =>
-            c.id === column.id ? { ...c, name: newName } : c,
-          ),
-        };
-      });
+      queryClient.setQueryData<WorkspaceBoard>(
+        ["workspace", workspaceId],
+        (old) => {
+          if (!old) return old;
+          return {
+            ...old,
+            columns: old.columns.map((c) =>
+              c.id === column.id ? { ...c, name: newName } : c,
+            ),
+          };
+        },
+      );
       return { previous };
     },
     onError: (_err, _newName, context) => {
       if (context?.previous) {
-        queryClient.setQueryData(["project", projectId], context.previous);
+        queryClient.setQueryData(["workspace", workspaceId], context.previous);
       }
       toastError("Не удалось переименовать колонку");
     },
     onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+      void queryClient.invalidateQueries({
+        queryKey: ["workspace", workspaceId],
+      });
     },
   });
 
@@ -113,7 +118,9 @@ export function Column({ column, projectId, members }: Props) {
     },
     onSuccess: () => {
       toastSuccess("Колонка удалена");
-      void queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+      void queryClient.invalidateQueries({
+        queryKey: ["workspace", workspaceId],
+      });
     },
     onError: toastApiError,
   });
@@ -128,7 +135,7 @@ export function Column({ column, projectId, members }: Props) {
     if (!title) return;
     setAddingTask(true);
     try {
-      const res = await fetch(`/api/projects/${projectId}/tasks`, {
+      const res = await fetch(`/api/workspaces/${workspaceId}/tasks`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title, columnId: column.id }),
@@ -136,7 +143,9 @@ export function Column({ column, projectId, members }: Props) {
       if (!res.ok) throw await res.json();
       setNewTaskTitle("");
       setShowAddTask(false);
-      await queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+      await queryClient.invalidateQueries({
+        queryKey: ["workspace", workspaceId],
+      });
     } catch (err) {
       toastApiError(err);
     } finally {
@@ -317,7 +326,7 @@ export function Column({ column, projectId, members }: Props) {
       {selectedTaskId && (
         <TaskModal
           taskId={selectedTaskId}
-          projectId={projectId}
+          workspaceId={workspaceId}
           members={members}
           onClose={() => setSelectedTaskId(null)}
         />

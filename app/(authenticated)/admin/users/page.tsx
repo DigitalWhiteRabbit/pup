@@ -8,7 +8,7 @@ export default async function AdminUsersPage() {
   const session = await auth();
 
   if (!session || session.user.role !== "ADMIN") {
-    redirect("/projects");
+    redirect("/workspaces");
   }
 
   return <UsersClient />;

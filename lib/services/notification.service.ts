@@ -14,8 +14,8 @@ export type NotificationItem = {
   type: NotificationType;
   taskId: string | null;
   taskTitle: string | null;
-  projectId: string | null;
-  projectName: string | null;
+  workspaceId: string | null;
+  workspaceName: string | null;
   actorLogin: string | null;
   isRead: boolean;
   createdAt: Date;
@@ -49,7 +49,7 @@ export async function notify(input: {
   recipientId: string;
   actorId: string;
   taskId?: string;
-  projectId?: string;
+  workspaceId?: string;
   extra?: { fromColumn?: string; toColumn?: string; commentText?: string };
 }): Promise<void> {
   // FR-029: no self-notifications
@@ -62,7 +62,7 @@ export async function notify(input: {
       recipientId: input.recipientId,
       actorId: input.actorId,
       taskId: input.taskId ?? null,
-      projectId: input.projectId ?? null,
+      workspaceId: input.workspaceId ?? null,
     },
   });
 
@@ -107,9 +107,9 @@ export async function notify(input: {
           },
         })
       : null,
-    input.projectId
-      ? db.project.findUnique({
-          where: { id: input.projectId },
+    input.workspaceId
+      ? db.workspace.findUnique({
+          where: { id: input.workspaceId },
           select: { name: true },
         })
       : null,
@@ -119,7 +119,7 @@ export async function notify(input: {
     type: input.type,
     actorLogin: actor?.login ?? null,
     taskTitle: task?.title ?? null,
-    projectName: project?.name ?? null,
+    projectName: project?.name ?? null, // kept as projectName for telegram template compat
     description: task?.description ?? null,
     priority: task?.priority ?? null,
     dueDate: task?.dueDate ?? null,
@@ -163,7 +163,7 @@ export async function getNotifications(
       include: {
         actor: { select: { login: true } },
         task: { select: { title: true } },
-        project: { select: { name: true } },
+        workspace: { select: { name: true } },
       },
     }),
     db.notification.count({ where }),
@@ -178,8 +178,8 @@ export async function getNotifications(
       type: n.type,
       taskId: n.taskId,
       taskTitle: n.task?.title ?? null,
-      projectId: n.projectId,
-      projectName: n.project?.name ?? null,
+      workspaceId: n.workspaceId,
+      workspaceName: n.workspace?.name ?? null,
       actorLogin: n.actor?.login ?? null,
       isRead: n.isRead,
       createdAt: n.createdAt,

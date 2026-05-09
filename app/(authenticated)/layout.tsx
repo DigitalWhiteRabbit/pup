@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { QueryProvider } from "@/components/providers/query-provider";
 import { SessionProvider } from "@/components/providers/session-provider";
-import { Sidebar } from "@/components/layout/Sidebar";
+import { AppShell } from "@/components/layout/AppShell";
 
 export default async function AuthenticatedLayout({
   children,
@@ -18,13 +18,12 @@ export default async function AuthenticatedLayout({
   return (
     <QueryProvider>
       <SessionProvider session={session}>
-        <div className="flex h-screen overflow-hidden">
-          <Sidebar
-            userLogin={session.user.name ?? session.user.email ?? "user"}
-            userRole={session.user.role}
-          />
-          <main className="flex-1 overflow-y-auto">{children}</main>
-        </div>
+        <AppShell
+          userLogin={session.user.name ?? session.user.email ?? "user"}
+          userRole={session.user.role}
+        >
+          {children}
+        </AppShell>
       </SessionProvider>
     </QueryProvider>
   );

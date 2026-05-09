@@ -10,7 +10,7 @@ const globalForBot = globalThis as unknown as {
 // Pending input state per chat
 type PendingAction =
   | { type: "comment"; taskId: string }
-  | { type: "new_task_title"; projectId: string; columnId: string };
+  | { type: "new_task_title"; workspaceId: string; columnId: string };
 
 const pendingActions = new Map<string, PendingAction>();
 
@@ -55,7 +55,7 @@ async function sendTaskCard(bot: TelegramBot, chatId: string, taskId: string) {
     where: { id: taskId },
     include: {
       column: { select: { name: true } },
-      project: { select: { name: true } },
+      workspace: { select: { name: true } },
       assignees: { include: { user: { select: { login: true } } } },
       checklistItems: { orderBy: { position: "asc" } },
       comments: {
@@ -79,7 +79,7 @@ async function sendTaskCard(bot: TelegramBot, chatId: string, taskId: string) {
   const lines: string[] = [
     `<b>📋 ${escapeHtml(task.title)}</b>`,
     ``,
-    `📁 ${escapeHtml(task.project.name)} → <b>${escapeHtml(task.column.name)}</b>`,
+    `📁 ${escapeHtml(task.workspace.name)} → <b>${escapeHtml(task.column.name)}</b>`,
     `${prio}`,
     `👥 ${escapeHtml(assignees)}`,
   ];
@@ -271,7 +271,7 @@ function setupHandlers(bot: TelegramBot): void {
           task: {
             include: {
               column: { select: { name: true } },
-              project: { select: { name: true } },
+              workspace: { select: { name: true } },
             },
           },
         },
@@ -440,7 +440,7 @@ function setupHandlers(bot: TelegramBot): void {
       await handleNewTaskSubmit(
         bot,
         chatId,
-        action.projectId,
+        action.workspaceId,
         action.columnId,
         text,
       );
@@ -472,7 +472,7 @@ async function sendTasksList(bot: TelegramBot, chatId: string) {
         task: {
           include: {
             column: { select: { name: true } },
-            project: { select: { id: true, name: true } },
+            workspace: { select: { id: true, name: true } },
           },
         },
       },
@@ -490,7 +490,7 @@ async function sendTasksList(bot: TelegramBot, chatId: string) {
     // Group by project
     const byProject = new Map<string, typeof tasks>();
     for (const t of tasks) {
-      const key = t.project.name;
+      const key = t.workspace.name;
       if (!byProject.has(key)) byProject.set(key, []);
       byProject.get(key)!.push(t);
     }
@@ -593,7 +593,7 @@ async function handleCommentSubmit(
       where: { id: taskId },
       select: {
         title: true,
-        projectId: true,
+        workspaceId: true,
         assignees: { select: { userId: true } },
       },
     });
@@ -602,9 +602,9 @@ async function handleCommentSubmit(
       return;
     }
 
-    const membership = await db.projectMember.findUnique({
+    const membership = await db.workspaceMember.findUnique({
       where: {
-        projectId_userId: { projectId: task.projectId, userId: user.id },
+        workspaceId_userId: { workspaceId: task.workspaceId, userId: user.id },
       },
     });
     if (!membership) {
@@ -630,7 +630,7 @@ async function handleCommentSubmit(
           recipientId: a.userId,
           actorId: user.id,
           taskId,
-          projectId: task.projectId,
+          workspaceId: task.workspaceId,
           extra: { commentText: text },
         });
       }
@@ -652,7 +652,7 @@ async function handleMoveStart(
   const db = await getDb();
   const task = await db.task.findUnique({
     where: { id: taskId },
-    select: { columnId: true, column: { select: { projectId: true } } },
+    select: { columnId: true, column: { select: { workspaceId: true } } },
   });
   if (!task) {
     await bot.answerCallbackQuery(query.id, {
@@ -663,7 +663,7 @@ async function handleMoveStart(
   }
 
   const columns = await db.column.findMany({
-    where: { projectId: task.column.projectId },
+    where: { workspaceId: task.column.workspaceId },
     orderBy: { position: "asc" },
   });
 
@@ -705,7 +705,7 @@ async function handleMoveTo(
     const task = await db.task.findUnique({
       where: { id: taskId },
       include: {
-        column: { select: { name: true, projectId: true } },
+        column: { select: { name: true, workspaceId: true } },
         assignees: { select: { userId: true } },
       },
     });
@@ -779,7 +779,7 @@ async function handleMoveTo(
           recipientId: a.userId,
           actorId: user.id,
           taskId,
-          projectId: task.column.projectId,
+          workspaceId: task.column.workspaceId,
           extra: { fromColumn: task.column.name, toColumn: targetColumn.name },
         });
       }
@@ -970,7 +970,7 @@ async function handleToggleChecklist(
 async function handleNewTaskSubmit(
   bot: TelegramBot,
   chatId: string,
-  projectId: string,
+  workspaceId: string,
   columnId: string,
   title: string,
 ) {
@@ -991,7 +991,7 @@ async function handleNewTaskSubmit(
     const task = await db.task.create({
       data: {
         title,
-        projectId,
+        workspaceId,
         columnId,
         position: maxPos ? maxPos.position + 1 : 0,
         assignees: { create: [{ userId: user.id }] },

@@ -25,7 +25,7 @@ type NotificationItem = {
   type: "ASSIGNED" | "COMMENTED" | "MOVED" | "PROJECT_ADDED";
   taskId: string | null;
   taskTitle: string | null;
-  projectId: string | null;
+  workspaceId: string | null;
   projectName: string | null;
   actorLogin: string | null;
   isRead: boolean;
@@ -77,12 +77,12 @@ export function NotificationBell() {
   const notifications = listData?.data ?? [];
 
   function handleClick(n: NotificationItem) {
-    if (n.taskId && n.projectId) {
+    if (n.taskId && n.workspaceId) {
       setOpen(false);
-      router.push(`/projects/${n.projectId}`);
-    } else if (n.projectId) {
+      router.push(`/workspaces/${n.workspaceId}/dashboard`);
+    } else if (n.workspaceId) {
       setOpen(false);
-      router.push(`/projects/${n.projectId}`);
+      router.push(`/workspaces/${n.workspaceId}/dashboard`);
     }
   }
 

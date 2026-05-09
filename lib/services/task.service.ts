@@ -1,7 +1,7 @@
 import "server-only";
 import { db } from "@/lib/db";
 import { ApiError } from "@/lib/api-error";
-import { checkMembership } from "./project.service";
+import { checkMembership } from "./workspace.service";
 import { isWorkColumn } from "@/lib/utils/columns";
 import {
   openInterval,
@@ -25,7 +25,7 @@ export type ChecklistItemView = {
 
 export type TaskSummary = {
   id: string;
-  projectId: string;
+  workspaceId: string;
   columnId: string;
   title: string;
   description: string | null;
@@ -86,12 +86,12 @@ export async function createTask(
     columnId: string;
     assigneeIds?: string[];
     priority?: TaskPriority;
-    projectId: string;
+    workspaceId: string;
   },
   userId: string,
   userRole: "ADMIN" | "USER",
 ): Promise<TaskSummary> {
-  const membership = await checkMembership(input.projectId, userId);
+  const membership = await checkMembership(input.workspaceId, userId);
   if (!membership && userRole !== "ADMIN") {
     throw new ApiError("Нет доступа к проекту", "FORBIDDEN", 403);
   }
@@ -101,9 +101,9 @@ export async function createTask(
   const task = await db.$transaction(async (tx) => {
     const column = await tx.column.findUnique({
       where: { id: input.columnId },
-      select: { projectId: true, name: true },
+      select: { workspaceId: true, name: true },
     });
-    if (!column || column.projectId !== input.projectId) {
+    if (!column || column.workspaceId !== input.workspaceId) {
       throw new ApiError("Колонка не найдена", "NOT_FOUND", 404);
     }
 
@@ -122,7 +122,7 @@ export async function createTask(
         description: input.description ?? null,
         priority: input.priority ?? "NONE",
         columnId: input.columnId,
-        projectId: input.projectId,
+        workspaceId: input.workspaceId,
         position,
         assignees:
           assigneeIds.length > 0
@@ -147,7 +147,7 @@ export async function createTask(
         recipientId: uid,
         actorId: userId,
         taskId: task.task.id,
-        projectId: task.task.projectId,
+        workspaceId: task.task.workspaceId,
       });
     }
   }
@@ -155,7 +155,7 @@ export async function createTask(
   const now = new Date();
   return {
     id: task.task.id,
-    projectId: task.task.projectId,
+    workspaceId: task.task.workspaceId,
     columnId: task.task.columnId,
     title: task.task.title,
     description: task.task.description,
@@ -193,13 +193,13 @@ export async function updateTask(
   const task = await db.task.findUnique({
     where: { id },
     select: {
-      projectId: true,
+      workspaceId: true,
       assignees: { select: { userId: true } },
     },
   });
   if (!task) throw new ApiError("Задача не найдена", "NOT_FOUND", 404);
 
-  const membership = await checkMembership(task.projectId, userId);
+  const membership = await checkMembership(task.workspaceId, userId);
   if (!membership && userRole !== "ADMIN") {
     throw new ApiError("Нет доступа", "FORBIDDEN", 403);
   }
@@ -262,7 +262,7 @@ export async function updateTask(
           recipientId: uid,
           actorId: userId,
           taskId: id,
-          projectId: task.projectId,
+          workspaceId: task.workspaceId,
         });
       }
     }
@@ -274,7 +274,7 @@ export async function updateTask(
 
   return {
     id: updated.id,
-    projectId: updated.projectId,
+    workspaceId: updated.workspaceId,
     columnId: updated.columnId,
     title: updated.title,
     description: updated.description,
@@ -302,11 +302,11 @@ export async function deleteTask(
 ): Promise<void> {
   const task = await db.task.findUnique({
     where: { id },
-    select: { projectId: true },
+    select: { workspaceId: true },
   });
   if (!task) throw new ApiError("Задача не найдена", "NOT_FOUND", 404);
 
-  const membership = await checkMembership(task.projectId, userId);
+  const membership = await checkMembership(task.workspaceId, userId);
   if (!membership && userRole !== "ADMIN") {
     throw new ApiError("Нет доступа", "FORBIDDEN", 403);
   }
@@ -332,11 +332,14 @@ export async function moveTask(
 }> {
   const taskCheck = await db.task.findUnique({
     where: { id: taskId },
-    select: { column: { select: { projectId: true } } },
+    select: { column: { select: { workspaceId: true } } },
   });
   if (!taskCheck) throw new ApiError("Задача не найдена", "NOT_FOUND", 404);
 
-  const membership = await checkMembership(taskCheck.column.projectId, userId);
+  const membership = await checkMembership(
+    taskCheck.column.workspaceId,
+    userId,
+  );
   if (!membership && userRole !== "ADMIN") {
     throw new ApiError("Нет доступа", "FORBIDDEN", 403);
   }
@@ -345,7 +348,7 @@ export async function moveTask(
     const task = await tx.task.findUnique({
       where: { id: taskId },
       include: {
-        column: { select: { name: true, projectId: true } },
+        column: { select: { name: true, workspaceId: true } },
         assignees: { select: { userId: true } },
       },
     });
@@ -353,13 +356,13 @@ export async function moveTask(
 
     const targetColumn = await tx.column.findUnique({
       where: { id: targetColumnId },
-      select: { name: true, projectId: true },
+      select: { name: true, workspaceId: true },
     });
     if (!targetColumn) {
       throw new ApiError("Целевая колонка не найдена", "NOT_FOUND", 404);
     }
 
-    if (targetColumn.projectId !== task.column.projectId) {
+    if (targetColumn.workspaceId !== task.column.workspaceId) {
       throw new ApiError(
         "Нельзя перемещать задачи между проектами",
         "CROSS_PROJECT",
@@ -408,7 +411,7 @@ export async function moveTask(
       isInProgress,
       lastIntervalStartedAt,
       _assigneeIds: task.assignees.map((a) => a.userId),
-      _projectId: task.column.projectId,
+      _workspaceId: task.column.workspaceId,
       _fromColumn: task.column.name,
       _toColumn: targetColumn.name,
     };
@@ -422,7 +425,7 @@ export async function moveTask(
         recipientId: uid,
         actorId: userId,
         taskId,
-        projectId: result._projectId,
+        workspaceId: result._workspaceId,
         extra: {
           fromColumn: result._fromColumn,
           toColumn: result._toColumn,
@@ -451,11 +454,11 @@ export async function reorderTask(
 ): Promise<{ taskId: string; position: number }> {
   const task = await db.task.findUnique({
     where: { id: taskId },
-    select: { projectId: true },
+    select: { workspaceId: true },
   });
   if (!task) throw new ApiError("Задача не найдена", "NOT_FOUND", 404);
 
-  const membership = await checkMembership(task.projectId, userId);
+  const membership = await checkMembership(task.workspaceId, userId);
   if (!membership && userRole !== "ADMIN") {
     throw new ApiError("Нет доступа", "FORBIDDEN", 403);
   }
@@ -500,7 +503,7 @@ export async function getTaskById(
 
   if (!task) throw new ApiError("Задача не найдена", "NOT_FOUND", 404);
 
-  const membership = await checkMembership(task.projectId, userId);
+  const membership = await checkMembership(task.workspaceId, userId);
   if (!membership && userRole !== "ADMIN") {
     throw new ApiError("Нет доступа", "FORBIDDEN", 403);
   }
@@ -511,7 +514,7 @@ export async function getTaskById(
 
   return {
     id: task.id,
-    projectId: task.projectId,
+    workspaceId: task.workspaceId,
     columnId: task.columnId,
     columnName: task.column.name,
     title: task.title,

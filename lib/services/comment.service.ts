@@ -1,7 +1,7 @@
 import "server-only";
 import { db } from "@/lib/db";
 import { ApiError } from "@/lib/api-error";
-import { checkMembership } from "./project.service";
+import { checkMembership } from "./workspace.service";
 import { notify } from "./notification.service";
 
 export type CommentView = {
@@ -12,19 +12,19 @@ export type CommentView = {
   updatedAt: Date;
 };
 
-async function getTaskWithProject(
+async function getTaskWithWorkspace(
   taskId: string,
-): Promise<{ projectId: string; assigneeIds: string[] }> {
+): Promise<{ workspaceId: string; assigneeIds: string[] }> {
   const task = await db.task.findUnique({
     where: { id: taskId },
     select: {
-      projectId: true,
+      workspaceId: true,
       assignees: { select: { userId: true } },
     },
   });
   if (!task) throw new ApiError("Задача не найдена", "NOT_FOUND", 404);
   return {
-    projectId: task.projectId,
+    workspaceId: task.workspaceId,
     assigneeIds: task.assignees.map((a) => a.userId),
   };
 }
@@ -33,8 +33,11 @@ export async function createComment(
   input: { taskId: string; authorId: string; text: string },
   userRole: "ADMIN" | "USER",
 ): Promise<CommentView> {
-  const taskInfo = await getTaskWithProject(input.taskId);
-  const membership = await checkMembership(taskInfo.projectId, input.authorId);
+  const taskInfo = await getTaskWithWorkspace(input.taskId);
+  const membership = await checkMembership(
+    taskInfo.workspaceId,
+    input.authorId,
+  );
   if (!membership && userRole !== "ADMIN") {
     throw new ApiError("Нет доступа к проекту", "FORBIDDEN", 403);
   }
@@ -55,7 +58,7 @@ export async function createComment(
         recipientId: uid,
         actorId: input.authorId,
         taskId: input.taskId,
-        projectId: taskInfo.projectId,
+        workspaceId: taskInfo.workspaceId,
         extra: { commentText: input.text },
       });
     }

@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { withErrorHandler, ApiError } from "@/lib/api-error";
 import { db } from "@/lib/db";
-import { checkMembership } from "@/lib/services/project.service";
+import { checkMembership } from "@/lib/services/workspace.service";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -15,11 +15,11 @@ const updateSchema = z.object({
 async function getItemWithAccess(itemId: string, userId: string, role: string) {
   const item = await db.checklistItem.findUnique({
     where: { id: itemId },
-    include: { task: { select: { projectId: true } } },
+    include: { task: { select: { workspaceId: true } } },
   });
   if (!item) throw new ApiError("Элемент не найден", "NOT_FOUND", 404);
 
-  const membership = await checkMembership(item.task.projectId, userId);
+  const membership = await checkMembership(item.task.workspaceId, userId);
   if (!membership && role !== "ADMIN") {
     throw new ApiError("Нет доступа", "FORBIDDEN", 403);
   }

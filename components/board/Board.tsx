@@ -21,7 +21,7 @@ import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Column } from "./Column";
 import { toastError } from "@/lib/toast";
-import type { ProjectBoard } from "@/lib/services/project.service";
+import type { WorkspaceBoard } from "@/lib/services/workspace.service";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -31,22 +31,22 @@ type ActiveDrag =
   | null;
 
 type Props = {
-  initialData: ProjectBoard;
-  projectId: string;
+  initialData: WorkspaceBoard;
+  workspaceId: string;
 };
 
 // ─── Board ────────────────────────────────────────────────────────────────────
 
-export function Board({ initialData, projectId }: Props) {
+export function Board({ initialData, workspaceId }: Props) {
   const queryClient = useQueryClient();
 
   // TanStack Query manages board state; initialData from SSR for instant render
   const { data: board } = useQuery({
-    queryKey: ["project", projectId],
+    queryKey: ["workspace", workspaceId],
     queryFn: async () => {
-      const res = await fetch(`/api/projects/${projectId}`);
+      const res = await fetch(`/api/workspaces/${workspaceId}`);
       if (!res.ok) throw new Error("Failed to load board");
-      return res.json() as Promise<ProjectBoard>;
+      return res.json() as Promise<WorkspaceBoard>;
     },
     initialData,
     staleTime: 30_000,
@@ -81,57 +81,62 @@ export function Board({ initialData, projectId }: Props) {
     },
     // Snapshot → optimistic update → (error: rollback) → invalidate
     onMutate: async ({ taskId, columnId: targetColumnId, position }) => {
-      await queryClient.cancelQueries({ queryKey: ["project", projectId] });
-      const previous = queryClient.getQueryData<ProjectBoard>([
-        "project",
-        projectId,
+      await queryClient.cancelQueries({ queryKey: ["workspace", workspaceId] });
+      const previous = queryClient.getQueryData<WorkspaceBoard>([
+        "workspace",
+        workspaceId,
       ]);
 
-      queryClient.setQueryData<ProjectBoard>(["project", projectId], (old) => {
-        if (!old) return old;
+      queryClient.setQueryData<WorkspaceBoard>(
+        ["workspace", workspaceId],
+        (old) => {
+          if (!old) return old;
 
-        // Remove task from its current column
-        let moved: ProjectBoard["columns"][0]["tasks"][0] | undefined;
-        const cols = old.columns.map((col) => ({
-          ...col,
-          tasks: col.tasks.filter((t) => {
-            if (t.id === taskId) {
-              moved = t;
-              return false;
-            }
-            return true;
-          }),
-        }));
+          // Remove task from its current column
+          let moved: WorkspaceBoard["columns"][0]["tasks"][0] | undefined;
+          const cols = old.columns.map((col) => ({
+            ...col,
+            tasks: col.tasks.filter((t) => {
+              if (t.id === taskId) {
+                moved = t;
+                return false;
+              }
+              return true;
+            }),
+          }));
 
-        if (!moved) return old;
+          if (!moved) return old;
 
-        const updatedTask = { ...moved, columnId: targetColumnId, position };
+          const updatedTask = { ...moved, columnId: targetColumnId, position };
 
-        return {
-          ...old,
-          columns: cols.map((col) => {
-            if (col.id !== targetColumnId) return col;
-            // Insert at position and re-index
-            const tasks = [...col.tasks, updatedTask].sort(
-              (a, b) => a.position - b.position,
-            );
-            return { ...col, tasks };
-          }),
-        };
-      });
+          return {
+            ...old,
+            columns: cols.map((col) => {
+              if (col.id !== targetColumnId) return col;
+              // Insert at position and re-index
+              const tasks = [...col.tasks, updatedTask].sort(
+                (a, b) => a.position - b.position,
+              );
+              return { ...col, tasks };
+            }),
+          };
+        },
+      );
 
       return { previous };
     },
     onError: (_err, _vars, context) => {
       // Rollback (Constitution XVI)
       if (context?.previous) {
-        queryClient.setQueryData(["project", projectId], context.previous);
+        queryClient.setQueryData(["workspace", workspaceId], context.previous);
       }
       toastError("Не удалось переместить задачу. Изменения отменены.");
     },
     onSettled: () => {
       // Sync with server — picks up new totalTimeMs/isInProgress after timer logic
-      void queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+      void queryClient.invalidateQueries({
+        queryKey: ["workspace", workspaceId],
+      });
     },
   });
 
@@ -153,34 +158,41 @@ export function Board({ initialData, projectId }: Props) {
       return res.json();
     },
     onMutate: async ({ columnId, position: newIndex }) => {
-      await queryClient.cancelQueries({ queryKey: ["project", projectId] });
-      const previous = queryClient.getQueryData<ProjectBoard>([
-        "project",
-        projectId,
+      await queryClient.cancelQueries({ queryKey: ["workspace", workspaceId] });
+      const previous = queryClient.getQueryData<WorkspaceBoard>([
+        "workspace",
+        workspaceId,
       ]);
 
-      queryClient.setQueryData<ProjectBoard>(["project", projectId], (old) => {
-        if (!old) return old;
-        const sorted = [...old.columns].sort((a, b) => a.position - b.position);
-        const oldIndex = sorted.findIndex((c) => c.id === columnId);
-        if (oldIndex === -1) return old;
-        const reordered = arrayMove(sorted, oldIndex, newIndex);
-        return {
-          ...old,
-          columns: reordered.map((c, i) => ({ ...c, position: i })),
-        };
-      });
+      queryClient.setQueryData<WorkspaceBoard>(
+        ["workspace", workspaceId],
+        (old) => {
+          if (!old) return old;
+          const sorted = [...old.columns].sort(
+            (a, b) => a.position - b.position,
+          );
+          const oldIndex = sorted.findIndex((c) => c.id === columnId);
+          if (oldIndex === -1) return old;
+          const reordered = arrayMove(sorted, oldIndex, newIndex);
+          return {
+            ...old,
+            columns: reordered.map((c, i) => ({ ...c, position: i })),
+          };
+        },
+      );
 
       return { previous };
     },
     onError: (_err, _vars, context) => {
       if (context?.previous) {
-        queryClient.setQueryData(["project", projectId], context.previous);
+        queryClient.setQueryData(["workspace", workspaceId], context.previous);
       }
       toastError("Не удалось переместить колонку. Изменения отменены.");
     },
     onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+      void queryClient.invalidateQueries({
+        queryKey: ["workspace", workspaceId],
+      });
     },
   });
 
@@ -274,14 +286,16 @@ export function Board({ initialData, projectId }: Props) {
     if (!name) return;
     setAddingColumn(true);
     try {
-      const res = await fetch(`/api/projects/${projectId}/columns`, {
+      const res = await fetch(`/api/workspaces/${workspaceId}/columns`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name }),
       });
       if (!res.ok) throw await res.json();
       setNewColumnName("");
-      await queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+      await queryClient.invalidateQueries({
+        queryKey: ["workspace", workspaceId],
+      });
     } catch {
       toastError("Не удалось создать колонку");
     } finally {
@@ -313,7 +327,7 @@ export function Board({ initialData, projectId }: Props) {
             <Column
               key={column.id}
               column={column}
-              projectId={projectId}
+              workspaceId={workspaceId}
               members={board.members}
             />
           ))}

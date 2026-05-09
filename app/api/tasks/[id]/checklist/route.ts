@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { withErrorHandler, ApiError } from "@/lib/api-error";
 import { db } from "@/lib/db";
-import { checkMembership } from "@/lib/services/project.service";
+import { checkMembership } from "@/lib/services/workspace.service";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -18,11 +18,11 @@ export async function POST(req: Request, { params }: Params) {
 
     const task = await db.task.findUnique({
       where: { id: params.id },
-      select: { projectId: true },
+      select: { workspaceId: true },
     });
     if (!task) throw new ApiError("Задача не найдена", "NOT_FOUND", 404);
 
-    const membership = await checkMembership(task.projectId, session.user.id);
+    const membership = await checkMembership(task.workspaceId, session.user.id);
     if (!membership && session.user.role !== "ADMIN") {
       throw new ApiError("Нет доступа", "FORBIDDEN", 403);
     }

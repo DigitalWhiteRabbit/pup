@@ -10,7 +10,7 @@ export async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url);
     const q = searchParams.get("q")?.trim() ?? "";
-    const projectId = searchParams.get("projectId");
+    const workspaceId = searchParams.get("workspaceId");
 
     if (q.length < 2) {
       return NextResponse.json([]);
@@ -18,9 +18,9 @@ export async function GET(request: Request) {
 
     // Get existing member IDs to exclude them
     let excludeIds: string[] = [];
-    if (projectId) {
-      const members = await db.projectMember.findMany({
-        where: { projectId },
+    if (workspaceId) {
+      const members = await db.workspaceMember.findMany({
+        where: { workspaceId },
         select: { userId: true },
       });
       excludeIds = members.map((m) => m.userId);

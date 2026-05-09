@@ -45,10 +45,10 @@ import {
 } from "@/components/ui/popover";
 import { toastSuccess, toastApiError } from "@/lib/toast";
 import { formatDuration } from "./TaskCard";
-import type { ProjectBoard } from "@/lib/services/project.service";
+import type { WorkspaceBoard } from "@/lib/services/workspace.service";
 import type { TaskFull } from "@/lib/services/task.service";
 
-type Member = ProjectBoard["members"][0];
+type Member = WorkspaceBoard["members"][0];
 
 type TaskFullResponse = Omit<
   TaskFull,
@@ -109,7 +109,7 @@ const defaultLabelColors = [
 
 type Props = {
   taskId: string;
-  projectId: string;
+  workspaceId: string;
   members: Member[];
   onClose: () => void;
 };
@@ -125,7 +125,7 @@ function toDateInputValue(iso: string | null): string {
   return iso.slice(0, 10);
 }
 
-export function TaskModal({ taskId, projectId, members, onClose }: Props) {
+export function TaskModal({ taskId, workspaceId, members, onClose }: Props) {
   const queryClient = useQueryClient();
   const { data: session } = useSession();
   const currentUserId = session?.user?.id;
@@ -179,7 +179,9 @@ export function TaskModal({ taskId, projectId, members, onClose }: Props) {
 
   const invalidateAll = () => {
     void queryClient.invalidateQueries({ queryKey: ["task", taskId] });
-    void queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+    void queryClient.invalidateQueries({
+      queryKey: ["workspace", workspaceId],
+    });
   };
 
   const updateMutation = useMutation({
@@ -203,7 +205,9 @@ export function TaskModal({ taskId, projectId, members, onClose }: Props) {
     },
     onSuccess: () => {
       toastSuccess("Задача удалена");
-      void queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+      void queryClient.invalidateQueries({
+        queryKey: ["workspace", workspaceId],
+      });
       onClose();
     },
     onError: toastApiError,
@@ -462,7 +466,7 @@ export function TaskModal({ taskId, projectId, members, onClose }: Props) {
 
             {/* Labels */}
             <LabelsSection
-              projectId={projectId}
+              workspaceId={workspaceId}
               selectedIds={editLabelIds}
               taskLabels={task.labels}
               onChange={setEditLabelIds}
@@ -593,12 +597,12 @@ export function TaskModal({ taskId, projectId, members, onClose }: Props) {
 // ─── Labels ──────────────────────────────────────────────────────────────────
 
 function LabelsSection({
-  projectId,
+  workspaceId,
   selectedIds,
   taskLabels,
   onChange,
 }: {
-  projectId: string;
+  workspaceId: string;
   selectedIds: string[];
   taskLabels: LabelData[];
   onChange: (ids: string[]) => void;
@@ -609,9 +613,9 @@ function LabelsSection({
   const [newColor, setNewColor] = useState(defaultLabelColors[0]);
 
   const { data: allLabels = [] } = useQuery({
-    queryKey: ["labels", projectId],
+    queryKey: ["labels", workspaceId],
     queryFn: async () => {
-      const res = await fetch(`/api/projects/${projectId}/labels`);
+      const res = await fetch(`/api/workspaces/${workspaceId}/labels`);
       if (!res.ok) return taskLabels;
       return res.json() as Promise<LabelData[]>;
     },
@@ -619,7 +623,7 @@ function LabelsSection({
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch(`/api/projects/${projectId}/labels`, {
+      const res = await fetch(`/api/workspaces/${workspaceId}/labels`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: newName.trim(), color: newColor }),
@@ -628,7 +632,7 @@ function LabelsSection({
       return res.json() as Promise<LabelData>;
     },
     onSuccess: (label) => {
-      void queryClient.invalidateQueries({ queryKey: ["labels", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["labels", workspaceId] });
       onChange([...selectedIds, label.id]);
       setNewName("");
       toastSuccess("Метка создана");

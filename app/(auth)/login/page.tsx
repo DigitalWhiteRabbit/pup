@@ -6,6 +6,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { loginSchema, type LoginInput } from "@/lib/schemas/user.schema";
 import { toastError } from "@/lib/toast";
+import { Eye, EyeOff } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -21,6 +22,7 @@ import { Label } from "@/components/ui/label";
 export default function LoginPage() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const {
     register,
@@ -33,17 +35,15 @@ export default function LoginPage() {
   async function onSubmit(data: LoginInput) {
     setIsLoading(true);
     try {
-      // Get CSRF token first
       const csrfRes = await fetch("/api/auth/csrf");
       const { csrfToken } = (await csrfRes.json()) as { csrfToken: string };
 
-      // POST credentials directly — same as what signIn() does internally
       const body = new URLSearchParams({
         loginOrEmail: data.loginOrEmail,
         password: data.password,
         csrfToken,
         redirect: "false",
-        callbackUrl: "/projects",
+        callbackUrl: "/dashboard",
         json: "true",
       });
 
@@ -54,13 +54,12 @@ export default function LoginPage() {
         redirect: "follow",
       });
 
-      // Success: server redirects to callbackUrl (or /api/auth/error on failure)
       if (
         res.ok &&
         !res.url.includes("/api/auth/error") &&
         !res.url.includes("error=")
       ) {
-        router.push("/projects");
+        router.push("/dashboard");
         router.refresh();
       } else {
         toastError(
@@ -78,7 +77,7 @@ export default function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-background">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle>Вход в CRM</CardTitle>
+          <CardTitle>Вход в ПУП</CardTitle>
           <CardDescription>Введите логин или email и пароль</CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit(onSubmit)}>
@@ -87,7 +86,7 @@ export default function LoginPage() {
               <Label htmlFor="loginOrEmail">Логин или Email</Label>
               <Input
                 id="loginOrEmail"
-                placeholder="admin или admin@example.com"
+                placeholder="admin или admin@pupanel.io"
                 autoComplete="username"
                 aria-invalid={!!errors.loginOrEmail}
                 {...register("loginOrEmail")}
@@ -100,13 +99,28 @@ export default function LoginPage() {
             </div>
             <div className="space-y-1">
               <Label htmlFor="password">Пароль</Label>
-              <Input
-                id="password"
-                type="password"
-                autoComplete="current-password"
-                aria-invalid={!!errors.password}
-                {...register("password")}
-              />
+              <div className="relative">
+                <Input
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  autoComplete="current-password"
+                  aria-invalid={!!errors.password}
+                  className="pr-10"
+                  {...register("password")}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  tabIndex={-1}
+                >
+                  {showPassword ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
+                </button>
+              </div>
               {errors.password && (
                 <p className="text-sm text-destructive">
                   {errors.password.message}

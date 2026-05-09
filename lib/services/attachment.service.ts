@@ -2,7 +2,7 @@ import "server-only";
 import { db } from "@/lib/db";
 import { ApiError } from "@/lib/api-error";
 import { storage } from "./storage";
-import { checkMembership } from "./project.service";
+import { checkMembership } from "./workspace.service";
 
 export type AttachmentView = {
   id: string;
@@ -20,21 +20,21 @@ export type DownloadResult = {
   size: number;
 };
 
-async function getTaskProjectId(taskId: string): Promise<string> {
+async function getTaskWorkspaceId(taskId: string): Promise<string> {
   const task = await db.task.findUnique({
     where: { id: taskId },
-    select: { projectId: true },
+    select: { workspaceId: true },
   });
   if (!task) throw new ApiError("Задача не найдена", "NOT_FOUND", 404);
-  return task.projectId;
+  return task.workspaceId;
 }
 
 export async function uploadAttachment(
   input: { taskId: string; file: File; uploadedById: string },
   userRole: "ADMIN" | "USER",
 ): Promise<AttachmentView> {
-  const projectId = await getTaskProjectId(input.taskId);
-  const membership = await checkMembership(projectId, input.uploadedById);
+  const workspaceId = await getTaskWorkspaceId(input.taskId);
+  const membership = await checkMembership(workspaceId, input.uploadedById);
   if (!membership && userRole !== "ADMIN") {
     throw new ApiError("Нет доступа к проекту", "FORBIDDEN", 403);
   }
@@ -43,7 +43,7 @@ export async function uploadAttachment(
   const buffer = Buffer.from(arrayBuffer);
 
   const result = await storage().upload({
-    projectId,
+    projectId: workspaceId,
     taskId: input.taskId,
     originalName: input.file.name,
     buffer,
@@ -79,13 +79,13 @@ export async function downloadAttachment(
 ): Promise<DownloadResult> {
   const attachment = await db.attachment.findUnique({
     where: { id: attachmentId },
-    include: { task: { select: { projectId: true } } },
+    include: { task: { select: { workspaceId: true } } },
   });
   if (!attachment) {
     throw new ApiError("Вложение не найдено", "NOT_FOUND", 404);
   }
 
-  const membership = await checkMembership(attachment.task.projectId, userId);
+  const membership = await checkMembership(attachment.task.workspaceId, userId);
   if (!membership && userRole !== "ADMIN") {
     throw new ApiError("Нет доступа к файлу", "FORBIDDEN", 403);
   }
@@ -107,13 +107,13 @@ export async function deleteAttachment(
 ): Promise<void> {
   const attachment = await db.attachment.findUnique({
     where: { id: attachmentId },
-    include: { task: { select: { projectId: true } } },
+    include: { task: { select: { workspaceId: true } } },
   });
   if (!attachment) {
     throw new ApiError("Вложение не найдено", "NOT_FOUND", 404);
   }
 
-  const membership = await checkMembership(attachment.task.projectId, userId);
+  const membership = await checkMembership(attachment.task.workspaceId, userId);
   if (!membership && userRole !== "ADMIN") {
     throw new ApiError("Нет доступа", "FORBIDDEN", 403);
   }

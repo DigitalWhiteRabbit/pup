@@ -25,7 +25,7 @@ vi.mock("@/lib/db", () => ({
     task: {
       findUnique: vi.fn().mockResolvedValue({ title: "Test task" }),
     },
-    project: {
+    workspace: {
       findUnique: vi.fn().mockResolvedValue({ name: "Test project" }),
     },
     $transaction: (...args: unknown[]) => mockTransaction(...args),
@@ -74,7 +74,7 @@ describe("notify", () => {
       recipientId: "user-2",
       actorId: "user-1",
       taskId: "task-1",
-      projectId: "proj-1",
+      workspaceId: "proj-1",
     });
 
     expect(mockCreate).toHaveBeenCalledWith({
@@ -83,7 +83,7 @@ describe("notify", () => {
         recipientId: "user-2",
         actorId: "user-1",
         taskId: "task-1",
-        projectId: "proj-1",
+        workspaceId: "proj-1",
       }),
     });
   });
@@ -133,13 +133,15 @@ describe("notify", () => {
       recipientId: "user-2",
       actorId: "user-1",
       taskId: "task-1",
-      projectId: "proj-1",
+      workspaceId: "proj-1",
     });
 
     // fire-and-forget, so we check it was called
     // Need to wait a tick for the void promise
     await new Promise((r) => setTimeout(r, 10));
-    expect(mockSendTelegram).toHaveBeenCalledWith("123", "Test message");
+    expect(mockSendTelegram).toHaveBeenCalledWith("123", "Test message", {
+      taskId: "task-1",
+    });
   });
 
   it("checks tgNotifyComment for COMMENTED type", async () => {

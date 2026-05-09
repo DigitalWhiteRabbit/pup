@@ -12,7 +12,7 @@ import {
   CheckSquare,
   Calendar,
 } from "lucide-react";
-import type { ProjectBoard } from "@/lib/services/project.service";
+import type { WorkspaceBoard } from "@/lib/services/workspace.service";
 
 const priorityConfig: Record<
   string,
@@ -24,7 +24,7 @@ const priorityConfig: Record<
   URGENT: { label: "Срочный", color: "bg-red-100 text-red-700" },
 };
 
-type Task = ProjectBoard["columns"][0]["tasks"][0];
+type Task = WorkspaceBoard["columns"][0]["tasks"][0];
 
 // ─── Time formatting ──────────────────────────────────────────────────────────
 
