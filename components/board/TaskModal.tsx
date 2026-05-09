@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
-import { format } from "date-fns";
+import { format, parse } from "date-fns";
 import {
   Dialog,
   DialogContent,
@@ -37,6 +37,12 @@ import {
   CheckSquare,
   Square,
 } from "lucide-react";
+import { Calendar as CalendarWidget } from "@/components/ui/calendar";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { toastSuccess, toastApiError } from "@/lib/toast";
 import { formatDuration } from "./TaskCard";
 import type { ProjectBoard } from "@/lib/services/project.service";
@@ -131,6 +137,7 @@ export function TaskModal({ taskId, projectId, members, onClose }: Props) {
       if (!res.ok) throw new Error("Не удалось загрузить задачу");
       return res.json() as Promise<TaskFullResponse>;
     },
+    refetchInterval: 5000,
   });
 
   const [editTitle, setEditTitle] = useState("");
@@ -141,9 +148,11 @@ export function TaskModal({ taskId, projectId, members, onClose }: Props) {
   const [editDueDate, setEditDueDate] = useState("");
   const [editLabelIds, setEditLabelIds] = useState<string[]>([]);
   const [liveMs, setLiveMs] = useState(0);
+  const [initializedFor, setInitializedFor] = useState<string | null>(null);
 
+  // Populate edit fields only on first load per task (not on refetch after checklist/comment)
   useEffect(() => {
-    if (!task) return;
+    if (!task || initializedFor === taskId) return;
     setEditTitle(task.title);
     setEditDesc(task.description ?? "");
     setEditAssigneeIds(task.assignees.map((a) => a.id));
@@ -152,7 +161,8 @@ export function TaskModal({ taskId, projectId, members, onClose }: Props) {
     setEditDueDate(toDateInputValue(task.dueDate));
     setEditLabelIds(task.labels.map((l) => l.id));
     setLiveMs(task.totalTimeMs);
-  }, [task]);
+    setInitializedFor(taskId);
+  }, [task, initializedFor, taskId]);
 
   // Live timer
   useEffect(() => {
@@ -293,7 +303,7 @@ export function TaskModal({ taskId, projectId, members, onClose }: Props) {
             </div>
 
             {/* Priority + Dates row */}
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-3 gap-3 items-end">
               <div className="space-y-1">
                 <Label>Приоритет</Label>
                 <select
@@ -313,54 +323,141 @@ export function TaskModal({ taskId, projectId, members, onClose }: Props) {
                   <Calendar className="h-3.5 w-3.5" />
                   Начало
                 </Label>
-                <Input
-                  type="date"
-                  value={editStartDate}
-                  onChange={(e) => setEditStartDate(e.target.value)}
-                />
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className="w-full justify-start text-left font-normal h-9"
+                    >
+                      {editStartDate
+                        ? format(
+                            parse(editStartDate, "yyyy-MM-dd", new Date()),
+                            "dd.MM.yyyy",
+                          )
+                        : "дд.мм.гггг"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <CalendarWidget
+                      mode="single"
+                      selected={
+                        editStartDate
+                          ? parse(editStartDate, "yyyy-MM-dd", new Date())
+                          : undefined
+                      }
+                      onSelect={(date) =>
+                        setEditStartDate(date ? format(date, "yyyy-MM-dd") : "")
+                      }
+                    />
+                  </PopoverContent>
+                </Popover>
               </div>
               <div className="space-y-1">
                 <Label className="flex items-center gap-1">
                   <Calendar className="h-3.5 w-3.5" />
-                  Срок
+                  Дедлайн
                 </Label>
-                <Input
-                  type="date"
-                  value={editDueDate}
-                  onChange={(e) => setEditDueDate(e.target.value)}
-                />
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className="w-full justify-start text-left font-normal h-9"
+                    >
+                      {editDueDate
+                        ? format(
+                            parse(editDueDate, "yyyy-MM-dd", new Date()),
+                            "dd.MM.yyyy",
+                          )
+                        : "дд.мм.гггг"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <CalendarWidget
+                      mode="single"
+                      selected={
+                        editDueDate
+                          ? parse(editDueDate, "yyyy-MM-dd", new Date())
+                          : undefined
+                      }
+                      onSelect={(date) =>
+                        setEditDueDate(date ? format(date, "yyyy-MM-dd") : "")
+                      }
+                    />
+                  </PopoverContent>
+                </Popover>
               </div>
             </div>
 
             {/* Assignees */}
-            <div className="space-y-1">
-              <Label>Исполнители</Label>
-              <div className="rounded-md border border-input p-2 space-y-1 max-h-40 overflow-y-auto">
-                {members.map((m) => (
-                  <label
-                    key={m.id}
-                    className="flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-accent cursor-pointer"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={editAssigneeIds.includes(m.id)}
-                      onChange={(e) => {
-                        if (e.target.checked)
-                          setEditAssigneeIds((p) => [...p, m.id]);
-                        else
-                          setEditAssigneeIds((p) =>
-                            p.filter((id) => id !== m.id),
-                          );
-                      }}
-                      className="h-4 w-4 rounded border-input"
-                    />
-                    <span>{m.login}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {m.role === "OWNER" ? "(Владелец)" : "(Участник)"}
-                    </span>
-                  </label>
-                ))}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label>Исполнители</Label>
+                {members.filter((m) => !editAssigneeIds.includes(m.id)).length >
+                  0 && (
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="gap-1 h-6 text-xs"
+                      >
+                        <Plus className="h-3 w-3" />
+                        Добавить
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-56 p-1" align="end">
+                      {members
+                        .filter((m) => !editAssigneeIds.includes(m.id))
+                        .map((m) => (
+                          <button
+                            key={m.id}
+                            type="button"
+                            onClick={() =>
+                              setEditAssigneeIds((p) => [...p, m.id])
+                            }
+                            className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-accent"
+                          >
+                            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground text-[10px] font-medium">
+                              {m.login.slice(0, 2).toUpperCase()}
+                            </span>
+                            {m.login}
+                          </button>
+                        ))}
+                    </PopoverContent>
+                  </Popover>
+                )}
               </div>
+              {editAssigneeIds.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {editAssigneeIds.map((uid) => {
+                    const m = members.find((x) => x.id === uid);
+                    if (!m) return null;
+                    return (
+                      <span
+                        key={uid}
+                        className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary pl-1 pr-1.5 py-0.5 text-sm"
+                      >
+                        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-medium">
+                          {m.login.slice(0, 2).toUpperCase()}
+                        </span>
+                        {m.login}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setEditAssigneeIds((p) =>
+                              p.filter((id) => id !== uid),
+                            )
+                          }
+                          className="ml-0.5 rounded-full hover:bg-primary/20 p-0.5"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             {/* Labels */}
@@ -588,6 +685,12 @@ function LabelsSection({
                 key={l.id}
                 className="flex items-center gap-2 rounded px-2 py-1 text-sm hover:bg-accent cursor-pointer"
               >
+                <span
+                  className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${selectedIds.includes(l.id) ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground"}`}
+                  aria-hidden="true"
+                >
+                  {selectedIds.includes(l.id) && <Check className="h-3 w-3" />}
+                </span>
                 <input
                   type="checkbox"
                   checked={selectedIds.includes(l.id)}
@@ -595,7 +698,7 @@ function LabelsSection({
                     if (e.target.checked) onChange([...selectedIds, l.id]);
                     else onChange(selectedIds.filter((id) => id !== l.id));
                   }}
-                  className="h-4 w-4 rounded"
+                  className="sr-only"
                 />
                 <span
                   className="h-3 w-3 rounded-full shrink-0"

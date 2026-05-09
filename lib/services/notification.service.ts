@@ -50,6 +50,7 @@ export async function notify(input: {
   actorId: string;
   taskId?: string;
   projectId?: string;
+  extra?: { fromColumn?: string; toColumn?: string; commentText?: string };
 }): Promise<void> {
   // FR-029: no self-notifications
   if (input.recipientId === input.actorId) return;
@@ -93,7 +94,17 @@ export async function notify(input: {
     input.taskId
       ? db.task.findUnique({
           where: { id: input.taskId },
-          select: { title: true, projectId: true },
+          select: {
+            title: true,
+            description: true,
+            priority: true,
+            dueDate: true,
+            column: { select: { name: true } },
+            assignees: {
+              include: { user: { select: { login: true } } },
+            },
+            checklistItems: { select: { checked: true } },
+          },
         })
       : null,
     input.projectId
@@ -109,10 +120,23 @@ export async function notify(input: {
     actorLogin: actor?.login ?? null,
     taskTitle: task?.title ?? null,
     projectName: project?.name ?? null,
+    description: task?.description ?? null,
+    priority: task?.priority ?? null,
+    dueDate: task?.dueDate ?? null,
+    columnName: task?.column?.name ?? null,
+    assigneeLogins:
+      task?.assignees
+        ?.map((a) => a.user.login)
+        .filter((l) => l !== actor?.login) ?? [],
+    checklistTotal: task?.checklistItems?.length ?? 0,
+    checklistDone: task?.checklistItems?.filter((i) => i.checked).length ?? 0,
+    extra: input.extra,
   });
 
   // Fire-and-forget: don't await, don't block main flow
-  void sendTelegramNotification(recipient.telegramChatId, message);
+  void sendTelegramNotification(recipient.telegramChatId, message, {
+    taskId: input.taskId,
+  });
 }
 
 // ─── getNotifications ─────────────────────────────────────────────────────────

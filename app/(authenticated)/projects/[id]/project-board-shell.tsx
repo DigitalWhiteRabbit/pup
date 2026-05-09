@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { UserPlus, Settings, Trash2, Crown, User, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -100,22 +100,18 @@ export function ProjectBoardShell({
   const router = useRouter();
   const queryClient = useQueryClient();
 
-  const [project, setProject] = useState(initialProject);
-
-  // Sync state when server component re-renders with new props
-  useEffect(() => {
-    setProject(initialProject);
-  }, [initialProject]);
+  const { data: project } = useQuery({
+    queryKey: ["project", initialProject.id],
+    queryFn: () => apiFetchProject(initialProject.id),
+    initialData: initialProject,
+    refetchInterval: 5000,
+  });
 
   const refreshProject = useCallback(async () => {
-    try {
-      const fresh = await apiFetchProject(project.id);
-      setProject(fresh);
-    } catch {
-      // fallback to router refresh
-      router.refresh();
-    }
-  }, [project.id, router]);
+    await queryClient.invalidateQueries({
+      queryKey: ["project", initialProject.id],
+    });
+  }, [queryClient, initialProject.id]);
 
   const isOwner =
     currentUserRole === "ADMIN" ||
@@ -186,11 +182,8 @@ export function ProjectBoardShell({
   const updateMutation = useMutation({
     mutationFn: (data: UpdateProjectInput) =>
       apiUpdateProject(project.id, data),
-    onSuccess: (updated) => {
-      setProject((prev) => ({
-        ...prev,
-        ...(updated as Partial<ProjectBoard>),
-      }));
+    onSuccess: () => {
+      void refreshProject();
       toastSuccess("Проект обновлён");
       resetSettings();
       setSettingsOpen(false);

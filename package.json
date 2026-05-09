@@ -60,6 +60,7 @@
     "postcss": "^8.5.14",
     "prisma": "^6.19.0",
     "react": "^18",
+    "react-day-picker": "^9",
     "react-dom": "^18",
     "react-hook-form": "^7.75.0",
     "server-only": "^0.0.1",

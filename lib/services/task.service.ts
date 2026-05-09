@@ -409,6 +409,8 @@ export async function moveTask(
       lastIntervalStartedAt,
       _assigneeIds: task.assignees.map((a) => a.userId),
       _projectId: task.column.projectId,
+      _fromColumn: task.column.name,
+      _toColumn: targetColumn.name,
     };
   });
 
@@ -421,6 +423,10 @@ export async function moveTask(
         actorId: userId,
         taskId,
         projectId: result._projectId,
+        extra: {
+          fromColumn: result._fromColumn,
+          toColumn: result._toColumn,
+        },
       });
     }
   }

@@ -56,6 +56,7 @@ export async function createComment(
         actorId: input.authorId,
         taskId: input.taskId,
         projectId: taskInfo.projectId,
+        extra: { commentText: input.text },
       });
     }
   }
