@@ -228,6 +228,14 @@ export function TelegramSettings({
                 )}
               </button>
             </div>
+            <a
+              href={`https://t.me/${botUsername || "controler_panel_bot"}?start=${generatedCode}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block w-full"
+            >
+              <Button className="w-full">Привязать</Button>
+            </a>
             <p className="text-xs text-muted-foreground">
               Код действует 10 минут. После привязки это окно закроется
               автоматически.
