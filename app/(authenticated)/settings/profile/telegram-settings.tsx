@@ -13,6 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Copy, Check } from "lucide-react";
 import { toastSuccess, toastError } from "@/lib/toast";
 
 type Preferences = {
@@ -42,6 +43,14 @@ export function TelegramSettings({
   const [codeDialogOpen, setCodeDialogOpen] = useState(false);
   const [generatedCode, setGeneratedCode] = useState<string | null>(null);
   const [botUsername, setBotUsername] = useState<string>("");
+  const [copied, setCopied] = useState(false);
+
+  function copyCommand() {
+    if (!generatedCode) return;
+    void navigator.clipboard.writeText(`/start ${generatedCode}`);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
 
   // Poll connection status when code dialog is open
   const { data: statusData } = useQuery<{ connected: boolean } & Preferences>({
@@ -203,10 +212,21 @@ export function TelegramSettings({
                 Открыть →
               </span>
             </a>
-            <div className="rounded-md bg-muted p-4 text-center">
-              <code className="text-lg font-mono font-bold select-all">
+            <div className="flex items-center gap-2 rounded-md bg-muted px-4 py-3">
+              <code className="flex-1 text-base font-mono font-bold select-all text-center">
                 /start {generatedCode}
               </code>
+              <button
+                onClick={copyCommand}
+                className="shrink-0 rounded-md p-1.5 hover:bg-background transition-colors text-muted-foreground hover:text-foreground"
+                title="Скопировать"
+              >
+                {copied ? (
+                  <Check className="h-4 w-4 text-green-500" />
+                ) : (
+                  <Copy className="h-4 w-4" />
+                )}
+              </button>
             </div>
             <p className="text-xs text-muted-foreground">
               Код действует 10 минут. После привязки это окно закроется
