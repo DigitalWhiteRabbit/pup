@@ -183,10 +183,26 @@ export function TelegramSettings({
           </DialogHeader>
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              {botUsername
-                ? `Откройте бота @${botUsername} в Telegram и отправьте команду:`
-                : "Откройте бота в Telegram и отправьте команду:"}
+              Перейдите в бота и отправьте команду ниже:
             </p>
+            {botUsername && (
+              <a
+                href={`https://t.me/${botUsername}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-between rounded-md border px-4 py-3 hover:bg-accent transition-colors group"
+              >
+                <div>
+                  <p className="text-xs text-muted-foreground mb-0.5">
+                    Telegram-бот
+                  </p>
+                  <p className="text-sm font-medium">@{botUsername}</p>
+                </div>
+                <span className="text-xs text-primary group-hover:underline">
+                  Открыть →
+                </span>
+              </a>
+            )}
             <div className="rounded-md bg-muted p-4 text-center">
               <code className="text-lg font-mono font-bold select-all">
                 /start {generatedCode}
