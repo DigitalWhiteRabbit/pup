@@ -129,6 +129,10 @@ export async function createArticle(
     categoryId?: string | null;
     tagIds?: string[];
     isPublished?: boolean;
+    sourceType?: KbSourceType;
+    sourceUrl?: string;
+    sourceFileId?: string;
+    lastSyncedAt?: Date;
   },
   userId: string,
   userRole: "ADMIN" | "USER",
@@ -150,6 +154,10 @@ export async function createArticle(
         authorId: userId,
         lastEditedById: userId,
         isPublished: input.isPublished ?? true,
+        sourceType: input.sourceType ?? "MANUAL",
+        sourceUrl: input.sourceUrl ?? null,
+        sourceFileId: input.sourceFileId ?? null,
+        lastSyncedAt: input.lastSyncedAt ?? null,
         tags: input.tagIds?.length
           ? { create: input.tagIds.map((tagId) => ({ tagId })) }
           : undefined,

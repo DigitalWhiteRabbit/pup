@@ -227,6 +227,12 @@ export function ArticleViewClient({ article, workspaceId }: Props) {
               {tag.name}
             </Badge>
           ))}
+          {article.sourceType === "FILE" && (
+            <Badge variant="secondary">Источник: файл</Badge>
+          )}
+          {article.sourceType === "URL" && (
+            <Badge variant="secondary">Источник: URL</Badge>
+          )}
         </div>
       </div>
 

@@ -52,6 +52,7 @@
     "@uiw/react-md-editor": "^4.1.0",
     "autoprefixer": "^10.5.0",
     "bcrypt": "^6.0.0",
+    "cheerio": "^1.2.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
@@ -74,6 +75,9 @@
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "3",
     "tailwindcss-animate": "^1.0.7",
+    "turndown": "^7.2.4",
+    "turndown-plugin-gfm": "^1.0.2",
+    "xlsx": "^0.18.5",
     "zod": "^3.23.8"
   },
   "devDependencies": {
@@ -83,6 +87,7 @@
     "@types/pdf-parse": "^1.1.5",
     "@types/react": "^18",
     "@types/react-dom": "^18",
+    "@types/turndown": "^5.0.6",
     "@vitejs/plugin-react": "^4.3.1",
     "eslint": "^8",
     "eslint-config-next": "14.2.35",

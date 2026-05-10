@@ -517,7 +517,7 @@ function FilePreviewModal({
           </DialogTitle>
           <div className="flex items-center gap-3 pt-1">
             <span className="text-xs text-muted-foreground">
-              {formatBytes(file.size)} · {file.uploadedBy.login} ·{" "}
+              {formatBytes(file.size)} · {file.uploadedBy?.login ?? "—"} ·{" "}
               {formatDistanceToNow(new Date(file.uploadedAt), {
                 addSuffix: true,
                 locale: ru,
@@ -723,7 +723,7 @@ function FilesTab({ workspaceId }: { workspaceId: string }) {
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium truncate">{f.originalName}</p>
                 <p className="text-xs text-muted-foreground">
-                  {formatBytes(f.size)} · {f.uploadedBy.login} ·{" "}
+                  {formatBytes(f.size)} · {f.uploadedBy?.login ?? "—"} ·{" "}
                   {formatDistanceToNow(new Date(f.uploadedAt), {
                     addSuffix: true,
                     locale: ru,
@@ -875,6 +875,16 @@ export function KnowledgeClient({
               >
                 <Settings2 className="h-4 w-4 mr-1.5" />
                 Категории
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() =>
+                  router.push(`/workspaces/${workspaceId}/knowledge/import`)
+                }
+              >
+                <Upload className="h-4 w-4 mr-1.5" />
+                Импорт
               </Button>
               <Button
                 size="sm"

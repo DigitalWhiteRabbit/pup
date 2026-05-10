@@ -8,8 +8,10 @@ export interface FileStorage {
 }
 
 export type UploadInput = {
-  projectId: string;
-  taskId?: string;
+  scope?: "task" | "kb"; // default "task"
+  projectId?: string; // для scope=task (совместимость)
+  workspaceId?: string; // для scope=kb
+  taskId?: string; // для scope=task
   originalName: string;
   buffer: Buffer | Uint8Array;
   mimeType: string;

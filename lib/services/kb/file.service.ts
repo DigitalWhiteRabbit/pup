@@ -9,7 +9,7 @@ export type KbFileView = {
   originalName: string;
   size: number;
   mimeType: string;
-  uploadedBy: { id: string; login: string };
+  uploadedBy: { id: string; login: string } | null;
   uploadedAt: Date;
 };
 
@@ -31,7 +31,8 @@ export async function uploadKbFile(input: {
   const buffer = Buffer.from(arrayBuffer);
 
   const result = await storage().upload({
-    projectId: input.workspaceId,
+    scope: "kb",
+    workspaceId: input.workspaceId,
     originalName: input.file.name,
     buffer,
     mimeType: input.file.type || "application/octet-stream",
@@ -40,7 +41,7 @@ export async function uploadKbFile(input: {
   const kbFile = await db.kbFile.create({
     data: {
       workspaceId: input.workspaceId,
-      uploadedById: input.uploadedById,
+      uploadedById: input.uploadedById ?? null,
       originalName: input.file.name,
       size: result.size,
       mimeType: result.mimeType,

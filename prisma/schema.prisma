@@ -44,7 +44,7 @@ model User {
   kbArticlesAuthored KbArticle[]         @relation("KbArticleAuthor")
   kbArticlesEdited   KbArticle[]         @relation("KbArticleEditor")
   kbArticleVersions  KbArticleVersion[]
-  kbFiles            KbFile[]
+  kbFilesUploaded    KbFile[]            @relation("KbFileUploader")
 
   // Critical event Telegram notifications (default false)
   tgNotifyTaskDeleted      Boolean @default(false)
@@ -412,6 +412,10 @@ enum ActivityAction {
   KB_CATEGORY_DELETED
   KB_TAG_CREATED
   KB_TAG_DELETED
+  KB_ARTICLE_IMPORTED_FROM_FILE
+  KB_ARTICLE_IMPORTED_FROM_URL
+  KB_FILE_UPLOADED
+  KB_FILE_DELETED
 
   // System
   USER_LOGIN
@@ -509,6 +513,7 @@ model KbArticle {
   sourceType      KbSourceType @default(MANUAL)
   sourceUrl       String?
   sourceFileId    String?
+  sourceFile      KbFile?      @relation("ArticleSourceFile", fields: [sourceFileId], references: [id], onDelete: SetNull)
   lastSyncedAt    DateTime?
 
   authorId       String?
@@ -529,6 +534,7 @@ model KbArticle {
   @@index([workspaceId, isPublished, updatedAt])
   @@index([categoryId])
   @@index([authorId])
+  @@index([sourceFileId])
 }
 
 model KbArticleTag {
@@ -562,7 +568,7 @@ model KbArticleVersion {
 model KbFile {
   id           String   @id @default(cuid())
   workspaceId  String
-  uploadedById String
+  uploadedById String?
   originalName String
   size         Int // bytes
   mimeType     String
@@ -570,10 +576,12 @@ model KbFile {
 
   uploadedAt DateTime @default(now())
 
-  workspace  Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  uploadedBy User      @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
+  workspace  Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  uploadedBy User?       @relation("KbFileUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
+  articles   KbArticle[] @relation("ArticleSourceFile")
 
   @@index([workspaceId, uploadedAt])
+  @@index([uploadedById])
 }
 
 model SystemLog {

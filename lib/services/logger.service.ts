@@ -77,6 +77,7 @@ export type SummaryContext = {
   kbArticleTitle?: string | null;
   kbCategoryName?: string | null;
   kbTagName?: string | null;
+  sourceUrl?: string | null;
 };
 
 // ─── generateSummary ──────────────────────────────────────────────────────────
@@ -197,6 +198,14 @@ export function generateSummary(
       return `${actor} создал тег «${ctx.kbTagName ?? "?"}»`;
     case "KB_TAG_DELETED":
       return `${actor} удалил тег «${ctx.kbTagName ?? "?"}»`;
+    case "KB_ARTICLE_IMPORTED_FROM_FILE":
+      return `${actor} импортировал статью «${ctx.kbArticleTitle ?? "?"}» из файла`;
+    case "KB_ARTICLE_IMPORTED_FROM_URL":
+      return `${actor} импортировал статью «${ctx.kbArticleTitle ?? "?"}» с ${ctx.sourceUrl ?? "URL"}`;
+    case "KB_FILE_UPLOADED":
+      return `${actor} загрузил файл «${ctx.attachmentName ?? "?"}» в базу знаний`;
+    case "KB_FILE_DELETED":
+      return `${actor} удалил файл «${ctx.attachmentName ?? "?"}» из базы знаний`;
 
     default:
       return `${actor} выполнил действие`;
