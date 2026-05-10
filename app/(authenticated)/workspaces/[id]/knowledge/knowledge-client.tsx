@@ -474,12 +474,114 @@ function CategoryDialog({
   );
 }
 
+// ─── File Preview Modal ───────────────────────────────────────────────────────
+
+type PreviewData =
+  | { type: "text"; content: string }
+  | { type: "html"; content: string }
+  | { type: "image"; content: string }
+  | { type: "unsupported"; content: string };
+
+function FilePreviewModal({
+  file,
+  onClose,
+}: {
+  file: KbFileView;
+  onClose: () => void;
+}) {
+  const { data, isLoading } = useQuery<PreviewData>({
+    queryKey: ["kb-file-preview", file.id],
+    queryFn: () =>
+      fetch(`/api/kb/files/${file.id}/preview`).then((r) => r.json()),
+    staleTime: 60_000,
+  });
+
+  return (
+    <Dialog open onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col">
+        <DialogHeader className="shrink-0">
+          <DialogTitle className="flex items-center gap-2 min-w-0 pr-6">
+            <FileIcon
+              mimeType={file.mimeType}
+              className="h-5 w-5 shrink-0 text-muted-foreground"
+            />
+            <span className="truncate">{file.originalName}</span>
+          </DialogTitle>
+          <div className="flex items-center gap-3 pt-1">
+            <span className="text-xs text-muted-foreground">
+              {formatBytes(file.size)} · {file.uploadedBy.login} ·{" "}
+              {formatDistanceToNow(new Date(file.uploadedAt), {
+                addSuffix: true,
+                locale: ru,
+              })}
+            </span>
+            <a
+              href={`/api/kb/files/${file.id}/download`}
+              download={file.originalName}
+            >
+              <Button variant="outline" size="sm" className="h-7 text-xs">
+                <Download className="h-3.5 w-3.5 mr-1" />
+                Скачать
+              </Button>
+            </a>
+          </div>
+        </DialogHeader>
+
+        <div className="flex-1 overflow-y-auto border rounded-md mt-2">
+          {isLoading ? (
+            <div className="flex items-center justify-center h-48 gap-2 text-muted-foreground">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              <span className="text-sm">Загружаем содержимое...</span>
+            </div>
+          ) : !data || data.type === "unsupported" ? (
+            <div className="flex flex-col items-center justify-center h-48 gap-3 text-muted-foreground">
+              <FileIcon
+                mimeType={file.mimeType}
+                className="h-10 w-10 opacity-30"
+              />
+              <p className="text-sm">
+                Предпросмотр недоступен для этого типа файла
+              </p>
+              <a
+                href={`/api/kb/files/${file.id}/download`}
+                download={file.originalName}
+              >
+                <Button variant="outline" size="sm">
+                  <Download className="h-4 w-4 mr-1.5" />
+                  Скачать файл
+                </Button>
+              </a>
+            </div>
+          ) : data.type === "image" ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={data.content}
+              alt={file.originalName}
+              className="max-w-full h-auto mx-auto block p-4"
+            />
+          ) : data.type === "html" ? (
+            <div
+              className="prose prose-sm max-w-none p-6 dark:prose-invert"
+              dangerouslySetInnerHTML={{ __html: data.content }}
+            />
+          ) : (
+            <pre className="p-6 text-sm whitespace-pre-wrap break-words font-mono leading-relaxed">
+              {data.content}
+            </pre>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ─── Files Tab ────────────────────────────────────────────────────────────────
 
 function FilesTab({ workspaceId }: { workspaceId: string }) {
   const qc = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const [previewFile, setPreviewFile] = useState<KbFileView | null>(null);
 
   const { data: files, isLoading } = useQuery<KbFileView[]>({
     queryKey: ["kb-files", workspaceId],
@@ -603,7 +705,8 @@ function FilesTab({ workspaceId }: { workspaceId: string }) {
           {files.map((f) => (
             <div
               key={f.id}
-              className="flex items-center gap-3 rounded-lg border bg-card px-4 py-3"
+              className="flex items-center gap-3 rounded-lg border bg-card px-4 py-3 hover:bg-accent/40 transition-colors cursor-pointer"
+              onClick={() => setPreviewFile(f)}
             >
               <FileIcon
                 mimeType={f.mimeType}
@@ -622,6 +725,7 @@ function FilesTab({ workspaceId }: { workspaceId: string }) {
               <a
                 href={`/api/kb/files/${f.id}/download`}
                 download={f.originalName}
+                onClick={(e) => e.stopPropagation()}
               >
                 <Button variant="ghost" size="icon" className="h-8 w-8">
                   <Download className="h-4 w-4" />
@@ -631,7 +735,8 @@ function FilesTab({ workspaceId }: { workspaceId: string }) {
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8 text-destructive hover:text-destructive"
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation();
                   if (confirm(`Удалить «${f.originalName}»?`))
                     deleteMut.mutate(f.id);
                 }}
@@ -642,6 +747,14 @@ function FilesTab({ workspaceId }: { workspaceId: string }) {
             </div>
           ))}
         </div>
+      )}
+
+      {/* Preview modal */}
+      {previewFile && (
+        <FilePreviewModal
+          file={previewFile}
+          onClose={() => setPreviewFile(null)}
+        />
       )}
     </div>
   );
