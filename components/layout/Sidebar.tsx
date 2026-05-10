@@ -335,6 +335,23 @@ function SidebarContent({
             </Link>
 
             <Link
+              href="/dashboard?tab=logs"
+              onClick={onNavigate}
+              className={cn(
+                "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                pathname === "/dashboard" &&
+                  typeof window !== "undefined" &&
+                  new URLSearchParams(window.location.search).get("tab") ===
+                    "logs"
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+              )}
+            >
+              <ScrollText className="h-4 w-4" />
+              Логи
+            </Link>
+
+            <Link
               href="/settings/profile"
               onClick={onNavigate}
               className={cn(

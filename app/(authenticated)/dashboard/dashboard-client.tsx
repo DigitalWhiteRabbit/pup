@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useSearchParams } from "next/navigation";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import Link from "next/link";
@@ -345,11 +346,14 @@ function GlobalLogsTab() {
 // ─── DashboardClient ──────────────────────────────────────────────────────────
 
 export function DashboardClient() {
+  const searchParams = useSearchParams();
+  const defaultTab = searchParams.get("tab") === "logs" ? "logs" : "overview";
+
   return (
     <div className="p-6 max-w-5xl mx-auto">
       <h1 className="text-2xl font-bold mb-6">Dashboard</h1>
 
-      <Tabs defaultValue="overview">
+      <Tabs defaultValue={defaultTab}>
         <TabsList className="mb-6">
           <TabsTrigger value="overview">Обзор</TabsTrigger>
           <TabsTrigger value="logs">Все логи</TabsTrigger>
