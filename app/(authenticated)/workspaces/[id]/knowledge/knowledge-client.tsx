@@ -465,7 +465,7 @@ export function KnowledgeClient({
     page: String(page),
     pageSize: String(PAGE_SIZE),
   });
-  if (categoryFilter === "none") params.set("categoryId", "");
+  if (categoryFilter === "__none__") params.set("categoryId", "");
   else if (categoryFilter !== "all") params.set("categoryId", categoryFilter);
   if (!showDrafts) params.set("isPublished", "true");
   if (search) params.set("search", search);
@@ -569,7 +569,7 @@ export function KnowledgeClient({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Все категории</SelectItem>
-            <SelectItem value="none">Без категории</SelectItem>
+            <SelectItem value="__none__">Без категории</SelectItem>
             {(categories ?? []).map((c) => (
               <SelectItem key={c.id} value={c.id}>
                 {c.name}

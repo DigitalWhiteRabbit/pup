@@ -33,7 +33,7 @@ export function NewArticleClient({ workspaceId, categories, tags }: Props) {
 
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
-  const [categoryId, setCategoryId] = useState<string>("");
+  const [categoryId, setCategoryId] = useState<string>("__none__");
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [isPublished, setIsPublished] = useState(true);
   // New tag creation inline
@@ -84,7 +84,7 @@ export function NewArticleClient({ workspaceId, categories, tags }: Props) {
     createMut.mutate({
       title: title.trim(),
       content,
-      categoryId: categoryId || null,
+      categoryId: categoryId === "__none__" ? null : categoryId || null,
       tagIds: selectedTagIds,
       isPublished,
     });
@@ -132,7 +132,7 @@ export function NewArticleClient({ workspaceId, categories, tags }: Props) {
               <SelectValue placeholder="Без категории" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">Без категории</SelectItem>
+              <SelectItem value="__none__">Без категории</SelectItem>
               {categories.map((c) => (
                 <SelectItem key={c.id} value={c.id}>
                   {c.name}

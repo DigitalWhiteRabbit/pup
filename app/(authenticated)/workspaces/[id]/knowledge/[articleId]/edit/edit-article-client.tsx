@@ -42,7 +42,9 @@ export function EditArticleClient({
 
   const [title, setTitle] = useState(article.title);
   const [content, setContent] = useState(article.content);
-  const [categoryId, setCategoryId] = useState(article.categoryId ?? "");
+  const [categoryId, setCategoryId] = useState(
+    article.categoryId ?? "__none__",
+  );
   const [selectedTagIds, setSelectedTagIds] = useState(
     article.tags.map((t) => t.id),
   );
@@ -89,7 +91,7 @@ export function EditArticleClient({
     updateMut.mutate({
       title: title.trim(),
       content,
-      categoryId: categoryId || null,
+      categoryId: categoryId === "__none__" ? null : categoryId || null,
       tagIds: selectedTagIds,
       isPublished,
       reason: reason.trim() || undefined,
@@ -138,7 +140,7 @@ export function EditArticleClient({
               <SelectValue placeholder="Без категории" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">Без категории</SelectItem>
+              <SelectItem value="__none__">Без категории</SelectItem>
               {categories.map((c) => (
                 <SelectItem key={c.id} value={c.id}>
                   {c.name}
