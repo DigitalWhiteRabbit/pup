@@ -496,8 +496,9 @@ function FilePreviewModal({
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json() as Promise<PreviewData>;
     },
-    staleTime: 60_000,
-    retry: false,
+    staleTime: 0,
+    gcTime: 0,
+    retry: 1,
   });
 
   const isUnsupported =

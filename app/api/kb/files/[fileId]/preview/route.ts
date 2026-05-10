@@ -39,6 +39,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
 
     const mime = kbFile.mimeType;
     const name = kbFile.originalName.toLowerCase();
+    console.log("[KB preview]", { id: params.fileId, mime, name, storagePath: kbFile.storagePath });
 
     // Plain text
     if (
