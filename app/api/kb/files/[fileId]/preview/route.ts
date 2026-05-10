@@ -68,13 +68,13 @@ export async function GET(_req: NextRequest, { params }: Params) {
       name.endsWith(".docx") ||
       name.endsWith(".doc")
     ) {
-      const buf = await fs.readFile(filePath);
       const isDocx =
         mime === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
         name.endsWith(".docx");
+      // Pass file path directly — avoids buffer corruption inside Next.js turbopack
       const result = isDocx
-        ? await mammoth.convertToHtml({ buffer: buf })
-        : await mammoth.extractRawText({ buffer: buf });
+        ? await mammoth.convertToHtml({ path: filePath })
+        : await mammoth.extractRawText({ path: filePath });
       const type = isDocx ? "html" : "text";
       return NextResponse.json({ type, content: result.value });
     }
