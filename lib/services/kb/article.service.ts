@@ -5,6 +5,7 @@ import { checkMembership } from "../workspace.service";
 import { logActivity, generateSummary } from "../logger.service";
 import slugify from "slugify";
 import type { KbSourceType } from "@prisma/client";
+import { diffLines } from "diff";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -27,6 +28,8 @@ export type KbArticleSummary = {
 export type KbArticleFull = KbArticleSummary & {
   content: string;
   sourceType: KbSourceType;
+  sourceUrl: string | null;
+  lastSyncedAt: Date | null;
 };
 
 export type KbArticleVersionItem = {
@@ -328,6 +331,8 @@ export async function getArticleById(
     ...mapArticleSummary(article),
     content: article.content,
     sourceType: article.sourceType,
+    sourceUrl: article.sourceUrl,
+    lastSyncedAt: article.lastSyncedAt,
   };
 }
 
@@ -475,4 +480,134 @@ export async function restoreArticleVersion(
   });
 
   return mapArticleSummary(updated);
+}
+
+// ─── refreshFromUrl ───────────────────────────────────────────────────────────
+
+export type ContentDiffEntry = {
+  type: "added" | "removed" | "unchanged";
+  value: string;
+};
+
+export type RefreshResult = {
+  changed: boolean;
+  diff: {
+    titleChanged: boolean;
+    oldTitle: string;
+    newTitle: string;
+    contentDiff: ContentDiffEntry[];
+    addedLines: number;
+    removedLines: number;
+  };
+  newVersion: KbArticleSummary | null;
+};
+
+export async function refreshFromUrl(
+  articleId: string,
+  userId: string,
+  userRole: "ADMIN" | "USER",
+  preview = true,
+): Promise<RefreshResult> {
+  const article = await db.kbArticle.findUnique({
+    where: { id: articleId },
+    include: articleInclude,
+  });
+  if (!article) throw new ApiError("Статья не найдена", "NOT_FOUND", 404);
+  if (article.sourceType !== "URL" || !article.sourceUrl) {
+    throw new ApiError(
+      "Статья не связана с URL-источником",
+      "INVALID_SOURCE_TYPE",
+      400,
+    );
+  }
+
+  const membership = await checkMembership(article.workspaceId, userId);
+  if (!membership && userRole !== "ADMIN") {
+    throw new ApiError("Нет доступа", "FORBIDDEN", 403);
+  }
+
+  // Dynamic import to avoid circular dependency issues
+  const { parseUrl } = await import("./url-parser.service");
+  const fetched = await parseUrl(article.sourceUrl);
+
+  const titleChanged = fetched.title !== article.title;
+
+  const rawDiff = diffLines(article.content, fetched.content);
+  const contentDiff: ContentDiffEntry[] = rawDiff.map((part) => ({
+    type: part.added ? "added" : part.removed ? "removed" : "unchanged",
+    value: part.value,
+  }));
+
+  const addedLines = rawDiff
+    .filter((p) => p.added)
+    .reduce((s, p) => s + (p.count ?? 0), 0);
+  const removedLines = rawDiff
+    .filter((p) => p.removed)
+    .reduce((s, p) => s + (p.count ?? 0), 0);
+
+  const changed = titleChanged || addedLines > 0 || removedLines > 0;
+
+  if (!preview && changed) {
+    const updated = await db.$transaction(async (tx) => {
+      await tx.kbArticleVersion.create({
+        data: {
+          articleId,
+          title: article.title,
+          content: article.content,
+          editedById: userId,
+          reason: `Обновлено из источника: ${article.sourceUrl}`,
+        },
+      });
+
+      return tx.kbArticle.update({
+        where: { id: articleId },
+        data: {
+          title: fetched.title,
+          content: fetched.content,
+          lastEditedById: userId,
+          lastSyncedAt: new Date(),
+        },
+        include: articleInclude,
+      });
+    });
+
+    void logActivity({
+      workspaceId: article.workspaceId,
+      actorId: userId,
+      action: "KB_ARTICLE_REFRESHED_FROM_URL",
+      entityType: "KbArticle",
+      entityId: articleId,
+      summary: generateSummary("KB_ARTICLE_REFRESHED_FROM_URL", {
+        kbArticleTitle: updated.title,
+        sourceUrl: article.sourceUrl,
+      }),
+      metadata: { addedLines, removedLines, sourceUrl: article.sourceUrl },
+    });
+
+    return {
+      changed: true,
+      diff: {
+        titleChanged,
+        oldTitle: article.title,
+        newTitle: fetched.title,
+        contentDiff,
+        addedLines,
+        removedLines,
+      },
+      newVersion: mapArticleSummary(updated),
+    };
+  }
+
+  return {
+    changed,
+    diff: {
+      titleChanged,
+      oldTitle: article.title,
+      newTitle: fetched.title,
+      contentDiff,
+      addedLines,
+      removedLines,
+    },
+    newVersion: null,
+  };
 }

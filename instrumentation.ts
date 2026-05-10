@@ -4,6 +4,24 @@ export async function register() {
     const { getTelegramBot } = await import("@/lib/services/telegram/bot");
     getTelegramBot();
 
+    const { db } = await import("@/lib/db");
+    db.kbCrawl
+      .updateMany({
+        where: { status: "RUNNING" },
+        data: {
+          status: "FAILED",
+          error: "Сервер был перезапущен во время выполнения crawl",
+          completedAt: new Date(),
+        },
+      })
+      .then((r) => {
+        if (r.count > 0)
+          console.log(
+            `[Crawl cleanup] Marked ${r.count} stuck crawls as FAILED`,
+          );
+      })
+      .catch((e) => console.error("[Crawl cleanup] Failed:", e));
+
     const { cleanupOldLogs } = await import("@/lib/services/logger.service");
 
     // Initial cleanup on startup

@@ -478,6 +478,201 @@ function UrlTab({
   );
 }
 
+// ─── Crawl Tab ────────────────────────────────────────────────────────────────
+
+function CrawlTab({
+  workspaceId,
+  categories,
+  tags,
+}: {
+  workspaceId: string;
+  categories: KbCategoryWithCount[];
+  tags: KbTagItem[];
+}) {
+  const router = useRouter();
+  const [startUrl, setStartUrl] = useState("");
+  const [maxPages, setMaxPages] = useState(500);
+  const [maxDepth, setMaxDepth] = useState(5);
+  const [timeoutMin, setTimeoutMin] = useState(15);
+  const [categoryId, setCategoryId] = useState<string>("");
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+  const [showLimits, setShowLimits] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [urlError, setUrlError] = useState("");
+
+  const validateUrl = (val: string) => {
+    try {
+      new URL(val);
+      setUrlError("");
+      return true;
+    } catch {
+      setUrlError("Введите корректный URL (начиная с http:// или https://)");
+      return false;
+    }
+  };
+
+  const handleStart = async () => {
+    if (!validateUrl(startUrl)) return;
+    setLoading(true);
+    try {
+      const res = await fetch(
+        `/api/workspaces/${workspaceId}/kb/import/crawl`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            startUrl,
+            maxPages,
+            maxDepth,
+            timeoutMs: timeoutMin * 60 * 1000,
+            categoryId: categoryId || undefined,
+            tagIds: selectedTagIds.length ? selectedTagIds : undefined,
+          }),
+        },
+      );
+      if (!res.ok) {
+        const data = (await res.json()) as { error?: string };
+        throw new Error(data.error ?? "Ошибка запуска");
+      }
+      const { crawlId } = (await res.json()) as { crawlId: string };
+      toastSuccess("Crawl запущен");
+      router.push(`/workspaces/${workspaceId}/knowledge/crawls/${crawlId}`);
+    } catch (err) {
+      toastApiError(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-1">
+        <label className="text-sm font-medium">Стартовый URL</label>
+        <Input
+          placeholder="https://docs.example.com"
+          value={startUrl}
+          onChange={(e) => {
+            setStartUrl(e.target.value);
+            setUrlError("");
+          }}
+        />
+        {urlError && <p className="text-xs text-destructive">{urlError}</p>}
+        <p className="text-xs text-muted-foreground">
+          Краулер обойдёт все страницы в пределах этого домена
+        </p>
+      </div>
+
+      <button
+        type="button"
+        className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1"
+        onClick={() => setShowLimits((v) => !v)}
+      >
+        {showLimits ? "▼" : "▶"} Лимиты и настройки
+      </button>
+
+      {showLimits && (
+        <div className="grid grid-cols-3 gap-3 p-3 border rounded-md bg-muted/30">
+          <div className="space-y-1">
+            <label className="text-xs font-medium">Макс. страниц</label>
+            <Input
+              type="number"
+              min={1}
+              max={10000}
+              value={maxPages}
+              onChange={(e) => setMaxPages(Number(e.target.value))}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium">Макс. глубина</label>
+            <Input
+              type="number"
+              min={1}
+              max={20}
+              value={maxDepth}
+              onChange={(e) => setMaxDepth(Number(e.target.value))}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium">Таймаут (мин)</label>
+            <Input
+              type="number"
+              min={1}
+              max={60}
+              value={timeoutMin}
+              onChange={(e) => setTimeoutMin(Number(e.target.value))}
+            />
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1">
+          <label className="text-sm font-medium">Категория</label>
+          <Select value={categoryId} onValueChange={setCategoryId}>
+            <SelectTrigger>
+              <SelectValue placeholder="Без категории" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="">Без категории</SelectItem>
+              {categories.map((c) => (
+                <SelectItem key={c.id} value={c.id}>
+                  {c.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <label className="text-sm font-medium">Теги</label>
+          <div className="flex flex-wrap gap-1 p-2 border rounded-md min-h-[36px]">
+            {tags.map((tag) => {
+              const selected = selectedTagIds.includes(tag.id);
+              return (
+                <Badge
+                  key={tag.id}
+                  variant={selected ? "default" : "outline"}
+                  className="cursor-pointer text-xs"
+                  style={selected ? { backgroundColor: tag.color } : undefined}
+                  onClick={() =>
+                    setSelectedTagIds((prev) =>
+                      selected
+                        ? prev.filter((id) => id !== tag.id)
+                        : [...prev, tag.id],
+                    )
+                  }
+                >
+                  {tag.name}
+                </Badge>
+              );
+            })}
+            {!tags.length && (
+              <span className="text-xs text-muted-foreground">Нет тегов</span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <Button
+        onClick={handleStart}
+        disabled={!startUrl || loading}
+        className="w-full"
+      >
+        {loading ? (
+          <>
+            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            Запускаем…
+          </>
+        ) : (
+          <>
+            <ExternalLink className="h-4 w-4 mr-2" />
+            Запустить crawl
+          </>
+        )}
+      </Button>
+    </div>
+  );
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export function ImportClient({ workspaceId, categories, tags }: Props) {
@@ -508,7 +703,7 @@ export function ImportClient({ workspaceId, categories, tags }: Props) {
             <LinkIcon className="h-4 w-4" />
             Из URL
           </TabsTrigger>
-          <TabsTrigger value="crawl" className="flex-1 gap-2" disabled>
+          <TabsTrigger value="crawl" className="flex-1 gap-2">
             <ExternalLink className="h-4 w-4" />
             Краулинг сайта
           </TabsTrigger>
@@ -531,11 +726,11 @@ export function ImportClient({ workspaceId, categories, tags }: Props) {
         </TabsContent>
 
         <TabsContent value="crawl" className="mt-4">
-          <div className="text-center py-12 text-muted-foreground">
-            <ExternalLink className="h-8 w-8 mx-auto mb-3 opacity-40" />
-            <p className="font-medium">Краулинг сайта</p>
-            <p className="text-sm mt-1">Будет доступно в следующей итерации</p>
-          </div>
+          <CrawlTab
+            workspaceId={workspaceId}
+            categories={categories}
+            tags={tags}
+          />
         </TabsContent>
       </Tabs>
     </div>

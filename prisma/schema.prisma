@@ -45,6 +45,7 @@ model User {
   kbArticlesEdited   KbArticle[]         @relation("KbArticleEditor")
   kbArticleVersions  KbArticleVersion[]
   kbFilesUploaded    KbFile[]            @relation("KbFileUploader")
+  kbCrawlsInitiated  KbCrawl[]           @relation("KbCrawlInitiator")
 
   // Critical event Telegram notifications (default false)
   tgNotifyTaskDeleted      Boolean @default(false)
@@ -85,6 +86,7 @@ model Workspace {
   kbTags        KbTag[]
   kbArticles    KbArticle[]
   kbFiles       KbFile[]
+  kbCrawls      KbCrawl[]
 
   @@index([ownerId])
 }
@@ -416,6 +418,11 @@ enum ActivityAction {
   KB_ARTICLE_IMPORTED_FROM_URL
   KB_FILE_UPLOADED
   KB_FILE_DELETED
+  KB_ARTICLE_REFRESHED_FROM_URL
+  KB_CRAWL_STARTED
+  KB_CRAWL_COMPLETED
+  KB_CRAWL_FAILED
+  KB_CRAWL_CANCELLED
 
   // System
   USER_LOGIN
@@ -582,6 +589,67 @@ model KbFile {
 
   @@index([workspaceId, uploadedAt])
   @@index([uploadedById])
+}
+
+// ─────────────────────────────────────────
+// KB CRAWL
+// ─────────────────────────────────────────
+
+enum KbCrawlStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+model KbCrawl {
+  id          String        @id @default(cuid())
+  workspaceId String
+  startUrl    String
+
+  maxPages  Int @default(500)
+  maxDepth  Int @default(5)
+  timeoutMs Int @default(900000)
+
+  status      KbCrawlStatus @default(PENDING)
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  pagesFound     Int @default(0)
+  pagesCompleted Int @default(0)
+  pagesFailed    Int @default(0)
+  currentDepth   Int @default(0)
+
+  articlesCreated Int @default(0)
+  articlesUpdated Int @default(0)
+
+  error         String?
+  initiatedById String?
+  createdAt     DateTime @default(now())
+
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  initiatedBy User?         @relation("KbCrawlInitiator", fields: [initiatedById], references: [id], onDelete: SetNull)
+  pages       KbCrawlPage[]
+
+  @@index([workspaceId, status])
+  @@index([initiatedById])
+}
+
+model KbCrawlPage {
+  id        String    @id @default(cuid())
+  crawlId   String
+  url       String
+  depth     Int
+  status    String // "pending" | "completed" | "failed" | "skipped"
+  fetchedAt DateTime?
+  error     String?
+  articleId String?
+
+  crawl KbCrawl @relation(fields: [crawlId], references: [id], onDelete: Cascade)
+
+  @@unique([crawlId, url])
+  @@index([crawlId, status])
 }
 
 model SystemLog {

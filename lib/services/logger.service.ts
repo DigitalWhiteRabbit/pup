@@ -206,6 +206,16 @@ export function generateSummary(
       return `${actor} загрузил файл «${ctx.attachmentName ?? "?"}» в базу знаний`;
     case "KB_FILE_DELETED":
       return `${actor} удалил файл «${ctx.attachmentName ?? "?"}» из базы знаний`;
+    case "KB_ARTICLE_REFRESHED_FROM_URL":
+      return `${actor} обновил статью «${ctx.kbArticleTitle ?? "?"}» из источника ${ctx.sourceUrl ?? "URL"}`;
+    case "KB_CRAWL_STARTED":
+      return `${actor} запустил crawl сайта ${ctx.sourceUrl ?? "URL"}`;
+    case "KB_CRAWL_COMPLETED":
+      return `${actor} завершил crawl ${ctx.sourceUrl ?? "URL"}: создано ${ctx.kbArticleTitle ?? "0"} статей`;
+    case "KB_CRAWL_FAILED":
+      return `${actor} — crawl сайта ${ctx.sourceUrl ?? "URL"} завершился с ошибкой`;
+    case "KB_CRAWL_CANCELLED":
+      return `${actor} отменил crawl сайта ${ctx.sourceUrl ?? "URL"}`;
 
     default:
       return `${actor} выполнил действие`;

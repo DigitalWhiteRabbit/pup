@@ -2,8 +2,9 @@
 
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import Link from "next/link";
-import { format } from "date-fns";
+import { format, formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import {
   Pencil,
@@ -12,9 +13,17 @@ import {
   ChevronLeft,
   Copy,
   FileText,
+  RefreshCw,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,7 +33,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { MarkdownPreview } from "@/components/kb/MarkdownPreview";
 import { toastSuccess, toastApiError } from "@/lib/toast";
-import type { KbArticleFull } from "@/lib/services/kb/article.service";
+import type {
+  KbArticleFull,
+  RefreshResult,
+} from "@/lib/services/kb/article.service";
 
 type Props = {
   article: KbArticleFull;
@@ -33,6 +45,10 @@ type Props = {
 
 export function ArticleViewClient({ article, workspaceId }: Props) {
   const router = useRouter();
+  const [refreshOpen, setRefreshOpen] = useState(false);
+  const [refreshData, setRefreshData] = useState<RefreshResult | null>(null);
+  const [refreshLoading, setRefreshLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const qc = useQueryClient();
 
   const deleteMut = useMutation({
@@ -88,6 +104,45 @@ export function ArticleViewClient({ article, workspaceId }: Props) {
     if (confirm(`Удалить статью «${article.title}»?`)) deleteMut.mutate();
   }
 
+  async function handleRefreshPreview() {
+    setRefreshLoading(true);
+    setRefreshData(null);
+    setRefreshOpen(true);
+    try {
+      const res = await fetch(`/api/kb/articles/${article.id}/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ preview: true }),
+      });
+      const data = (await res.json()) as RefreshResult;
+      setRefreshData(data);
+    } catch (err) {
+      toastApiError(err);
+      setRefreshOpen(false);
+    } finally {
+      setRefreshLoading(false);
+    }
+  }
+
+  async function handleRefreshSave() {
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/kb/articles/${article.id}/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ preview: false }),
+      });
+      if (!res.ok) throw new Error("Ошибка сохранения");
+      toastSuccess("Статья обновлена");
+      setRefreshOpen(false);
+      router.refresh();
+    } catch (err) {
+      toastApiError(err);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <div className="p-6 max-w-4xl mx-auto">
       {/* Breadcrumbs */}
@@ -122,6 +177,12 @@ export function ArticleViewClient({ article, workspaceId }: Props) {
           Назад
         </Button>
         <div className="flex-1" />
+        {article.sourceType === "URL" && (
+          <Button variant="outline" size="sm" onClick={handleRefreshPreview}>
+            <RefreshCw className="h-4 w-4 mr-1.5" />
+            Обновить из источника
+          </Button>
+        )}
         <Button
           variant="outline"
           size="sm"
@@ -231,7 +292,18 @@ export function ArticleViewClient({ article, workspaceId }: Props) {
             <Badge variant="secondary">Источник: файл</Badge>
           )}
           {article.sourceType === "URL" && (
-            <Badge variant="secondary">Источник: URL</Badge>
+            <div className="flex items-center gap-2">
+              <Badge variant="secondary">Источник: URL</Badge>
+              {article.lastSyncedAt && (
+                <span className="text-xs text-muted-foreground">
+                  синхр.{" "}
+                  {formatDistanceToNow(new Date(article.lastSyncedAt), {
+                    addSuffix: true,
+                    locale: ru,
+                  })}
+                </span>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -240,6 +312,108 @@ export function ArticleViewClient({ article, workspaceId }: Props) {
       <div className="rounded-lg border bg-card p-6">
         <MarkdownPreview source={article.content} />
       </div>
+
+      {/* Refresh Dialog */}
+      <Dialog open={refreshOpen} onOpenChange={setRefreshOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Обновление из источника</DialogTitle>
+          </DialogHeader>
+          {refreshLoading && (
+            <div className="flex items-center gap-2 py-8 justify-center text-muted-foreground">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              Получаем актуальный контент…
+            </div>
+          )}
+          {refreshData && !refreshLoading && (
+            <div className="space-y-4">
+              {!refreshData.changed ? (
+                <div className="text-center py-6 text-muted-foreground">
+                  <CheckCircleIcon className="h-8 w-8 mx-auto mb-2 text-green-500" />
+                  Изменений нет — статья актуальна
+                </div>
+              ) : (
+                <>
+                  {refreshData.diff.titleChanged && (
+                    <div className="text-sm space-y-1">
+                      <p className="font-medium">Заголовок изменился:</p>
+                      <p className="line-through text-muted-foreground">
+                        {refreshData.diff.oldTitle}
+                      </p>
+                      <p className="text-green-600">
+                        {refreshData.diff.newTitle}
+                      </p>
+                    </div>
+                  )}
+                  <div className="text-xs text-muted-foreground flex gap-4">
+                    <span className="text-green-600">
+                      +{refreshData.diff.addedLines} строк добавлено
+                    </span>
+                    <span className="text-destructive">
+                      -{refreshData.diff.removedLines} строк удалено
+                    </span>
+                  </div>
+                  <div className="border rounded-md p-3 max-h-60 overflow-y-auto text-xs font-mono space-y-0.5">
+                    {refreshData.diff.contentDiff
+                      .slice(0, 50)
+                      .map((entry, i) => (
+                        <div
+                          key={i}
+                          className={
+                            entry.type === "added"
+                              ? "bg-green-50 text-green-800 dark:bg-green-950 dark:text-green-200"
+                              : entry.type === "removed"
+                                ? "bg-red-50 text-red-800 dark:bg-red-950 dark:text-red-200 line-through"
+                                : "text-muted-foreground"
+                          }
+                        >
+                          {entry.type === "added"
+                            ? "+ "
+                            : entry.type === "removed"
+                              ? "- "
+                              : "  "}
+                          {entry.value.slice(0, 200)}
+                        </div>
+                      ))}
+                  </div>
+                  <div className="flex gap-2 justify-end">
+                    <Button
+                      variant="outline"
+                      onClick={() => setRefreshOpen(false)}
+                    >
+                      Отменить
+                    </Button>
+                    <Button onClick={handleRefreshSave} disabled={saving}>
+                      {saving ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : null}
+                      Сохранить новую версию
+                    </Button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
+  );
+}
+
+function CheckCircleIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+      />
+    </svg>
   );
 }
