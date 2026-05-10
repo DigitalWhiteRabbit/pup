@@ -39,6 +39,19 @@ function isBlockedIPv4(ip: string): boolean {
   return BLOCKED_IP_RANGES.some((r) => num >= r.start && num <= r.end);
 }
 
+// TODO (security, deferred): expand IPv6 coverage when VPS supports IPv6
+// - fc00::/7 Unique Local Addresses (private IPv6 ranges)
+// - ff00::/8 multicast addresses
+// - 2001:db8::/32 documentation prefix
+// - DNS rebinding protection via custom HTTPS Agent with pinned IP
+//
+// Current state covers IPv4 (all private ranges + cloud metadata),
+// IPv6 loopback (::1), IPv6 link-local (fe80::*), and IPv6-mapped IPv4
+// (::ffff:x.x.x.x). Native IPv6 private ranges (fc00::/7) and DNS rebinding
+// not blocked. Acceptable risk for current deployment (no IPv6 on Hostinger
+// VPS by default; small private team usage). Re-evaluate when platform
+// changes.
+
 /**
  * Validates that a URL is safe to fetch (no SSRF).
  * Resolves DNS and checks the resulting IP against blocked ranges.
