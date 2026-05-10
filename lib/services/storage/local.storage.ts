@@ -25,7 +25,8 @@ export class LocalStorage implements FileStorage {
     const uuid = crypto.randomUUID();
     const cleanedName = sanitizeFilename(input.originalName);
     const filename = `${uuid}-${cleanedName}`;
-    const storagePath = `${input.projectId}/${input.taskId}/${filename}`;
+    const subDir = input.taskId ?? "_kb";
+    const storagePath = `${input.projectId}/${subDir}/${filename}`;
     const absolutePath = path.join(this.uploadDir, storagePath);
 
     await fs.mkdir(path.dirname(absolutePath), { recursive: true });

@@ -9,7 +9,7 @@ export interface FileStorage {
 
 export type UploadInput = {
   projectId: string;
-  taskId: string;
+  taskId?: string;
   originalName: string;
   buffer: Buffer | Uint8Array;
   mimeType: string;

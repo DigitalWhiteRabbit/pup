@@ -44,6 +44,7 @@ model User {
   kbArticlesAuthored KbArticle[]         @relation("KbArticleAuthor")
   kbArticlesEdited   KbArticle[]         @relation("KbArticleEditor")
   kbArticleVersions  KbArticleVersion[]
+  kbFiles            KbFile[]
 
   // Critical event Telegram notifications (default false)
   tgNotifyTaskDeleted      Boolean @default(false)
@@ -83,6 +84,7 @@ model Workspace {
   kbCategories  KbCategory[]
   kbTags        KbTag[]
   kbArticles    KbArticle[]
+  kbFiles       KbFile[]
 
   @@index([ownerId])
 }
@@ -555,6 +557,23 @@ model KbArticleVersion {
   editedBy User?     @relation(fields: [editedById], references: [id], onDelete: SetNull)
 
   @@index([articleId, editedAt])
+}
+
+model KbFile {
+  id           String   @id @default(cuid())
+  workspaceId  String
+  uploadedById String
+  originalName String
+  size         Int // bytes
+  mimeType     String
+  storagePath  String
+
+  uploadedAt DateTime @default(now())
+
+  workspace  Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  uploadedBy User      @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
+
+  @@index([workspaceId, uploadedAt])
 }
 
 model SystemLog {

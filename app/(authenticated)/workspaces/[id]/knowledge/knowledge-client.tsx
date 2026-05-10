@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -15,6 +15,15 @@ import {
   GripVertical,
   Pencil,
   Trash2,
+  Upload,
+  FileText,
+  FileImage,
+  FileVideo,
+  FileSpreadsheet,
+  FileArchive,
+  File,
+  Download,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -55,8 +64,48 @@ import { toastSuccess, toastApiError } from "@/lib/toast";
 import type { KbArticleSummary } from "@/lib/services/kb/article.service";
 import type { KbCategoryWithCount } from "@/lib/services/kb/category.service";
 import type { KbTagItem } from "@/lib/services/kb/tag.service";
+import type { KbFileView } from "@/lib/services/kb/file.service";
 
 const PAGE_SIZE = 20;
+
+// ─── File icon helper ─────────────────────────────────────────────────────────
+
+function FileIcon({
+  mimeType,
+  className,
+}: {
+  mimeType: string;
+  className?: string;
+}) {
+  if (mimeType.startsWith("image/")) return <FileImage className={className} />;
+  if (mimeType.startsWith("video/")) return <FileVideo className={className} />;
+  if (
+    mimeType.includes("spreadsheet") ||
+    mimeType.includes("excel") ||
+    mimeType === "text/csv"
+  )
+    return <FileSpreadsheet className={className} />;
+  if (
+    mimeType.includes("zip") ||
+    mimeType.includes("archive") ||
+    mimeType.includes("compressed")
+  )
+    return <FileArchive className={className} />;
+  if (
+    mimeType.includes("pdf") ||
+    mimeType.includes("word") ||
+    mimeType.includes("document") ||
+    mimeType.includes("text")
+  )
+    return <FileText className={className} />;
+  return <File className={className} />;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} Б`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} КБ`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`;
+}
 
 // ─── Article Card ─────────────────────────────────────────────────────────────
 
@@ -226,7 +275,6 @@ function CategoryDialog({
   const [editName, setEditName] = useState("");
   const [editColor, setEditColor] = useState("#6366f1");
 
-  // Keep localCats in sync when parent changes
   useState(() => {
     setLocalCats(categories);
   });
@@ -426,6 +474,179 @@ function CategoryDialog({
   );
 }
 
+// ─── Files Tab ────────────────────────────────────────────────────────────────
+
+function FilesTab({ workspaceId }: { workspaceId: string }) {
+  const qc = useQueryClient();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
+
+  const { data: files, isLoading } = useQuery<KbFileView[]>({
+    queryKey: ["kb-files", workspaceId],
+    queryFn: () =>
+      fetch(`/api/workspaces/${workspaceId}/kb/files`).then((r) => r.json()),
+  });
+
+  const uploadMut = useMutation({
+    mutationFn: async (fileList: FileList) => {
+      const results = [];
+      for (const file of Array.from(fileList)) {
+        const fd = new FormData();
+        fd.append("file", file);
+        const res = await fetch(`/api/workspaces/${workspaceId}/kb/files`, {
+          method: "POST",
+          body: fd,
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(
+            (err as { message?: string }).message ?? "Ошибка загрузки",
+          );
+        }
+        results.push(await res.json());
+      }
+      return results;
+    },
+    onSuccess: (results) => {
+      void qc.invalidateQueries({ queryKey: ["kb-files", workspaceId] });
+      toastSuccess(
+        results.length === 1
+          ? `Файл «${(results[0] as KbFileView).originalName}» загружен`
+          : `Загружено файлов: ${results.length}`,
+      );
+    },
+    onError: toastApiError,
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: string) =>
+      fetch(`/api/kb/files/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["kb-files", workspaceId] });
+      toastSuccess("Файл удалён");
+    },
+    onError: toastApiError,
+  });
+
+  function handleFiles(fileList: FileList | null) {
+    if (!fileList || fileList.length === 0) return;
+    uploadMut.mutate(fileList);
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setIsDraggingOver(false);
+    handleFiles(e.dataTransfer.files);
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Drop zone */}
+      <div
+        className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+          isDraggingOver
+            ? "border-primary bg-primary/5"
+            : "border-muted-foreground/25 hover:border-muted-foreground/50"
+        }`}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setIsDraggingOver(true);
+        }}
+        onDragLeave={() => setIsDraggingOver(false)}
+        onDrop={handleDrop}
+      >
+        {uploadMut.isPending ? (
+          <div className="flex flex-col items-center gap-2">
+            <Loader2 className="h-8 w-8 text-muted-foreground animate-spin" />
+            <p className="text-sm text-muted-foreground">Загрузка...</p>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center gap-3">
+            <Upload className="h-8 w-8 text-muted-foreground" />
+            <div>
+              <p className="text-sm font-medium">Перетащите файлы сюда</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                PDF, Word, Excel, изображения, архивы и любые другие форматы
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              Выбрать файлы
+            </Button>
+          </div>
+        )}
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={(e) => handleFiles(e.target.files)}
+        />
+      </div>
+
+      {/* File list */}
+      {isLoading ? (
+        <div className="space-y-2">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Skeleton key={i} className="h-14 w-full" />
+          ))}
+        </div>
+      ) : !files || files.length === 0 ? (
+        <p className="text-sm text-muted-foreground text-center py-4">
+          Нет загруженных документов
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {files.map((f) => (
+            <div
+              key={f.id}
+              className="flex items-center gap-3 rounded-lg border bg-card px-4 py-3"
+            >
+              <FileIcon
+                mimeType={f.mimeType}
+                className="h-5 w-5 text-muted-foreground shrink-0"
+              />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium truncate">{f.originalName}</p>
+                <p className="text-xs text-muted-foreground">
+                  {formatBytes(f.size)} · {f.uploadedBy.login} ·{" "}
+                  {formatDistanceToNow(new Date(f.uploadedAt), {
+                    addSuffix: true,
+                    locale: ru,
+                  })}
+                </p>
+              </div>
+              <a
+                href={`/api/kb/files/${f.id}/download`}
+                download={f.originalName}
+              >
+                <Button variant="ghost" size="icon" className="h-8 w-8">
+                  <Download className="h-4 w-4" />
+                </Button>
+              </a>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-destructive hover:text-destructive"
+                onClick={() => {
+                  if (confirm(`Удалить «${f.originalName}»?`))
+                    deleteMut.mutate(f.id);
+                }}
+                disabled={deleteMut.isPending}
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main client ──────────────────────────────────────────────────────────────
 
 type Props = {
@@ -444,6 +665,7 @@ export function KnowledgeClient({
   tags: _tags,
 }: Props) {
   const router = useRouter();
+  const [tab, setTab] = useState<"articles" | "files">("articles");
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
@@ -519,151 +741,187 @@ export function KnowledgeClient({
         <div>
           <h1 className="text-2xl font-bold">База знаний</h1>
           <p className="text-sm text-muted-foreground">
-            Статьи и документация проекта
+            Статьи и документы проекта
           </p>
         </div>
         <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setCatDialogOpen(true)}
-          >
-            <Settings2 className="h-4 w-4 mr-1.5" />
-            Категории
-          </Button>
-          <Button
-            size="sm"
-            onClick={() =>
-              router.push(`/workspaces/${workspaceId}/knowledge/new`)
-            }
-          >
-            <Plus className="h-4 w-4 mr-1.5" />
-            Создать статью
-          </Button>
+          {tab === "articles" && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCatDialogOpen(true)}
+              >
+                <Settings2 className="h-4 w-4 mr-1.5" />
+                Категории
+              </Button>
+              <Button
+                size="sm"
+                onClick={() =>
+                  router.push(`/workspaces/${workspaceId}/knowledge/new`)
+                }
+              >
+                <Plus className="h-4 w-4 mr-1.5" />
+                Создать статью
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-3 mb-4">
-        <form className="flex items-center gap-2" onSubmit={handleSearch}>
-          <Input
-            placeholder="Поиск по заголовку..."
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            className="w-52 h-8"
-          />
-          <Button type="submit" variant="outline" size="sm" className="h-8">
-            <Search className="h-3.5 w-3.5" />
-          </Button>
-        </form>
-
-        <Select
-          value={categoryFilter}
-          onValueChange={(v) => {
-            setCategoryFilter(v);
-            setPage(1);
-          }}
+      {/* Tabs */}
+      <div className="flex gap-1 mb-5 border-b">
+        <button
+          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+            tab === "articles"
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+          onClick={() => setTab("articles")}
         >
-          <SelectTrigger className="w-44 h-8">
-            <SelectValue placeholder="Все категории" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Все категории</SelectItem>
-            <SelectItem value="__none__">Без категории</SelectItem>
-            {(categories ?? []).map((c) => (
-              <SelectItem key={c.id} value={c.id}>
-                {c.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={showDrafts}
-            onChange={(e) => {
-              setShowDrafts(e.target.checked);
-              setPage(1);
-            }}
-            className="rounded"
-          />
-          Показывать черновики
-        </label>
-
-        {hasFilters && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 text-muted-foreground"
-            onClick={reset}
-          >
-            <X className="h-3.5 w-3.5 mr-1" />
-            Сбросить
-          </Button>
-        )}
+          <BookOpen className="h-4 w-4 inline mr-1.5 -mt-0.5" />
+          Статьи
+        </button>
+        <button
+          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+            tab === "files"
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+          onClick={() => setTab("files")}
+        >
+          <FileText className="h-4 w-4 inline mr-1.5 -mt-0.5" />
+          Документы
+        </button>
       </div>
 
-      {data && (
-        <p className="text-xs text-muted-foreground mb-3">
-          {data.total} статей
-        </p>
-      )}
-
-      {/* Articles grid */}
-      {isLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <ArticleCardSkeleton key={i} />
-          ))}
-        </div>
-      ) : !data || data.data.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-24 text-center">
-          <BookOpen className="h-12 w-12 text-muted-foreground/30 mb-4" />
-          <p className="text-muted-foreground mb-4">Пока нет статей</p>
-          <Button
-            size="sm"
-            onClick={() =>
-              router.push(`/workspaces/${workspaceId}/knowledge/new`)
-            }
-          >
-            <Plus className="h-4 w-4 mr-1.5" />
-            Создать первую статью
-          </Button>
-        </div>
+      {tab === "files" ? (
+        <FilesTab workspaceId={workspaceId} />
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {data.data.map((a) => (
-            <ArticleCard key={a.id} article={a} workspaceId={workspaceId} />
-          ))}
-        </div>
-      )}
+        <>
+          {/* Filters */}
+          <div className="flex flex-wrap items-center gap-3 mb-4">
+            <form className="flex items-center gap-2" onSubmit={handleSearch}>
+              <Input
+                placeholder="Поиск по заголовку..."
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                className="w-52 h-8"
+              />
+              <Button type="submit" variant="outline" size="sm" className="h-8">
+                <Search className="h-3.5 w-3.5" />
+              </Button>
+            </form>
 
-      {/* Pagination */}
-      {data && totalPages > 1 && (
-        <div className="flex items-center justify-between pt-6">
-          <span className="text-sm text-muted-foreground">
-            Страница {page} из {totalPages}
-          </span>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={page <= 1}
-              onClick={() => setPage((p) => p - 1)}
+            <Select
+              value={categoryFilter}
+              onValueChange={(v) => {
+                setCategoryFilter(v);
+                setPage(1);
+              }}
             >
-              Назад
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={page >= totalPages}
-              onClick={() => setPage((p) => p + 1)}
-            >
-              Вперёд
-            </Button>
+              <SelectTrigger className="w-44 h-8">
+                <SelectValue placeholder="Все категории" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Все категории</SelectItem>
+                <SelectItem value="__none__">Без категории</SelectItem>
+                {(categories ?? []).map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={showDrafts}
+                onChange={(e) => {
+                  setShowDrafts(e.target.checked);
+                  setPage(1);
+                }}
+                className="rounded"
+              />
+              Показывать черновики
+            </label>
+
+            {hasFilters && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 text-muted-foreground"
+                onClick={reset}
+              >
+                <X className="h-3.5 w-3.5 mr-1" />
+                Сбросить
+              </Button>
+            )}
           </div>
-        </div>
+
+          {data && (
+            <p className="text-xs text-muted-foreground mb-3">
+              {data.total} статей
+            </p>
+          )}
+
+          {/* Articles grid */}
+          {isLoading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <ArticleCardSkeleton key={i} />
+              ))}
+            </div>
+          ) : !data || data.data.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-24 text-center">
+              <BookOpen className="h-12 w-12 text-muted-foreground/30 mb-4" />
+              <p className="text-muted-foreground mb-4">Пока нет статей</p>
+              <Button
+                size="sm"
+                onClick={() =>
+                  router.push(`/workspaces/${workspaceId}/knowledge/new`)
+                }
+              >
+                <Plus className="h-4 w-4 mr-1.5" />
+                Создать первую статью
+              </Button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {data.data.map((a) => (
+                <ArticleCard key={a.id} article={a} workspaceId={workspaceId} />
+              ))}
+            </div>
+          )}
+
+          {/* Pagination */}
+          {data && totalPages > 1 && (
+            <div className="flex items-center justify-between pt-6">
+              <span className="text-sm text-muted-foreground">
+                Страница {page} из {totalPages}
+              </span>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => p - 1)}
+                >
+                  Назад
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => p + 1)}
+                >
+                  Вперёд
+                </Button>
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {/* Category dialog */}
