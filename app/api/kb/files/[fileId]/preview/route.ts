@@ -1,6 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import mammoth from "mammoth";
+import * as child_process from "node:child_process";
+import * as util from "node:util";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { withErrorHandler, ApiError } from "@/lib/api-error";
@@ -9,6 +10,8 @@ import { checkMembership } from "@/lib/services/workspace.service";
 
 type Params = { params: { fileId: string } };
 
+const execFile = util.promisify(child_process.execFile);
+
 function getUploadDir(): string {
   return path.resolve(process.env["UPLOAD_DIR"] ?? "./uploads");
 }
@@ -16,11 +19,22 @@ function getUploadDir(): string {
 function resolveStoragePath(storagePath: string): string {
   const uploadDir = getUploadDir();
   const resolved = path.resolve(path.join(uploadDir, storagePath));
-  // Guard path traversal
   if (!resolved.startsWith(uploadDir + path.sep) && resolved !== uploadDir) {
     throw new ApiError("Недопустимый путь", "INVALID_PATH", 400);
   }
   return resolved;
+}
+
+async function runDocxPreview(
+  filePath: string,
+  mode: "html" | "text",
+): Promise<string> {
+  const scriptPath = path.resolve("./scripts/docx-preview.mjs");
+  const { stdout } = await execFile("node", [scriptPath, filePath, mode], {
+    maxBuffer: 50 * 1024 * 1024, // 50 MB
+    timeout: 30_000,
+  });
+  return stdout;
 }
 
 export async function GET(_req: NextRequest, { params }: Params) {
@@ -61,22 +75,19 @@ export async function GET(_req: NextRequest, { params }: Params) {
       });
     }
 
-    // DOCX / DOC
+    // DOCX — run mammoth outside Next.js via child_process
     if (
       mime === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
-      mime === "application/msword" ||
-      name.endsWith(".docx") ||
-      name.endsWith(".doc")
+      name.endsWith(".docx")
     ) {
-      const isDocx =
-        mime === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
-        name.endsWith(".docx");
-      // Pass file path directly — avoids buffer corruption inside Next.js turbopack
-      const result = isDocx
-        ? await mammoth.convertToHtml({ path: filePath })
-        : await mammoth.extractRawText({ path: filePath });
-      const type = isDocx ? "html" : "text";
-      return NextResponse.json({ type, content: result.value });
+      const html = await runDocxPreview(filePath, "html");
+      return NextResponse.json({ type: "html", content: html });
+    }
+
+    // DOC (old format) — extract raw text
+    if (mime === "application/msword" || name.endsWith(".doc")) {
+      const text = await runDocxPreview(filePath, "text");
+      return NextResponse.json({ type: "text", content: text });
     }
 
     // PDF
