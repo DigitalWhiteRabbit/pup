@@ -48,6 +48,7 @@ export function ChatInterface({
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sending, setSending] = useState(false);
   const [creatingTicket, setCreatingTicket] = useState(false);
+  const [wantsNewDialog, setWantsNewDialog] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const prevMessageCount = useRef(0);
@@ -89,8 +90,9 @@ export function ChatInterface({
     void fetchTickets();
   }, [fetchTickets]);
 
-  // Auto-select last open ticket
+  // Auto-select last open ticket (skip if user explicitly wants new dialog)
   useEffect(() => {
+    if (wantsNewDialog) return;
     if (!activeTicketId && tickets.length > 0) {
       const open = tickets.find(
         (t) => t.status !== "CLOSED" && t.status !== "RESOLVED",
@@ -98,7 +100,7 @@ export function ChatInterface({
       if (open) setActiveTicketId(open.id);
       else setActiveTicketId(tickets[0]?.id ?? null);
     }
-  }, [tickets, activeTicketId]);
+  }, [tickets, activeTicketId, wantsNewDialog]);
 
   // Fetch ticket detail when active changes
   useEffect(() => {
@@ -144,6 +146,7 @@ export function ChatInterface({
         );
       }
       const ticket = (await res.json()) as ChatTicketFull;
+      setWantsNewDialog(false);
       setActiveTicketId(ticket.id);
       setActiveTicket(ticket);
       await fetchTickets();
@@ -183,6 +186,7 @@ export function ChatInterface({
   }
 
   function handleNewDialog() {
+    setWantsNewDialog(true);
     setActiveTicketId(null);
     setActiveTicket(null);
     setSidebarOpen(false);
@@ -349,6 +353,7 @@ export function ChatInterface({
         tickets={tickets}
         activeTicketId={activeTicketId}
         onSelect={(id) => {
+          setWantsNewDialog(false);
           setActiveTicketId(id);
           setActiveTicket(null);
           setSidebarOpen(false);

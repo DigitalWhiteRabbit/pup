@@ -373,6 +373,8 @@ export async function changeTicketStatus(
       status: true,
       number: true,
       title: true,
+      assigneeId: true,
+      internalCreatorId: true,
     },
   });
   if (!ticket) throw new ApiError("Тикет не найден", "NOT_FOUND", 404);
@@ -436,6 +438,45 @@ export async function changeTicketStatus(
     }),
     metadata: { from: ticket.status, to: newStatus },
   });
+
+  // Telegram notification to assignee/creator about status change
+  const notifyTargetId =
+    ticket.assigneeId && ticket.assigneeId !== userId
+      ? ticket.assigneeId
+      : ticket.internalCreatorId && ticket.internalCreatorId !== userId
+        ? ticket.internalCreatorId
+        : null;
+
+  if (notifyTargetId) {
+    void (async () => {
+      try {
+        const recipient = await db.user.findUnique({
+          where: { id: notifyTargetId },
+          select: { telegramChatId: true, tgNotifyTicketMessage: true },
+        });
+        if (recipient?.telegramChatId && recipient.tgNotifyTicketMessage) {
+          const actorUser = await db.user.findUnique({
+            where: { id: userId },
+            select: { login: true },
+          });
+          const statusLabel =
+            newStatus === "CLOSED"
+              ? "закрыл"
+              : newStatus === "RESOLVED"
+                ? "решил"
+                : `изменил статус на ${newStatus}`;
+          const msg = [
+            `<b>🎫 Статус тикета изменён</b>`,
+            `<b>${actorUser?.login ?? "Менеджер"}</b> ${statusLabel} тикет:`,
+            `<i>#${ticket.number} ${ticket.title}</i>`,
+          ].join("\n");
+          void sendTelegramNotification(recipient.telegramChatId, msg);
+        }
+      } catch {
+        /* fire-and-forget */
+      }
+    })();
+  }
 
   const full = await db.ticket.findUnique({
     where: { id: ticketId },
