@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import Image from "next/image";
-import { Menu, Send, Loader2, X } from "lucide-react";
+import { Menu, Loader2, X } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { TicketsSidebar } from "./tickets-sidebar";
@@ -34,6 +34,11 @@ function authHeaders(token: string, csrf?: string): Record<string, string> {
   return h;
 }
 
+function personaAvatarSrc(avatarUrl: string | null | undefined): string | null {
+  if (!avatarUrl) return null;
+  return `/api/chat/avatars/${avatarUrl.replace(/^personas\//, "")}`;
+}
+
 export function ChatInterface({
   slug,
   config,
@@ -56,8 +61,10 @@ export function ChatInterface({
 
   const accent = config.chatAccentColor || "#22c55e";
   const persona = config.activePersona;
+  const avatarSrc = personaAvatarSrc(persona?.avatarUrl);
 
-  // Fetch tickets list
+  // ─── Data fetching (unchanged) ────────────────────────────────────────────
+
   const fetchTickets = useCallback(async () => {
     try {
       const res = await fetch(`/api/chat/${slug}/tickets`, {
@@ -71,7 +78,6 @@ export function ChatInterface({
     }
   }, [slug, token]);
 
-  // Fetch active ticket detail
   const fetchTicketDetail = useCallback(async () => {
     if (!activeTicketId) return;
     try {
@@ -86,12 +92,10 @@ export function ChatInterface({
     }
   }, [slug, token, activeTicketId]);
 
-  // Initial load
   useEffect(() => {
     void fetchTickets();
   }, [fetchTickets]);
 
-  // Auto-select last open ticket (skip if user explicitly wants new dialog)
   useEffect(() => {
     if (wantsNewDialog) return;
     if (!activeTicketId && tickets.length > 0) {
@@ -103,12 +107,10 @@ export function ChatInterface({
     }
   }, [tickets, activeTicketId, wantsNewDialog]);
 
-  // Fetch ticket detail when active changes
   useEffect(() => {
     if (activeTicketId) void fetchTicketDetail();
   }, [activeTicketId, fetchTicketDetail]);
 
-  // Poll for new messages every 5s
   useEffect(() => {
     if (!activeTicketId) return;
     const interval = setInterval(() => {
@@ -118,7 +120,6 @@ export function ChatInterface({
     return () => clearInterval(interval);
   }, [activeTicketId, fetchTicketDetail, fetchTickets]);
 
-  // Scroll to bottom on new messages
   useEffect(() => {
     const count = activeTicket?.messages.length ?? 0;
     if (count > prevMessageCount.current) {
@@ -127,7 +128,8 @@ export function ChatInterface({
     prevMessageCount.current = count;
   }, [activeTicket?.messages.length]);
 
-  // Create new ticket
+  // ─── Handlers (unchanged) ─────────────────────────────────────────────────
+
   async function handleCreateTicket(firstMessage: string) {
     setCreatingTicket(true);
     setError(null);
@@ -158,7 +160,6 @@ export function ChatInterface({
     }
   }
 
-  // Send message to existing ticket
   async function handleSendMessage(content: string) {
     if (!activeTicketId) return;
     setSending(true);
@@ -198,164 +199,206 @@ export function ChatInterface({
   const showNewTicketMode =
     !activeTicketId || (!activeTicket && !creatingTicket);
 
+  // ─── Render ───────────────────────────────────────────────────────────────
+
   return (
     <div className={`flex flex-col ${embedMode ? "h-screen" : "min-h-screen"}`}>
-      {/* Top badge - only in non-embed */}
-      {!embedMode && (
-        <div className="flex justify-center pt-4 pb-2">
-          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 bg-emerald-100 rounded-full px-3 py-1">
-            <span
-              className="w-1.5 h-1.5 rounded-full animate-pulse"
-              style={{ backgroundColor: accent }}
-            />
-            Поддержка {config.workspaceName}
-          </span>
-        </div>
-      )}
-
-      {/* Card container */}
+      {/* Main card */}
       <div
         className={`flex-1 flex flex-col ${
           embedMode
             ? ""
-            : "mx-auto w-full max-w-[900px] md:my-4 md:rounded-2xl md:shadow-xl md:border overflow-hidden"
-        } bg-white`}
+            : "mx-auto w-full max-w-[1000px] md:my-6 md:rounded-3xl md:shadow-2xl overflow-hidden"
+        }`}
+        style={{
+          background:
+            "linear-gradient(135deg, #fef3e2 0%, #fde8d8 40%, #f5e6f0 100%)",
+        }}
       >
-        {/* Header */}
-        <div
-          className="flex items-center gap-3 px-4 py-3 text-white shrink-0"
-          style={{ backgroundColor: accent }}
-        >
+        {/* Header bar */}
+        <div className="flex items-center gap-3 px-5 py-4">
           <button
             onClick={() => setSidebarOpen(true)}
-            className="p-1.5 rounded-lg hover:bg-white/20 transition-colors"
+            className="p-1.5 rounded-lg hover:bg-white/40 transition-colors"
             aria-label="Открыть меню"
           >
-            <Menu className="h-5 w-5" />
+            <Menu className="h-5 w-5 text-gray-600" />
           </button>
-          <div className="flex-1 min-w-0">
-            <div className="text-sm font-semibold truncate">
+          <div className="flex items-center gap-2 flex-1">
+            <span className="text-xl" style={{ color: accent }}>
+              ✦
+            </span>
+            <h1 className="text-lg font-bold text-gray-800">
               {config.chatTitle}
-            </div>
-            {persona && (
-              <div className="text-xs opacity-70">
-                {persona.displayName} · {persona.role}
-              </div>
-            )}
+            </h1>
           </div>
-          <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-white/20 rounded-full px-2 py-0.5">
-            <span className="w-1.5 h-1.5 bg-green-300 rounded-full" />
-            онлайн
+          <span className="text-xs text-gray-400">
+            {persona ? `${persona.displayName} · ${persona.role}` : ""}
           </span>
         </div>
 
-        {/* Persona block */}
-        {persona && showNewTicketMode && (
-          <div className="flex items-center gap-3 px-4 py-3 bg-gray-50 border-b">
-            {persona.avatarUrl ? (
-              <Image
-                src={`/api/chat/avatars/${persona.avatarUrl.replace(/^personas\//, "")}`}
-                alt={persona.displayName}
-                width={40}
-                height={40}
-                className="w-10 h-10 rounded-full object-cover shrink-0"
-                unoptimized
-              />
-            ) : (
-              <div
-                className="w-10 h-10 rounded-full flex items-center justify-center text-white text-lg font-bold shrink-0"
-                style={{ backgroundColor: accent }}
-              >
-                {persona.displayName[0]}
+        {/* Two-column layout */}
+        <div className="flex-1 flex flex-col md:flex-row gap-0 md:gap-6 px-4 md:px-6 pb-4 md:pb-6 overflow-hidden">
+          {/* Left: messages */}
+          <div className="flex-1 flex flex-col min-w-0 order-2 md:order-1">
+            <div className="flex-1 overflow-y-auto pr-1 space-y-1">
+              {showNewTicketMode ? (
+                <div className="flex flex-col items-center justify-center h-full text-center py-8">
+                  <p className="text-sm text-gray-400">
+                    {tickets.length === 0
+                      ? "Задайте свой первый вопрос"
+                      : "Начните новый диалог"}
+                  </p>
+                </div>
+              ) : activeTicket ? (
+                <>
+                  {activeTicket.messages.map((msg) => (
+                    <MessageBubble
+                      key={msg.id}
+                      msg={msg}
+                      accent={accent}
+                      personaAvatar={avatarSrc}
+                    />
+                  ))}
+                  {isClosed && (
+                    <div className="flex justify-center my-4">
+                      <div className="bg-white/60 backdrop-blur rounded-full px-4 py-2 text-xs text-gray-500 flex items-center gap-2">
+                        Диалог завершён
+                        <button
+                          onClick={handleNewDialog}
+                          className="underline hover:text-gray-700"
+                        >
+                          Создать новый
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  <div ref={messagesEndRef} />
+                </>
+              ) : (
+                <div className="flex justify-center py-12">
+                  <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+                </div>
+              )}
+            </div>
+
+            {/* Error */}
+            {error && (
+              <div className="mt-2 flex items-center gap-2 bg-red-50 text-red-600 text-sm rounded-xl px-3 py-2">
+                <span className="flex-1">{error}</span>
+                <button onClick={() => setError(null)}>
+                  <X className="h-3.5 w-3.5" />
+                </button>
               </div>
             )}
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium">{persona.displayName}</div>
-              <div className="text-xs text-gray-500">{persona.role}</div>
-              {persona.bio && (
-                <div className="text-xs text-gray-400 mt-0.5">
-                  {persona.bio}
-                </div>
-              )}
-            </div>
           </div>
-        )}
 
-        {/* Messages area */}
-        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-1">
-          {showNewTicketMode ? (
-            <div className="flex flex-col items-center justify-center h-full text-center py-12">
-              <div
-                className="w-14 h-14 rounded-full flex items-center justify-center mb-4"
-                style={{ backgroundColor: `${accent}20` }}
-              >
-                <Send className="h-6 w-6" style={{ color: accent }} />
-              </div>
-              <h3 className="text-lg font-semibold text-gray-800 mb-1">
-                {tickets.length === 0
-                  ? "Начните первый диалог"
-                  : "Новый диалог"}
-              </h3>
-              <p className="text-sm text-gray-500 max-w-xs">
-                Задайте ваш вопрос — мы ответим как можно скорее
-              </p>
-            </div>
-          ) : activeTicket ? (
-            <>
-              {activeTicket.messages.map((msg) => (
-                <MessageBubble key={msg.id} msg={msg} accent={accent} />
-              ))}
-              {isClosed && (
-                <div className="flex justify-center my-4">
-                  <div className="bg-gray-100 rounded-full px-4 py-2 text-xs text-gray-500 flex items-center gap-2">
-                    Диалог завершён
-                    <button
-                      onClick={handleNewDialog}
-                      className="underline hover:text-gray-700"
+          {/* Right: persona + input */}
+          <div className="w-full md:w-[280px] shrink-0 flex flex-col items-center order-1 md:order-2 pb-4 md:pb-0">
+            {/* Persona avatar (large, decorative) */}
+            {persona && (
+              <div className="mb-4 hidden md:block">
+                <div
+                  className="w-36 h-36 rounded-full p-1.5"
+                  style={{
+                    background: `linear-gradient(135deg, ${accent}40, ${accent}20)`,
+                  }}
+                >
+                  {avatarSrc ? (
+                    <Image
+                      src={avatarSrc}
+                      alt={persona.displayName}
+                      width={144}
+                      height={144}
+                      className="w-full h-full rounded-full object-cover"
+                      unoptimized
+                    />
+                  ) : (
+                    <div
+                      className="w-full h-full rounded-full flex items-center justify-center text-white text-4xl font-bold"
+                      style={{ backgroundColor: accent }}
                     >
-                      Создать новый
-                    </button>
+                      {persona.displayName[0]}
+                    </div>
+                  )}
+                </div>
+                <div className="text-center mt-2">
+                  <div className="text-sm font-semibold text-gray-700">
+                    {persona.displayName}
+                  </div>
+                  <div className="text-xs text-gray-400">{persona.role}</div>
+                </div>
+              </div>
+            )}
+
+            {/* Mobile: compact persona row */}
+            {persona && (
+              <div className="flex md:hidden items-center gap-3 w-full mb-3">
+                <div
+                  className="w-10 h-10 rounded-full p-0.5 shrink-0"
+                  style={{
+                    background: `linear-gradient(135deg, ${accent}40, ${accent}20)`,
+                  }}
+                >
+                  {avatarSrc ? (
+                    <Image
+                      src={avatarSrc}
+                      alt={persona.displayName}
+                      width={40}
+                      height={40}
+                      className="w-full h-full rounded-full object-cover"
+                      unoptimized
+                    />
+                  ) : (
+                    <div
+                      className="w-full h-full rounded-full flex items-center justify-center text-white text-sm font-bold"
+                      style={{ backgroundColor: accent }}
+                    >
+                      {persona.displayName[0]}
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <div className="text-sm font-medium text-gray-700">
+                    {persona.displayName}
+                  </div>
+                  <div className="text-[11px] text-gray-400">
+                    {persona.role}
                   </div>
                 </div>
-              )}
-              <div ref={messagesEndRef} />
-            </>
-          ) : (
-            <div className="flex justify-center py-12">
-              <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
-            </div>
-          )}
+              </div>
+            )}
+
+            {/* Prompt hint */}
+            {showNewTicketMode && !embedMode && (
+              <p className="text-sm text-gray-400 mb-2 text-center hidden md:block">
+                {persona
+                  ? `Спросите ${persona.displayName}...`
+                  : "Задайте свой вопрос"}
+              </p>
+            )}
+
+            {/* Input */}
+            {!isClosed && (
+              <div className="w-full">
+                <MessageInput
+                  onSend={(text) => {
+                    if (showNewTicketMode) {
+                      void handleCreateTicket(text);
+                    } else {
+                      void handleSendMessage(text);
+                    }
+                  }}
+                  disabled={sending || creatingTicket}
+                  placeholder={
+                    showNewTicketMode ? "Задай свой вопрос" : "Ответить..."
+                  }
+                  accent={accent}
+                />
+              </div>
+            )}
+          </div>
         </div>
-
-        {/* Error */}
-        {error && (
-          <div className="mx-4 mb-2 flex items-center gap-2 bg-red-50 text-red-600 text-sm rounded-lg px-3 py-2">
-            <span className="flex-1">{error}</span>
-            <button onClick={() => setError(null)}>
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        )}
-
-        {/* Input area */}
-        {!isClosed && (
-          <div className="shrink-0 border-t bg-white px-4 py-3">
-            <MessageInput
-              onSend={(text) => {
-                if (showNewTicketMode) {
-                  void handleCreateTicket(text);
-                } else {
-                  void handleSendMessage(text);
-                }
-              }}
-              disabled={sending || creatingTicket}
-              placeholder={
-                showNewTicketMode ? "Задайте свой вопрос..." : "Ответить..."
-              }
-              accent={accent}
-            />
-          </div>
-        )}
       </div>
 
       {/* Sidebar */}
@@ -381,11 +424,19 @@ export function ChatInterface({
 
 // ─── MessageBubble ──────────────────────────────────────────────────────────
 
-function MessageBubble({ msg, accent }: { msg: ChatMessage; accent: string }) {
+function MessageBubble({
+  msg,
+  accent,
+  personaAvatar,
+}: {
+  msg: ChatMessage;
+  accent: string;
+  personaAvatar: string | null;
+}) {
   if (msg.authorType === "SYSTEM") {
     return (
       <div className="flex justify-center my-3">
-        <span className="text-[11px] text-gray-400 bg-gray-100 px-3 py-1 rounded-full">
+        <span className="text-[11px] text-gray-400 bg-white/50 px-3 py-1 rounded-full">
           {msg.content}
         </span>
       </div>
@@ -394,31 +445,42 @@ function MessageBubble({ msg, accent }: { msg: ChatMessage; accent: string }) {
 
   const isCustomer = msg.authorType === "CUSTOMER";
 
+  if (isCustomer) {
+    return (
+      <div className="flex justify-start mb-3">
+        <div className="text-sm text-gray-600 font-medium">{msg.content}</div>
+      </div>
+    );
+  }
+
+  // Manager/Agent message — with avatar and gradient bubble
   return (
-    <div
-      className={`flex ${isCustomer ? "justify-end" : "justify-start"} mb-2`}
-    >
-      <div
-        className={`max-w-[80%] rounded-2xl px-4 py-2.5 ${
-          isCustomer
-            ? "bg-zinc-900 text-white rounded-br-md"
-            : "bg-gray-100 text-gray-800 rounded-bl-md"
-        }`}
-        style={isCustomer ? { backgroundColor: accent } : undefined}
-      >
-        {!isCustomer && (
-          <div className="text-[11px] font-medium text-gray-500 mb-0.5">
-            {msg.authorName}
-          </div>
-        )}
-        <p className="text-sm whitespace-pre-wrap break-words leading-relaxed">
-          {msg.content}
-        </p>
+    <div className="flex items-start gap-2 mb-3">
+      {personaAvatar ? (
+        <Image
+          src={personaAvatar}
+          alt=""
+          width={28}
+          height={28}
+          className="w-7 h-7 rounded-full object-cover shrink-0 mt-0.5"
+          unoptimized
+        />
+      ) : (
         <div
-          className={`text-[10px] mt-1 ${
-            isCustomer ? "text-white/50" : "text-gray-400"
-          }`}
+          className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0 mt-0.5"
+          style={{ backgroundColor: accent }}
         >
+          {msg.authorName[0]}
+        </div>
+      )}
+      <div
+        className="max-w-[85%] rounded-2xl rounded-tl-md px-4 py-2.5 text-white text-sm leading-relaxed"
+        style={{
+          background: `linear-gradient(135deg, ${accent}, ${accent}cc)`,
+        }}
+      >
+        <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+        <div className="text-[10px] mt-1 text-white/50">
           {formatDistanceToNow(new Date(msg.createdAt), {
             addSuffix: true,
             locale: ru,
