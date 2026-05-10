@@ -37,6 +37,7 @@ export class LocalStorage implements FileStorage {
     }
 
     const absolutePath = path.join(this.uploadDir, storagePath);
+    this.guardPathTraversal(absolutePath);
 
     await fs.mkdir(path.dirname(absolutePath), { recursive: true });
     await fs.writeFile(absolutePath, input.buffer);

@@ -5,6 +5,7 @@ import { checkMembership } from "../workspace.service";
 import { logActivity, generateSummary } from "../logger.service";
 import { parseUrl } from "./url-parser.service";
 import { createArticle } from "./article.service";
+import { validateExternalUrl } from "./url-validator";
 import type { KbCrawlStatus } from "@prisma/client";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -85,11 +86,15 @@ export async function startCrawl(
     throw new ApiError("Нет доступа к workspace", "FORBIDDEN", 403);
   }
 
-  // Validate URL
+  // Validate URL — SSRF protection
   try {
-    new URL(input.startUrl);
-  } catch {
-    throw new ApiError("Некорректный startUrl", "INVALID_URL", 400);
+    await validateExternalUrl(input.startUrl);
+  } catch (err: unknown) {
+    throw new ApiError(
+      (err as Error).message || "Некорректный startUrl",
+      "INVALID_URL",
+      400,
+    );
   }
 
   const crawl = await db.kbCrawl.create({
@@ -274,12 +279,13 @@ async function runCrawl(
 
         pagesCompleted++;
 
-        // Enqueue child links (same-origin, not visited)
-        if (item.depth < maxDepth) {
+        // Enqueue child links (same-origin, not visited, cap queue size)
+        if (item.depth < maxDepth && queue.length < maxPages * 3) {
           for (const link of result.links) {
             const norm = normalizeUrl(link, startUrl);
             if (norm && sameOrigin(norm, startUrl) && !visited.has(norm)) {
               queue.push({ url: norm, depth: item.depth + 1 });
+              if (queue.length >= maxPages * 3) break;
             }
           }
         }

@@ -25,6 +25,16 @@ export async function importFromFile(
     throw new ApiError("Нет доступа к workspace", "FORBIDDEN", 403);
   }
 
+  // Max file size: 50 MB
+  const MAX_FILE_SIZE = 50 * 1024 * 1024;
+  if (input.file.size > MAX_FILE_SIZE) {
+    throw new ApiError(
+      `Файл слишком большой: ${Math.round(input.file.size / 1024 / 1024)} МБ (макс. 50 МБ)`,
+      "FILE_TOO_LARGE",
+      413,
+    );
+  }
+
   const arrayBuffer = await input.file.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
   const mimeType = input.file.type || "application/octet-stream";

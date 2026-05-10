@@ -2,6 +2,7 @@ import "server-only";
 import * as cheerio from "cheerio";
 import TurndownService from "turndown";
 import { ApiError } from "@/lib/api-error";
+import { validateExternalUrl, readResponseWithLimit } from "./url-validator";
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { gfm } = require("turndown-plugin-gfm") as {
@@ -32,14 +33,22 @@ export type UrlParseResult = {
 
 export async function parseUrl(
   url: string,
-  options?: { timeout?: number; userAgent?: string },
+  options?: { timeout?: number; userAgent?: string; _redirectDepth?: number },
 ): Promise<UrlParseResult> {
-  // Validate URL
+  const redirectDepth = options?._redirectDepth ?? 0;
+  if (redirectDepth > 5) {
+    throw new ApiError("Слишком много редиректов", "TOO_MANY_REDIRECTS", 400);
+  }
+  // Validate URL — SSRF protection
   let parsed: URL;
   try {
-    parsed = new URL(url);
-  } catch {
-    throw new ApiError("Некорректный URL", "INVALID_URL", 400);
+    parsed = await validateExternalUrl(url);
+  } catch (err: unknown) {
+    throw new ApiError(
+      (err as Error).message || "Некорректный URL",
+      "INVALID_URL",
+      400,
+    );
   }
 
   const timeout = options?.timeout ?? 30000;
@@ -58,7 +67,7 @@ export async function parseUrl(
         "User-Agent": userAgent,
         Accept: "text/html,application/xhtml+xml",
       },
-      redirect: "follow",
+      redirect: "manual",
     });
   } catch (err: unknown) {
     if ((err as Error).name === "AbortError") {
@@ -73,6 +82,25 @@ export async function parseUrl(
     clearTimeout(timer);
   }
 
+  // Handle redirects manually — validate each Location against SSRF
+  if (response.status >= 300 && response.status < 400) {
+    const location = response.headers.get("location");
+    if (!location) {
+      throw new ApiError(
+        "Redirect без Location header",
+        "URL_FETCH_FAILED",
+        502,
+      );
+    }
+    const redirectUrl = new URL(location, url).href;
+    // Recursive call validates the redirect target
+    return parseUrl(redirectUrl, {
+      ...options,
+      timeout: timeout - 1000,
+      _redirectDepth: redirectDepth + 1,
+    });
+  }
+
   if (response.status >= 400) {
     throw new ApiError(
       `Сервер вернул ${response.status}`,
@@ -83,7 +111,7 @@ export async function parseUrl(
 
   const finalUrl = response.url || url;
   const contentType = response.headers.get("content-type") ?? "text/html";
-  const html = await response.text();
+  const html = await readResponseWithLimit(response);
 
   const $ = cheerio.load(html);
 
