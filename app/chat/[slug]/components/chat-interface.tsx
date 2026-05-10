@@ -50,6 +50,34 @@ function personaAvatarSrc(avatarUrl: string | null | undefined): string | null {
   return `/api/chat/avatars/${avatarUrl.replace(/^personas\//, "")}`;
 }
 
+const CATEGORY_OPTIONS = [
+  {
+    value: "GENERAL",
+    label: "Общий вопрос",
+    icon: "💬",
+    hint: "Любые вопросы",
+  },
+  {
+    value: "TECHNICAL",
+    label: "Техническое",
+    icon: "🔧",
+    hint: "Проблемы с работой",
+  },
+  {
+    value: "FINANCIAL",
+    label: "Финансы",
+    icon: "💰",
+    hint: "Оплата и возвраты",
+  },
+  { value: "BUG", label: "Баг", icon: "🐛", hint: "Что-то сломалось" },
+  {
+    value: "FEATURE_REQUEST",
+    label: "Предложение",
+    icon: "💡",
+    hint: "Новая функция",
+  },
+];
+
 const STATUS_LABELS: Record<string, string> = {
   OPEN: "Открыт",
   IN_PROGRESS: "В работе",
@@ -96,6 +124,7 @@ export function ChatInterface({
   const [sending, setSending] = useState(false);
   const [creatingTicket, setCreatingTicket] = useState(false);
   const [wantsNewDialog, setWantsNewDialog] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const prevMessageCount = useRef(0);
@@ -172,6 +201,7 @@ export function ChatInterface({
   // ─── Handlers ─────────────────────────────────────────────────────────────
 
   async function handleCreateTicket(firstMessage: string) {
+    if (!selectedCategory) return;
     setCreatingTicket(true);
     setError(null);
     try {
@@ -181,6 +211,7 @@ export function ChatInterface({
         body: JSON.stringify({
           title: firstMessage.slice(0, 100),
           description: firstMessage,
+          category: selectedCategory,
         }),
       });
       if (!res.ok) {
@@ -230,6 +261,7 @@ export function ChatInterface({
 
   function handleNewDialog() {
     setWantsNewDialog(true);
+    setSelectedCategory(null);
     setActiveTicketId(null);
     setActiveTicket(null);
     setMobileSidebar(false);
@@ -428,16 +460,69 @@ export function ChatInterface({
         {/* Messages */}
         <div className="flex-1 overflow-y-auto px-4 md:px-6 py-4">
           {showNewTicketMode ? (
-            <div className="flex flex-col items-center justify-center h-full text-center">
-              <MessageCircle className="h-10 w-10 text-gray-200 mb-3" />
-              <h3 className="text-sm font-semibold text-gray-600 mb-1">
-                {tickets.length === 0
-                  ? "Начните первый диалог"
-                  : "Новый диалог"}
-              </h3>
-              <p className="text-xs text-gray-400 max-w-xs">
-                Напишите ваш вопрос ниже
-              </p>
+            <div className="flex flex-col items-center justify-center h-full">
+              {!selectedCategory ? (
+                /* Шаг 1: выбор категории */
+                <div className="w-full max-w-sm">
+                  <div className="text-center mb-5">
+                    <MessageCircle className="h-10 w-10 text-gray-200 mx-auto mb-3" />
+                    <h3 className="text-sm font-semibold text-gray-700 mb-1">
+                      Тема обращения
+                    </h3>
+                    <p className="text-xs text-gray-400">
+                      Выберите категорию, чтобы мы быстрее помогли
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {CATEGORY_OPTIONS.map((cat) => (
+                      <button
+                        key={cat.value}
+                        onClick={() => setSelectedCategory(cat.value)}
+                        className="flex items-center gap-2.5 p-3 border rounded-xl text-left hover:border-gray-300 hover:bg-gray-50 transition-colors"
+                      >
+                        <span className="text-lg">{cat.icon}</span>
+                        <div>
+                          <div className="text-xs font-medium text-gray-700">
+                            {cat.label}
+                          </div>
+                          <div className="text-[10px] text-gray-400">
+                            {cat.hint}
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                /* Шаг 2: категория выбрана, ждём сообщение */
+                <div className="text-center">
+                  <div
+                    className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1 rounded-full mb-3"
+                    style={{ backgroundColor: `${accent}15`, color: accent }}
+                  >
+                    {
+                      CATEGORY_OPTIONS.find((c) => c.value === selectedCategory)
+                        ?.icon
+                    }{" "}
+                    {
+                      CATEGORY_OPTIONS.find((c) => c.value === selectedCategory)
+                        ?.label
+                    }
+                    <button
+                      onClick={() => setSelectedCategory(null)}
+                      className="ml-1 hover:opacity-70"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                  <h3 className="text-sm font-semibold text-gray-600 mb-1">
+                    Опишите ваш вопрос
+                  </h3>
+                  <p className="text-xs text-gray-400 max-w-xs">
+                    Приоритет определится автоматически
+                  </p>
+                </div>
+              )}
             </div>
           ) : activeTicket ? (
             <>
@@ -494,8 +579,16 @@ export function ChatInterface({
                   void handleSendMessage(text);
                 }
               }}
-              disabled={sending || creatingTicket}
-              placeholder="Напишите сообщение..."
+              disabled={
+                sending ||
+                creatingTicket ||
+                (showNewTicketMode && !selectedCategory)
+              }
+              placeholder={
+                showNewTicketMode && !selectedCategory
+                  ? "Сначала выберите тему обращения..."
+                  : "Напишите сообщение..."
+              }
               accent={accent}
             />
           </div>

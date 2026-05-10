@@ -20,7 +20,7 @@ const createSchema = z.object({
   description: z.string().min(1).max(10000),
   category: z
     .enum(["FINANCIAL", "TECHNICAL", "GENERAL", "BUG", "FEATURE_REQUEST"])
-    .optional(),
+    .default("GENERAL"),
 });
 
 export async function OPTIONS(request: Request) {

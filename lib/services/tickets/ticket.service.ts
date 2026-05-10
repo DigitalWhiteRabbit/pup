@@ -5,6 +5,7 @@ import { checkMembership } from "../workspace.service";
 import { logActivity, generateSummary } from "../logger.service";
 import { sendTelegramNotification } from "../telegram/sender";
 import { findOrCreateCustomer } from "./customer.service";
+import { detectPriority } from "./auto-priority.service";
 import type {
   TicketStatus,
   TicketPriority,
@@ -897,10 +898,13 @@ export async function listTickets(
 export async function createTicketAsCustomer(
   workspaceId: string,
   customerId: string,
-  input: { title: string; description: string; category?: TicketCategory },
+  input: { title: string; description: string; category: TicketCategory },
 ): Promise<TicketFull> {
-  const priority: TicketPriority = "MEDIUM";
-  const category = input.category ?? "GENERAL";
+  // Приоритет определяется автоматически по тексту обращения
+  const priority: TicketPriority = detectPriority(
+    `${input.title} ${input.description}`,
+  );
+  const category = input.category;
   const now = new Date();
   const slaDeadline = calcSlaDeadline(priority, now);
 
