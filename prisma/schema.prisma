@@ -423,6 +423,7 @@ enum ActivityAction {
   KB_CRAWL_COMPLETED
   KB_CRAWL_FAILED
   KB_CRAWL_CANCELLED
+  KB_SEARCH_PERFORMED
 
   // System
   USER_LOGIN
@@ -522,6 +523,15 @@ model KbArticle {
   sourceFileId    String?
   sourceFile      KbFile?      @relation("ArticleSourceFile", fields: [sourceFileId], references: [id], onDelete: SetNull)
   lastSyncedAt    DateTime?
+
+  // Search (KB-1c)
+  searchText          String?
+  searchTextUpdatedAt DateTime?
+
+  // Embeddings — reserved for KB-2 (Voyage AI)
+  embedding          String?    // JSON.stringify(number[])
+  embeddingModel     String?    // e.g. "voyage-3-large"
+  embeddingUpdatedAt DateTime?
 
   authorId       String?
   lastEditedById String?
@@ -650,6 +660,18 @@ model KbCrawlPage {
 
   @@unique([crawlId, url])
   @@index([crawlId, status])
+}
+
+model KbSearchHistory {
+  id          String   @id @default(cuid())
+  workspaceId String
+  userId      String
+  query       String
+  resultCount Int
+  searchedAt  DateTime @default(now())
+
+  @@index([userId, searchedAt])
+  @@index([workspaceId, searchedAt])
 }
 
 model SystemLog {

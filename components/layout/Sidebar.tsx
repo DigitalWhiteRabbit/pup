@@ -30,6 +30,7 @@ import {
   ChevronsUpDown,
   Check,
   House,
+  Search,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -267,21 +268,41 @@ function SidebarContent({
                     const href = `/workspaces/${workspaceId}/${key}`;
                     const isActive =
                       pathname === href || pathname.startsWith(href + "/");
+                    const searchHref = `${href}/search`;
+                    const isSearchActive =
+                      pathname === searchHref ||
+                      pathname.startsWith(searchHref + "/");
                     return (
-                      <Link
-                        key={key}
-                        href={href}
-                        onClick={onNavigate}
-                        className={cn(
-                          "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                          isActive
-                            ? "bg-primary text-primary-foreground"
-                            : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                      <div key={key}>
+                        <Link
+                          href={href}
+                          onClick={onNavigate}
+                          className={cn(
+                            "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                            isActive
+                              ? "bg-primary text-primary-foreground"
+                              : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                          )}
+                        >
+                          {meta.icon}
+                          {meta.label}
+                        </Link>
+                        {key === "knowledge" && (
+                          <Link
+                            href={searchHref}
+                            onClick={onNavigate}
+                            className={cn(
+                              "flex items-center gap-3 rounded-md px-3 py-1.5 ml-5 text-xs font-medium transition-colors",
+                              isSearchActive
+                                ? "bg-primary/10 text-primary"
+                                : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                            )}
+                          >
+                            <Search className="h-3.5 w-3.5" />
+                            Поиск
+                          </Link>
                         )}
-                      >
-                        {meta.icon}
-                        {meta.label}
-                      </Link>
+                      </div>
                     );
                   },
                 )}

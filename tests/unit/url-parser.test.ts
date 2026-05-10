@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 
 vi.mock("server-only", () => ({}));
+vi.mock("@/lib/services/kb/url-validator", () => ({
+  validateExternalUrl: async (rawUrl: string) => new URL(rawUrl),
+  readResponseWithLimit: async (response: unknown) =>
+    (response as { text: () => Promise<string> }).text(),
+  MAX_RESPONSE_BYTES: 10 * 1024 * 1024,
+}));
 vi.mock("@/lib/api-error", () => ({
   ApiError: class ApiError extends Error {
     code: string;

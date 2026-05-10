@@ -6,6 +6,7 @@ import { logActivity, generateSummary } from "../logger.service";
 import slugify from "slugify";
 import type { KbSourceType } from "@prisma/client";
 import { diffLines } from "diff";
+import { buildSearchText } from "./utils";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -145,6 +146,7 @@ export async function createArticle(
     throw new ApiError("Нет доступа", "FORBIDDEN", 403);
 
   const slug = await generateUniqueSlug(input.workspaceId, input.title);
+  const searchText = buildSearchText(input.title, input.content);
 
   const article = await db.$transaction(async (tx) => {
     const created = await tx.kbArticle.create({
@@ -153,6 +155,8 @@ export async function createArticle(
         title: input.title,
         slug,
         content: input.content,
+        searchText,
+        searchTextUpdatedAt: new Date(),
         categoryId: input.categoryId ?? null,
         authorId: userId,
         lastEditedById: userId,
@@ -248,6 +252,16 @@ export async function updateArticle(
       }
     }
 
+    // Recompute searchText if title or content changed
+    const needsSearchUpdate =
+      data.title !== undefined || data.content !== undefined;
+    const newSearchText = needsSearchUpdate
+      ? buildSearchText(
+          data.title ?? current.title,
+          data.content ?? current.content,
+        )
+      : undefined;
+
     return tx.kbArticle.update({
       where: { id: articleId },
       data: {
@@ -256,6 +270,10 @@ export async function updateArticle(
         ...(data.categoryId !== undefined && { categoryId: data.categoryId }),
         ...(data.isPublished !== undefined && {
           isPublished: data.isPublished,
+        }),
+        ...(newSearchText !== undefined && {
+          searchText: newSearchText,
+          searchTextUpdatedAt: new Date(),
         }),
         lastEditedById: userId,
       },
@@ -462,6 +480,8 @@ export async function restoreArticleVersion(
         title: version.title,
         content: version.content,
         lastEditedById: userId,
+        searchText: buildSearchText(version.title, version.content),
+        searchTextUpdatedAt: new Date(),
       },
       include: articleInclude,
     });
@@ -566,6 +586,8 @@ export async function refreshFromUrl(
           content: fetched.content,
           lastEditedById: userId,
           lastSyncedAt: new Date(),
+          searchText: buildSearchText(fetched.title, fetched.content),
+          searchTextUpdatedAt: new Date(),
         },
         include: articleInclude,
       });

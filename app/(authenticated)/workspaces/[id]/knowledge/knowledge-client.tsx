@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -65,6 +65,17 @@ import type { KbArticleSummary } from "@/lib/services/kb/article.service";
 import type { KbCategoryWithCount } from "@/lib/services/kb/category.service";
 import type { KbTagItem } from "@/lib/services/kb/tag.service";
 import type { KbFileView } from "@/lib/services/kb/file.service";
+import type { SearchResult } from "@/lib/services/kb/search.service";
+import type { SnippetSegment } from "@/lib/services/kb/utils";
+
+function useDebounce<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(timer);
+  }, [value, delayMs]);
+  return debounced;
+}
 
 const PAGE_SIZE = 20;
 
@@ -768,6 +779,126 @@ function FilesTab({ workspaceId }: { workspaceId: string }) {
   );
 }
 
+// ─── Mini Search ─────────────────────────────────────────────────────────
+
+function MiniSearch({
+  workspaceId,
+  onApply,
+}: {
+  workspaceId: string;
+  onApply: (q: string) => void;
+}) {
+  const router = useRouter();
+  const [input, setInput] = useState("");
+  const [open, setOpen] = useState(false);
+  const debounced = useDebounce(input, 300);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const { data } = useQuery<SearchResult>({
+    queryKey: ["kb-mini-search", workspaceId, debounced],
+    queryFn: () =>
+      fetch(`/api/workspaces/${workspaceId}/kb/search`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: debounced,
+          pageSize: 5,
+          isPublished: true,
+        }),
+      }).then((r) => r.json()),
+    enabled: debounced.length >= 2,
+    staleTime: 10_000,
+  });
+
+  // Close dropdown on click outside
+  useEffect(() => {
+    function handle(e: MouseEvent) {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(e.target as Node)
+      ) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, []);
+
+  const showDropdown =
+    open && debounced.length >= 2 && data && data.data.length > 0;
+
+  return (
+    <div ref={containerRef} className="relative">
+      <form
+        className="flex items-center gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          onApply(input.trim());
+          setOpen(false);
+        }}
+      >
+        <Input
+          placeholder="Поиск по статьям..."
+          value={input}
+          onChange={(e) => {
+            setInput(e.target.value);
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+          className="w-52 h-8"
+        />
+        <Button type="submit" variant="outline" size="sm" className="h-8">
+          <Search className="h-3.5 w-3.5" />
+        </Button>
+      </form>
+
+      {showDropdown && (
+        <div className="absolute top-full left-0 mt-1 w-80 bg-popover border rounded-lg shadow-lg z-50 py-1">
+          {data.data.map((item) => (
+            <Link
+              key={item.id}
+              href={`/workspaces/${workspaceId}/knowledge/${item.id}`}
+              className="block px-3 py-2 hover:bg-accent transition-colors"
+              onClick={() => setOpen(false)}
+            >
+              <div className="flex items-center gap-2 mb-0.5">
+                {item.category && (
+                  <span
+                    className="w-2 h-2 rounded-full shrink-0"
+                    style={{ backgroundColor: item.category.color }}
+                  />
+                )}
+                <span className="text-sm font-medium truncate">
+                  {item.title}
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground line-clamp-1">
+                {item.highlightedSnippet
+                  .map((s: SnippetSegment) => s.text)
+                  .join("")
+                  .slice(0, 80)}
+              </p>
+            </Link>
+          ))}
+          <div className="border-t mt-1 pt-1 px-3 py-1.5">
+            <button
+              className="text-xs text-primary hover:underline"
+              onClick={() => {
+                setOpen(false);
+                router.push(
+                  `/workspaces/${workspaceId}/knowledge/search?q=${encodeURIComponent(input)}`,
+                );
+              }}
+            >
+              Расширенный поиск →
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main client ──────────────────────────────────────────────────────────────
 
 type Props = {
@@ -789,7 +920,6 @@ export function KnowledgeClient({
   const [tab, setTab] = useState<"articles" | "files">("articles");
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
-  const [searchInput, setSearchInput] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [showDrafts, setShowDrafts] = useState(false);
   const [catDialogOpen, setCatDialogOpen] = useState(false);
@@ -838,18 +968,8 @@ export function KnowledgeClient({
   const totalPages = data ? Math.ceil(data.total / PAGE_SIZE) : 1;
   const hasFilters = search || categoryFilter !== "all" || showDrafts;
 
-  const handleSearch = useCallback(
-    (e: React.FormEvent) => {
-      e.preventDefault();
-      setSearch(searchInput.trim());
-      setPage(1);
-    },
-    [searchInput],
-  );
-
   function reset() {
     setSearch("");
-    setSearchInput("");
     setCategoryFilter("all");
     setShowDrafts(false);
     setPage(1);
@@ -932,17 +1052,13 @@ export function KnowledgeClient({
         <>
           {/* Filters */}
           <div className="flex flex-wrap items-center gap-3 mb-4">
-            <form className="flex items-center gap-2" onSubmit={handleSearch}>
-              <Input
-                placeholder="Поиск по заголовку..."
-                value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
-                className="w-52 h-8"
-              />
-              <Button type="submit" variant="outline" size="sm" className="h-8">
-                <Search className="h-3.5 w-3.5" />
-              </Button>
-            </form>
+            <MiniSearch
+              workspaceId={workspaceId}
+              onApply={(q) => {
+                setSearch(q);
+                setPage(1);
+              }}
+            />
 
             <Select
               value={categoryFilter}

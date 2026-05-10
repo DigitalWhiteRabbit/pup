@@ -216,6 +216,8 @@ export function generateSummary(
       return `${actor} — crawl сайта ${ctx.sourceUrl ?? "URL"} завершился с ошибкой`;
     case "KB_CRAWL_CANCELLED":
       return `${actor} отменил crawl сайта ${ctx.sourceUrl ?? "URL"}`;
+    case "KB_SEARCH_PERFORMED":
+      return `${actor} выполнил поиск: «${ctx.kbArticleTitle ?? "?"}»`;
 
     default:
       return `${actor} выполнил действие`;
