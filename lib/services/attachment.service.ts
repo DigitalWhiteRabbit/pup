@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { ApiError } from "@/lib/api-error";
 import { storage } from "./storage";
 import { checkMembership } from "./workspace.service";
+import { logActivity, generateSummary } from "./logger.service";
 
 export type AttachmentView = {
   id: string;
@@ -60,6 +61,31 @@ export async function uploadAttachment(
       storagePath: result.storagePath,
     },
     include: { uploadedBy: { select: { id: true, login: true } } },
+  });
+
+  const task = await db.task.findUnique({
+    where: { id: input.taskId },
+    select: { title: true },
+  });
+
+  await logActivity({
+    workspaceId,
+    actorId: input.uploadedById,
+    action: "ATTACHMENT_UPLOADED",
+    entityType: "Attachment",
+    entityId: attachment.id,
+    taskId: input.taskId,
+    summary: generateSummary("ATTACHMENT_UPLOADED", {
+      actorLogin: attachment.uploadedBy.login,
+      taskTitle: task?.title,
+      attachmentName: input.file.name,
+    }),
+    metadata: {
+      taskId: input.taskId,
+      attachmentId: attachment.id,
+      fileName: input.file.name,
+      size: attachment.size,
+    },
   });
 
   return {
@@ -127,6 +153,35 @@ export async function deleteAttachment(
     );
   }
 
+  const taskInfo = await db.task.findUnique({
+    where: { id: attachment.taskId },
+    select: { title: true },
+  });
+
+  const actor = await db.user.findUnique({
+    where: { id: userId },
+    select: { login: true },
+  });
+
   await storage().delete(attachment.storagePath);
   await db.attachment.delete({ where: { id: attachmentId } });
+
+  await logActivity({
+    workspaceId: attachment.task.workspaceId,
+    actorId: userId,
+    action: "ATTACHMENT_DELETED",
+    entityType: "Attachment",
+    entityId: attachmentId,
+    taskId: attachment.taskId,
+    summary: generateSummary("ATTACHMENT_DELETED", {
+      actorLogin: actor?.login,
+      taskTitle: taskInfo?.title,
+      attachmentName: attachment.originalName,
+    }),
+    metadata: {
+      taskId: attachment.taskId,
+      attachmentId,
+      fileName: attachment.originalName,
+    },
+  });
 }

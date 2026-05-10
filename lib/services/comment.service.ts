@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { ApiError } from "@/lib/api-error";
 import { checkMembership } from "./workspace.service";
 import { notify } from "./notification.service";
+import { logActivity, generateSummary } from "./logger.service";
 
 export type CommentView = {
   id: string;
@@ -64,6 +65,25 @@ export async function createComment(
     }
   }
 
+  const task = await db.task.findUnique({
+    where: { id: input.taskId },
+    select: { title: true },
+  });
+
+  await logActivity({
+    workspaceId: taskInfo.workspaceId,
+    actorId: input.authorId,
+    action: "COMMENT_CREATED",
+    entityType: "Comment",
+    entityId: comment.id,
+    taskId: input.taskId,
+    summary: generateSummary("COMMENT_CREATED", {
+      actorLogin: comment.author.login,
+      taskTitle: task?.title,
+    }),
+    metadata: { taskId: input.taskId, commentId: comment.id },
+  });
+
   return {
     id: comment.id,
     text: comment.text,
@@ -91,11 +111,36 @@ export async function updateComment(
     );
   }
 
+  const commentFull = await db.comment.findUnique({
+    where: { id: commentId },
+    select: {
+      taskId: true,
+      task: { select: { workspaceId: true, title: true } },
+      author: { select: { login: true } },
+    },
+  });
+
   const updated = await db.comment.update({
     where: { id: commentId },
     data: { text: newText },
     select: { id: true, text: true, updatedAt: true },
   });
+
+  if (commentFull) {
+    await logActivity({
+      workspaceId: commentFull.task.workspaceId,
+      actorId: userId,
+      action: "COMMENT_UPDATED",
+      entityType: "Comment",
+      entityId: commentId,
+      taskId: commentFull.taskId,
+      summary: generateSummary("COMMENT_UPDATED", {
+        actorLogin: commentFull.author.login,
+        taskTitle: commentFull.task.title,
+      }),
+      metadata: { taskId: commentFull.taskId, commentId },
+    });
+  }
 
   return updated;
 }
@@ -106,7 +151,12 @@ export async function deleteComment(
 ): Promise<void> {
   const comment = await db.comment.findUnique({
     where: { id: commentId },
-    select: { authorId: true },
+    select: {
+      authorId: true,
+      taskId: true,
+      task: { select: { workspaceId: true, title: true } },
+      author: { select: { login: true } },
+    },
   });
   if (!comment) throw new ApiError("Комментарий не найден", "NOT_FOUND", 404);
   if (comment.authorId !== userId) {
@@ -118,4 +168,18 @@ export async function deleteComment(
   }
 
   await db.comment.delete({ where: { id: commentId } });
+
+  await logActivity({
+    workspaceId: comment.task.workspaceId,
+    actorId: userId,
+    action: "COMMENT_DELETED",
+    entityType: "Comment",
+    entityId: commentId,
+    taskId: comment.taskId,
+    summary: generateSummary("COMMENT_DELETED", {
+      actorLogin: comment.author.login,
+      taskTitle: comment.task.title,
+    }),
+    metadata: { taskId: comment.taskId, commentId },
+  });
 }

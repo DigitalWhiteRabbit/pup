@@ -4,6 +4,7 @@ import bcrypt from "bcrypt";
 import type { Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { ApiError } from "@/lib/api-error";
+import { logActivity, generateSummary } from "./logger.service";
 
 // Base62 alphabet without ambiguous chars: 0/O/l/1
 const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
@@ -87,6 +88,17 @@ export async function createUser(input: {
     },
   });
 
+  await logActivity({
+    actorId: null,
+    action: "USER_CREATED_BY_ADMIN",
+    entityType: "User",
+    entityId: user.id,
+    summary: generateSummary("USER_CREATED_BY_ADMIN", {
+      targetLogin: user.login,
+    }),
+    metadata: { login: user.login, email: user.email, role: user.role },
+  });
+
   return { user, temporaryPassword };
 }
 
@@ -98,11 +110,22 @@ export async function deactivateUser(
     throw new ApiError("Пользователь не найден", "USER_NOT_FOUND", 404);
   }
 
-  return db.user.update({
+  const result = await db.user.update({
     where: { id },
     data: { isActive: false },
     select: { id: true, isActive: true },
   });
+
+  await logActivity({
+    actorId: null,
+    action: "USER_DEACTIVATED",
+    entityType: "User",
+    entityId: id,
+    summary: generateSummary("USER_DEACTIVATED", { targetLogin: user.login }),
+    metadata: { userId: id, login: user.login },
+  });
+
+  return result;
 }
 
 export async function activateUser(
@@ -113,11 +136,22 @@ export async function activateUser(
     throw new ApiError("Пользователь не найден", "USER_NOT_FOUND", 404);
   }
 
-  return db.user.update({
+  const result = await db.user.update({
     where: { id },
     data: { isActive: true },
     select: { id: true, isActive: true },
   });
+
+  await logActivity({
+    actorId: null,
+    action: "USER_ACTIVATED",
+    entityType: "User",
+    entityId: id,
+    summary: generateSummary("USER_ACTIVATED", { targetLogin: user.login }),
+    metadata: { userId: id, login: user.login },
+  });
+
+  return result;
 }
 
 export async function resetPassword(
@@ -148,9 +182,28 @@ export async function changeRole(
     throw new ApiError("Пользователь не найден", "USER_NOT_FOUND", 404);
   }
 
-  return db.user.update({
+  const result = await db.user.update({
     where: { id },
     data: { role },
     select: { id: true, role: true },
   });
+
+  await logActivity({
+    actorId: null,
+    action: "USER_ROLE_CHANGED",
+    entityType: "User",
+    entityId: id,
+    summary: generateSummary("USER_ROLE_CHANGED", {
+      targetLogin: user.login,
+      role,
+    }),
+    metadata: {
+      userId: id,
+      login: user.login,
+      oldRole: user.role,
+      newRole: role,
+    },
+  });
+
+  return result;
 }

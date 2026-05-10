@@ -3,5 +3,30 @@ export async function register() {
     // Dynamic import to avoid bundling issues
     const { getTelegramBot } = await import("@/lib/services/telegram/bot");
     getTelegramBot();
+
+    const { cleanupOldLogs } = await import("@/lib/services/logger.service");
+
+    // Initial cleanup on startup
+    cleanupOldLogs()
+      .then((result) => {
+        console.log(
+          `[Logs cleanup] Initial: deleted ${result.activityDeleted} activity, ${result.systemDeleted} system logs`,
+        );
+      })
+      .catch((err) => console.error("[Logs cleanup] Initial failed", err));
+
+    // Daily cleanup every 24 hours
+    setInterval(
+      () => {
+        cleanupOldLogs()
+          .then((result) => {
+            console.log(
+              `[Logs cleanup] Daily: deleted ${result.activityDeleted} activity, ${result.systemDeleted} system logs`,
+            );
+          })
+          .catch((err) => console.error("[Logs cleanup] Daily failed", err));
+      },
+      24 * 60 * 60 * 1000,
+    );
   }
 }

@@ -9,6 +9,11 @@ import {
   calcTimeFields,
 } from "./timer.service";
 import { notify } from "./notification.service";
+import {
+  logActivity,
+  notifyCriticalEvent,
+  generateSummary,
+} from "./logger.service";
 import type { TaskPriority } from "@prisma/client";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -152,6 +157,35 @@ export async function createTask(
     }
   }
 
+  const actor = await db.user.findUnique({
+    where: { id: userId },
+    select: { login: true },
+  });
+
+  const columnForLog = await db.column.findUnique({
+    where: { id: input.columnId },
+    select: { name: true },
+  });
+
+  await logActivity({
+    workspaceId: input.workspaceId,
+    actorId: userId,
+    action: "TASK_CREATED",
+    entityType: "Task",
+    entityId: task.task.id,
+    taskId: task.task.id,
+    columnId: input.columnId,
+    summary: generateSummary("TASK_CREATED", {
+      actorLogin: actor?.login,
+      taskTitle: task.task.title,
+    }),
+    metadata: {
+      columnId: input.columnId,
+      columnName: columnForLog?.name,
+      assignees: assigneeIds,
+    },
+  });
+
   const now = new Date();
   return {
     id: task.task.id,
@@ -194,6 +228,10 @@ export async function updateTask(
     where: { id },
     select: {
       workspaceId: true,
+      title: true,
+      priority: true,
+      dueDate: true,
+      startDate: true,
       assignees: { select: { userId: true } },
     },
   });
@@ -268,6 +306,129 @@ export async function updateTask(
     }
   }
 
+  // Emit fine-grained activity logs for each changed field
+  const actor = await db.user.findUnique({
+    where: { id: userId },
+    select: { login: true },
+  });
+  const actorLogin = actor?.login;
+
+  if (data.title !== undefined && data.title !== task.title) {
+    await logActivity({
+      workspaceId: task.workspaceId,
+      actorId: userId,
+      action: "TASK_UPDATED",
+      entityType: "Task",
+      entityId: id,
+      taskId: id,
+      summary: generateSummary("TASK_UPDATED", {
+        actorLogin,
+        taskTitle: data.title,
+        taskTitleOld: task.title,
+      }),
+      metadata: { oldTitle: task.title, newTitle: data.title },
+    });
+  }
+
+  if (data.priority !== undefined && data.priority !== task.priority) {
+    await logActivity({
+      workspaceId: task.workspaceId,
+      actorId: userId,
+      action: "TASK_PRIORITY_CHANGED",
+      entityType: "Task",
+      entityId: id,
+      taskId: id,
+      summary: generateSummary("TASK_PRIORITY_CHANGED", {
+        actorLogin,
+        taskTitle: updated.title,
+        priorityOld: task.priority,
+        priority: data.priority,
+      }),
+      metadata: { oldPriority: task.priority, newPriority: data.priority },
+    });
+  }
+
+  const newDueDate = data.dueDate !== undefined ? data.dueDate : undefined;
+  const newStartDate =
+    data.startDate !== undefined ? data.startDate : undefined;
+  if (newDueDate !== undefined || newStartDate !== undefined) {
+    const oldDue = task.dueDate?.toISOString() ?? null;
+    const oldStart = task.startDate?.toISOString() ?? null;
+    const changedDue = newDueDate !== undefined && newDueDate !== oldDue;
+    const changedStart =
+      newStartDate !== undefined && newStartDate !== oldStart;
+    if (changedDue || changedStart) {
+      await logActivity({
+        workspaceId: task.workspaceId,
+        actorId: userId,
+        action: "TASK_DATE_CHANGED",
+        entityType: "Task",
+        entityId: id,
+        taskId: id,
+        summary: generateSummary("TASK_DATE_CHANGED", {
+          actorLogin,
+          taskTitle: updated.title,
+        }),
+        metadata: {
+          oldDueDate: oldDue,
+          newDueDate: newDueDate ?? null,
+          oldStartDate: oldStart,
+          newStartDate: newStartDate ?? null,
+        },
+      });
+    }
+  }
+
+  if (data.assigneeIds !== undefined) {
+    const newIds = new Set(data.assigneeIds);
+    const addedIds = data.assigneeIds.filter((uid) => !oldAssigneeIds.has(uid));
+    const removedIds = Array.from(oldAssigneeIds).filter(
+      (uid) => !newIds.has(uid),
+    );
+
+    for (const uid of addedIds) {
+      const assigneeUser = await db.user.findUnique({
+        where: { id: uid },
+        select: { login: true },
+      });
+      await logActivity({
+        workspaceId: task.workspaceId,
+        actorId: userId,
+        action: "TASK_ASSIGNEE_ADDED",
+        entityType: "Task",
+        entityId: id,
+        taskId: id,
+        summary: generateSummary("TASK_ASSIGNEE_ADDED", {
+          actorLogin,
+          taskTitle: updated.title,
+          targetLogin: assigneeUser?.login,
+        }),
+        metadata: { assigneeId: uid, assigneeLogin: assigneeUser?.login },
+      });
+    }
+
+    for (const uid of removedIds) {
+      const assigneeUser = await db.user.findUnique({
+        where: { id: uid },
+        select: { login: true },
+      });
+      await logActivity({
+        workspaceId: task.workspaceId,
+        actorId: userId,
+        action: "TASK_ASSIGNEE_REMOVED",
+        entityType: "Task",
+        entityId: id,
+        taskId: id,
+        summary: generateSummary("TASK_ASSIGNEE_REMOVED", {
+          actorLogin,
+          taskTitle: updated.title,
+          targetLogin: assigneeUser?.login,
+        }),
+        metadata: { assigneeId: uid, assigneeLogin: assigneeUser?.login },
+      });
+    }
+  }
+
   const { totalTimeMs, isInProgress, lastIntervalStartedAt } = calcTimeFields(
     updated.timeIntervals,
   );
@@ -302,7 +463,11 @@ export async function deleteTask(
 ): Promise<void> {
   const task = await db.task.findUnique({
     where: { id },
-    select: { workspaceId: true },
+    select: {
+      workspaceId: true,
+      title: true,
+      column: { select: { name: true } },
+    },
   });
   if (!task) throw new ApiError("Задача не найдена", "NOT_FOUND", 404);
 
@@ -311,7 +476,36 @@ export async function deleteTask(
     throw new ApiError("Нет доступа", "FORBIDDEN", 403);
   }
 
+  const [actor, workspace] = await Promise.all([
+    db.user.findUnique({ where: { id: userId }, select: { login: true } }),
+    db.workspace.findUnique({
+      where: { id: task.workspaceId },
+      select: { name: true },
+    }),
+  ]);
+
   await db.task.delete({ where: { id } });
+
+  await logActivity({
+    workspaceId: task.workspaceId,
+    actorId: userId,
+    action: "TASK_DELETED",
+    entityType: "Task",
+    entityId: id,
+    summary: generateSummary("TASK_DELETED", {
+      actorLogin: actor?.login,
+      taskTitle: task.title,
+    }),
+    metadata: { taskTitle: task.title, columnName: task.column.name },
+  });
+
+  void notifyCriticalEvent({
+    action: "TASK_DELETED",
+    workspaceId: task.workspaceId,
+    workspaceName: workspace?.name ?? "?",
+    taskTitle: task.title,
+    actorLogin: actor?.login ?? userId,
+  });
 }
 
 // ─── moveTask ─────────────────────────────────────────────────────────────────
@@ -353,6 +547,7 @@ export async function moveTask(
       },
     });
     if (!task) throw new ApiError("Задача не найдена", "NOT_FOUND", 404);
+    const taskTitle = task.title;
 
     const targetColumn = await tx.column.findUnique({
       where: { id: targetColumnId },
@@ -414,6 +609,8 @@ export async function moveTask(
       _workspaceId: task.column.workspaceId,
       _fromColumn: task.column.name,
       _toColumn: targetColumn.name,
+      _taskTitle: taskTitle,
+      _columnChanged: columnChanged,
     };
   });
 
@@ -432,6 +629,33 @@ export async function moveTask(
         },
       });
     }
+  }
+
+  if (result._columnChanged) {
+    const actor = await db.user.findUnique({
+      where: { id: userId },
+      select: { login: true },
+    });
+
+    await logActivity({
+      workspaceId: result._workspaceId,
+      actorId: userId,
+      action: "TASK_MOVED",
+      entityType: "Task",
+      entityId: taskId,
+      taskId,
+      columnId: targetColumnId,
+      summary: generateSummary("TASK_MOVED", {
+        actorLogin: actor?.login,
+        taskTitle: result._taskTitle,
+        columnNameOld: result._fromColumn,
+        columnName: result._toColumn,
+      }),
+      metadata: {
+        fromColumn: result._fromColumn,
+        toColumn: result._toColumn,
+      },
+    });
   }
 
   return {

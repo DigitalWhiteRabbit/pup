@@ -40,6 +40,13 @@ model User {
   actedNotifications Notification[]      @relation("NotificationActor")
   movedTasks         ColumnMoveLog[]
   telegramTokens     TelegramLinkToken[]
+  activityLogs       ActivityLog[]       @relation("ActivityActor")
+
+  // Critical event Telegram notifications (default false)
+  tgNotifyTaskDeleted      Boolean @default(false)
+  tgNotifyMemberRemoved    Boolean @default(false)
+  tgNotifyWorkspaceDeleted Boolean @default(false)
+  tgNotifyRoleChanged      Boolean @default(false)
 
   @@index([email])
   @@index([login])
@@ -69,6 +76,7 @@ model Workspace {
   tasks         Task[]
   labels        Label[]
   notifications Notification[]
+  activityLogs  ActivityLog[]
 
   @@index([ownerId])
 }
@@ -341,4 +349,114 @@ model TelegramLinkToken {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([token])
+}
+
+// ─────────────────────────────────────────
+// ЛОГИ АКТИВНОСТИ
+// ─────────────────────────────────────────
+
+enum ActivityAction {
+  // Task actions
+  TASK_CREATED
+  TASK_DELETED
+  TASK_MOVED
+  TASK_UPDATED
+  TASK_ASSIGNEE_ADDED
+  TASK_ASSIGNEE_REMOVED
+  TASK_LABEL_ADDED
+  TASK_LABEL_REMOVED
+  TASK_PRIORITY_CHANGED
+  TASK_DATE_CHANGED
+  TASK_CHECKLIST_ITEM_ADDED
+  TASK_CHECKLIST_ITEM_TOGGLED
+  TASK_CHECKLIST_ITEM_REMOVED
+
+  // Comment & Attachment
+  COMMENT_CREATED
+  COMMENT_UPDATED
+  COMMENT_DELETED
+  ATTACHMENT_UPLOADED
+  ATTACHMENT_DELETED
+
+  // Column
+  COLUMN_CREATED
+  COLUMN_RENAMED
+  COLUMN_DELETED
+  COLUMN_REORDERED
+
+  // Workspace
+  WORKSPACE_CREATED
+  WORKSPACE_UPDATED
+  WORKSPACE_DELETED
+  MEMBER_ADDED
+  MEMBER_REMOVED
+  MEMBER_ROLE_CHANGED
+  MODULE_ENABLED
+  MODULE_DISABLED
+
+  // System
+  USER_LOGIN
+  USER_LOGOUT
+  USER_CREATED_BY_ADMIN
+  USER_DEACTIVATED
+  USER_ACTIVATED
+  USER_PASSWORD_RESET
+  USER_ROLE_CHANGED
+}
+
+enum LogLevel {
+  INFO
+  WARN
+  ERROR
+}
+
+model ActivityLog {
+  id          String         @id @default(cuid())
+  workspaceId String?
+  actorId     String?
+  action      ActivityAction
+  entityType  String?
+  entityId    String?
+  summary     String
+  metadata    String // JSON.stringify (SQLite doesn't support Json)
+
+  // Denormalized for fast filtering
+  taskId   String?
+  columnId String?
+
+  createdAt DateTime @default(now())
+
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  actor     User?      @relation("ActivityActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, createdAt])
+  @@index([actorId])
+  @@index([action])
+  @@index([taskId])
+  @@index([columnId])
+  @@index([createdAt])
+}
+
+model SystemLog {
+  id         String   @id @default(cuid())
+  level      LogLevel @default(INFO)
+  source     String
+  method     String?
+  path       String?
+  statusCode Int?
+  durationMs Int?
+  message    String
+  errorStack String?
+  metadata   String?
+
+  workspaceId String?
+  userId      String?
+
+  createdAt DateTime @default(now())
+
+  @@index([level, createdAt])
+  @@index([source])
+  @@index([workspaceId])
+  @@index([userId])
+  @@index([createdAt])
 }

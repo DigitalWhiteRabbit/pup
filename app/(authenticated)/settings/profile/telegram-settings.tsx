@@ -21,6 +21,10 @@ type Preferences = {
   tgNotifyComment: boolean;
   tgNotifyMove: boolean;
   tgNotifyProject: boolean;
+  tgNotifyTaskDeleted: boolean;
+  tgNotifyMemberRemoved: boolean;
+  tgNotifyWorkspaceDeleted: boolean;
+  tgNotifyRoleChanged: boolean;
 };
 
 type Props = {
@@ -33,6 +37,25 @@ const PREF_LABELS: Record<keyof Preferences, string> = {
   tgNotifyComment: "Комментарии к моим задачам",
   tgNotifyMove: "Перемещение моих задач",
   tgNotifyProject: "Добавление в проект",
+  tgNotifyTaskDeleted: "Удаление задачи в workspace",
+  tgNotifyMemberRemoved: "Удаление меня из workspace",
+  tgNotifyWorkspaceDeleted: "Удаление workspace",
+  tgNotifyRoleChanged: "Изменение моей роли",
+};
+
+const PREF_GROUPS: Record<string, Array<keyof Preferences>> = {
+  "Уведомления о задачах": [
+    "tgNotifyAssign",
+    "tgNotifyComment",
+    "tgNotifyMove",
+    "tgNotifyProject",
+  ],
+  "Критичные события": [
+    "tgNotifyTaskDeleted",
+    "tgNotifyMemberRemoved",
+    "tgNotifyWorkspaceDeleted",
+    "tgNotifyRoleChanged",
+  ],
 };
 
 export function TelegramSettings({
@@ -66,6 +89,10 @@ export function TelegramSettings({
         tgNotifyComment: statusData.tgNotifyComment,
         tgNotifyMove: statusData.tgNotifyMove,
         tgNotifyProject: statusData.tgNotifyProject,
+        tgNotifyTaskDeleted: statusData.tgNotifyTaskDeleted ?? false,
+        tgNotifyMemberRemoved: statusData.tgNotifyMemberRemoved ?? false,
+        tgNotifyWorkspaceDeleted: statusData.tgNotifyWorkspaceDeleted ?? false,
+        tgNotifyRoleChanged: statusData.tgNotifyRoleChanged ?? false,
       }
     : initialPrefs;
 
@@ -158,27 +185,29 @@ export function TelegramSettings({
 
               <Separator />
 
-              <div className="space-y-3">
-                <p className="text-sm font-medium">Уведомления в Telegram</p>
-                {(Object.keys(PREF_LABELS) as Array<keyof Preferences>).map(
-                  (key) => (
-                    <div
-                      key={key}
-                      className="flex items-center justify-between"
-                    >
-                      <Label htmlFor={key} className="text-sm">
-                        {PREF_LABELS[key]}
-                      </Label>
-                      <Switch
-                        id={key}
-                        checked={prefs[key]}
-                        onCheckedChange={(checked) =>
-                          updatePref.mutate({ [key]: checked })
-                        }
-                      />
-                    </div>
-                  ),
-                )}
+              <div className="space-y-5">
+                {Object.entries(PREF_GROUPS).map(([groupLabel, keys]) => (
+                  <div key={groupLabel} className="space-y-3">
+                    <p className="text-sm font-medium">{groupLabel}</p>
+                    {keys.map((key) => (
+                      <div
+                        key={key}
+                        className="flex items-center justify-between"
+                      >
+                        <Label htmlFor={key} className="text-sm">
+                          {PREF_LABELS[key]}
+                        </Label>
+                        <Switch
+                          id={key}
+                          checked={prefs[key]}
+                          onCheckedChange={(checked) =>
+                            updatePref.mutate({ [key]: checked })
+                          }
+                        />
+                      </div>
+                    ))}
+                  </div>
+                ))}
               </div>
             </div>
           )}

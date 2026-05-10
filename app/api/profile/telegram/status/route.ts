@@ -17,6 +17,10 @@ export async function GET() {
         tgNotifyComment: true,
         tgNotifyMove: true,
         tgNotifyProject: true,
+        tgNotifyTaskDeleted: true,
+        tgNotifyMemberRemoved: true,
+        tgNotifyWorkspaceDeleted: true,
+        tgNotifyRoleChanged: true,
       },
     });
 
@@ -26,6 +30,10 @@ export async function GET() {
       tgNotifyComment: user?.tgNotifyComment ?? true,
       tgNotifyMove: user?.tgNotifyMove ?? true,
       tgNotifyProject: user?.tgNotifyProject ?? true,
+      tgNotifyTaskDeleted: user?.tgNotifyTaskDeleted ?? false,
+      tgNotifyMemberRemoved: user?.tgNotifyMemberRemoved ?? false,
+      tgNotifyWorkspaceDeleted: user?.tgNotifyWorkspaceDeleted ?? false,
+      tgNotifyRoleChanged: user?.tgNotifyRoleChanged ?? false,
     });
   });
 }

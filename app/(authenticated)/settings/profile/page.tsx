@@ -15,6 +15,10 @@ export default async function ProfileSettingsPage() {
       tgNotifyComment: true,
       tgNotifyMove: true,
       tgNotifyProject: true,
+      tgNotifyTaskDeleted: true,
+      tgNotifyMemberRemoved: true,
+      tgNotifyWorkspaceDeleted: true,
+      tgNotifyRoleChanged: true,
     },
   });
 
@@ -30,6 +34,10 @@ export default async function ProfileSettingsPage() {
           tgNotifyComment: user.tgNotifyComment,
           tgNotifyMove: user.tgNotifyMove,
           tgNotifyProject: user.tgNotifyProject,
+          tgNotifyTaskDeleted: user.tgNotifyTaskDeleted,
+          tgNotifyMemberRemoved: user.tgNotifyMemberRemoved,
+          tgNotifyWorkspaceDeleted: user.tgNotifyWorkspaceDeleted,
+          tgNotifyRoleChanged: user.tgNotifyRoleChanged,
         }}
       />
     </div>

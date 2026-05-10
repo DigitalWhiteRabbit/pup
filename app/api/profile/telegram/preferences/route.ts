@@ -9,6 +9,10 @@ const preferencesSchema = z.object({
   tgNotifyComment: z.boolean().optional(),
   tgNotifyMove: z.boolean().optional(),
   tgNotifyProject: z.boolean().optional(),
+  tgNotifyTaskDeleted: z.boolean().optional(),
+  tgNotifyMemberRemoved: z.boolean().optional(),
+  tgNotifyWorkspaceDeleted: z.boolean().optional(),
+  tgNotifyRoleChanged: z.boolean().optional(),
 });
 
 export async function PATCH(req: NextRequest) {
@@ -27,6 +31,10 @@ export async function PATCH(req: NextRequest) {
         tgNotifyComment: true,
         tgNotifyMove: true,
         tgNotifyProject: true,
+        tgNotifyTaskDeleted: true,
+        tgNotifyMemberRemoved: true,
+        tgNotifyWorkspaceDeleted: true,
+        tgNotifyRoleChanged: true,
       },
     });
 

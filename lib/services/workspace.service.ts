@@ -3,6 +3,11 @@ import { db } from "@/lib/db";
 import { ApiError } from "@/lib/api-error";
 import { handleColumnRename, calcTimeFields } from "./timer.service";
 import { notify } from "./notification.service";
+import {
+  logActivity,
+  notifyCriticalEvent,
+  generateSummary,
+} from "./logger.service";
 import type { MemberRole } from "@prisma/client";
 
 // ─── Module constants ─────────────────────────────────────────────────────────
@@ -129,6 +134,18 @@ export async function createWorkspace(input: {
     });
 
     return { workspace, columns };
+  });
+
+  await logActivity({
+    workspaceId: result.workspace.id,
+    actorId: input.ownerId,
+    action: "WORKSPACE_CREATED",
+    entityType: "Workspace",
+    entityId: result.workspace.id,
+    summary: generateSummary("WORKSPACE_CREATED", {
+      workspaceName: result.workspace.name,
+    }),
+    metadata: { workspaceName: result.workspace.name },
   });
 
   return {
@@ -291,11 +308,23 @@ export async function updateWorkspace(
     );
   }
 
-  return db.workspace.update({
+  const updated = await db.workspace.update({
     where: { id },
     data,
     select: { id: true, name: true, description: true },
   });
+
+  await logActivity({
+    workspaceId: id,
+    actorId: userId,
+    action: "WORKSPACE_UPDATED",
+    entityType: "Workspace",
+    entityId: id,
+    summary: generateSummary("WORKSPACE_UPDATED", {}),
+    metadata: { changes: data },
+  });
+
+  return updated;
 }
 
 // ─── deleteWorkspace ──────────────────────────────────────────────────────────
@@ -313,7 +342,25 @@ export async function deleteWorkspace(
     );
   }
 
+  const workspace = await db.workspace.findUnique({
+    where: { id },
+    select: {
+      name: true,
+      members: { select: { userId: true } },
+    },
+  });
+
+  const workspaceName = workspace?.name ?? "?";
+  const memberIds = workspace?.members.map((m) => m.userId) ?? [];
+
   await db.workspace.delete({ where: { id } });
+
+  void notifyCriticalEvent({
+    action: "WORKSPACE_DELETED",
+    memberIds,
+    workspaceName,
+    actorLogin: userId,
+  });
 }
 
 // ─── addMember ────────────────────────────────────────────────────────────────
@@ -372,6 +419,24 @@ export async function addMember(
     workspaceId,
   });
 
+  const requester = await db.user.findUnique({
+    where: { id: requesterId },
+    select: { login: true },
+  });
+
+  await logActivity({
+    workspaceId,
+    actorId: requesterId,
+    action: "MEMBER_ADDED",
+    entityType: "User",
+    entityId: user.id,
+    summary: generateSummary("MEMBER_ADDED", {
+      actorLogin: requester?.login,
+      targetLogin: user.login,
+    }),
+    metadata: { targetUserId: user.id, targetLogin: user.login },
+  });
+
   return {
     userId: user.id,
     login: user.login,
@@ -416,6 +481,38 @@ export async function removeMember(
   await db.workspaceMember.delete({
     where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
   });
+
+  const [requester, targetUser, workspace] = await Promise.all([
+    db.user.findUnique({ where: { id: requesterId }, select: { login: true } }),
+    db.user.findUnique({
+      where: { id: targetUserId },
+      select: { login: true },
+    }),
+    db.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { name: true },
+    }),
+  ]);
+
+  await logActivity({
+    workspaceId,
+    actorId: requesterId,
+    action: "MEMBER_REMOVED",
+    entityType: "User",
+    entityId: targetUserId,
+    summary: generateSummary("MEMBER_REMOVED", {
+      actorLogin: requester?.login,
+      targetLogin: targetUser?.login,
+    }),
+    metadata: { targetUserId, targetLogin: targetUser?.login },
+  });
+
+  void notifyCriticalEvent({
+    action: "MEMBER_REMOVED",
+    removedUserId: targetUserId,
+    workspaceName: workspace?.name ?? "?",
+    actorLogin: requester?.login ?? requesterId,
+  });
 }
 
 // ─── Column service ────────────────────────────────────────────────────────────
@@ -441,10 +538,31 @@ export async function createColumn(input: {
   });
   const position = maxCol ? maxCol.position + 1 : 0;
 
-  return db.column.create({
+  const column = await db.column.create({
     data: { workspaceId: input.workspaceId, name: input.name, position },
     select: { id: true, name: true, position: true },
   });
+
+  const actor = await db.user.findUnique({
+    where: { id: input.requesterId },
+    select: { login: true },
+  });
+
+  await logActivity({
+    workspaceId: input.workspaceId,
+    actorId: input.requesterId,
+    action: "COLUMN_CREATED",
+    entityType: "Column",
+    entityId: column.id,
+    columnId: column.id,
+    summary: generateSummary("COLUMN_CREATED", {
+      actorLogin: actor?.login,
+      columnName: input.name,
+    }),
+    metadata: { columnName: input.name, position },
+  });
+
+  return column;
 }
 
 export async function renameColumn(
@@ -467,21 +585,46 @@ export async function renameColumn(
     throw new ApiError("Нет доступа", "FORBIDDEN", 403);
   }
 
-  return db.$transaction(async (tx) => {
+  const { result: renamed, oldName } = await db.$transaction(async (tx) => {
     const column = await tx.column.findUnique({ where: { id: columnId } });
     if (!column) throw new ApiError("Колонка не найдена", "NOT_FOUND", 404);
 
-    const oldName = column.name;
+    const capturedOldName = column.name;
 
     await tx.column.update({
       where: { id: columnId },
       data: { name: newName },
     });
 
-    await handleColumnRename(tx, columnId, oldName, newName);
+    await handleColumnRename(tx, columnId, capturedOldName, newName);
 
-    return { id: columnId, name: newName };
+    return {
+      result: { id: columnId, name: newName },
+      oldName: capturedOldName,
+    };
   });
+
+  const actor = await db.user.findUnique({
+    where: { id: requesterId },
+    select: { login: true },
+  });
+
+  await logActivity({
+    workspaceId: columnCheck.workspaceId,
+    actorId: requesterId,
+    action: "COLUMN_RENAMED",
+    entityType: "Column",
+    entityId: columnId,
+    columnId,
+    summary: generateSummary("COLUMN_RENAMED", {
+      actorLogin: actor?.login,
+      columnNameOld: oldName,
+      columnName: newName,
+    }),
+    metadata: { columnId, oldName, newName },
+  });
+
+  return renamed;
 }
 
 export async function deleteColumn(
@@ -507,6 +650,25 @@ export async function deleteColumn(
       400,
     );
   }
+
+  const actor = await db.user.findUnique({
+    where: { id: requesterId },
+    select: { login: true },
+  });
+
+  await logActivity({
+    workspaceId: column.workspaceId,
+    actorId: requesterId,
+    action: "COLUMN_DELETED",
+    entityType: "Column",
+    entityId: columnId,
+    columnId,
+    summary: generateSummary("COLUMN_DELETED", {
+      actorLogin: actor?.login,
+      columnName: column.name,
+    }),
+    metadata: { columnId, columnName: column.name },
+  });
 
   await db.column.delete({ where: { id: columnId } });
 }
@@ -598,6 +760,23 @@ export async function setModuleEnabled(
     where: { workspaceId_moduleKey: { workspaceId, moduleKey } },
     update: { enabled },
     create: { workspaceId, moduleKey, enabled },
+  });
+
+  const actor = await db.user.findUnique({
+    where: { id: userId },
+    select: { login: true },
+  });
+
+  await logActivity({
+    workspaceId,
+    actorId: userId,
+    action: enabled ? "MODULE_ENABLED" : "MODULE_DISABLED",
+    entityType: "WorkspaceModule",
+    summary: generateSummary(enabled ? "MODULE_ENABLED" : "MODULE_DISABLED", {
+      actorLogin: actor?.login,
+      moduleName: moduleKey,
+    }),
+    metadata: { moduleKey, enabled },
   });
 }
 
