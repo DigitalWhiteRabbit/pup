@@ -8,6 +8,7 @@ import { ru } from "date-fns/locale";
 import {
   Plus,
   Search,
+  Settings,
   Ticket,
   AlertTriangle,
   MessageSquare,
@@ -288,6 +289,12 @@ export function TicketsClient({ workspaceId }: { workspaceId: string }) {
           <Link href={`/workspaces/${workspaceId}/tickets/customers`}>
             <Button variant="outline" size="sm">
               Клиенты
+            </Button>
+          </Link>
+          <Link href={`/workspaces/${workspaceId}/tickets/settings`}>
+            <Button variant="outline" size="sm">
+              <Settings className="h-4 w-4 mr-1.5" />
+              Настройки чата
             </Button>
           </Link>
           <Button size="sm" onClick={() => setCreateOpen(true)}>

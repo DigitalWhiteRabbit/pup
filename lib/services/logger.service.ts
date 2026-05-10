@@ -239,6 +239,16 @@ export function generateSummary(
     case "CUSTOMER_UPDATED":
       return `${actor} обновил клиента «${ctx.kbArticleTitle ?? "?"}»`;
 
+    // Chat
+    case "CHAT_SETTINGS_UPDATED":
+      return `${actor} обновил настройки чата`;
+    case "CHAT_PERSONA_CREATED":
+      return `${actor} добавил персону «${ctx.kbArticleTitle ?? "?"}»`;
+    case "CHAT_PERSONA_UPDATED":
+      return `${actor} обновил персону «${ctx.kbArticleTitle ?? "?"}»`;
+    case "CHAT_PERSONA_DELETED":
+      return `${actor} удалил персону «${ctx.kbArticleTitle ?? "?"}»`;
+
     default:
       return `${actor} выполнил действие`;
   }

@@ -78,6 +78,7 @@ async function main() {
     data: {
       id: SEED_IDS.DEMO_WORKSPACE,
       name: "Demo Workspace",
+      slug: "demo-workspace-seed01",
       description: "Демонстрационное рабочее пространство со всеми модулями",
       ownerId: admin.id,
       members: {

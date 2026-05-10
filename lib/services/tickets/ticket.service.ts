@@ -850,3 +850,235 @@ export async function listTickets(
     counters,
   };
 }
+
+// ─── Public chat: create ticket as customer ─────────────────────────────────
+
+export async function createTicketAsCustomer(
+  workspaceId: string,
+  customerId: string,
+  input: { title: string; description: string; category?: TicketCategory },
+): Promise<TicketFull> {
+  const priority: TicketPriority = "MEDIUM";
+  const category = input.category ?? "GENERAL";
+  const now = new Date();
+  const slaDeadline = calcSlaDeadline(priority, now);
+
+  const MAX_RETRIES = 3;
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      const ticket = await db.$transaction(async (tx) => {
+        const last = await tx.ticket.findFirst({
+          where: { workspaceId },
+          orderBy: { number: "desc" },
+          select: { number: true },
+        });
+        const nextNumber = (last?.number ?? 0) + 1;
+
+        return tx.ticket.create({
+          data: {
+            workspaceId,
+            number: nextNumber,
+            title: input.title,
+            description: input.description,
+            source: "EXTERNAL",
+            category,
+            priority,
+            slaDeadline,
+            customerId,
+            messages: {
+              create: {
+                authorType: "CUSTOMER",
+                customerAuthorId: customerId,
+                content: input.description,
+              },
+            },
+          },
+          include: ticketInclude,
+        });
+      });
+
+      void logActivity({
+        workspaceId,
+        actorId: null,
+        action: "TICKET_CREATED",
+        entityType: "Ticket",
+        entityId: ticket.id,
+        summary: generateSummary("TICKET_CREATED", {
+          kbArticleTitle: `#${ticket.number} ${ticket.title}`,
+        }),
+        metadata: {
+          number: ticket.number,
+          source: "EXTERNAL",
+          priority,
+          category,
+        },
+      });
+
+      return mapTicketFull(ticket);
+    } catch (err: unknown) {
+      const prismaErr = err as { code?: string };
+      if (prismaErr.code === "P2002" && attempt < MAX_RETRIES - 1) continue;
+      throw err;
+    }
+  }
+
+  throw new ApiError("Не удалось создать тикет", "TICKET_CREATE_FAILED", 500);
+}
+
+// ─── Public chat: add message as customer ───────────────────────────────────
+
+export async function addMessageAsCustomer(
+  ticketId: string,
+  customerId: string,
+  content: string,
+): Promise<TicketMessageView> {
+  const ticket = await db.ticket.findUnique({
+    where: { id: ticketId },
+    select: {
+      workspaceId: true,
+      status: true,
+      customerId: true,
+      number: true,
+      title: true,
+      assigneeId: true,
+    },
+  });
+  if (!ticket) throw new ApiError("Тикет не найден", "NOT_FOUND", 404);
+  if (ticket.customerId !== customerId) {
+    throw new ApiError("Нет доступа к тикету", "FORBIDDEN", 403);
+  }
+  if (ticket.status === "CLOSED") {
+    throw new ApiError(
+      "Нельзя добавить сообщение в закрытый тикет",
+      "TICKET_CLOSED",
+      400,
+    );
+  }
+
+  const message = await db.ticketMessage.create({
+    data: {
+      ticketId,
+      authorType: "CUSTOMER",
+      customerAuthorId: customerId,
+      content,
+    },
+    include: {
+      customerAuthor: { select: { id: true, email: true, name: true } },
+    },
+  });
+
+  // Auto-transition from WAITING_CUSTOMER to IN_PROGRESS
+  if (ticket.status === "WAITING_CUSTOMER") {
+    await db.ticket.update({
+      where: { id: ticketId },
+      data: { status: "IN_PROGRESS" },
+    });
+  }
+
+  void logActivity({
+    workspaceId: ticket.workspaceId,
+    actorId: null,
+    action: "TICKET_MESSAGE_ADDED",
+    entityType: "TicketMessage",
+    entityId: message.id,
+    summary: generateSummary("TICKET_MESSAGE_ADDED", {
+      kbArticleTitle: `#${ticket.number} ${ticket.title}`,
+    }),
+    metadata: {},
+  });
+
+  // Telegram notification to assignee
+  if (ticket.assigneeId) {
+    void (async () => {
+      try {
+        const recipient = await db.user.findUnique({
+          where: { id: ticket.assigneeId! },
+          select: { telegramChatId: true, tgNotifyTicketMessage: true },
+        });
+        if (recipient?.telegramChatId && recipient.tgNotifyTicketMessage) {
+          const short =
+            content.length > 100 ? content.slice(0, 100) + "..." : content;
+          const authorName =
+            message.customerAuthor?.name ||
+            message.customerAuthor?.email ||
+            "Клиент";
+          const msg = [
+            `<b>💬 Новое сообщение от клиента</b>`,
+            `<i>#${ticket.number} ${ticket.title}</i>`,
+            ``,
+            `${authorName}: ${short}`,
+          ].join("\n");
+          void sendTelegramNotification(recipient.telegramChatId, msg);
+        }
+      } catch {
+        /* fire-and-forget */
+      }
+    })();
+  }
+
+  return {
+    id: message.id,
+    authorType: "CUSTOMER",
+    authorName:
+      message.customerAuthor?.name || message.customerAuthor?.email || "Клиент",
+    content: message.content,
+    systemAction: null,
+    createdAt: message.createdAt,
+  };
+}
+
+// ─── Public chat: list customer tickets ─────────────────────────────────────
+
+export async function listCustomerTickets(
+  workspaceId: string,
+  customerId: string,
+): Promise<
+  Array<{
+    id: string;
+    number: number;
+    title: string;
+    status: TicketStatus;
+    lastMessageAt: Date;
+    messagesCount: number;
+  }>
+> {
+  const tickets = await db.ticket.findMany({
+    where: { workspaceId, customerId },
+    orderBy: { updatedAt: "desc" },
+    take: 50,
+    select: {
+      id: true,
+      number: true,
+      title: true,
+      status: true,
+      updatedAt: true,
+      _count: { select: { messages: true } },
+    },
+  });
+
+  return tickets.map((t) => ({
+    id: t.id,
+    number: t.number,
+    title: t.title,
+    status: t.status,
+    lastMessageAt: t.updatedAt,
+    messagesCount: t._count.messages,
+  }));
+}
+
+// ─── Public chat: get ticket for customer ───────────────────────────────────
+
+export async function getTicketForCustomer(
+  ticketId: string,
+  customerId: string,
+): Promise<TicketFull> {
+  const ticket = await db.ticket.findUnique({
+    where: { id: ticketId },
+    include: ticketInclude,
+  });
+  if (!ticket) throw new ApiError("Тикет не найден", "NOT_FOUND", 404);
+  if (ticket.customerId !== customerId) {
+    throw new ApiError("Нет доступа к тикету", "FORBIDDEN", 403);
+  }
+  return mapTicketFull(ticket);
+}

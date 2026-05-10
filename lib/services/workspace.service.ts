@@ -10,6 +10,20 @@ import {
 } from "./logger.service";
 import type { MemberRole } from "@prisma/client";
 
+// ─── Slug generation ─────────────────────────────────────────────────────────
+
+function generateSlug(name: string): string {
+  const base = name
+    .toLowerCase()
+    .replace(/[^a-zа-яё0-9\s-]/gi, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 30);
+  const suffix = Math.random().toString(36).slice(2, 8);
+  return `${base || "ws"}-${suffix}`;
+}
+
 // ─── Module constants ─────────────────────────────────────────────────────────
 
 const DEFAULT_MODULES = [
@@ -104,6 +118,7 @@ export async function createWorkspace(input: {
     const workspace = await tx.workspace.create({
       data: {
         name: input.name,
+        slug: generateSlug(input.name),
         description: input.description ?? null,
         ownerId: input.ownerId,
       },

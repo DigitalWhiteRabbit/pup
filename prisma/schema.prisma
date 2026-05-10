@@ -78,14 +78,32 @@ enum Role {
 // WORKSPACE (бывший Project)
 // ─────────────────────────────────────────
 
+enum CustomerIdentityMethod {
+  EMAIL_WITH_NAME
+  EMAIL_ONLY
+  ANONYMOUS
+  TELEGRAM_LOGIN
+}
+
 model Workspace {
   id          String  @id @default(cuid())
   name        String
+  slug        String  @unique
   description String?
   createdAt   DateTime @default(now())
 
   ownerId String
   owner   User   @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+
+  // Chat settings
+  chatTitle              String?
+  chatSubtitle           String?
+  chatAccentColor        String?
+  chatLogoUrl            String?
+  chatIdentityMethod     CustomerIdentityMethod @default(EMAIL_WITH_NAME)
+  chatPersonaRotation    Boolean                @default(true)
+  chatAllowedEmbedOrigins String?
+  chatTimezone           String                 @default("Europe/Moscow")
 
   members       WorkspaceMember[]
   modules       WorkspaceModule[]
@@ -101,6 +119,7 @@ model Workspace {
   kbCrawls      KbCrawl[]
   customers     Customer[]
   tickets       Ticket[]
+  chatPersonas  ChatPersona[]
 
   @@index([ownerId])
 }
@@ -449,6 +468,12 @@ enum ActivityAction {
   TICKET_DELETED
   CUSTOMER_CREATED
   CUSTOMER_UPDATED
+
+  // Chat
+  CHAT_SETTINGS_UPDATED
+  CHAT_PERSONA_CREATED
+  CHAT_PERSONA_UPDATED
+  CHAT_PERSONA_DELETED
 
   // System
   USER_LOGIN
@@ -850,6 +875,21 @@ model TicketAttachment {
   uploadedByCustomer Customer? @relation(fields: [uploadedByCustomerId], references: [id], onDelete: SetNull)
 
   @@index([ticketId])
+}
+
+model ChatPersona {
+  id          String   @id @default(cuid())
+  workspaceId String
+  displayName String
+  role        String
+  bio         String?
+  avatarUrl   String?
+  position    Int
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, position])
 }
 
 model SystemLog {
