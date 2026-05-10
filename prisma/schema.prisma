@@ -41,6 +41,9 @@ model User {
   movedTasks         ColumnMoveLog[]
   telegramTokens     TelegramLinkToken[]
   activityLogs       ActivityLog[]       @relation("ActivityActor")
+  kbArticlesAuthored KbArticle[]         @relation("KbArticleAuthor")
+  kbArticlesEdited   KbArticle[]         @relation("KbArticleEditor")
+  kbArticleVersions  KbArticleVersion[]
 
   // Critical event Telegram notifications (default false)
   tgNotifyTaskDeleted      Boolean @default(false)
@@ -77,6 +80,9 @@ model Workspace {
   labels        Label[]
   notifications Notification[]
   activityLogs  ActivityLog[]
+  kbCategories  KbCategory[]
+  kbTags        KbTag[]
+  kbArticles    KbArticle[]
 
   @@index([ownerId])
 }
@@ -394,6 +400,17 @@ enum ActivityAction {
   MODULE_ENABLED
   MODULE_DISABLED
 
+  // Knowledge Base
+  KB_ARTICLE_CREATED
+  KB_ARTICLE_UPDATED
+  KB_ARTICLE_DELETED
+  KB_ARTICLE_VERSION_RESTORED
+  KB_CATEGORY_CREATED
+  KB_CATEGORY_UPDATED
+  KB_CATEGORY_DELETED
+  KB_TAG_CREATED
+  KB_TAG_DELETED
+
   // System
   USER_LOGIN
   USER_LOGOUT
@@ -435,6 +452,109 @@ model ActivityLog {
   @@index([taskId])
   @@index([columnId])
   @@index([createdAt])
+}
+
+// ─────────────────────────────────────────
+// БАЗА ЗНАНИЙ
+// ─────────────────────────────────────────
+
+enum KbSourceType {
+  MANUAL
+  FILE
+  URL
+}
+
+model KbCategory {
+  id          String     @id @default(cuid())
+  workspaceId String
+  name        String
+  slug        String
+  color       String
+  icon        String?
+  position    Int
+
+  createdAt DateTime @default(now())
+
+  workspace Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  articles  KbArticle[]
+
+  @@unique([workspaceId, slug])
+  @@index([workspaceId, position])
+}
+
+model KbTag {
+  id          String @id @default(cuid())
+  workspaceId String
+  name        String
+  color       String
+
+  workspace Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  articles  KbArticleTag[]
+
+  @@unique([workspaceId, name])
+  @@index([workspaceId])
+}
+
+model KbArticle {
+  id          String       @id @default(cuid())
+  workspaceId String
+  title       String
+  slug        String
+  content     String
+
+  categoryId String?
+
+  sourceType      KbSourceType @default(MANUAL)
+  sourceUrl       String?
+  sourceFileId    String?
+  lastSyncedAt    DateTime?
+
+  authorId       String?
+  lastEditedById String?
+  isPublished    Boolean  @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspace    Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  category     KbCategory?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  author       User?              @relation("KbArticleAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  lastEditedBy User?              @relation("KbArticleEditor", fields: [lastEditedById], references: [id], onDelete: SetNull)
+  tags         KbArticleTag[]
+  versions     KbArticleVersion[]
+
+  @@unique([workspaceId, slug])
+  @@index([workspaceId, isPublished, updatedAt])
+  @@index([categoryId])
+  @@index([authorId])
+}
+
+model KbArticleTag {
+  articleId String
+  tagId     String
+
+  article KbArticle @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  tag     KbTag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([articleId, tagId])
+  @@index([tagId])
+}
+
+model KbArticleVersion {
+  id        String @id @default(cuid())
+  articleId String
+
+  title   String
+  content String
+
+  editedById String?
+  editedAt   DateTime @default(now())
+  reason     String?
+
+  article  KbArticle @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  editedBy User?     @relation(fields: [editedById], references: [id], onDelete: SetNull)
+
+  @@index([articleId, editedAt])
 }
 
 model SystemLog {

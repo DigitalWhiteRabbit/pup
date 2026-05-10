@@ -73,6 +73,10 @@ export type SummaryContext = {
   attachmentName?: string | null;
   checklistText?: string | null;
   labelName?: string | null;
+  // KB
+  kbArticleTitle?: string | null;
+  kbCategoryName?: string | null;
+  kbTagName?: string | null;
 };
 
 // ─── generateSummary ──────────────────────────────────────────────────────────
@@ -173,6 +177,26 @@ export function generateSummary(
       return `${actor} сбросил пароль пользователя ${target}`;
     case "USER_ROLE_CHANGED":
       return `${actor} изменил роль пользователя ${target} на ${ctx.role ?? "?"}`;
+
+    // Knowledge Base
+    case "KB_ARTICLE_CREATED":
+      return `${actor} создал статью «${ctx.kbArticleTitle ?? "?"}»`;
+    case "KB_ARTICLE_UPDATED":
+      return `${actor} обновил статью «${ctx.kbArticleTitle ?? "?"}»`;
+    case "KB_ARTICLE_DELETED":
+      return `${actor} удалил статью «${ctx.kbArticleTitle ?? "?"}»`;
+    case "KB_ARTICLE_VERSION_RESTORED":
+      return `${actor} восстановил версию статьи «${ctx.kbArticleTitle ?? "?"}»`;
+    case "KB_CATEGORY_CREATED":
+      return `${actor} создал категорию «${ctx.kbCategoryName ?? "?"}»`;
+    case "KB_CATEGORY_UPDATED":
+      return `${actor} обновил категорию «${ctx.kbCategoryName ?? "?"}»`;
+    case "KB_CATEGORY_DELETED":
+      return `${actor} удалил категорию «${ctx.kbCategoryName ?? "?"}»`;
+    case "KB_TAG_CREATED":
+      return `${actor} создал тег «${ctx.kbTagName ?? "?"}»`;
+    case "KB_TAG_DELETED":
+      return `${actor} удалил тег «${ctx.kbTagName ?? "?"}»`;
 
     default:
       return `${actor} выполнил действие`;

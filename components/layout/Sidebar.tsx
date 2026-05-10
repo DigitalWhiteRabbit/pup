@@ -252,7 +252,7 @@ function SidebarContent({
               )}
             >
               <House className="h-4 w-4" />
-              Dashboard
+              Главная
             </Link>
 
             <div className="my-1 border-t" />
@@ -316,7 +316,7 @@ function SidebarContent({
               )}
             >
               <House className="h-4 w-4" />
-              Dashboard
+              Главная
             </Link>
 
             <Link
