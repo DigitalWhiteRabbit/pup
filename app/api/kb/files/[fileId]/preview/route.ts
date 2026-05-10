@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import mammoth from "mammoth";
 import { auth } from "@/lib/auth";
 import { withErrorHandler, ApiError } from "@/lib/api-error";
 import { db } from "@/lib/db";
@@ -59,10 +60,9 @@ export async function GET(_req: NextRequest, { params }: Params) {
     if (mime.startsWith("image/")) {
       const stream = await storage().download(kbFile.storagePath);
       const buf = await streamToBuffer(stream);
-      const b64 = buf.toString("base64");
       return NextResponse.json({
         type: "image",
-        content: `data:${mime};base64,${b64}`,
+        content: `data:${mime};base64,${buf.toString("base64")}`,
       });
     }
 
@@ -72,16 +72,14 @@ export async function GET(_req: NextRequest, { params }: Params) {
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
       name.endsWith(".docx")
     ) {
-      const mammoth = await import("mammoth");
       const stream = await storage().download(kbFile.storagePath);
       const buf = await streamToBuffer(stream);
       const result = await mammoth.convertToHtml({ buffer: buf });
       return NextResponse.json({ type: "html", content: result.value });
     }
 
-    // DOC (старый формат) — только текст
+    // DOC (старый формат)
     if (mime === "application/msword" || name.endsWith(".doc")) {
-      const mammoth = await import("mammoth");
       const stream = await storage().download(kbFile.storagePath);
       const buf = await streamToBuffer(stream);
       const result = await mammoth.extractRawText({ buffer: buf });
@@ -90,20 +88,15 @@ export async function GET(_req: NextRequest, { params }: Params) {
 
     // PDF
     if (mime === "application/pdf" || name.endsWith(".pdf")) {
-      const pdfModule = await import("pdf-parse");
-      const pdfParse =
-        "default" in pdfModule
-          ? (
-              pdfModule as {
-                default: (buf: Buffer) => Promise<{ text: string }>;
-              }
-            ).default
-          : (pdfModule as unknown as (
-              buf: Buffer,
-            ) => Promise<{ text: string }>);
+      type PdfFn = (buf: Buffer) => Promise<{ text: string }>;
+      const pdfModule = (await import("pdf-parse")) as unknown as {
+        default?: PdfFn;
+      } & PdfFn;
+      const pdfParse: PdfFn =
+        typeof pdfModule.default === "function" ? pdfModule.default : pdfModule;
       const stream = await storage().download(kbFile.storagePath);
       const buf = await streamToBuffer(stream);
-      const data = await pdfParse(buf);
+      const data = (await pdfParse(buf)) as { text: string };
       return NextResponse.json({ type: "text", content: data.text });
     }
 

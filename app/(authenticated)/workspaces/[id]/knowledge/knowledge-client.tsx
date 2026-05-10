@@ -489,12 +489,19 @@ function FilePreviewModal({
   file: KbFileView;
   onClose: () => void;
 }) {
-  const { data, isLoading } = useQuery<PreviewData>({
+  const { data, isPending, isError } = useQuery<PreviewData>({
     queryKey: ["kb-file-preview", file.id],
-    queryFn: () =>
-      fetch(`/api/kb/files/${file.id}/preview`).then((r) => r.json()),
+    queryFn: async () => {
+      const res = await fetch(`/api/kb/files/${file.id}/preview`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json() as Promise<PreviewData>;
+    },
     staleTime: 60_000,
+    retry: false,
   });
+
+  const isUnsupported =
+    isError || !data || !("type" in data) || data.type === "unsupported";
 
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
@@ -528,12 +535,12 @@ function FilePreviewModal({
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto border rounded-md mt-2">
-          {isLoading ? (
+          {isPending ? (
             <div className="flex items-center justify-center h-48 gap-2 text-muted-foreground">
               <Loader2 className="h-5 w-5 animate-spin" />
               <span className="text-sm">Загружаем содержимое...</span>
             </div>
-          ) : !data || data.type === "unsupported" ? (
+          ) : isUnsupported ? (
             <div className="flex flex-col items-center justify-center h-48 gap-3 text-muted-foreground">
               <FileIcon
                 mimeType={file.mimeType}
@@ -561,7 +568,7 @@ function FilePreviewModal({
             />
           ) : data.type === "html" ? (
             <div
-              className="prose prose-sm max-w-none p-6 dark:prose-invert"
+              className="[&_p]:mb-3 [&_h1]:text-2xl [&_h1]:font-bold [&_h1]:mb-4 [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:mb-3 [&_h3]:text-lg [&_h3]:font-semibold [&_h3]:mb-2 [&_strong]:font-semibold [&_em]:italic [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:mb-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:mb-3 [&_li]:mb-1 [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-border [&_td]:p-2 [&_th]:border [&_th]:border-border [&_th]:p-2 [&_th]:bg-muted p-6 text-sm leading-relaxed"
               dangerouslySetInnerHTML={{ __html: data.content }}
             />
           ) : (
