@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -11,6 +12,8 @@ import {
   Copy,
   Check,
   ExternalLink,
+  Camera,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -381,30 +384,23 @@ export function ChatSettingsClient({ workspaceId }: { workspaceId: string }) {
           ) : (
             <div className="space-y-2">
               {personas.map((p) => (
-                <div
+                <PersonaCard
                   key={p.id}
-                  className="flex items-center gap-3 p-3 border rounded-lg"
-                >
-                  <GripVertical className="h-4 w-4 text-muted-foreground shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium text-sm">{p.displayName}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {p.role}
-                    </div>
-                  </div>
-                  <Badge variant="outline" className="text-[10px]">
-                    #{p.position + 1}
-                  </Badge>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 text-destructive"
-                    onClick={() => deletePersonaMut.mutate(p.id)}
-                    disabled={deletePersonaMut.isPending}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
+                  persona={p}
+                  workspaceId={workspaceId}
+                  onDeleted={() =>
+                    void qc.invalidateQueries({
+                      queryKey: ["chat-personas", workspaceId],
+                    })
+                  }
+                  onAvatarUploaded={() =>
+                    void qc.invalidateQueries({
+                      queryKey: ["chat-personas", workspaceId],
+                    })
+                  }
+                  deleteDisabled={deletePersonaMut.isPending}
+                  onDelete={() => deletePersonaMut.mutate(p.id)}
+                />
               ))}
             </div>
           )}
@@ -542,9 +538,20 @@ export function ChatSettingsClient({ workspaceId }: { workspaceId: string }) {
                 </div>
                 {personas.length > 0 && personas[0] && (
                   <div className="mt-2 flex items-center gap-2">
-                    <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center text-xs font-bold">
-                      {personas[0].displayName[0]}
-                    </div>
+                    {personas[0].avatarUrl ? (
+                      <Image
+                        src={`/api/chat/avatars/${personas[0].avatarUrl.replace(/^personas\//, "")}`}
+                        alt=""
+                        width={32}
+                        height={32}
+                        className="w-8 h-8 rounded-full object-cover"
+                        unoptimized
+                      />
+                    ) : (
+                      <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center text-xs font-bold">
+                        {personas[0].displayName[0]}
+                      </div>
+                    )}
                     <div>
                       <div className="text-sm font-medium">
                         {personas[0].displayName}
@@ -575,6 +582,128 @@ export function ChatSettingsClient({ workspaceId }: { workspaceId: string }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── PersonaCard ────────────────────────────────────────────────────────────
+
+function avatarSrc(avatarUrl: string | null): string | null {
+  if (!avatarUrl) return null;
+  const path = avatarUrl.replace(/^personas\//, "");
+  return `/api/chat/avatars/${path}`;
+}
+
+function PersonaCard({
+  persona,
+  workspaceId,
+  onAvatarUploaded,
+  deleteDisabled,
+  onDelete,
+}: {
+  persona: Persona;
+  workspaceId: string;
+  onDeleted: () => void;
+  onAvatarUploaded: () => void;
+  deleteDisabled: boolean;
+  onDelete: () => void;
+}) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+
+  async function handleAvatarUpload(file: File) {
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch(
+        `/api/workspaces/${workspaceId}/chat/personas/${persona.id}/avatar`,
+        { method: "POST", body: fd },
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(
+          (data as { error?: string }).error ?? "Ошибка загрузки",
+        );
+      }
+      onAvatarUploaded();
+      toastSuccess("Фото загружено");
+    } catch (err) {
+      toastApiError(err instanceof Error ? err : new Error("Ошибка"));
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  const src = avatarSrc(persona.avatarUrl);
+
+  return (
+    <div className="flex items-center gap-3 p-3 border rounded-lg">
+      <GripVertical className="h-4 w-4 text-muted-foreground shrink-0" />
+
+      {/* Аватар */}
+      <button
+        type="button"
+        className="relative w-10 h-10 rounded-full shrink-0 bg-muted flex items-center justify-center overflow-hidden group"
+        onClick={() => fileInputRef.current?.click()}
+        disabled={uploading}
+        title="Загрузить фото"
+      >
+        {uploading ? (
+          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+        ) : src ? (
+          <>
+            <Image
+              src={src}
+              alt={persona.displayName}
+              width={40}
+              height={40}
+              className="w-full h-full object-cover"
+              unoptimized
+            />
+            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+              <Camera className="h-4 w-4 text-white" />
+            </div>
+          </>
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-sm font-bold text-muted-foreground group-hover:hidden">
+            {persona.displayName[0]}
+          </div>
+        )}
+        {!src && !uploading && (
+          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-muted">
+            <Camera className="h-4 w-4 text-muted-foreground" />
+          </div>
+        )}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp,image/gif"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) void handleAvatarUpload(f);
+            e.target.value = "";
+          }}
+        />
+      </button>
+
+      <div className="flex-1 min-w-0">
+        <div className="font-medium text-sm">{persona.displayName}</div>
+        <div className="text-xs text-muted-foreground">{persona.role}</div>
+      </div>
+      <Badge variant="outline" className="text-[10px]">
+        #{persona.position + 1}
+      </Badge>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-7 w-7 text-destructive"
+        onClick={onDelete}
+        disabled={deleteDisabled}
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+      </Button>
     </div>
   );
 }

@@ -87,9 +87,20 @@ export function IdentityForm({ slug, config, embedMode, onIdentified }: Props) {
           <p className="text-sm opacity-80 mt-1">{config.chatSubtitle}</p>
           {persona && (
             <div className="flex items-center gap-3 mt-4 pt-3 border-t border-white/20">
-              <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center text-lg font-bold">
-                {persona.displayName[0]}
-              </div>
+              {persona.avatarUrl ? (
+                <Image
+                  src={`/api/chat/avatars/${persona.avatarUrl.replace(/^personas\//, "")}`}
+                  alt={persona.displayName}
+                  width={40}
+                  height={40}
+                  className="w-10 h-10 rounded-full object-cover shrink-0"
+                  unoptimized
+                />
+              ) : (
+                <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center text-lg font-bold shrink-0">
+                  {persona.displayName[0]}
+                </div>
+              )}
               <div>
                 <div className="text-sm font-medium">{persona.displayName}</div>
                 <div className="text-xs opacity-70">{persona.role}</div>
