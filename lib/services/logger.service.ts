@@ -219,6 +219,26 @@ export function generateSummary(
     case "KB_SEARCH_PERFORMED":
       return `${actor} выполнил поиск: «${ctx.kbArticleTitle ?? "?"}»`;
 
+    // Tickets
+    case "TICKET_CREATED":
+      return `${actor} создал тикет «${ctx.kbArticleTitle ?? "?"}»`;
+    case "TICKET_UPDATED":
+      return `${actor} обновил тикет «${ctx.kbArticleTitle ?? "?"}»`;
+    case "TICKET_STATUS_CHANGED":
+      return `${actor} изменил статус тикета «${ctx.kbArticleTitle ?? "?"}»: ${ctx.columnNameOld ?? "?"} → ${ctx.columnName ?? "?"}`;
+    case "TICKET_ASSIGNED":
+      return `${actor} назначил ${ctx.targetLogin ?? "?"} на тикет «${ctx.kbArticleTitle ?? "?"}»`;
+    case "TICKET_MESSAGE_ADDED":
+      return `${actor} добавил сообщение в тикет «${ctx.kbArticleTitle ?? "?"}»`;
+    case "TICKET_SLA_BREACHED":
+      return `SLA нарушен для тикета «${ctx.kbArticleTitle ?? "?"}»`;
+    case "TICKET_DELETED":
+      return `${actor} удалил тикет «${ctx.kbArticleTitle ?? "?"}»`;
+    case "CUSTOMER_CREATED":
+      return `${actor} создал клиента «${ctx.kbArticleTitle ?? "?"}»`;
+    case "CUSTOMER_UPDATED":
+      return `${actor} обновил клиента «${ctx.kbArticleTitle ?? "?"}»`;
+
     default:
       return `${actor} выполнил действие`;
   }

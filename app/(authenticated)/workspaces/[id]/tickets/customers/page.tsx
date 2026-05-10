@@ -1,11 +1,11 @@
 import { auth } from "@/lib/auth";
-import { isModuleEnabled } from "@/lib/services/workspace.service";
 import { redirect } from "next/navigation";
-import { TicketsClient } from "./tickets-client";
+import { isModuleEnabled } from "@/lib/services/workspace.service";
+import { CustomersClient } from "./customers-client";
 
 type Props = { params: { id: string } };
 
-export default async function TicketsPage({ params }: Props) {
+export default async function CustomersPage({ params }: Props) {
   const session = await auth();
   if (!session) redirect("/login");
 
@@ -19,5 +19,5 @@ export default async function TicketsPage({ params }: Props) {
   });
   if (!on) redirect(`/workspaces/${params.id}`);
 
-  return <TicketsClient workspaceId={params.id} />;
+  return <CustomersClient workspaceId={params.id} />;
 }

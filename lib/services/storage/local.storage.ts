@@ -30,6 +30,10 @@ export class LocalStorage implements FileStorage {
     if (input.scope === "kb") {
       const wsId = input.workspaceId ?? "unknown";
       storagePath = `kb/${wsId}/files/${filename}`;
+    } else if (input.scope === "ticket") {
+      const wsId = input.workspaceId ?? "unknown";
+      const tktId = input.ticketId ?? "unknown";
+      storagePath = `tickets/${wsId}/${tktId}/${filename}`;
     } else {
       const projId = input.projectId ?? "unknown";
       const subDir = input.taskId ?? "_kb";

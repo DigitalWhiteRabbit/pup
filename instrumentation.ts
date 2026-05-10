@@ -33,6 +33,23 @@ export async function register() {
       })
       .catch((err) => console.error("[Logs cleanup] Initial failed", err));
 
+    // SLA breach check every 5 minutes
+    const { checkSlaBreaches } =
+      await import("@/lib/services/tickets/sla-check.service");
+    checkSlaBreaches()
+      .then((r) => {
+        if (r.breached > 0)
+          console.log(`[SLA check] Initial: ${r.breached} tickets breached`);
+      })
+      .catch((e) => console.error("[SLA check] Initial failed", e));
+
+    setInterval(
+      () => {
+        checkSlaBreaches().catch((e) => console.error("[SLA check] Failed", e));
+      },
+      5 * 60 * 1000,
+    );
+
     // Daily cleanup every 24 hours
     setInterval(
       () => {

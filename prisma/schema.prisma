@@ -47,11 +47,23 @@ model User {
   kbFilesUploaded    KbFile[]            @relation("KbFileUploader")
   kbCrawlsInitiated  KbCrawl[]           @relation("KbCrawlInitiator")
 
+  // Tickets
+  ticketsAsInternalCreator   Ticket[]           @relation("TicketInternalCreator")
+  ticketsAsAssignee          Ticket[]           @relation("TicketAssignee")
+  ticketsAsResolver          Ticket[]           @relation("TicketResolver")
+  ticketMessagesAsManager    TicketMessage[]     @relation("TicketMessageManagerAuthor")
+  ticketAttachmentsUploaded  TicketAttachment[]  @relation("TicketAttachmentUploader")
+
   // Critical event Telegram notifications (default false)
   tgNotifyTaskDeleted      Boolean @default(false)
   tgNotifyMemberRemoved    Boolean @default(false)
   tgNotifyWorkspaceDeleted Boolean @default(false)
   tgNotifyRoleChanged      Boolean @default(false)
+
+  // Ticket Telegram notifications
+  tgNotifyTicketAssigned    Boolean @default(true)
+  tgNotifyTicketMessage     Boolean @default(true)
+  tgNotifyTicketSlaBreached Boolean @default(true)
 
   @@index([email])
   @@index([login])
@@ -87,6 +99,8 @@ model Workspace {
   kbArticles    KbArticle[]
   kbFiles       KbFile[]
   kbCrawls      KbCrawl[]
+  customers     Customer[]
+  tickets       Ticket[]
 
   @@index([ownerId])
 }
@@ -425,6 +439,17 @@ enum ActivityAction {
   KB_CRAWL_CANCELLED
   KB_SEARCH_PERFORMED
 
+  // Tickets
+  TICKET_CREATED
+  TICKET_UPDATED
+  TICKET_STATUS_CHANGED
+  TICKET_ASSIGNED
+  TICKET_MESSAGE_ADDED
+  TICKET_SLA_BREACHED
+  TICKET_DELETED
+  CUSTOMER_CREATED
+  CUSTOMER_UPDATED
+
   // System
   USER_LOGIN
   USER_LOGOUT
@@ -672,6 +697,159 @@ model KbSearchHistory {
 
   @@index([userId, searchedAt])
   @@index([workspaceId, searchedAt])
+}
+
+// ─────────────────────────────────────────
+// ТИКЕТЫ
+// ─────────────────────────────────────────
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING_CUSTOMER
+  RESOLVED
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TicketCategory {
+  FINANCIAL
+  TECHNICAL
+  GENERAL
+  BUG
+  FEATURE_REQUEST
+}
+
+enum TicketSource {
+  INTERNAL
+  EXTERNAL
+}
+
+enum TicketMessageAuthorType {
+  MANAGER
+  CUSTOMER
+  SYSTEM
+  AGENT
+}
+
+model Customer {
+  id          String   @id @default(cuid())
+  workspaceId String
+  email       String
+  name        String?
+  externalId  String?
+  metadata    String?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  tickets     Ticket[]
+  messages    TicketMessage[]
+  attachments TicketAttachment[]
+
+  @@unique([workspaceId, email])
+  @@index([workspaceId])
+  @@index([externalId])
+}
+
+model Ticket {
+  id          String          @id @default(cuid())
+  workspaceId String
+  number      Int
+
+  title       String
+  description String
+
+  source      TicketSource
+  category    TicketCategory  @default(GENERAL)
+  status      TicketStatus    @default(OPEN)
+  priority    TicketPriority  @default(MEDIUM)
+
+  slaDeadline DateTime?
+  slaBreached Boolean         @default(false)
+
+  internalCreatorId String?
+  customerId        String?
+
+  assigneeId  String?
+  assignedAt  DateTime?
+
+  needsHumanHelp     Boolean   @default(false)
+  helpRequestedAt    DateTime?
+  agentConfidence    Float?
+
+  resolvedAt   DateTime?
+  resolvedById String?
+  closedAt     DateTime?
+
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  workspace        Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  internalCreator  User?     @relation("TicketInternalCreator", fields: [internalCreatorId], references: [id], onDelete: SetNull)
+  customer         Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  assignee         User?     @relation("TicketAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  resolvedBy       User?     @relation("TicketResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
+
+  messages         TicketMessage[]
+  attachments      TicketAttachment[]
+
+  @@unique([workspaceId, number])
+  @@index([workspaceId, status, updatedAt])
+  @@index([workspaceId, assigneeId])
+  @@index([workspaceId, slaDeadline])
+  @@index([customerId])
+}
+
+model TicketMessage {
+  id          String                  @id @default(cuid())
+  ticketId    String
+
+  authorType  TicketMessageAuthorType
+
+  managerAuthorId  String?
+  customerAuthorId String?
+
+  content     String
+  systemAction String?
+  metadata    String?
+
+  createdAt   DateTime @default(now())
+
+  ticket          Ticket    @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  managerAuthor   User?     @relation("TicketMessageManagerAuthor", fields: [managerAuthorId], references: [id], onDelete: SetNull)
+  customerAuthor  Customer? @relation(fields: [customerAuthorId], references: [id], onDelete: SetNull)
+
+  @@index([ticketId, createdAt])
+}
+
+model TicketAttachment {
+  id           String   @id @default(cuid())
+  ticketId     String
+  messageId    String?
+
+  originalName String
+  size         Int
+  mimeType     String
+  storagePath  String
+
+  uploadedById         String?
+  uploadedByCustomerId String?
+
+  uploadedAt   DateTime @default(now())
+
+  ticket             Ticket    @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  uploadedBy         User?     @relation("TicketAttachmentUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
+  uploadedByCustomer Customer? @relation(fields: [uploadedByCustomerId], references: [id], onDelete: SetNull)
+
+  @@index([ticketId])
 }
 
 model SystemLog {
