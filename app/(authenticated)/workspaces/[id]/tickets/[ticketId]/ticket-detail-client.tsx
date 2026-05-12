@@ -12,6 +12,8 @@ import {
   AlertTriangle,
   Clock,
   Loader2,
+  Sparkles,
+  FileText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -550,6 +552,70 @@ export function TicketDetailClient({
                   + Решить
                 </Button>
               </div>
+            </div>
+          )}
+          {/* AI Copilot */}
+          {!isClosed && (
+            <div className="flex gap-1.5 mt-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-[10px] h-7 gap-1"
+                onClick={async () => {
+                  try {
+                    const r = await fetch(
+                      `/api/tickets/${ticketId}/ai/suggest`,
+                      { method: "POST" },
+                    );
+                    if (!r.ok) {
+                      const d = await r.json().catch(() => ({}));
+                      toastApiError(
+                        new Error(
+                          (d as { error?: string }).error ?? "Ошибка AI",
+                        ),
+                      );
+                      return;
+                    }
+                    const d = (await r.json()) as { suggestion: string };
+                    setReplyText(d.suggestion);
+                    toastSuccess("AI предложил ответ");
+                  } catch {
+                    toastApiError(new Error("Ошибка AI"));
+                  }
+                }}
+              >
+                <Sparkles className="h-3 w-3" />
+                Предложить ответ
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-[10px] h-7 gap-1"
+                onClick={async () => {
+                  try {
+                    const r = await fetch(
+                      `/api/tickets/${ticketId}/ai/summarize`,
+                      { method: "POST" },
+                    );
+                    if (!r.ok) {
+                      const d = await r.json().catch(() => ({}));
+                      toastApiError(
+                        new Error(
+                          (d as { error?: string }).error ?? "Ошибка AI",
+                        ),
+                      );
+                      return;
+                    }
+                    const d = (await r.json()) as { summary: string };
+                    toastSuccess(d.summary);
+                  } catch {
+                    toastApiError(new Error("Ошибка AI"));
+                  }
+                }}
+              >
+                <FileText className="h-3 w-3" />
+                Суммировать
+              </Button>
             </div>
           )}
           {isClosed && (

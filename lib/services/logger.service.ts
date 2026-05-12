@@ -259,6 +259,20 @@ export function generateSummary(
     case "TICKET_RATED":
       return `Клиент оценил тикет «${ctx.kbArticleTitle ?? "?"}»`;
 
+    // Email & Agent
+    case "EMAIL_CONFIG_UPDATED":
+      return `${actor} обновил настройки email`;
+    case "AGENT_CONFIG_UPDATED":
+      return `${actor} обновил настройки AI-агента`;
+    case "AGENT_SCENARIO_CREATED":
+      return `${actor} создал сценарий «${ctx.kbArticleTitle ?? "?"}»`;
+    case "AGENT_SCENARIO_UPDATED":
+      return `${actor} обновил сценарий «${ctx.kbArticleTitle ?? "?"}»`;
+    case "AGENT_SCENARIO_DELETED":
+      return `${actor} удалил сценарий «${ctx.kbArticleTitle ?? "?"}»`;
+    case "AGENT_RESPONSE_GENERATED":
+      return `AI-агент ответил на тикет «${ctx.kbArticleTitle ?? "?"}»`;
+
     default:
       return `${actor} выполнил действие`;
   }

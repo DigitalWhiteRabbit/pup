@@ -627,10 +627,12 @@ export async function addMessage(
     select: {
       workspaceId: true,
       status: true,
+      source: true,
       number: true,
       title: true,
       assigneeId: true,
       internalCreatorId: true,
+      customerId: true,
     },
   });
   if (!ticket) throw new ApiError("Тикет не найден", "NOT_FOUND", 404);
@@ -704,6 +706,29 @@ export async function addMessage(
             `${message.managerAuthor?.login ?? "Менеджер"}: ${short}`,
           ].join("\n");
           void sendTelegramNotification(recipient.telegramChatId, msg);
+        }
+      } catch {
+        /* fire-and-forget */
+      }
+    })();
+  }
+
+  // Email reply for EMAIL-source tickets
+  if (ticket.source === "EMAIL" && ticket.customerId) {
+    void (async () => {
+      try {
+        const { sendEmailReply } = await import("../email/email.service");
+        const cust = await db.customer.findUnique({
+          where: { id: ticket.customerId! },
+          select: { email: true },
+        });
+        if (cust && !cust.email.endsWith("@anonymous.local")) {
+          void sendEmailReply(
+            ticket.workspaceId,
+            cust.email,
+            `Re: #${ticket.number} ${ticket.title}`,
+            content,
+          );
         }
       } catch {
         /* fire-and-forget */
@@ -959,6 +984,16 @@ export async function createTicketAsCustomer(
         },
       });
 
+      // Trigger autopilot (fire-and-forget)
+      void (async () => {
+        try {
+          const { autoRespond } = await import("../agent/agent.service");
+          await autoRespond(ticket.id, workspaceId);
+        } catch {
+          /* agent not configured or failed */
+        }
+      })();
+
       return mapTicketFull(ticket);
     } catch (err: unknown) {
       const prismaErr = err as { code?: string };
@@ -1060,6 +1095,16 @@ export async function addMessageAsCustomer(
       }
     })();
   }
+
+  // Trigger autopilot
+  void (async () => {
+    try {
+      const { autoRespond } = await import("../agent/agent.service");
+      await autoRespond(ticketId, ticket.workspaceId);
+    } catch {
+      /* agent not configured or failed */
+    }
+  })();
 
   return {
     id: message.id,
