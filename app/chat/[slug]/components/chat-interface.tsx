@@ -14,6 +14,7 @@ import {
   ChevronRight,
   Menu,
   Lock,
+  Star,
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
@@ -536,18 +537,13 @@ export function ChatInterface({
                 />
               ))}
               {isClosed && (
-                <div className="flex justify-center my-4">
-                  <div className="bg-gray-100 rounded-full px-4 py-2 text-xs text-gray-500 flex items-center gap-2">
-                    <Lock className="h-3 w-3" />
-                    Диалог завершён
-                    <button
-                      onClick={handleNewDialog}
-                      className="underline hover:text-gray-700 ml-1"
-                    >
-                      Создать новый
-                    </button>
-                  </div>
-                </div>
+                <CsatBlock
+                  slug={slug}
+                  token={token}
+                  ticketId={activeTicket.id}
+                  accent={accent}
+                  onNewDialog={handleNewDialog}
+                />
               )}
               <div ref={messagesEndRef} />
             </>
@@ -760,6 +756,121 @@ function MessageBubble({
           </p>
         </div>
         <div className="text-[10px] text-gray-400 mt-1">{timeStr}</div>
+      </div>
+    </div>
+  );
+}
+
+// ─── CSAT Block ─────────────────────────────────────────────────────────────
+
+function CsatBlock({
+  slug,
+  token,
+  ticketId,
+  accent,
+  onNewDialog,
+}: {
+  slug: string;
+  token: string;
+  ticketId: string;
+  accent: string;
+  onNewDialog: () => void;
+}) {
+  const [score, setScore] = useState<number | null>(null);
+  const [comment, setComment] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  // Проверяем, уже ли оценён
+  useEffect(() => {
+    void fetch(`/api/chat/${slug}/tickets/${ticketId}/rate`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => r.json())
+      .then((data: { rating?: { score: number } }) => {
+        if (data.rating) setSubmitted(true);
+      })
+      .catch(() => {});
+  }, [slug, token, ticketId]);
+
+  async function handleSubmit() {
+    if (!score) return;
+    setSubmitting(true);
+    try {
+      await fetch(`/api/chat/${slug}/tickets/${ticketId}/rate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ score, comment: comment.trim() || undefined }),
+      });
+      setSubmitted(true);
+    } catch {
+      /* silent */
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="my-4 flex flex-col items-center">
+      <div className="bg-gray-50 rounded-xl px-5 py-4 max-w-sm w-full text-center">
+        <Lock className="h-4 w-4 text-gray-400 mx-auto mb-2" />
+        <div className="text-xs text-gray-500 mb-3">Диалог завершён</div>
+
+        {!submitted ? (
+          <>
+            <div className="text-sm font-medium text-gray-700 mb-2">
+              Оцените качество поддержки
+            </div>
+            <div className="flex justify-center gap-1 mb-3">
+              {[1, 2, 3, 4, 5].map((n) => (
+                <button
+                  key={n}
+                  onClick={() => setScore(n)}
+                  className="p-1 transition-transform hover:scale-110"
+                >
+                  <Star
+                    className={`h-6 w-6 ${
+                      score && n <= score
+                        ? "fill-amber-400 text-amber-400"
+                        : "text-gray-300"
+                    }`}
+                  />
+                </button>
+              ))}
+            </div>
+            {score && (
+              <>
+                <textarea
+                  className="w-full rounded-lg border px-3 py-2 text-xs resize-none mb-2"
+                  rows={2}
+                  placeholder="Комментарий (необязательно)"
+                  value={comment}
+                  onChange={(e) => setComment(e.target.value)}
+                />
+                <button
+                  onClick={handleSubmit}
+                  disabled={submitting}
+                  className="w-full rounded-lg px-3 py-2 text-xs font-medium text-white transition-opacity disabled:opacity-50"
+                  style={{ backgroundColor: accent }}
+                >
+                  {submitting ? "Отправка..." : "Отправить оценку"}
+                </button>
+              </>
+            )}
+          </>
+        ) : (
+          <div className="text-xs text-gray-500">Спасибо за вашу оценку!</div>
+        )}
+
+        <button
+          onClick={onNewDialog}
+          className="mt-3 text-xs text-gray-400 underline hover:text-gray-600"
+        >
+          Создать новый диалог
+        </button>
       </div>
     </div>
   );

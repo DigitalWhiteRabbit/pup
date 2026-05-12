@@ -95,6 +95,13 @@ type Props = {
   currentUserId: string;
 };
 
+type CannedItem = {
+  id: string;
+  shortCode: string;
+  title: string;
+  content: string;
+};
+
 export function TicketDetailClient({
   workspaceId,
   ticketId,
@@ -103,6 +110,29 @@ export function TicketDetailClient({
   const qc = useQueryClient();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [replyText, setReplyText] = useState("");
+  const [showCanned, setShowCanned] = useState(false);
+  const [cannedFilter, setCannedFilter] = useState("");
+
+  // Загружаем шаблоны ответов
+  const { data: cannedData } = useQuery<{ data: CannedItem[] }>({
+    queryKey: ["canned-responses", workspaceId],
+    queryFn: async () => {
+      const r = await fetch(`/api/workspaces/${workspaceId}/canned-responses`);
+      if (!r.ok) return { data: [] };
+      return r.json();
+    },
+    staleTime: 60_000,
+  });
+  const cannedItems = cannedData?.data ?? [];
+
+  // Фильтрованные шаблоны
+  const filteredCanned = cannedFilter
+    ? cannedItems.filter(
+        (c) =>
+          c.shortCode.includes(cannedFilter) ||
+          c.title.toLowerCase().includes(cannedFilter.toLowerCase()),
+      )
+    : cannedItems;
 
   const { data: ticket, isLoading } = useQuery<TicketFull>({
     queryKey: ["ticket", ticketId],
@@ -424,13 +454,52 @@ export function TicketDetailClient({
 
           {/* Reply */}
           {!isClosed && (
-            <div className="flex gap-2">
+            <div className="flex gap-2 relative">
+              {/* Canned responses dropdown */}
+              {showCanned && filteredCanned.length > 0 && (
+                <div className="absolute bottom-full left-0 right-0 mb-1 bg-white border rounded-lg shadow-lg max-h-48 overflow-y-auto z-10">
+                  {filteredCanned.map((c) => (
+                    <button
+                      key={c.id}
+                      className="w-full text-left px-3 py-2 hover:bg-accent/40 transition-colors border-b last:border-0"
+                      onClick={() => {
+                        setReplyText(c.content);
+                        setShowCanned(false);
+                        setCannedFilter("");
+                      }}
+                    >
+                      <div className="flex items-center gap-2">
+                        <code className="text-[10px] bg-muted px-1 py-0.5 rounded font-mono">
+                          /{c.shortCode}
+                        </code>
+                        <span className="text-xs font-medium">{c.title}</span>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground truncate mt-0.5">
+                        {c.content}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              )}
               <textarea
                 className="flex-1 min-h-[80px] rounded-md border px-3 py-2 text-sm resize-y"
-                placeholder="Написать ответ..."
+                placeholder="Написать ответ... (/ для шаблонов)"
                 value={replyText}
-                onChange={(e) => setReplyText(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setReplyText(val);
+                  // Показываем шаблоны при вводе /
+                  if (val.startsWith("/")) {
+                    setShowCanned(true);
+                    setCannedFilter(val.slice(1));
+                  } else {
+                    setShowCanned(false);
+                  }
+                }}
                 onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    setShowCanned(false);
+                  }
                   if (
                     e.key === "Enter" &&
                     (e.metaKey || e.ctrlKey) &&
@@ -438,6 +507,10 @@ export function TicketDetailClient({
                   ) {
                     replyMut.mutate(replyText.trim());
                   }
+                }}
+                onBlur={() => {
+                  // Delay чтобы клик по dropdown успел сработать
+                  setTimeout(() => setShowCanned(false), 200);
                 }}
               />
               <div className="flex flex-col gap-1">

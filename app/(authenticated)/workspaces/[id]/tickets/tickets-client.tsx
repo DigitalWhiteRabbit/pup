@@ -7,6 +7,7 @@ import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import {
   BarChart3,
+  MessageSquareDashed,
   Plus,
   Search,
   Settings,
@@ -291,6 +292,12 @@ export function TicketsClient({ workspaceId }: { workspaceId: string }) {
             <Button variant="outline" size="sm">
               <BarChart3 className="h-4 w-4 mr-1.5" />
               Аналитика
+            </Button>
+          </Link>
+          <Link href={`/workspaces/${workspaceId}/tickets/canned`}>
+            <Button variant="outline" size="sm">
+              <MessageSquareDashed className="h-4 w-4 mr-1.5" />
+              Шаблоны
             </Button>
           </Link>
           <Link href={`/workspaces/${workspaceId}/tickets/customers`}>

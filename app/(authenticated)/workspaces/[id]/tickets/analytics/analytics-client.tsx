@@ -7,10 +7,10 @@ import {
   Bot,
   UserCheck,
   Clock,
-  AlertTriangle,
   BarChart3,
   Tag,
   Inbox,
+  Star,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -31,6 +31,9 @@ type Analytics = {
   bySource: Array<{ source: string; count: number }>;
   slaBreachedCount: number;
   slaBreachedPercent: number;
+  csatAverage: number | null;
+  csatCount: number;
+  csatDistribution: Array<{ score: number; count: number }>;
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -195,11 +198,11 @@ export function TicketAnalyticsClient({
           color="#06b6d4"
         />
         <StatCard
-          icon={AlertTriangle}
-          label="SLA нарушен"
-          value={`${data.slaBreachedPercent}%`}
-          sub={`${data.slaBreachedCount} тикетов`}
-          color="#ef4444"
+          icon={Star}
+          label="CSAT"
+          value={data.csatAverage ? `${data.csatAverage}/5` : "—"}
+          sub={`${data.csatCount} оценок${data.slaBreachedCount > 0 ? ` · ${data.slaBreachedCount} SLA нарушений` : ""}`}
+          color="#f59e0b"
         />
       </div>
 

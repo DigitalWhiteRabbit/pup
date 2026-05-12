@@ -26,6 +26,10 @@ export type TicketAnalytics = {
   // SLA
   slaBreachedCount: number;
   slaBreachedPercent: number;
+  // CSAT
+  csatAverage: number | null;
+  csatCount: number;
+  csatDistribution: Array<{ score: number; count: number }>;
 };
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -170,6 +174,29 @@ export async function getTicketAnalytics(
   const slaBreachedPercent =
     total > 0 ? Math.round((slaBreachedCount / total) * 100) : 0;
 
+  // CSAT
+  const ratings = await db.ticketRating.findMany({
+    where: {
+      ticket: { workspaceId },
+    },
+    select: { score: true },
+  });
+  const csatCount = ratings.length;
+  const csatAverage =
+    csatCount > 0
+      ? Math.round(
+          (ratings.reduce((sum, r) => sum + r.score, 0) / csatCount) * 10,
+        ) / 10
+      : null;
+  const csatDist = new Map<number, number>();
+  for (const r of ratings) {
+    csatDist.set(r.score, (csatDist.get(r.score) ?? 0) + 1);
+  }
+  const csatDistribution = [1, 2, 3, 4, 5].map((score) => ({
+    score,
+    count: csatDist.get(score) ?? 0,
+  }));
+
   return {
     total,
     open,
@@ -188,5 +215,8 @@ export async function getTicketAnalytics(
     bySource,
     slaBreachedCount,
     slaBreachedPercent,
+    csatAverage,
+    csatCount,
+    csatDistribution,
   };
 }

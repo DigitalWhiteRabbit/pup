@@ -117,9 +117,10 @@ model Workspace {
   kbArticles    KbArticle[]
   kbFiles       KbFile[]
   kbCrawls      KbCrawl[]
-  customers     Customer[]
-  tickets       Ticket[]
-  chatPersonas  ChatPersona[]
+  customers       Customer[]
+  tickets         Ticket[]
+  chatPersonas    ChatPersona[]
+  cannedResponses CannedResponse[]
 
   @@index([ownerId])
 }
@@ -475,6 +476,12 @@ enum ActivityAction {
   CHAT_PERSONA_UPDATED
   CHAT_PERSONA_DELETED
 
+  // Canned Responses & CSAT
+  CANNED_RESPONSE_CREATED
+  CANNED_RESPONSE_UPDATED
+  CANNED_RESPONSE_DELETED
+  TICKET_RATED
+
   // System
   USER_LOGIN
   USER_LOGOUT
@@ -778,6 +785,7 @@ model Customer {
   tickets     Ticket[]
   messages    TicketMessage[]
   attachments TicketAttachment[]
+  ratings     TicketRating[]
 
   @@unique([workspaceId, email])
   @@index([workspaceId])
@@ -825,6 +833,7 @@ model Ticket {
 
   messages         TicketMessage[]
   attachments      TicketAttachment[]
+  rating           TicketRating?
 
   @@unique([workspaceId, number])
   @@index([workspaceId, status, updatedAt])
@@ -875,6 +884,37 @@ model TicketAttachment {
   uploadedByCustomer Customer? @relation(fields: [uploadedByCustomerId], references: [id], onDelete: SetNull)
 
   @@index([ticketId])
+}
+
+model CannedResponse {
+  id          String   @id @default(cuid())
+  workspaceId String
+  shortCode   String
+  title       String
+  content     String
+  category    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, shortCode])
+  @@index([workspaceId])
+}
+
+model TicketRating {
+  id         String   @id @default(cuid())
+  ticketId   String   @unique
+  customerId String
+  score      Int
+  comment    String?
+  createdAt  DateTime @default(now())
+
+  ticket   Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId])
+  @@index([customerId])
 }
 
 model ChatPersona {

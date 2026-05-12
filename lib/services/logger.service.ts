@@ -249,6 +249,16 @@ export function generateSummary(
     case "CHAT_PERSONA_DELETED":
       return `${actor} удалил персону «${ctx.kbArticleTitle ?? "?"}»`;
 
+    // Canned Responses & CSAT
+    case "CANNED_RESPONSE_CREATED":
+      return `${actor} создал шаблон ответа «${ctx.kbArticleTitle ?? "?"}»`;
+    case "CANNED_RESPONSE_UPDATED":
+      return `${actor} обновил шаблон ответа «${ctx.kbArticleTitle ?? "?"}»`;
+    case "CANNED_RESPONSE_DELETED":
+      return `${actor} удалил шаблон ответа «${ctx.kbArticleTitle ?? "?"}»`;
+    case "TICKET_RATED":
+      return `Клиент оценил тикет «${ctx.kbArticleTitle ?? "?"}»`;
+
     default:
       return `${actor} выполнил действие`;
   }
