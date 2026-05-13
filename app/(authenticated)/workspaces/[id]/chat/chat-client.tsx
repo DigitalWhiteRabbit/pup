@@ -71,6 +71,7 @@ export function ChatClient({
   const [highlightMsgId, setHighlightMsgId] = useState<string | null>(null);
   const [editingMsgId, setEditingMsgId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   /* thread panel removed — Telegram-style inline replies */
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -636,16 +637,75 @@ export function ChatClient({
                     />
                   </svg>
                 </button>
-                <div className="flex-1 bg-gray-100 rounded-2xl px-4 py-2.5">
+                <div className="flex-1 bg-gray-100 rounded-2xl px-4 py-2.5 relative">
+                  {/* @mention dropdown */}
+                  {mentionQuery !== null &&
+                    (() => {
+                      const q = mentionQuery.toLowerCase();
+                      const filtered = [{ login: "all" }, ...members].filter(
+                        (m) => m.login.toLowerCase().includes(q),
+                      );
+                      if (filtered.length === 0) return null;
+                      return (
+                        <div className="absolute bottom-full left-0 right-0 mb-1 bg-white border rounded-xl shadow-lg max-h-48 overflow-y-auto z-20">
+                          {filtered.slice(0, 8).map((m) => (
+                            <button
+                              key={m.login}
+                              className="w-full flex items-center gap-2 px-3 py-2 hover:bg-emerald-50 text-left transition-colors"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                const before = msgText.slice(
+                                  0,
+                                  msgText.lastIndexOf("@"),
+                                );
+                                setMsgText(before + "@" + m.login + " ");
+                                setMentionQuery(null);
+                              }}
+                            >
+                              <div
+                                className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold ${m.login === "all" ? "bg-amber-100 text-amber-700" : "bg-gray-200 text-gray-600"}`}
+                              >
+                                {m.login === "all"
+                                  ? "📢"
+                                  : m.login[0]?.toUpperCase()}
+                              </div>
+                              <span className="text-sm text-gray-700">
+                                {m.login === "all"
+                                  ? "@all — все участники"
+                                  : m.login}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      );
+                    })()}
                   <textarea
                     value={msgText}
-                    onChange={(e) => setMsgText(e.target.value)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setMsgText(val);
+                      // Detect @mention
+                      const cursor = e.target.selectionStart;
+                      const textBeforeCursor = val.slice(0, cursor);
+                      const atMatch = textBeforeCursor.match(/@(\w*)$/);
+                      if (atMatch) {
+                        setMentionQuery(atMatch[1] ?? "");
+                      } else {
+                        setMentionQuery(null);
+                      }
+                    }}
                     onKeyDown={(e) => {
+                      if (e.key === "Escape" && mentionQuery !== null) {
+                        setMentionQuery(null);
+                        return;
+                      }
                       if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
                         e.preventDefault();
+                        setMentionQuery(null);
                         send();
                       }
                     }}
+                    onBlur={() => setTimeout(() => setMentionQuery(null), 200)}
                     placeholder="Напишите сообщение..."
                     rows={1}
                     className="w-full bg-transparent text-sm outline-none resize-none min-h-[20px] max-h-[120px] text-gray-700"
