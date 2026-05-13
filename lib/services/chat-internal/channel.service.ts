@@ -119,14 +119,25 @@ export async function listChannels(
     orderBy: { updatedAt: "desc" },
   });
 
-  return channels.map((ch) => {
+  // Compute unread counts
+  const results: ChannelView[] = [];
+  for (const ch of channels) {
     const myMembership = ch.members[0];
     const lastMsg = ch.messages[0];
-    const unreadCount = myMembership
-      ? 0 // will be computed below
-      : 0;
 
-    return {
+    let unreadCount = 0;
+    if (myMembership) {
+      unreadCount = await db.chatMsg.count({
+        where: {
+          channelId: ch.id,
+          deletedAt: null,
+          createdAt: { gt: myMembership.lastReadAt },
+          authorId: { not: userId },
+        },
+      });
+    }
+
+    results.push({
       id: ch.id,
       type: ch.type,
       name: ch.name,
@@ -140,8 +151,10 @@ export async function listChannels(
           }
         : null,
       unreadCount,
-    };
-  });
+    });
+  }
+
+  return results;
 }
 
 // ─── Create channel ─────────────────────────────────────────────────────────

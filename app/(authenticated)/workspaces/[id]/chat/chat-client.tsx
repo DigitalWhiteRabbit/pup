@@ -60,10 +60,11 @@ export function ChatClient({
   currentUserId: string;
   currentUserLogin: string;
 }) {
-  void currentUserLogin; // used for future features
   const qc = useQueryClient();
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [showInfo, setShowInfo] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [msgText, setMsgText] = useState("");
   const [replyTo, setReplyTo] = useState<Msg | null>(null);
   const [threadMsgId, setThreadMsgId] = useState<string | null>(null);
@@ -189,6 +190,57 @@ export function ChatClient({
 
   const threadReplies = threadData?.data ?? [];
 
+  // Search
+  const { data: searchData } = useQuery<{
+    data: Array<{
+      id: string;
+      content: string;
+      authorLogin: string;
+      channelId: string;
+      channelName: string;
+    }>;
+  }>({
+    queryKey: ["chat-search", workspaceId, searchQuery],
+    queryFn: async () => {
+      const r = await fetch(
+        `/api/workspaces/${workspaceId}/chat-channels/search?q=${encodeURIComponent(searchQuery)}`,
+      );
+      if (!r.ok) return { data: [] };
+      return r.json();
+    },
+    enabled: searchQuery.length >= 2,
+  });
+  const searchResults = searchData?.data ?? [];
+
+  // Workspace members (for DM creation + info panel)
+  const { data: membersData } = useQuery<{
+    members?: Array<{ id: string; login: string }>;
+  }>({
+    queryKey: ["workspace-members", workspaceId],
+    queryFn: () =>
+      fetch(`/api/workspaces/${workspaceId}`).then((r) => r.json()),
+    staleTime: 60_000,
+  });
+  const members = membersData?.members ?? [];
+
+  // Create DM
+  async function startDM(targetUserId: string) {
+    try {
+      const r = await fetch(`/api/workspaces/${workspaceId}/chat-channels/dm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetUserId }),
+      });
+      if (!r.ok) return;
+      const dm = (await r.json()) as { id: string };
+      void qc.invalidateQueries({ queryKey: ["chat-channels", workspaceId] });
+      setActiveChannelId(dm.id);
+      setThreadMsgId(null);
+    } catch {
+      /* silent */
+    }
+  }
+
   const activeChannel = channels.find((c) => c.id === activeChannelId);
 
   // ─── Render ───────────────────────────────────────────────────────────────
@@ -208,6 +260,43 @@ export function ChatClient({
             <Plus className="h-4 w-4" />
           </Button>
         </div>
+
+        {/* Search */}
+        <div className="px-3 py-1.5">
+          <Input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Поиск сообщений..."
+            className="h-8 text-xs"
+          />
+        </div>
+
+        {/* Search results */}
+        {searchQuery.length >= 2 && searchResults.length > 0 && (
+          <div className="px-3 pb-2 border-b">
+            <div className="text-[10px] text-gray-400 mb-1">
+              Найдено: {searchResults.length}
+            </div>
+            {searchResults.slice(0, 5).map((r) => (
+              <button
+                key={r.id}
+                onClick={() => {
+                  setActiveChannelId(r.channelId);
+                  setSearchQuery("");
+                }}
+                className="w-full text-left px-2 py-1.5 rounded hover:bg-gray-50 text-xs"
+              >
+                <div className="text-gray-500">
+                  <span className="font-medium text-gray-700">
+                    {r.authorLogin}
+                  </span>{" "}
+                  в {r.channelName}
+                </div>
+                <div className="text-gray-600 truncate">{r.content}</div>
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className="flex-1 overflow-y-auto">
           {channels.map((ch) => {
@@ -265,6 +354,30 @@ export function ChatClient({
             );
           })}
         </div>
+
+        {/* Members for DM */}
+        <div className="border-t px-3 py-2">
+          <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-1 mb-1">
+            Участники
+          </div>
+          <div className="space-y-0.5 max-h-[150px] overflow-y-auto">
+            {members
+              .filter((m) => m.id !== currentUserId)
+              .map((m) => (
+                <button
+                  key={m.id}
+                  onClick={() => void startDM(m.id)}
+                  className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-50 text-left transition-colors"
+                  title={`Написать ${m.login}`}
+                >
+                  <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-[10px] font-bold text-gray-500">
+                    {m.login[0]?.toUpperCase()}
+                  </div>
+                  <span className="text-xs text-gray-700">{m.login}</span>
+                </button>
+              ))}
+          </div>
+        </div>
       </div>
 
       {/* ═══ CENTER: Messages ═══ */}
@@ -272,12 +385,41 @@ export function ChatClient({
         {activeChannel ? (
           <>
             {/* Header */}
-            <div className="bg-white border-b px-4 py-2.5 flex items-center gap-3 shrink-0">
-              <div className="text-sm font-semibold text-gray-800">
-                {activeChannel.name ?? "Личные сообщения"}
+            <div className="bg-white border-b px-4 py-2.5 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="text-sm font-semibold text-gray-800">
+                  {activeChannel.name ?? `ЛС: ${currentUserLogin}`}
+                </div>
+                <div className="text-xs text-gray-400">
+                  {activeChannel.type !== "DM" &&
+                    `${activeChannel.memberCount} участников`}
+                </div>
               </div>
-              <div className="text-xs text-gray-400">
-                {activeChannel.memberCount} участников
+              <div className="flex gap-1">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={() => {
+                    setShowInfo(!showInfo);
+                    setThreadMsgId(null);
+                  }}
+                  title="Инфо о канале"
+                >
+                  <svg
+                    className="w-4 h-4 text-gray-500"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                </Button>
               </div>
             </div>
 
@@ -463,6 +605,67 @@ export function ChatClient({
                 });
               }}
             />
+          </div>
+        </div>
+      )}
+
+      {/* ═══ RIGHT: Info panel ═══ */}
+      {showInfo && activeChannel && !threadMsgId && (
+        <div className="w-[280px] bg-white border-l flex flex-col shrink-0">
+          <div className="px-4 py-3 border-b flex items-center justify-between">
+            <span className="text-sm font-semibold">
+              {activeChannel.type === "DM"
+                ? "Личные сообщения"
+                : activeChannel.name}
+            </span>
+            <button onClick={() => setShowInfo(false)}>
+              <X className="h-4 w-4 text-gray-400" />
+            </button>
+          </div>
+
+          {activeChannel.description && (
+            <div className="px-4 py-2 border-b">
+              <div className="text-[10px] font-bold text-gray-400 uppercase mb-1">
+                Описание
+              </div>
+              <div className="text-xs text-gray-600">
+                {activeChannel.description}
+              </div>
+            </div>
+          )}
+
+          <div className="px-4 py-2 border-b">
+            <div className="text-[10px] font-bold text-gray-400 uppercase mb-1">
+              Тип
+            </div>
+            <div className="text-xs text-gray-600">
+              {activeChannel.type === "GENERAL"
+                ? "💬 Общий (все участники)"
+                : activeChannel.type === "PUBLIC"
+                  ? "# Публичный"
+                  : activeChannel.type === "PRIVATE"
+                    ? "🔒 Приватный"
+                    : "👤 Личные сообщения"}
+            </div>
+          </div>
+
+          <div className="px-4 py-2 flex-1 overflow-y-auto">
+            <div className="text-[10px] font-bold text-gray-400 uppercase mb-2">
+              Участники · {activeChannel.memberCount}
+            </div>
+            <div className="space-y-1.5">
+              {members.map((m) => (
+                <div key={m.id} className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-full bg-gray-200 flex items-center justify-center text-[10px] font-bold text-gray-500">
+                    {m.login[0]?.toUpperCase()}
+                  </div>
+                  <span className="text-xs text-gray-700">{m.login}</span>
+                  {m.id === currentUserId && (
+                    <span className="text-[10px] text-gray-400">(вы)</span>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}
