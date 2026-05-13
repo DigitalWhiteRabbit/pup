@@ -60,6 +60,7 @@ export function ChatClient({
   const [searchQuery, setSearchQuery] = useState("");
   const [msgText, setMsgText] = useState("");
   const [replyTo, setReplyTo] = useState<Msg | null>(null);
+  const [highlightMsgId, setHighlightMsgId] = useState<string | null>(null);
   /* thread panel removed — Telegram-style inline replies */
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -389,7 +390,8 @@ export function ChatClient({
                 return (
                   <div
                     key={m.id}
-                    className={`group flex mb-3 ${isMe ? "justify-end" : "justify-start"}`}
+                    id={`msg-${m.id}`}
+                    className={`group flex mb-3 transition-colors duration-700 rounded-lg ${isMe ? "justify-end" : "justify-start"} ${highlightMsgId === m.id ? "bg-emerald-100" : ""}`}
                   >
                     {!isMe && (
                       <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-xs font-bold text-gray-600 shrink-0 mt-0.5 mr-2">
@@ -419,9 +421,23 @@ export function ChatClient({
                       <div
                         className={`rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap break-words ${isMe ? "bg-emerald-500 text-white rounded-br-md" : "bg-white border shadow-sm text-gray-700 rounded-bl-md"}`}
                       >
-                        {m.replyTo && (
-                          <div
-                            className={`mb-1.5 pl-2 border-l-2 text-xs ${isMe ? "border-white/50" : "border-emerald-400"}`}
+                        {m.replyTo && m.parentId && (
+                          <button
+                            type="button"
+                            className={`mb-1.5 pl-2 border-l-2 text-xs text-left w-full ${isMe ? "border-white/50 hover:bg-white/10" : "border-emerald-400 hover:bg-emerald-50"} rounded transition-colors`}
+                            onClick={() => {
+                              const el = document.getElementById(
+                                `msg-${m.parentId}`,
+                              );
+                              if (el) {
+                                el.scrollIntoView({
+                                  behavior: "smooth",
+                                  block: "center",
+                                });
+                                setHighlightMsgId(m.parentId);
+                                setTimeout(() => setHighlightMsgId(null), 1500);
+                              }
+                            }}
                           >
                             <div
                               className={`font-semibold ${isMe ? "text-white/80" : "text-emerald-600"}`}
@@ -433,7 +449,7 @@ export function ChatClient({
                             >
                               {m.replyTo.content}
                             </div>
-                          </div>
+                          </button>
                         )}
                         {isMe ? m.content : hl(m.content)}
                       </div>
