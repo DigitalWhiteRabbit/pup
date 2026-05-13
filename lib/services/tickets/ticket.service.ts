@@ -58,6 +58,13 @@ export type TicketMessageView = {
   createdAt: Date;
 };
 
+export type TicketCollaboratorView = {
+  id: string;
+  userId: string;
+  login: string;
+  role: string;
+};
+
 export type TicketFull = TicketSummary & {
   description: string;
   internalCreator: { id: string; login: string } | null;
@@ -67,6 +74,7 @@ export type TicketFull = TicketSummary & {
   closedAt: Date | null;
   assignedAt: Date | null;
   messages: TicketMessageView[];
+  collaborators: TicketCollaboratorView[];
 };
 
 type StatusCounters = {
@@ -84,6 +92,9 @@ const ticketInclude = {
   customer: { select: { id: true, email: true, name: true } },
   assignee: { select: { id: true, login: true } },
   resolvedBy: { select: { id: true, login: true } },
+  collaborators: {
+    include: { user: { select: { id: true, login: true } } },
+  },
   messages: {
     orderBy: { createdAt: "asc" as const },
     include: {
@@ -124,6 +135,12 @@ function mapTicketFull(t: {
     createdAt: Date;
     managerAuthor: { id: string; login: string } | null;
     customerAuthor: { id: string; email: string; name: string | null } | null;
+  }>;
+  collaborators: Array<{
+    id: string;
+    userId: string;
+    role: string;
+    user: { id: string; login: string };
   }>;
 }): TicketFull {
   const creatorName = t.internalCreator
@@ -170,7 +187,92 @@ function mapTicketFull(t: {
       systemAction: m.systemAction,
       createdAt: m.createdAt,
     })),
+    collaborators: (t.collaborators ?? []).map((c) => ({
+      id: c.id,
+      userId: c.user.id,
+      login: c.user.login,
+      role: c.role,
+    })),
   };
+}
+
+// ─── Collaborators ──────────────────────────────────────────────────────────
+
+export async function addCollaborator(
+  ticketId: string,
+  targetUserId: string,
+  role: string,
+  userId: string,
+  userRole: "ADMIN" | "USER",
+): Promise<void> {
+  const ticket = await db.ticket.findUnique({
+    where: { id: ticketId },
+    select: { workspaceId: true, number: true, title: true },
+  });
+  if (!ticket) throw new ApiError("Тикет не найден", "NOT_FOUND", 404);
+
+  const m = await checkMembership(ticket.workspaceId, userId);
+  if (!m && userRole !== "ADMIN")
+    throw new ApiError("Нет доступа", "FORBIDDEN", 403);
+
+  // Verify target is workspace member
+  const targetMembership = await checkMembership(
+    ticket.workspaceId,
+    targetUserId,
+  );
+  if (!targetMembership)
+    throw new ApiError(
+      "Пользователь не является участником workspace",
+      "INVALID_USER",
+      400,
+    );
+
+  await db.ticketCollaborator.upsert({
+    where: { ticketId_userId: { ticketId, userId: targetUserId } },
+    create: { ticketId, userId: targetUserId, role },
+    update: { role },
+  });
+
+  // Telegram notification to collaborator
+  void (async () => {
+    try {
+      const target = await db.user.findUnique({
+        where: { id: targetUserId },
+        select: { telegramChatId: true, tgNotifyTicketAssigned: true },
+      });
+      if (target?.telegramChatId && target.tgNotifyTicketAssigned) {
+        const msg = [
+          `<b>👥 Вас добавили к тикету</b>`,
+          `<i>#${ticket.number} ${ticket.title}</i>`,
+          `Роль: ${role === "reviewer" ? "Ревьюер" : role === "observer" ? "Наблюдатель" : "Исполнитель"}`,
+        ].join("\n");
+        void sendTelegramNotification(target.telegramChatId, msg);
+      }
+    } catch {
+      /* fire-and-forget */
+    }
+  })();
+}
+
+export async function removeCollaborator(
+  ticketId: string,
+  targetUserId: string,
+  userId: string,
+  userRole: "ADMIN" | "USER",
+): Promise<void> {
+  const ticket = await db.ticket.findUnique({
+    where: { id: ticketId },
+    select: { workspaceId: true },
+  });
+  if (!ticket) throw new ApiError("Тикет не найден", "NOT_FOUND", 404);
+
+  const m = await checkMembership(ticket.workspaceId, userId);
+  if (!m && userRole !== "ADMIN")
+    throw new ApiError("Нет доступа", "FORBIDDEN", 403);
+
+  await db.ticketCollaborator.deleteMany({
+    where: { ticketId, userId: targetUserId },
+  });
 }
 
 // ─── createTicket ────────────────────────────────────────────────────────────

@@ -432,6 +432,97 @@ export function TicketDetailClient({
             </div>
           )}
 
+          {/* Collaborators */}
+          <div>
+            <label className="text-xs font-semibold uppercase text-muted-foreground mb-1 block">
+              Участники
+            </label>
+            {ticket.collaborators && ticket.collaborators.length > 0 ? (
+              <div className="space-y-1">
+                {ticket.collaborators.map(
+                  (c: {
+                    id: string;
+                    userId: string;
+                    login: string;
+                    role: string;
+                  }) => (
+                    <div
+                      key={c.id}
+                      className="flex items-center justify-between text-xs"
+                    >
+                      <span>
+                        {c.login}{" "}
+                        <span className="text-muted-foreground">
+                          (
+                          {c.role === "reviewer"
+                            ? "ревьюер"
+                            : c.role === "observer"
+                              ? "наблюдатель"
+                              : "исполнитель"}
+                          )
+                        </span>
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-5 w-5"
+                        onClick={async () => {
+                          await fetch(
+                            `/api/tickets/${ticketId}/collaborators/${c.userId}`,
+                            { method: "DELETE" },
+                          );
+                          void qc.invalidateQueries({
+                            queryKey: ["ticket", ticketId],
+                          });
+                        }}
+                      >
+                        <span className="text-[10px] text-destructive">✕</span>
+                      </Button>
+                    </div>
+                  ),
+                )}
+              </div>
+            ) : (
+              <div className="text-xs text-muted-foreground">Нет</div>
+            )}
+            <Select
+              value="__add__"
+              onValueChange={async (userId) => {
+                if (userId === "__add__") return;
+                await fetch(`/api/tickets/${ticketId}/collaborators`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ userId, role: "collaborator" }),
+                });
+                void qc.invalidateQueries({
+                  queryKey: ["ticket", ticketId],
+                });
+              }}
+            >
+              <SelectTrigger className="h-7 mt-1 text-xs">
+                <SelectValue placeholder="+ Добавить участника" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__add__" disabled>
+                  + Добавить участника
+                </SelectItem>
+                {members
+                  .filter(
+                    (m) =>
+                      m.id !== ticket.assignee?.id &&
+                      !(ticket.collaborators ?? []).some(
+                        (c: { userId: string }) => c.userId === m.id,
+                      ),
+                  )
+                  .map((m) => (
+                    <SelectItem key={m.id} value={m.id}>
+                      {m.login}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+          </div>
+
           {!isClosed && (
             <Button
               variant="outline"

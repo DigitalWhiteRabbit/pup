@@ -53,6 +53,7 @@ model User {
   ticketsAsResolver          Ticket[]           @relation("TicketResolver")
   ticketMessagesAsManager    TicketMessage[]     @relation("TicketMessageManagerAuthor")
   ticketAttachmentsUploaded  TicketAttachment[]  @relation("TicketAttachmentUploader")
+  ticketCollaborations       TicketCollaborator[] @relation("TicketCollaborator")
 
   // Critical event Telegram notifications (default false)
   tgNotifyTaskDeleted      Boolean @default(false)
@@ -843,12 +844,28 @@ model Ticket {
   messages         TicketMessage[]
   attachments      TicketAttachment[]
   rating           TicketRating?
+  collaborators    TicketCollaborator[]
 
   @@unique([workspaceId, number])
   @@index([workspaceId, status, updatedAt])
   @@index([workspaceId, assigneeId])
   @@index([workspaceId, slaDeadline])
   @@index([customerId])
+}
+
+model TicketCollaborator {
+  id       String   @id @default(cuid())
+  ticketId String
+  userId   String
+  role     String   @default("collaborator") // "collaborator" | "reviewer" | "observer"
+  addedAt  DateTime @default(now())
+
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  user   User   @relation("TicketCollaborator", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([ticketId, userId])
+  @@index([ticketId])
+  @@index([userId])
 }
 
 model TicketMessage {
