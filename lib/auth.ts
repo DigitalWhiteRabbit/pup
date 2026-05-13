@@ -34,11 +34,30 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
           return null;
         }
 
-        const user = await db.user.findFirst({
+        // Case-insensitive: try exact first, then scan
+        let user = await db.user.findFirst({
           where: {
             OR: [{ email: loginOrEmail }, { login: loginOrEmail }],
           },
         });
+        if (!user) {
+          const lower = loginOrEmail.toLowerCase();
+          const candidates = await db.user.findMany({
+            where: {
+              OR: [
+                { email: { contains: lower } },
+                { login: { contains: lower } },
+              ],
+            },
+            take: 10,
+          });
+          user =
+            candidates.find(
+              (u) =>
+                u.login.toLowerCase() === lower ||
+                u.email.toLowerCase() === lower,
+            ) ?? null;
+        }
 
         console.log(
           "[auth] user found:",
