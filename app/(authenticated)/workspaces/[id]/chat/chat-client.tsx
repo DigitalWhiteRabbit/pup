@@ -4,7 +4,15 @@ import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow, format } from "date-fns";
 import { ru } from "date-fns/locale";
-import { Plus, Send, CornerDownRight, X } from "lucide-react";
+import {
+  Plus,
+  Send,
+  CornerDownRight,
+  X,
+  Pencil,
+  Trash2,
+  Check,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -61,6 +69,8 @@ export function ChatClient({
   const [msgText, setMsgText] = useState("");
   const [replyTo, setReplyTo] = useState<Msg | null>(null);
   const [highlightMsgId, setHighlightMsgId] = useState<string | null>(null);
+  const [editingMsgId, setEditingMsgId] = useState<string | null>(null);
+  const [editText, setEditText] = useState("");
   /* thread panel removed — Telegram-style inline replies */
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -170,6 +180,30 @@ export function ChatClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ emoji }),
       },
+    );
+    void qc.invalidateQueries({ queryKey: ["chat-messages", activeChannelId] });
+  }
+
+  async function saveEdit(msgId: string) {
+    if (!editText.trim() || !activeChannelId) return;
+    await fetch(
+      `/api/workspaces/${workspaceId}/chat-channels/${activeChannelId}/messages/${msgId}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: editText.trim() }),
+      },
+    );
+    setEditingMsgId(null);
+    setEditText("");
+    void qc.invalidateQueries({ queryKey: ["chat-messages", activeChannelId] });
+  }
+
+  async function deleteMsg(msgId: string) {
+    if (!activeChannelId) return;
+    await fetch(
+      `/api/workspaces/${workspaceId}/chat-channels/${activeChannelId}/messages/${msgId}`,
+      { method: "DELETE" },
     );
     void qc.invalidateQueries({ queryKey: ["chat-messages", activeChannelId] });
   }
@@ -413,8 +447,14 @@ export function ChatClient({
                           })}
                         </span>
                         {m.editedAt && (
-                          <span className="text-[10px] text-gray-400">
-                            (ред.)
+                          <span
+                            className="text-[10px] text-gray-400"
+                            title={`Изменено ${format(new Date(m.editedAt), "dd.MM HH:mm", { locale: ru })}`}
+                          >
+                            изм.{" "}
+                            {format(new Date(m.editedAt), "HH:mm", {
+                              locale: ru,
+                            })}
                           </span>
                         )}
                       </div>
@@ -451,7 +491,47 @@ export function ChatClient({
                             </div>
                           </button>
                         )}
-                        {isMe ? m.content : hl(m.content)}
+                        {editingMsgId === m.id ? (
+                          <div className="flex flex-col gap-1.5">
+                            <textarea
+                              value={editText}
+                              onChange={(e) => setEditText(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (
+                                  e.key === "Enter" &&
+                                  (e.metaKey || e.ctrlKey)
+                                ) {
+                                  e.preventDefault();
+                                  void saveEdit(m.id);
+                                }
+                                if (e.key === "Escape") {
+                                  setEditingMsgId(null);
+                                }
+                              }}
+                              className="w-full bg-transparent outline-none resize-none text-sm min-h-[20px]"
+                              autoFocus
+                            />
+                            <div className="flex gap-1 justify-end">
+                              <button
+                                onClick={() => setEditingMsgId(null)}
+                                className={`text-[10px] px-2 py-0.5 rounded ${isMe ? "text-white/70 hover:text-white" : "text-gray-400 hover:text-gray-600"}`}
+                              >
+                                Отмена
+                              </button>
+                              <button
+                                onClick={() => void saveEdit(m.id)}
+                                className={`text-[10px] px-2 py-0.5 rounded font-medium ${isMe ? "bg-white/20 text-white" : "bg-emerald-100 text-emerald-700"}`}
+                              >
+                                <Check className="h-3 w-3 inline mr-0.5" />
+                                Сохранить
+                              </button>
+                            </div>
+                          </div>
+                        ) : isMe ? (
+                          m.content
+                        ) : (
+                          hl(m.content)
+                        )}
                       </div>
                       {m.reactions.length > 0 && (
                         <div
@@ -480,6 +560,30 @@ export function ChatClient({
                         >
                           <CornerDownRight className="h-3 w-3" />
                         </button>
+                        {isMe && (
+                          <>
+                            <button
+                              onClick={() => {
+                                setEditingMsgId(m.id);
+                                setEditText(m.content);
+                              }}
+                              className="p-1 rounded hover:bg-gray-200 text-gray-400"
+                              title="Редактировать"
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (confirm("Удалить сообщение?"))
+                                  void deleteMsg(m.id);
+                              }}
+                              className="p-1 rounded hover:bg-red-100 text-gray-400 hover:text-red-500"
+                              title="Удалить"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          </>
+                        )}
                         {QUICK_EMOJIS.map((e) => (
                           <button
                             key={e}
