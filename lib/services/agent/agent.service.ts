@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { ApiError } from "@/lib/api-error";
 import { checkMembership } from "../workspace.service";
 import { logActivity, generateSummary } from "../logger.service";
+import { sendTelegramNotification } from "../telegram/sender";
 import type { TicketMessageAuthorType } from "@prisma/client";
 
 // ─── Agent config CRUD ──────────────────────────────────────────────────────
@@ -503,7 +504,7 @@ export async function autoRespondWithTyping(
       });
     }
 
-    // If needs human — set flag + save summary for managers
+    // If needs human — set flag, notify, show status to customer
     if (parsed.needsHuman) {
       await db.ticket.update({
         where: { id: ticketId },
@@ -513,6 +514,19 @@ export async function autoRespondWithTyping(
           agentConfidence: 0.3,
         },
       });
+
+      // Visible status for customer
+      await db.ticketMessage.create({
+        data: {
+          ticketId,
+          authorType: "SYSTEM",
+          content:
+            "Менеджер проверяет информацию в системе. Ожидайте, это займёт некоторое время.",
+          systemAction: "HANDOFF_STATUS",
+        },
+      });
+
+      // Internal summary for managers (hidden from customer)
       if (parsed.summary) {
         await db.ticketMessage.create({
           data: {
@@ -523,6 +537,14 @@ export async function autoRespondWithTyping(
           },
         });
       }
+
+      // Telegram notification to workspace owner/members about handoff
+      void notifyHandoff(
+        workspaceId,
+        ticket.number,
+        ticket.title,
+        parsed.summary,
+      );
     }
 
     void logActivity({
@@ -596,6 +618,40 @@ export async function summarizeTicket(
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
+
+async function notifyHandoff(
+  workspaceId: string,
+  ticketNumber: number,
+  ticketTitle: string,
+  summary: string | null,
+): Promise<void> {
+  try {
+    // Notify workspace members with Telegram
+    const members = await db.workspaceMember.findMany({
+      where: { workspaceId },
+      include: {
+        user: {
+          select: { telegramChatId: true, tgNotifyTicketMessage: true },
+        },
+      },
+    });
+
+    const summaryText = summary ? `\n\n📋 ${summary}` : "";
+
+    for (const m of members) {
+      if (m.user.telegramChatId && m.user.tgNotifyTicketMessage) {
+        const msg = [
+          `<b>🤖 AI передал тикет менеджеру</b>`,
+          `<i>#${ticketNumber} ${ticketTitle}</i>`,
+          `AI-агент собрал данные и передал тикет для ручной обработки.${summaryText}`,
+        ].join("\n");
+        void sendTelegramNotification(m.user.telegramChatId, msg);
+      }
+    }
+  } catch {
+    /* fire-and-forget */
+  }
+}
 
 function buildSystemPrompt(
   customPrompt: string | null,
