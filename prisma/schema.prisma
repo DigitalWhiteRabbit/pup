@@ -1014,6 +1014,7 @@ model ChatPersona {
   bio         String?
   avatarUrl   String?
   position    Int
+  scheduleDays String?  // JSON array: [1,2] = Mon,Tue. null = every day
   createdAt   DateTime @default(now())
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)

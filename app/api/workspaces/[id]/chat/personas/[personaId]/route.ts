@@ -12,6 +12,7 @@ const updateSchema = z.object({
   role: z.string().min(1).max(100).optional(),
   bio: z.string().max(500).nullable().optional(),
   avatarUrl: z.string().max(500).nullable().optional(),
+  scheduleDays: z.string().max(100).nullable().optional(),
 });
 
 export async function PATCH(

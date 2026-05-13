@@ -2,7 +2,10 @@ import "server-only";
 import { db } from "@/lib/db";
 import { ApiError } from "@/lib/api-error";
 import { checkMembership } from "../workspace.service";
-import { getActivePersona } from "./persona-rotation.service";
+import {
+  getActivePersona,
+  getActivePersonas,
+} from "./persona-rotation.service";
 import { logActivity, generateSummary } from "../logger.service";
 import type { CustomerIdentityMethod } from "@prisma/client";
 
@@ -52,6 +55,7 @@ export async function getPublicChatConfig(
   }
 
   const persona = await getActivePersona(workspace.id);
+  const todayPersonas = await getActivePersonas(workspace.id);
 
   let allPersonas: PublicChatConfig["allPersonas"] = null;
   if (!workspace.chatPersonaRotation) {
@@ -61,6 +65,14 @@ export async function getPublicChatConfig(
       select: { displayName: true, role: true, bio: true, avatarUrl: true },
     });
     allPersonas = personas.length > 0 ? personas : null;
+  } else if (todayPersonas.length > 1) {
+    // Multiple personas on shift today
+    allPersonas = todayPersonas.map((p) => ({
+      displayName: p.displayName,
+      role: p.role,
+      bio: p.bio,
+      avatarUrl: p.avatarUrl,
+    }));
   }
 
   return {
@@ -236,6 +248,7 @@ export async function updatePersona(
     displayName?: string;
     role?: string;
     bio?: string | null;
+    scheduleDays?: string | null;
     avatarUrl?: string | null;
   },
   userId: string,
@@ -261,6 +274,9 @@ export async function updatePersona(
       ...(data.role !== undefined ? { role: data.role } : {}),
       ...(data.bio !== undefined ? { bio: data.bio } : {}),
       ...(data.avatarUrl !== undefined ? { avatarUrl: data.avatarUrl } : {}),
+      ...(data.scheduleDays !== undefined
+        ? { scheduleDays: data.scheduleDays }
+        : {}),
     },
   });
 

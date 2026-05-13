@@ -40,12 +40,34 @@ type Persona = {
   bio: string | null;
   avatarUrl: string | null;
   position: number;
+  scheduleDays: string | null;
 };
+
+const DAYS_OF_WEEK = [
+  { value: 1, label: "Пн" },
+  { value: 2, label: "Вт" },
+  { value: 3, label: "Ср" },
+  { value: 4, label: "Чт" },
+  { value: 5, label: "Пт" },
+  { value: 6, label: "Сб" },
+  { value: 0, label: "Вс" },
+];
+
+function parseSchedule(raw: string | null): number[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
 
 const TABS = [
   { key: "general", label: "Основные" },
   { key: "identity", label: "Идентификация" },
   { key: "personas", label: "Менеджеры" },
+  { key: "schedule", label: "Расписание" },
   { key: "widget", label: "Виджет" },
 ] as const;
 
@@ -439,6 +461,160 @@ export function ChatSettingsClient({ workspaceId }: { workspaceId: string }) {
               Добавить
             </Button>
           </div>
+        </div>
+      )}
+
+      {/* Schedule tab */}
+      {tab === "schedule" && (
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Расписание смен — кто из менеджеров дежурит в какой день. По 2
+            человека в смену.
+          </p>
+
+          {personasLoading ? (
+            <Skeleton className="h-40 w-full" />
+          ) : personas.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Сначала добавьте персон на вкладке &quot;Менеджеры&quot;
+            </p>
+          ) : (
+            <div className="border rounded-xl overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50">
+                  <tr>
+                    <th className="px-3 py-2 text-left font-medium w-40">
+                      Менеджер
+                    </th>
+                    {DAYS_OF_WEEK.map((d) => (
+                      <th
+                        key={d.value}
+                        className="px-2 py-2 text-center font-medium w-12"
+                      >
+                        {d.label}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {personas.map((p) => {
+                    const schedule = parseSchedule(p.scheduleDays);
+                    return (
+                      <tr key={p.id} className="border-t">
+                        <td className="px-3 py-2">
+                          <div className="flex items-center gap-2">
+                            {p.avatarUrl ? (
+                              <Image
+                                src={avatarSrc(p.avatarUrl)!}
+                                alt=""
+                                width={24}
+                                height={24}
+                                className="w-6 h-6 rounded-full object-cover"
+                                unoptimized
+                              />
+                            ) : (
+                              <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center text-[10px] font-bold">
+                                {p.displayName[0]}
+                              </div>
+                            )}
+                            <span className="text-xs font-medium">
+                              {p.displayName}
+                            </span>
+                          </div>
+                        </td>
+                        {DAYS_OF_WEEK.map((d) => (
+                          <td key={d.value} className="px-2 py-2 text-center">
+                            <input
+                              type="checkbox"
+                              checked={schedule.includes(d.value)}
+                              onChange={async () => {
+                                const newDays = schedule.includes(d.value)
+                                  ? schedule.filter((v) => v !== d.value)
+                                  : [...schedule, d.value];
+                                await fetch(
+                                  `/api/workspaces/${workspaceId}/chat/personas/${p.id}`,
+                                  {
+                                    method: "PATCH",
+                                    headers: {
+                                      "Content-Type": "application/json",
+                                    },
+                                    body: JSON.stringify({
+                                      scheduleDays: JSON.stringify(
+                                        newDays.sort(),
+                                      ),
+                                    }),
+                                  },
+                                );
+                                void qc.invalidateQueries({
+                                  queryKey: ["chat-personas", workspaceId],
+                                });
+                              }}
+                              className="rounded"
+                            />
+                          </td>
+                        ))}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Summary: who's on shift today */}
+          {personas.length > 0 && (
+            <div className="border rounded-xl p-4">
+              <div className="text-xs font-semibold text-muted-foreground uppercase mb-2">
+                Сегодня на смене
+              </div>
+              <div className="flex gap-3">
+                {personas
+                  .filter((p) => {
+                    const days = parseSchedule(p.scheduleDays);
+                    if (days.length === 0) return false;
+                    const today = new Date().getDay();
+                    return days.includes(today);
+                  })
+                  .map((p) => (
+                    <div
+                      key={p.id}
+                      className="flex items-center gap-2 bg-emerald-50 rounded-lg px-3 py-2"
+                    >
+                      {p.avatarUrl ? (
+                        <Image
+                          src={avatarSrc(p.avatarUrl)!}
+                          alt=""
+                          width={28}
+                          height={28}
+                          className="w-7 h-7 rounded-full object-cover"
+                          unoptimized
+                        />
+                      ) : (
+                        <div className="w-7 h-7 rounded-full bg-emerald-200 flex items-center justify-center text-xs font-bold text-emerald-700">
+                          {p.displayName[0]}
+                        </div>
+                      )}
+                      <div>
+                        <div className="text-xs font-medium">
+                          {p.displayName}
+                        </div>
+                        <div className="text-[10px] text-muted-foreground">
+                          {p.role}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                {personas.filter((p) => {
+                  const days = parseSchedule(p.scheduleDays);
+                  return days.length > 0 && days.includes(new Date().getDay());
+                }).length === 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    Нет назначенных на сегодня. Настройте расписание выше.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
