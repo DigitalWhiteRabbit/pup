@@ -76,7 +76,7 @@ export async function updateAgentConfig(
       workspaceId,
       enabled: data.enabled ?? false,
       mode: data.mode ?? "copilot",
-      model: data.model ?? "gpt-4o-mini",
+      model: data.model ?? "claude-sonnet-4-20250514",
       temperature: data.temperature ?? 0.3,
       systemPrompt: data.systemPrompt ?? null,
       greeting: data.greeting ?? null,
@@ -383,6 +383,172 @@ export async function autoRespond(
   });
 
   return { responded: true, handoff: false };
+}
+
+/**
+ * Autopilot with typing indicators visible to customer.
+ * Self-contained: checks config, shows typing stages, generates reply.
+ */
+export async function autoRespondWithTyping(
+  ticketId: string,
+  workspaceId: string,
+): Promise<void> {
+  const cfg = await db.agentConfig.findUnique({
+    where: { workspaceId },
+    include: {
+      scenarios: { where: { enabled: true }, orderBy: { position: "asc" } },
+    },
+  });
+  if (!cfg?.enabled || cfg.mode !== "autopilot") return;
+
+  // Stage 1: typing indicator
+  const typingMsg = await db.ticketMessage.create({
+    data: {
+      ticketId,
+      authorType: "SYSTEM",
+      content: "Менеджер подключился к диалогу...",
+      systemAction: "TYPING",
+    },
+  });
+
+  await new Promise((r) => setTimeout(r, 1200));
+
+  await db.ticketMessage.update({
+    where: { id: typingMsg.id },
+    data: { content: "Менеджер изучает ваш вопрос..." },
+  });
+
+  await new Promise((r) => setTimeout(r, 1500));
+
+  await db.ticketMessage.update({
+    where: { id: typingMsg.id },
+    data: { content: "Менеджер готовит ответ..." },
+  });
+
+  // Load ticket messages (excluding SYSTEM typing messages)
+  const ticket = await db.ticket.findUnique({
+    where: { id: ticketId },
+    include: {
+      messages: {
+        where: { systemAction: null },
+        orderBy: { createdAt: "asc" },
+        select: { authorType: true, content: true },
+      },
+    },
+  });
+  if (!ticket) {
+    await db.ticketMessage.delete({ where: { id: typingMsg.id } });
+    return;
+  }
+
+  try {
+    const anthropic = getAnthropic();
+    const systemPrompt = buildSystemPrompt(
+      cfg.systemPrompt,
+      cfg.guardrails,
+      cfg.scenarios,
+    );
+
+    const response = await anthropic.messages.create({
+      model: cfg.model,
+      max_tokens: 1000,
+      temperature: cfg.temperature,
+      system: systemPrompt,
+      messages: toClaudeMessages(ticket.messages),
+    });
+
+    const reply =
+      response.content[0]?.type === "text" ? response.content[0].text : "";
+
+    // Remove typing indicator
+    await db.ticketMessage.delete({ where: { id: typingMsg.id } });
+
+    if (!reply) {
+      await db.ticketMessage.create({
+        data: {
+          ticketId,
+          authorType: "SYSTEM",
+          content: "Менеджер изучает ваш вопрос. Мы ответим в ближайшее время.",
+          systemAction: "HANDOFF",
+        },
+      });
+      await db.ticket.update({
+        where: { id: ticketId },
+        data: {
+          needsHumanHelp: true,
+          helpRequestedAt: new Date(),
+          agentConfidence: 0.3,
+        },
+      });
+      return;
+    }
+
+    // Check for handoff markers
+    const handoffMarkers = [
+      "не могу помочь",
+      "передаю менеджеру",
+      "свяжу с специалистом",
+      "[HANDOFF]",
+    ];
+    const needsHandoff = handoffMarkers.some((marker) =>
+      reply.toLowerCase().includes(marker),
+    );
+
+    if (needsHandoff) {
+      await db.ticketMessage.create({
+        data: {
+          ticketId,
+          authorType: "SYSTEM",
+          content: "Менеджер изучает ваш вопрос. Мы ответим в ближайшее время.",
+          systemAction: "HANDOFF",
+        },
+      });
+      await db.ticket.update({
+        where: { id: ticketId },
+        data: {
+          needsHumanHelp: true,
+          helpRequestedAt: new Date(),
+          agentConfidence: 0.3,
+        },
+      });
+      return;
+    }
+
+    // Save agent reply
+    await db.ticketMessage.create({
+      data: {
+        ticketId,
+        authorType: "AGENT" as TicketMessageAuthorType,
+        content: reply,
+      },
+    });
+
+    void logActivity({
+      workspaceId,
+      actorId: null,
+      action: "AGENT_RESPONSE_GENERATED",
+      entityType: "Ticket",
+      entityId: ticketId,
+      summary: generateSummary("AGENT_RESPONSE_GENERATED", {
+        kbArticleTitle: `#${ticket.number} ${ticket.title}`,
+      }),
+      metadata: {},
+    });
+  } catch (err) {
+    // Remove typing on error, show handoff message
+    await db.ticketMessage
+      .delete({ where: { id: typingMsg.id } })
+      .catch(() => {});
+    await db.ticketMessage.create({
+      data: {
+        ticketId,
+        authorType: "SYSTEM",
+        content: "Менеджер изучает ваш вопрос. Мы ответим в ближайшее время.",
+        systemAction: "HANDOFF",
+      },
+    });
+    console.error("[autoRespondWithTyping] AI error:", err);
+  }
 }
 
 /**

@@ -901,7 +901,7 @@ model AgentConfig {
   enabled     Boolean @default(false)
 
   mode        String  @default("copilot") // "copilot" | "autopilot"
-  model       String  @default("gpt-4o-mini")
+  model       String  @default("claude-sonnet-4-20250514")
   temperature Float   @default(0.3)
 
   systemPrompt    String?

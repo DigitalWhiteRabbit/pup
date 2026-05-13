@@ -6,6 +6,8 @@ import { logActivity, generateSummary } from "../logger.service";
 import { sendTelegramNotification } from "../telegram/sender";
 import { findOrCreateCustomer } from "./customer.service";
 import { detectPriority } from "./auto-priority.service";
+import { autoRespondWithTyping } from "../agent/agent.service";
+import { sendEmailReply } from "../email/email.service";
 import type {
   TicketStatus,
   TicketPriority,
@@ -717,7 +719,6 @@ export async function addMessage(
   if (ticket.source === "EMAIL" && ticket.customerId) {
     void (async () => {
       try {
-        const { sendEmailReply } = await import("../email/email.service");
         const cust = await db.customer.findUnique({
           where: { id: ticket.customerId! },
           select: { email: true },
@@ -984,17 +985,18 @@ export async function createTicketAsCustomer(
         },
       });
 
-      // Trigger autopilot (fire-and-forget)
+      const createdTicket = mapTicketFull(ticket);
+
+      // Trigger autopilot AFTER returning (fire-and-forget, with typing indicator)
       void (async () => {
         try {
-          const { autoRespond } = await import("../agent/agent.service");
-          await autoRespond(ticket.id, workspaceId);
-        } catch {
-          /* agent not configured or failed */
+          await autoRespondWithTyping(ticket.id, workspaceId);
+        } catch (agentErr) {
+          console.error("[Autopilot error]", agentErr);
         }
       })();
 
-      return mapTicketFull(ticket);
+      return createdTicket;
     } catch (err: unknown) {
       const prismaErr = err as { code?: string };
       if (prismaErr.code === "P2002" && attempt < MAX_RETRIES - 1) continue;
@@ -1096,13 +1098,13 @@ export async function addMessageAsCustomer(
     })();
   }
 
-  // Trigger autopilot
+  // Trigger autopilot (with typing indicator)
   void (async () => {
     try {
-      const { autoRespond } = await import("../agent/agent.service");
-      await autoRespond(ticketId, ticket.workspaceId);
-    } catch {
-      /* agent not configured or failed */
+      const { autoRespondWithTyping } = await import("../agent/agent.service");
+      await autoRespondWithTyping(ticketId, ticket.workspaceId);
+    } catch (agentErr) {
+      console.error("[Autopilot error]", agentErr);
     }
   })();
 
