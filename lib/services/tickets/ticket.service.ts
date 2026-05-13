@@ -1175,7 +1175,7 @@ export async function getTicketForCustomer(
   const full = mapTicketFull(ticket);
   // Hide internal messages from customer view
   full.messages = full.messages.filter(
-    (m) => m.systemAction !== "AGENT_SUMMARY" && m.systemAction !== "TYPING",
+    (m) => m.systemAction !== "AGENT_SUMMARY",
   );
   return full;
 }

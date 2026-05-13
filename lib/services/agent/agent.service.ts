@@ -401,28 +401,48 @@ export async function autoRespondWithTyping(
   });
   if (!cfg?.enabled || cfg.mode !== "autopilot") return;
 
-  // Stage 1: typing indicator
-  const typingMsg = await db.ticketMessage.create({
+  // Stage 1: typing indicators — longer delays so polling can catch them
+  await db.ticketMessage.create({
     data: {
       ticketId,
       authorType: "SYSTEM",
-      content: "Менеджер подключился к диалогу...",
-      systemAction: "TYPING",
+      content: "Менеджер подключился к диалогу",
+      systemAction: "TYPING_STAGE",
     },
   });
 
-  await new Promise((r) => setTimeout(r, 1200));
+  await new Promise((r) => setTimeout(r, 2000));
 
-  await db.ticketMessage.update({
-    where: { id: typingMsg.id },
-    data: { content: "Менеджер изучает ваш вопрос..." },
+  await db.ticketMessage.create({
+    data: {
+      ticketId,
+      authorType: "SYSTEM",
+      content: "Менеджер изучает ваш вопрос...",
+      systemAction: "TYPING_STAGE",
+    },
   });
 
-  await new Promise((r) => setTimeout(r, 1500));
+  await new Promise((r) => setTimeout(r, 2000));
 
-  await db.ticketMessage.update({
-    where: { id: typingMsg.id },
-    data: { content: "Менеджер готовит ответ..." },
+  // Delete old stages, keep latest
+  const stages = await db.ticketMessage.findMany({
+    where: { ticketId, systemAction: "TYPING_STAGE" },
+    orderBy: { createdAt: "asc" },
+    select: { id: true },
+  });
+  if (stages.length > 1) {
+    await db.ticketMessage.deleteMany({
+      where: { id: { in: stages.slice(0, -1).map((s) => s.id) } },
+    });
+  }
+
+  await db.ticketMessage.create({
+    data: {
+      ticketId,
+      authorType: "SYSTEM",
+      content: "Менеджер готовит ответ...",
+      systemAction: "TYPING_STAGE",
+    },
   });
 
   // Load ticket messages (excluding SYSTEM typing messages)
@@ -437,7 +457,9 @@ export async function autoRespondWithTyping(
     },
   });
   if (!ticket) {
-    await db.ticketMessage.delete({ where: { id: typingMsg.id } });
+    await db.ticketMessage.deleteMany({
+      where: { ticketId, systemAction: "TYPING_STAGE" },
+    });
     return;
   }
 
@@ -460,8 +482,10 @@ export async function autoRespondWithTyping(
     const rawReply =
       response.content[0]?.type === "text" ? response.content[0].text : "";
 
-    // Remove typing indicator
-    await db.ticketMessage.delete({ where: { id: typingMsg.id } });
+    // Remove all typing indicators
+    await db.ticketMessage.deleteMany({
+      where: { ticketId, systemAction: "TYPING_STAGE" },
+    });
 
     if (!rawReply) {
       await db.ticket.update({
@@ -522,9 +546,9 @@ export async function autoRespondWithTyping(
       metadata: { needsHuman: parsed.needsHuman },
     });
   } catch (err) {
-    // Remove typing on error, show handoff message
+    // Remove typing on error
     await db.ticketMessage
-      .delete({ where: { id: typingMsg.id } })
+      .deleteMany({ where: { ticketId, systemAction: "TYPING_STAGE" } })
       .catch(() => {});
     await db.ticketMessage.create({
       data: {

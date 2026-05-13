@@ -187,7 +187,7 @@ export function ChatInterface({
     const interval = setInterval(() => {
       void fetchTicketDetail();
       void fetchTickets();
-    }, 5000);
+    }, 2000);
     return () => clearInterval(interval);
   }, [activeTicketId, fetchTicketDetail, fetchTickets]);
 
@@ -693,9 +693,23 @@ function MessageBubble({
   personaName?: string;
 }) {
   if (msg.authorType === "SYSTEM") {
+    const isTyping = msg.systemAction === "TYPING_STAGE";
     return (
       <div className="flex justify-center my-3">
-        <span className="text-[11px] text-gray-400 bg-gray-100 px-3 py-1 rounded-full">
+        <span
+          className={`text-[11px] px-3 py-1.5 rounded-full flex items-center gap-2 ${
+            isTyping
+              ? "text-emerald-600 bg-emerald-50 border border-emerald-200"
+              : "text-gray-400 bg-gray-100"
+          }`}
+        >
+          {isTyping && (
+            <span className="flex gap-0.5">
+              <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-bounce [animation-delay:0ms]" />
+              <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-bounce [animation-delay:150ms]" />
+              <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-bounce [animation-delay:300ms]" />
+            </span>
+          )}
           {msg.content}
         </span>
       </div>
