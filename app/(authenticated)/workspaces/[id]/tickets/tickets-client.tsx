@@ -14,6 +14,7 @@ import {
   Search,
   Settings,
   Ticket,
+  Trash2,
   AlertTriangle,
   MessageSquare,
   X,
@@ -229,12 +230,51 @@ function CreateTicketDialog({
 // ─── Main client ─────────────────────────────────────────────────────────────
 
 export function TicketsClient({ workspaceId }: { workspaceId: string }) {
+  const qc = useQueryClient();
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [sortBy, setSortBy] = useState("updatedAt");
   const [createOpen, setCreateOpen] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  const deleteMut = useMutation({
+    mutationFn: (ticketIds: string[]) =>
+      fetch(`/api/workspaces/${workspaceId}/tickets/bulk-delete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticketIds }),
+      }).then(async (r) => {
+        if (!r.ok)
+          throw new Error((await r.json().catch(() => ({}))).error ?? "Ошибка");
+        return r.json();
+      }),
+    onSuccess: (d: { deleted: number }) => {
+      void qc.invalidateQueries({ queryKey: ["tickets", workspaceId] });
+      setSelected(new Set());
+      toastSuccess(`Удалено тикетов: ${d.deleted}`);
+    },
+    onError: toastApiError,
+  });
+
+  function toggleSelect(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    if (!data) return;
+    if (selected.size === data.data.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(data.data.map((t) => t.id)));
+    }
+  }
 
   const params = new URLSearchParams({
     page: String(page),
@@ -410,6 +450,39 @@ export function TicketsClient({ workspaceId }: { workspaceId: string }) {
         )}
       </div>
 
+      {/* Bulk actions bar */}
+      {selected.size > 0 && (
+        <div className="flex items-center gap-3 mb-3 bg-muted/50 rounded-lg px-4 py-2">
+          <span className="text-sm font-medium">Выбрано: {selected.size}</span>
+          <Button
+            variant="destructive"
+            size="sm"
+            className="h-7 text-xs"
+            disabled={deleteMut.isPending}
+            onClick={() => {
+              if (
+                confirm(
+                  `Удалить ${selected.size} тикет(ов)? Это действие необратимо.`,
+                )
+              ) {
+                deleteMut.mutate(Array.from(selected));
+              }
+            }}
+          >
+            <Trash2 className="h-3 w-3 mr-1" />
+            {deleteMut.isPending ? "Удаление..." : "Удалить"}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={() => setSelected(new Set())}
+          >
+            Отменить
+          </Button>
+        </div>
+      )}
+
       {/* List */}
       {isLoading ? (
         <div className="space-y-2">
@@ -431,6 +504,16 @@ export function TicketsClient({ workspaceId }: { workspaceId: string }) {
           <table className="w-full text-sm">
             <thead className="bg-muted/50 text-left">
               <tr>
+                <th className="px-3 py-2 w-8">
+                  <input
+                    type="checkbox"
+                    checked={
+                      data.data.length > 0 && selected.size === data.data.length
+                    }
+                    onChange={toggleSelectAll}
+                    className="rounded"
+                  />
+                </th>
                 <th className="px-3 py-2 font-medium">#</th>
                 <th className="px-3 py-2 font-medium">Приоритет</th>
                 <th className="px-3 py-2 font-medium">Заголовок</th>
@@ -442,14 +525,23 @@ export function TicketsClient({ workspaceId }: { workspaceId: string }) {
                   <MessageSquare className="h-3.5 w-3.5 inline" />
                 </th>
                 <th className="px-3 py-2 font-medium">Обновлён</th>
+                <th className="px-3 py-2 w-8"></th>
               </tr>
             </thead>
             <tbody>
               {data.data.map((t) => (
                 <tr
                   key={t.id}
-                  className="border-t hover:bg-accent/40 transition-colors"
+                  className={`border-t hover:bg-accent/40 transition-colors ${selected.has(t.id) ? "bg-accent/20" : ""}`}
                 >
+                  <td className="px-3 py-2.5">
+                    <input
+                      type="checkbox"
+                      checked={selected.has(t.id)}
+                      onChange={() => toggleSelect(t.id)}
+                      className="rounded"
+                    />
+                  </td>
                   <td className="px-3 py-2.5 text-muted-foreground">
                     {t.number}
                   </td>
@@ -499,6 +591,21 @@ export function TicketsClient({ workspaceId }: { workspaceId: string }) {
                       addSuffix: true,
                       locale: ru,
                     })}
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (confirm(`Удалить тикет #${t.number}?`)) {
+                          deleteMut.mutate([t.id]);
+                        }
+                      }}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
                   </td>
                 </tr>
               ))}
