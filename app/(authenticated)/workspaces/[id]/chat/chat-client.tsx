@@ -394,80 +394,100 @@ export function ChatClient({
                   Нет сообщений. Начните диалог!
                 </div>
               )}
-              {msgs.map((m) => (
-                <div
-                  key={m.id}
-                  className="group flex gap-2.5 mb-4 hover:bg-white/60 rounded-lg px-2 py-1.5 -mx-2 transition-colors"
-                >
+              {msgs.map((m) => {
+                const isMe = m.authorId === currentUserId;
+                return (
                   <div
-                    className={`w-8 h-8 rounded-full shrink-0 mt-0.5 flex items-center justify-center text-xs font-bold ${m.authorId === currentUserId ? "bg-emerald-500 text-white" : "bg-gray-200 text-gray-600"}`}
+                    key={m.id}
+                    className={`group flex mb-3 ${isMe ? "justify-end" : "justify-start"}`}
                   >
-                    {m.authorLogin[0]?.toUpperCase()}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-0.5">
-                      <span className="text-sm font-semibold text-gray-800">
-                        {m.authorLogin}
-                      </span>
-                      <span className="text-[10px] text-gray-400">
-                        {format(new Date(m.createdAt), "HH:mm", { locale: ru })}
-                      </span>
-                      {m.editedAt && (
-                        <span className="text-[10px] text-gray-400">
-                          (ред.)
+                    {!isMe && (
+                      <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-xs font-bold text-gray-600 shrink-0 mt-0.5 mr-2">
+                        {m.authorLogin[0]?.toUpperCase()}
+                      </div>
+                    )}
+                    <div
+                      className={`max-w-[70%] flex flex-col ${isMe ? "items-end" : "items-start"}`}
+                    >
+                      <div
+                        className={`flex items-center gap-2 mb-0.5 ${isMe ? "flex-row-reverse" : ""}`}
+                      >
+                        <span className="text-xs font-semibold text-gray-700">
+                          {m.authorLogin}
                         </span>
+                        <span className="text-[10px] text-gray-400">
+                          {format(new Date(m.createdAt), "HH:mm", {
+                            locale: ru,
+                          })}
+                        </span>
+                        {m.editedAt && (
+                          <span className="text-[10px] text-gray-400">
+                            (ред.)
+                          </span>
+                        )}
+                      </div>
+                      <div
+                        className={`rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap break-words ${isMe ? "bg-emerald-500 text-white rounded-br-md" : "bg-white border shadow-sm text-gray-700 rounded-bl-md"}`}
+                      >
+                        {isMe ? m.content : hl(m.content)}
+                      </div>
+                      {m.reactions.length > 0 && (
+                        <div
+                          className={`flex gap-1 mt-1 ${isMe ? "justify-end" : ""}`}
+                        >
+                          {m.reactions.map((r) => (
+                            <button
+                              key={r.emoji}
+                              onClick={() => void react(m.id, r.emoji)}
+                              className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${r.myReaction ? "bg-emerald-50 border border-emerald-200" : "bg-gray-100 hover:bg-gray-200"}`}
+                            >
+                              {r.emoji}{" "}
+                              <span className="text-gray-500">{r.count}</span>
+                            </button>
+                          ))}
+                        </div>
                       )}
-                    </div>
-                    <div className="text-sm text-gray-700 whitespace-pre-wrap break-words">
-                      {hl(m.content)}
-                    </div>
-                    {m.reactions.length > 0 && (
-                      <div className="flex gap-1 mt-1.5">
-                        {m.reactions.map((r) => (
+                      {m.replyCount > 0 && (
+                        <button
+                          onClick={() => {
+                            setThreadMsgId(m.id);
+                            setShowInfo(false);
+                          }}
+                          className="flex items-center gap-1.5 mt-1 text-xs text-emerald-600 hover:bg-emerald-50 rounded-lg px-2 py-1"
+                        >
+                          <CornerDownRight className="h-3.5 w-3.5" />
+                          {m.replyCount} ответ{m.replyCount > 1 ? "ов" : ""}
+                        </button>
+                      )}
+                      <div
+                        className={`opacity-0 group-hover:opacity-100 flex gap-0.5 mt-1 transition-opacity ${isMe ? "flex-row-reverse" : ""}`}
+                      >
+                        <button
+                          onClick={() => setReplyTo(m)}
+                          className="p-1 rounded hover:bg-gray-200 text-gray-400"
+                          title="Ответить"
+                        >
+                          <CornerDownRight className="h-3 w-3" />
+                        </button>
+                        {QUICK_EMOJIS.map((e) => (
                           <button
-                            key={r.emoji}
-                            onClick={() => void react(m.id, r.emoji)}
-                            className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${r.myReaction ? "bg-emerald-50 border border-emerald-200" : "bg-gray-100 hover:bg-gray-200"}`}
+                            key={e}
+                            onClick={() => void react(m.id, e)}
+                            className="p-1 rounded hover:bg-gray-200 text-xs"
                           >
-                            {r.emoji}{" "}
-                            <span className="text-gray-500">{r.count}</span>
+                            {e}
                           </button>
                         ))}
                       </div>
-                    )}
-                    {m.replyCount > 0 && (
-                      <button
-                        onClick={() => {
-                          setThreadMsgId(m.id);
-                          setShowInfo(false);
-                        }}
-                        className="flex items-center gap-1.5 mt-1.5 text-xs text-emerald-600 hover:bg-emerald-50 rounded-lg px-2 py-1"
-                      >
-                        <CornerDownRight className="h-3.5 w-3.5" />
-                        {m.replyCount} ответ{m.replyCount > 1 ? "ов" : ""}
-                      </button>
-                    )}
-                    <div className="opacity-0 group-hover:opacity-100 flex gap-0.5 mt-1 transition-opacity">
-                      <button
-                        onClick={() => setReplyTo(m)}
-                        className="p-1 rounded hover:bg-gray-200 text-gray-400"
-                        title="Ответить"
-                      >
-                        <CornerDownRight className="h-3 w-3" />
-                      </button>
-                      {QUICK_EMOJIS.map((e) => (
-                        <button
-                          key={e}
-                          onClick={() => void react(m.id, e)}
-                          className="p-1 rounded hover:bg-gray-200 text-xs"
-                        >
-                          {e}
-                        </button>
-                      ))}
                     </div>
+                    {isMe && (
+                      <div className="w-8 h-8 rounded-full bg-emerald-500 flex items-center justify-center text-xs font-bold text-white shrink-0 mt-0.5 ml-2">
+                        {m.authorLogin[0]?.toUpperCase()}
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
               <div ref={endRef} />
             </div>
 
