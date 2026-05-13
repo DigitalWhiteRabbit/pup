@@ -14,6 +14,7 @@ import {
   ExternalLink,
   Camera,
   Loader2,
+  Pencil,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -784,8 +785,13 @@ function PersonaCard({
   deleteDisabled: boolean;
   onDelete: () => void;
 }) {
+  const qcLocal = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState(persona.displayName);
+  const [editRole, setEditRole] = useState(persona.role);
+  const [saving, setSaving] = useState(false);
 
   async function handleAvatarUpload(file: File) {
     setUploading(true);
@@ -811,75 +817,168 @@ function PersonaCard({
     }
   }
 
+  async function handleSave() {
+    setSaving(true);
+    try {
+      const res = await fetch(
+        `/api/workspaces/${workspaceId}/chat/personas/${persona.id}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            displayName: editName.trim(),
+            role: editRole.trim(),
+          }),
+        },
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(
+          (data as { error?: string }).error ?? "Ошибка сохранения",
+        );
+      }
+      void qcLocal.invalidateQueries({
+        queryKey: ["chat-personas", workspaceId],
+      });
+      setEditing(false);
+      toastSuccess("Сохранено");
+    } catch (err) {
+      toastApiError(err instanceof Error ? err : new Error("Ошибка"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   const src = avatarSrc(persona.avatarUrl);
 
   return (
-    <div className="flex items-center gap-3 p-3 border rounded-lg">
-      <GripVertical className="h-4 w-4 text-muted-foreground shrink-0" />
+    <div className="border rounded-lg p-3">
+      <div className="flex items-center gap-3">
+        <GripVertical className="h-4 w-4 text-muted-foreground shrink-0" />
 
-      {/* Аватар */}
-      <button
-        type="button"
-        className="relative w-10 h-10 rounded-full shrink-0 bg-muted flex items-center justify-center overflow-hidden group"
-        onClick={() => fileInputRef.current?.click()}
-        disabled={uploading}
-        title="Загрузить фото"
-      >
-        {uploading ? (
-          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-        ) : src ? (
-          <>
-            <Image
-              src={src}
-              alt={persona.displayName}
-              width={40}
-              height={40}
-              className="w-full h-full object-cover"
-              unoptimized
-            />
-            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-              <Camera className="h-4 w-4 text-white" />
+        {/* Аватар */}
+        <button
+          type="button"
+          className="relative w-10 h-10 rounded-full shrink-0 bg-muted flex items-center justify-center overflow-hidden group"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading}
+          title="Загрузить фото"
+        >
+          {uploading ? (
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          ) : src ? (
+            <>
+              <Image
+                src={src}
+                alt={persona.displayName}
+                width={40}
+                height={40}
+                className="w-full h-full object-cover"
+                unoptimized
+              />
+              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                <Camera className="h-4 w-4 text-white" />
+              </div>
+            </>
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-sm font-bold text-muted-foreground group-hover:hidden">
+              {persona.displayName[0]}
             </div>
+          )}
+          {!src && !uploading && (
+            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-muted">
+              <Camera className="h-4 w-4 text-muted-foreground" />
+            </div>
+          )}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/gif"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) void handleAvatarUpload(f);
+              e.target.value = "";
+            }}
+          />
+        </button>
+
+        {!editing ? (
+          <>
+            <div
+              className="flex-1 min-w-0 cursor-pointer"
+              onClick={() => {
+                setEditName(persona.displayName);
+                setEditRole(persona.role);
+                setEditing(true);
+              }}
+              title="Нажмите для редактирования"
+            >
+              <div className="font-medium text-sm">{persona.displayName}</div>
+              <div className="text-xs text-muted-foreground">
+                {persona.role}
+              </div>
+            </div>
+            <Badge variant="outline" className="text-[10px]">
+              #{persona.position + 1}
+            </Badge>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-muted-foreground"
+              onClick={() => {
+                setEditName(persona.displayName);
+                setEditRole(persona.role);
+                setEditing(true);
+              }}
+              title="Редактировать"
+            >
+              <Pencil className="h-3 w-3" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-destructive"
+              onClick={onDelete}
+              disabled={deleteDisabled}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
           </>
         ) : (
-          <div className="w-full h-full flex items-center justify-center text-sm font-bold text-muted-foreground group-hover:hidden">
-            {persona.displayName[0]}
+          <div className="flex-1 flex items-center gap-2">
+            <Input
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              className="h-8 text-sm"
+              placeholder="Имя"
+              autoFocus
+            />
+            <Input
+              value={editRole}
+              onChange={(e) => setEditRole(e.target.value)}
+              className="h-8 text-sm w-32"
+              placeholder="Роль"
+            />
+            <Button
+              size="sm"
+              className="h-8 text-xs shrink-0"
+              disabled={!editName.trim() || !editRole.trim() || saving}
+              onClick={() => void handleSave()}
+            >
+              {saving ? "..." : "Сохранить"}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 text-xs shrink-0"
+              onClick={() => setEditing(false)}
+            >
+              Отмена
+            </Button>
           </div>
         )}
-        {!src && !uploading && (
-          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-muted">
-            <Camera className="h-4 w-4 text-muted-foreground" />
-          </div>
-        )}
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/jpeg,image/png,image/webp,image/gif"
-          className="hidden"
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) void handleAvatarUpload(f);
-            e.target.value = "";
-          }}
-        />
-      </button>
-
-      <div className="flex-1 min-w-0">
-        <div className="font-medium text-sm">{persona.displayName}</div>
-        <div className="text-xs text-muted-foreground">{persona.role}</div>
       </div>
-      <Badge variant="outline" className="text-[10px]">
-        #{persona.position + 1}
-      </Badge>
-      <Button
-        variant="ghost"
-        size="icon"
-        className="h-7 w-7 text-destructive"
-        onClick={onDelete}
-        disabled={deleteDisabled}
-      >
-        <Trash2 className="h-3.5 w-3.5" />
-      </Button>
     </div>
   );
 }
