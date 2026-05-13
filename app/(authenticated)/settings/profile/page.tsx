@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { TelegramSettings } from "./telegram-settings";
+import { ChangePassword } from "./change-password";
 
 export default async function ProfileSettingsPage() {
   const session = await auth();
@@ -27,6 +28,8 @@ export default async function ProfileSettingsPage() {
   return (
     <div className="mx-auto max-w-2xl p-6">
       <h1 className="mb-6 text-2xl font-bold">Настройки профиля</h1>
+      <ChangePassword />
+      <div className="mt-6" />
       <TelegramSettings
         connected={!!user.telegramChatId}
         preferences={{
