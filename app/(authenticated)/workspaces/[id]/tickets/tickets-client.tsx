@@ -7,6 +7,8 @@ import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import {
   BarChart3,
+  Bot,
+  Mail,
   MessageSquareDashed,
   Plus,
   Search,
@@ -303,6 +305,18 @@ export function TicketsClient({ workspaceId }: { workspaceId: string }) {
           <Link href={`/workspaces/${workspaceId}/tickets/customers`}>
             <Button variant="outline" size="sm">
               Клиенты
+            </Button>
+          </Link>
+          <Link href={`/workspaces/${workspaceId}/tickets/email-settings`}>
+            <Button variant="outline" size="sm">
+              <Mail className="h-4 w-4 mr-1.5" />
+              Email
+            </Button>
+          </Link>
+          <Link href={`/workspaces/${workspaceId}/tickets/agent-settings`}>
+            <Button variant="outline" size="sm">
+              <Bot className="h-4 w-4 mr-1.5" />
+              AI Агент
             </Button>
           </Link>
           <Link href={`/workspaces/${workspaceId}/tickets/settings`}>

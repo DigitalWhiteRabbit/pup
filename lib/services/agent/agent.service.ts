@@ -1,5 +1,5 @@
 import "server-only";
-import OpenAI from "openai";
+import Anthropic from "@anthropic-ai/sdk";
 import { db } from "@/lib/db";
 import { ApiError } from "@/lib/api-error";
 import { checkMembership } from "../workspace.service";
@@ -204,17 +204,42 @@ export async function deleteScenario(
   });
 }
 
-// ─── AI Generation ──────────────────────────────────────────────────────────
+// ─── AI Generation (Anthropic Claude) ───────────────────────────────────────
 
-function getOpenAI(): OpenAI {
-  const apiKey = process.env.OPENAI_API_KEY;
+function getAnthropic(): Anthropic {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey)
-    throw new ApiError("OPENAI_API_KEY не настроен", "AI_NOT_CONFIGURED", 500);
-  return new OpenAI({ apiKey });
+    throw new ApiError(
+      "ANTHROPIC_API_KEY не настроен",
+      "AI_NOT_CONFIGURED",
+      500,
+    );
+  return new Anthropic({ apiKey });
+}
+
+type TicketMsg = { authorType: string; content: string };
+
+function toClaudeMessages(msgs: TicketMsg[]): Anthropic.MessageParam[] {
+  const result: Anthropic.MessageParam[] = [];
+  for (const m of msgs) {
+    const role = m.authorType === "CUSTOMER" ? "user" : "assistant";
+    // Claude requires alternating roles — merge consecutive same-role
+    const last = result[result.length - 1];
+    if (last && last.role === role) {
+      last.content += "\n" + m.content;
+    } else {
+      result.push({ role, content: m.content });
+    }
+  }
+  // Claude requires first message to be user
+  if (result.length > 0 && result[0]?.role === "assistant") {
+    result.unshift({ role: "user", content: "(начало диалога)" });
+  }
+  return result;
 }
 
 /**
- * Copilot: предложить ответ менеджеру на основе контекста тикета.
+ * Copilot: предложить ответ менеджеру.
  */
 export async function suggestReply(
   ticketId: string,
@@ -245,31 +270,23 @@ export async function suggestReply(
   if (!cfg?.enabled)
     throw new ApiError("AI-агент не активирован", "AI_DISABLED", 400);
 
-  const openai = getOpenAI();
-
+  const anthropic = getAnthropic();
   const systemPrompt = buildSystemPrompt(
     cfg.systemPrompt,
     cfg.guardrails,
     cfg.scenarios,
   );
-  const messages: OpenAI.ChatCompletionMessageParam[] = [
-    { role: "system", content: systemPrompt },
-    ...ticket.messages.map((m) => ({
-      role: (m.authorType === "CUSTOMER" ? "user" : "assistant") as
-        | "user"
-        | "assistant",
-      content: m.content,
-    })),
-  ];
 
-  const response = await openai.chat.completions.create({
+  const response = await anthropic.messages.create({
     model: cfg.model,
-    messages,
-    temperature: cfg.temperature,
     max_tokens: 1000,
+    temperature: cfg.temperature,
+    system: systemPrompt,
+    messages: toClaudeMessages(ticket.messages),
   });
 
-  const suggestion = response.choices[0]?.message.content ?? "";
+  const suggestion =
+    response.content[0]?.type === "text" ? response.content[0].text : "";
   const confidence = suggestion.length > 20 ? 0.8 : 0.4;
 
   return { suggestion, confidence };
@@ -303,42 +320,34 @@ export async function autoRespond(
   });
   if (!ticket) return { responded: false, handoff: false };
 
-  const openai = getOpenAI();
+  const anthropic = getAnthropic();
   const systemPrompt = buildSystemPrompt(
     cfg.systemPrompt,
     cfg.guardrails,
     cfg.scenarios,
   );
 
-  const messages: OpenAI.ChatCompletionMessageParam[] = [
-    { role: "system", content: systemPrompt },
-    ...ticket.messages.map((m) => ({
-      role: (m.authorType === "CUSTOMER" ? "user" : "assistant") as
-        | "user"
-        | "assistant",
-      content: m.content,
-    })),
-  ];
-
-  const response = await openai.chat.completions.create({
+  const response = await anthropic.messages.create({
     model: cfg.model,
-    messages,
-    temperature: cfg.temperature,
     max_tokens: 1000,
+    temperature: cfg.temperature,
+    system: systemPrompt,
+    messages: toClaudeMessages(ticket.messages),
   });
 
-  const reply = response.choices[0]?.message.content ?? "";
+  const reply =
+    response.content[0]?.type === "text" ? response.content[0].text : "";
   if (!reply) return { responded: false, handoff: true };
 
-  // Check confidence: if reply contains handoff markers
+  // Check for handoff markers
   const handoffMarkers = [
     "не могу помочь",
     "передаю менеджеру",
     "свяжу с специалистом",
     "[HANDOFF]",
   ];
-  const needsHandoff = handoffMarkers.some((m) =>
-    reply.toLowerCase().includes(m),
+  const needsHandoff = handoffMarkers.some((marker) =>
+    reply.toLowerCase().includes(marker),
   );
 
   if (needsHandoff) {
@@ -353,7 +362,6 @@ export async function autoRespond(
     return { responded: false, handoff: true };
   }
 
-  // Save agent message
   await db.ticketMessage.create({
     data: {
       ticketId,
@@ -400,26 +408,23 @@ export async function summarizeTicket(
   if (!m && userRole !== "ADMIN")
     throw new ApiError("Нет доступа", "FORBIDDEN", 403);
 
-  const openai = getOpenAI();
+  const anthropic = getAnthropic();
   const conversation = ticket.messages
-    .map((m) => `${m.authorType}: ${m.content}`)
+    .map((msg) => `${msg.authorType}: ${msg.content}`)
     .join("\n");
 
-  const response = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [
-      {
-        role: "system",
-        content:
-          "Ты суммируешь диалоги поддержки. Выдай краткое резюме на русском: суть проблемы, что было сделано, текущий статус. 3-5 предложений максимум.",
-      },
-      { role: "user", content: conversation },
-    ],
-    temperature: 0.2,
+  const response = await anthropic.messages.create({
+    model: "claude-haiku-4-5-20251001",
     max_tokens: 300,
+    temperature: 0.2,
+    system:
+      "Ты суммируешь диалоги поддержки. Выдай краткое резюме на русском: суть проблемы, что было сделано, текущий статус. 3-5 предложений максимум.",
+    messages: [{ role: "user", content: conversation }],
   });
 
-  return response.choices[0]?.message.content ?? "Не удалось суммировать.";
+  return response.content[0]?.type === "text"
+    ? response.content[0].text
+    : "Не удалось суммировать.";
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
