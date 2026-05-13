@@ -71,6 +71,7 @@ model User {
   chatChannelMemberships   ChatChannelMember[]
   chatMessages             ChatMsg[]           @relation("ChatMsgAuthor")
   chatReactions            ChatMsgReaction[]
+  globalChatMessages       GlobalChatMsg[]     @relation("GlobalChatAuthor")
 
   @@index([email])
   @@index([login])
@@ -978,14 +979,19 @@ model ChatMsg {
   linkedTicketId String?
   linkedTaskId   String?
 
+  // Forward
+  forwardedFromId String?  // original message id
+
   createdAt DateTime @default(now())
 
-  channel   ChatChannel      @relation(fields: [channelId], references: [id], onDelete: Cascade)
-  author    User             @relation("ChatMsgAuthor", fields: [authorId], references: [id], onDelete: Cascade)
-  parent    ChatMsg?         @relation("ChatMsgThread", fields: [parentId], references: [id], onDelete: SetNull)
-  replies   ChatMsg[]        @relation("ChatMsgThread")
-  reactions ChatMsgReaction[]
-  attachments ChatMsgAttachment[]
+  channel       ChatChannel      @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  author        User             @relation("ChatMsgAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  parent        ChatMsg?         @relation("ChatMsgThread", fields: [parentId], references: [id], onDelete: SetNull)
+  replies       ChatMsg[]        @relation("ChatMsgThread")
+  forwardedFrom ChatMsg?         @relation("ChatMsgForward", fields: [forwardedFromId], references: [id], onDelete: SetNull)
+  forwards      ChatMsg[]        @relation("ChatMsgForward")
+  reactions     ChatMsgReaction[]
+  attachments   ChatMsgAttachment[]
 
   @@index([channelId, createdAt])
   @@index([parentId])
@@ -1016,6 +1022,21 @@ model ChatMsgAttachment {
   message ChatMsg @relation(fields: [messageId], references: [id], onDelete: Cascade)
 
   @@index([messageId])
+}
+
+// ─── Global Chat (lobby for all users) ──────────────────────────────────────
+
+model GlobalChatMsg {
+  id        String    @id @default(cuid())
+  authorId  String
+  content   String
+  editedAt  DateTime?
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  author User @relation("GlobalChatAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
 }
 
 model AgentConfig {

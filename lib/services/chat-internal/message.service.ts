@@ -5,6 +5,18 @@ import { sendTelegramNotification } from "../telegram/sender";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
+export type ChatAttachmentView = {
+  id: string;
+  originalName: string;
+  size: number;
+  mimeType: string;
+};
+
+export type ForwardInfo = {
+  originalAuthorLogin: string;
+  originalChannelName: string | null;
+};
+
 export type ChatMsgView = {
   id: string;
   authorId: string;
@@ -18,6 +30,8 @@ export type ChatMsgView = {
   replyCount: number;
   replyTo: { authorLogin: string; content: string } | null;
   reactions: Array<{ emoji: string; count: number; myReaction: boolean }>;
+  attachments: ChatAttachmentView[];
+  forwardedFrom: ForwardInfo | null;
 };
 
 // ─── List messages ──────────────────────────────────────────────────────────
@@ -68,6 +82,15 @@ export async function listMessages(
       },
       _count: { select: { replies: true } },
       reactions: { select: { emoji: true, userId: true } },
+      attachments: {
+        select: { id: true, originalName: true, size: true, mimeType: true },
+      },
+      forwardedFrom: {
+        select: {
+          author: { select: { login: true } },
+          channel: { select: { name: true } },
+        },
+      },
     },
   });
 
@@ -115,6 +138,13 @@ export async function listMessages(
         emoji,
         ...data,
       })),
+      attachments: m.attachments ?? [],
+      forwardedFrom: m.forwardedFrom
+        ? {
+            originalAuthorLogin: m.forwardedFrom.author.login,
+            originalChannelName: m.forwardedFrom.channel.name,
+          }
+        : null,
     };
   });
 }
@@ -138,6 +168,15 @@ export async function getThreadReplies(
       author: { select: { id: true, login: true } },
       _count: { select: { replies: true } },
       reactions: { select: { emoji: true, userId: true } },
+      attachments: {
+        select: { id: true, originalName: true, size: true, mimeType: true },
+      },
+      forwardedFrom: {
+        select: {
+          author: { select: { login: true } },
+          channel: { select: { name: true } },
+        },
+      },
     },
   });
 
@@ -171,6 +210,13 @@ export async function getThreadReplies(
         emoji,
         ...data,
       })),
+      attachments: m.attachments ?? [],
+      forwardedFrom: m.forwardedFrom
+        ? {
+            originalAuthorLogin: m.forwardedFrom.author.login,
+            originalChannelName: m.forwardedFrom.channel.name,
+          }
+        : null,
     };
   });
 }
@@ -185,6 +231,7 @@ export async function sendMessage(
     parentId?: string;
     linkedTicketId?: string;
     linkedTaskId?: string;
+    forwardedFromId?: string;
   },
 ): Promise<ChatMsgView> {
   // Verify membership (auto-join for public/general)
@@ -213,6 +260,7 @@ export async function sendMessage(
       parentId: input.parentId ?? null,
       linkedTicketId: input.linkedTicketId ?? null,
       linkedTaskId: input.linkedTaskId ?? null,
+      forwardedFromId: input.forwardedFromId ?? null,
     },
     include: {
       author: { select: { id: true, login: true } },
@@ -248,6 +296,8 @@ export async function sendMessage(
     replyCount: msg._count.replies,
     replyTo: null,
     reactions: [],
+    attachments: [],
+    forwardedFrom: null,
   };
 }
 

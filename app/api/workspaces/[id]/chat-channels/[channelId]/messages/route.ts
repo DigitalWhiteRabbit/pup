@@ -12,6 +12,7 @@ const sendSchema = z.object({
   parentId: z.string().optional(),
   linkedTicketId: z.string().optional(),
   linkedTaskId: z.string().optional(),
+  forwardedFromId: z.string().optional(),
 });
 
 export async function GET(

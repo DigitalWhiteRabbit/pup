@@ -1,9 +1,24 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow, format } from "date-fns";
 import { ru } from "date-fns/locale";
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+  useSortable,
+  arrayMove,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import {
   Plus,
   Send,
@@ -12,6 +27,11 @@ import {
   Pencil,
   Trash2,
   Check,
+  Forward,
+  Paperclip,
+  FileText,
+  Download,
+  Link2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,17 +57,31 @@ type Channel = {
   unreadCount: number;
 };
 
+type MsgAttachment = {
+  id: string;
+  originalName: string;
+  size: number;
+  mimeType: string;
+};
+
 type Msg = {
   id: string;
   authorId: string;
   authorLogin: string;
   content: string;
   parentId: string | null;
+  linkedTicketId: string | null;
+  linkedTaskId: string | null;
   editedAt: string | null;
   createdAt: string;
   replyCount: number;
   replyTo: { authorLogin: string; content: string } | null;
   reactions: Array<{ emoji: string; count: number; myReaction: boolean }>;
+  attachments: MsgAttachment[];
+  forwardedFrom: {
+    originalAuthorLogin: string;
+    originalChannelName: string | null;
+  } | null;
 };
 
 const QUICK_EMOJIS = ["👍", "❤️", "😂", "🔥"];
@@ -72,8 +106,20 @@ export function ChatClient({
   const [editingMsgId, setEditingMsgId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [forwardMsg, setForwardMsg] = useState<Msg | null>(null);
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [linkPickerOpen, setLinkPickerOpen] = useState(false);
+  const [linkedTicketId, setLinkedTicketId] = useState<string | null>(null);
+  const [linkedTaskId, setLinkedTaskId] = useState<string | null>(null);
+  const [channelOrder, setChannelOrder] = useState<string[]>([]);
+  const [dmOrder, setDmOrder] = useState<string[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   /* thread panel removed — Telegram-style inline replies */
   const endRef = useRef<HTMLDivElement>(null);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+  );
 
   /* ── data ──────────────────────────────────────────────────────────────── */
 
@@ -86,7 +132,86 @@ export function ChatClient({
     refetchInterval: 5000,
   });
   const channels = chD?.data ?? [];
-  const first = channels[0]?.id ?? null;
+
+  // Split: pinned general, sortable channels, sortable DMs
+  const generalCh = channels.filter((c) => c.type === "GENERAL");
+  const regularCh = channels.filter(
+    (c) => c.type !== "GENERAL" && c.type !== "DM",
+  );
+  const dmCh = channels.filter((c) => c.type === "DM");
+
+  // Load saved order from localStorage
+  const orderKey = `chat-order-${workspaceId}`;
+  const dmOrderKey = `chat-dm-order-${workspaceId}`;
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(orderKey);
+      if (saved) setChannelOrder(JSON.parse(saved));
+      const savedDm = localStorage.getItem(dmOrderKey);
+      if (savedDm) setDmOrder(JSON.parse(savedDm));
+    } catch {
+      /* ignore */
+    }
+  }, [orderKey, dmOrderKey]);
+
+  const sortedRegular = useMemo(() => {
+    if (channelOrder.length === 0) return regularCh;
+    const ordered: Channel[] = [];
+    for (const id of channelOrder) {
+      const ch = regularCh.find((c) => c.id === id);
+      if (ch) ordered.push(ch);
+    }
+    // append new channels not in saved order
+    for (const ch of regularCh) {
+      if (!channelOrder.includes(ch.id)) ordered.push(ch);
+    }
+    return ordered;
+  }, [regularCh, channelOrder]);
+
+  const sortedDm = useMemo(() => {
+    if (dmOrder.length === 0) return dmCh;
+    const ordered: Channel[] = [];
+    for (const id of dmOrder) {
+      const ch = dmCh.find((c) => c.id === id);
+      if (ch) ordered.push(ch);
+    }
+    for (const ch of dmCh) {
+      if (!dmOrder.includes(ch.id)) ordered.push(ch);
+    }
+    return ordered;
+  }, [dmCh, dmOrder]);
+
+  const handleDragEndChannels = useCallback(
+    (e: DragEndEvent) => {
+      const { active, over } = e;
+      if (!over || active.id === over.id) return;
+      const ids = sortedRegular.map((c) => c.id);
+      const oldIdx = ids.indexOf(active.id as string);
+      const newIdx = ids.indexOf(over.id as string);
+      if (oldIdx === -1 || newIdx === -1) return;
+      const newOrder = arrayMove(ids, oldIdx, newIdx);
+      setChannelOrder(newOrder);
+      localStorage.setItem(orderKey, JSON.stringify(newOrder));
+    },
+    [sortedRegular, orderKey],
+  );
+
+  const handleDragEndDm = useCallback(
+    (e: DragEndEvent) => {
+      const { active, over } = e;
+      if (!over || active.id === over.id) return;
+      const ids = sortedDm.map((c) => c.id);
+      const oldIdx = ids.indexOf(active.id as string);
+      const newIdx = ids.indexOf(over.id as string);
+      if (oldIdx === -1 || newIdx === -1) return;
+      const newOrder = arrayMove(ids, oldIdx, newIdx);
+      setDmOrder(newOrder);
+      localStorage.setItem(dmOrderKey, JSON.stringify(newOrder));
+    },
+    [sortedDm, dmOrderKey],
+  );
+
+  const first = generalCh[0]?.id ?? channels[0]?.id ?? null;
   useEffect(() => {
     if (!activeChannelId && first) setActiveChannelId(first);
   }, [first, activeChannelId]);
@@ -140,24 +265,65 @@ export function ChatClient({
   });
   const members = memD?.members ?? [];
 
+  // Tasks & tickets for linking
+  const { data: tasksD } = useQuery<{
+    data: Array<{ id: string; title: string }>;
+  }>({
+    queryKey: ["ws-tasks-brief", workspaceId],
+    queryFn: () =>
+      fetch(`/api/workspaces/${workspaceId}/tasks?limit=100`).then((r) =>
+        r.json(),
+      ),
+    staleTime: 30_000,
+    enabled: linkPickerOpen,
+  });
+  const { data: ticketsD } = useQuery<{
+    data: Array<{ id: string; number: number; title: string }>;
+  }>({
+    queryKey: ["ws-tickets-brief", workspaceId],
+    queryFn: () =>
+      fetch(`/api/workspaces/${workspaceId}/tickets?limit=100`).then((r) =>
+        r.json(),
+      ),
+    staleTime: 30_000,
+    enabled: linkPickerOpen,
+  });
+
   const aCh = channels.find((c) => c.id === activeChannelId);
 
   /* ── actions ───────────────────────────────────────────────────────────── */
 
   const sendMut = useMutation({
-    mutationFn: (content: string) =>
-      fetch(
+    mutationFn: async (content: string) => {
+      const r = await fetch(
         `/api/workspaces/${workspaceId}/chat-channels/${activeChannelId}/messages`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ content, parentId: replyTo?.id }),
+          body: JSON.stringify({
+            content,
+            parentId: replyTo?.id,
+            linkedTicketId: linkedTicketId ?? undefined,
+            linkedTaskId: linkedTaskId ?? undefined,
+          }),
         },
-      ).then(async (r) => {
-        if (!r.ok)
-          throw new Error((await r.json().catch(() => ({}))).error ?? "Ошибка");
-        return r.json();
-      }),
+      );
+      if (!r.ok)
+        throw new Error((await r.json().catch(() => ({}))).error ?? "Ошибка");
+      const msg = await r.json();
+      // Upload pending files
+      if (pendingFiles.length > 0) {
+        for (const file of pendingFiles) {
+          const fd = new FormData();
+          fd.append("file", file);
+          await fetch(
+            `/api/workspaces/${workspaceId}/chat-channels/${activeChannelId}/messages/${msg.id}/attachments`,
+            { method: "POST", body: fd },
+          );
+        }
+      }
+      return msg;
+    },
     onSuccess: () => {
       void qc.invalidateQueries({
         queryKey: ["chat-messages", activeChannelId],
@@ -165,12 +331,16 @@ export function ChatClient({
       void qc.invalidateQueries({ queryKey: ["chat-channels", workspaceId] });
       setMsgText("");
       setReplyTo(null);
+      setPendingFiles([]);
+      setLinkedTicketId(null);
+      setLinkedTaskId(null);
     },
     onError: toastApiError,
   });
   function send() {
     const t = msgText.trim();
-    if (t && activeChannelId) sendMut.mutate(t);
+    if ((t || pendingFiles.length > 0) && activeChannelId)
+      sendMut.mutate(t || (pendingFiles.length > 0 ? "📎" : ""));
   }
 
   async function react(mid: string, emoji: string) {
@@ -219,6 +389,21 @@ export function ChatClient({
     const dm = (await r.json()) as { id: string };
     void qc.invalidateQueries({ queryKey: ["chat-channels", workspaceId] });
     setActiveChannelId(dm.id);
+  }
+
+  async function forwardToChannel(targetChannelId: string) {
+    if (!forwardMsg || !activeChannelId) return;
+    await fetch(
+      `/api/workspaces/${workspaceId}/chat-channels/${activeChannelId}/messages/${forwardMsg.id}/forward`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetChannelId }),
+      },
+    );
+    toastSuccess("Сообщение переслано");
+    setForwardMsg(null);
+    void qc.invalidateQueries({ queryKey: ["chat-messages", targetChannelId] });
   }
 
   /* ── render ────────────────────────────────────────────────────────────── */
@@ -296,47 +481,88 @@ export function ChatClient({
         )}
 
         {/* channels */}
-        <div className="px-4 pt-2 shrink-0">
-          <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">
-            Каналы
-          </div>
-        </div>
         <div className="flex-1 overflow-y-auto min-h-0">
-          {channels
-            .filter((c) => c.type !== "DM")
-            .map((ch) => (
-              <ChItem
-                key={ch.id}
-                ch={ch}
-                active={ch.id === activeChannelId}
-                onClick={() => {
-                  setActiveChannelId(ch.id);
+          {/* Pinned: General */}
+          {generalCh.length > 0 && (
+            <div className="px-4 pt-2">
+              <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">
+                📌 Закреплённые
+              </div>
+            </div>
+          )}
+          {generalCh.map((ch) => (
+            <ChItem
+              key={ch.id}
+              ch={ch}
+              active={ch.id === activeChannelId}
+              onClick={() => {
+                setActiveChannelId(ch.id);
+                setShowInfo(false);
+              }}
+            />
+          ))}
 
-                  setShowInfo(false);
-                }}
-              />
-            ))}
-          {channels.some((c) => c.type === "DM") && (
+          {/* Sortable channels */}
+          {sortedRegular.length > 0 && (
+            <div className="px-4 pt-3">
+              <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">
+                Каналы
+              </div>
+            </div>
+          )}
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEndChannels}
+          >
+            <SortableContext
+              items={sortedRegular.map((c) => c.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              {sortedRegular.map((ch) => (
+                <SortableChItem
+                  key={ch.id}
+                  ch={ch}
+                  active={ch.id === activeChannelId}
+                  onClick={() => {
+                    setActiveChannelId(ch.id);
+                    setShowInfo(false);
+                  }}
+                />
+              ))}
+            </SortableContext>
+          </DndContext>
+
+          {/* Sortable DMs */}
+          {sortedDm.length > 0 && (
             <div className="px-4 pt-3">
               <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">
                 Личные сообщения
               </div>
             </div>
           )}
-          {channels
-            .filter((c) => c.type === "DM")
-            .map((ch) => (
-              <ChItem
-                key={ch.id}
-                ch={ch}
-                active={ch.id === activeChannelId}
-                onClick={() => {
-                  setActiveChannelId(ch.id);
-
-                  setShowInfo(false);
-                }}
-              />
-            ))}
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEndDm}
+          >
+            <SortableContext
+              items={sortedDm.map((c) => c.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              {sortedDm.map((ch) => (
+                <SortableChItem
+                  key={ch.id}
+                  ch={ch}
+                  active={ch.id === activeChannelId}
+                  onClick={() => {
+                    setActiveChannelId(ch.id);
+                    setShowInfo(false);
+                  }}
+                />
+              ))}
+            </SortableContext>
+          </DndContext>
         </div>
 
         {/* members */}
@@ -462,6 +688,18 @@ export function ChatClient({
                       <div
                         className={`rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap break-words ${isMe ? "bg-emerald-500 text-white rounded-br-md" : "bg-white border shadow-sm text-gray-700 rounded-bl-md"}`}
                       >
+                        {/* forwarded header */}
+                        {m.forwardedFrom && (
+                          <div
+                            className={`flex items-center gap-1 mb-1 text-[10px] ${isMe ? "text-white/60" : "text-gray-400"}`}
+                          >
+                            <Forward className="h-3 w-3" />
+                            Переслано от {m.forwardedFrom.originalAuthorLogin}
+                            {m.forwardedFrom.originalChannelName && (
+                              <> из {m.forwardedFrom.originalChannelName}</>
+                            )}
+                          </div>
+                        )}
                         {m.replyTo && m.parentId && (
                           <button
                             type="button"
@@ -533,6 +771,68 @@ export function ChatClient({
                         ) : (
                           hl(m.content)
                         )}
+                        {/* attachments */}
+                        {m.attachments?.length > 0 && (
+                          <div className="mt-1.5 space-y-1">
+                            {m.attachments.map((att) => {
+                              const isImage = att.mimeType.startsWith("image/");
+                              return isImage ? (
+                                <button
+                                  key={att.id}
+                                  type="button"
+                                  onClick={() =>
+                                    setLightboxUrl(
+                                      `/api/chat-attachments/${att.id}`,
+                                    )
+                                  }
+                                  className="block"
+                                >
+                                  <img
+                                    src={`/api/chat-attachments/${att.id}`}
+                                    alt={att.originalName}
+                                    className="max-w-[120px] max-h-[90px] rounded-lg object-cover cursor-pointer hover:opacity-90 transition-opacity"
+                                  />
+                                </button>
+                              ) : (
+                                <a
+                                  key={att.id}
+                                  href={`/api/chat-attachments/${att.id}?download=1`}
+                                  className={`flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs ${isMe ? "bg-white/10 hover:bg-white/20 text-white" : "bg-gray-50 hover:bg-gray-100 text-gray-600"}`}
+                                >
+                                  <FileText className="h-4 w-4 shrink-0" />
+                                  <span className="truncate flex-1">
+                                    {att.originalName}
+                                  </span>
+                                  <span className="shrink-0 opacity-60">
+                                    {fmtSize(att.size)}
+                                  </span>
+                                  <Download className="h-3 w-3 shrink-0" />
+                                </a>
+                              );
+                            })}
+                          </div>
+                        )}
+                        {/* linked items */}
+                        {(m.linkedTicketId || m.linkedTaskId) && (
+                          <div className={`mt-1.5 flex flex-wrap gap-1`}>
+                            {m.linkedTicketId && (
+                              <a
+                                href={`/workspaces/${workspaceId}/tickets?id=${m.linkedTicketId}`}
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium ${isMe ? "bg-white/15 text-white hover:bg-white/25" : "bg-blue-50 text-blue-600 hover:bg-blue-100"}`}
+                              >
+                                🎫 Тикет
+                              </a>
+                            )}
+                            {m.linkedTaskId && (
+                              <a
+                                href={`/workspaces/${workspaceId}/crm?taskId=${m.linkedTaskId}`}
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium ${isMe ? "bg-white/15 text-white hover:bg-white/25" : "bg-amber-50 text-amber-600 hover:bg-amber-100"}`}
+                              >
+                                📋 Задача
+                              </a>
+                            )}
+                          </div>
+                        )}
                       </div>
                       {m.reactions.length > 0 && (
                         <div
@@ -560,6 +860,13 @@ export function ChatClient({
                           title="Ответить"
                         >
                           <CornerDownRight className="h-3 w-3" />
+                        </button>
+                        <button
+                          onClick={() => setForwardMsg(m)}
+                          className="p-1 rounded hover:bg-gray-200 text-gray-400"
+                          title="Переслать"
+                        >
+                          <Forward className="h-3 w-3" />
                         </button>
                         {isMe && (
                           <>
@@ -619,23 +926,89 @@ export function ChatClient({
               </div>
             )}
 
+            {/* pending files preview */}
+            {pendingFiles.length > 0 && (
+              <div className="bg-white border-t px-5 py-2 flex gap-2 flex-wrap shrink-0">
+                {pendingFiles.map((f, i) => {
+                  const isImage = f.type.startsWith("image/");
+                  return (
+                    <div key={i} className="relative group/file">
+                      {isImage ? (
+                        <img
+                          src={URL.createObjectURL(f)}
+                          alt={f.name}
+                          className="w-16 h-16 rounded-lg object-cover border"
+                        />
+                      ) : (
+                        <div className="w-16 h-16 rounded-lg border bg-gray-50 flex flex-col items-center justify-center text-[9px] text-gray-500 px-1">
+                          <FileText className="h-5 w-5 mb-0.5 text-gray-400" />
+                          <span className="truncate w-full text-center">
+                            {f.name}
+                          </span>
+                        </div>
+                      )}
+                      <button
+                        onClick={() =>
+                          setPendingFiles((prev) =>
+                            prev.filter((_, j) => j !== i),
+                          )
+                        }
+                        className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full flex items-center justify-center text-[10px] opacity-0 group-hover/file:opacity-100 transition-opacity"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* linked item indicator */}
+            {(linkedTicketId || linkedTaskId) && (
+              <div className="bg-white border-t px-5 py-1.5 flex items-center gap-2 text-xs text-gray-500 shrink-0">
+                <Link2 className="h-3 w-3 text-blue-500" />
+                Привязано: {linkedTicketId ? "🎫 Тикет" : "📋 Задача"}
+                <button
+                  onClick={() => {
+                    setLinkedTicketId(null);
+                    setLinkedTaskId(null);
+                  }}
+                  className="ml-auto"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            )}
+
             {/* input */}
             <div className="bg-white border-t px-5 py-3 shrink-0">
+              <input
+                ref={fileInputRef}
+                type="file"
+                className="hidden"
+                multiple
+                accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.zip,.mp4,.mp3,.txt"
+                onChange={(e) => {
+                  const files = Array.from(e.target.files ?? []);
+                  if (files.length > 0)
+                    setPendingFiles((prev) => [...prev, ...files]);
+                  e.target.value = "";
+                }}
+              />
               <div className="flex items-end gap-2">
-                <button className="w-9 h-9 rounded-lg hover:bg-gray-100 flex items-center justify-center shrink-0">
-                  <svg
-                    className="w-5 h-5 text-gray-400"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"
-                    />
-                  </svg>
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-9 h-9 rounded-lg hover:bg-gray-100 flex items-center justify-center shrink-0"
+                  title="Прикрепить файл"
+                >
+                  <Paperclip className="w-5 h-5 text-gray-400" />
+                </button>
+                <button
+                  onClick={() => setLinkPickerOpen(true)}
+                  className={`w-9 h-9 rounded-lg hover:bg-gray-100 flex items-center justify-center shrink-0 ${linkedTicketId || linkedTaskId ? "text-blue-500" : ""}`}
+                  title="Привязать к задаче/тикету"
+                >
+                  <Link2 className="w-5 h-5 text-gray-400" />
                 </button>
                 <div className="flex-1 bg-gray-100 rounded-2xl px-4 py-2.5 relative">
                   {/* @mention dropdown */}
@@ -699,7 +1072,7 @@ export function ChatClient({
                         setMentionQuery(null);
                         return;
                       }
-                      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                      if (e.key === "Enter" && !e.shiftKey) {
                         e.preventDefault();
                         setMentionQuery(null);
                         send();
@@ -713,14 +1086,17 @@ export function ChatClient({
                 </div>
                 <button
                   className="w-9 h-9 rounded-xl bg-emerald-500 hover:bg-emerald-600 flex items-center justify-center shrink-0 disabled:opacity-40"
-                  disabled={!msgText.trim() || sendMut.isPending}
+                  disabled={
+                    (!msgText.trim() && pendingFiles.length === 0) ||
+                    sendMut.isPending
+                  }
                   onClick={send}
                 >
                   <Send className="w-4 h-4 text-white" />
                 </button>
               </div>
-              <div className="text-[10px] text-gray-400 mt-1 pl-12">
-                @упоминание · Ctrl+Enter — отправить
+              <div className="text-[10px] text-gray-400 mt-1 pl-[88px]">
+                @упоминание · Enter — отправить · Shift+Enter — новая строка
               </div>
             </div>
           </>
@@ -800,6 +1176,113 @@ export function ChatClient({
         </div>
       )}
 
+      {/* Lightbox */}
+      {lightboxUrl && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center cursor-pointer"
+          onClick={() => setLightboxUrl(null)}
+        >
+          <button
+            onClick={() => setLightboxUrl(null)}
+            className="absolute top-4 right-4 text-white/80 hover:text-white"
+          >
+            <X className="h-8 w-8" />
+          </button>
+          <img
+            src={lightboxUrl}
+            alt=""
+            className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
+
+      {/* Forward dialog */}
+      <Dialog
+        open={!!forwardMsg}
+        onOpenChange={(v) => !v && setForwardMsg(null)}
+      >
+        <DialogContent className="max-w-xs">
+          <DialogHeader>
+            <DialogTitle>Переслать сообщение</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-1 max-h-60 overflow-y-auto">
+            {channels
+              .filter((c) => c.id !== activeChannelId)
+              .map((c) => (
+                <button
+                  key={c.id}
+                  onClick={() => void forwardToChannel(c.id)}
+                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 flex items-center gap-2"
+                >
+                  <span className="text-sm">
+                    {c.type === "DM" ? "👤" : c.type === "PRIVATE" ? "🔒" : "#"}
+                  </span>
+                  <span className="text-sm text-gray-700 truncate">
+                    {c.name ?? "Личные"}
+                  </span>
+                </button>
+              ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Link picker dialog */}
+      <Dialog open={linkPickerOpen} onOpenChange={setLinkPickerOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Привязать к задаче или тикету</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 max-h-80 overflow-y-auto">
+            {(ticketsD?.data?.length ?? 0) > 0 && (
+              <>
+                <div className="text-[10px] font-bold text-gray-400 uppercase">
+                  Тикеты
+                </div>
+                {ticketsD!.data.map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => {
+                      setLinkedTicketId(t.id);
+                      setLinkedTaskId(null);
+                      setLinkPickerOpen(false);
+                    }}
+                    className={`w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 text-sm ${linkedTicketId === t.id ? "bg-blue-50 border border-blue-200" : ""}`}
+                  >
+                    🎫 #{t.number} {t.title}
+                  </button>
+                ))}
+              </>
+            )}
+            {(tasksD?.data?.length ?? 0) > 0 && (
+              <>
+                <div className="text-[10px] font-bold text-gray-400 uppercase mt-2">
+                  Задачи
+                </div>
+                {tasksD!.data.map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => {
+                      setLinkedTaskId(t.id);
+                      setLinkedTicketId(null);
+                      setLinkPickerOpen(false);
+                    }}
+                    className={`w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 text-sm ${linkedTaskId === t.id ? "bg-amber-50 border border-amber-200" : ""}`}
+                  >
+                    📋 {t.title}
+                  </button>
+                ))}
+              </>
+            )}
+            {!(tasksD?.data?.length ?? 0) && !(ticketsD?.data?.length ?? 0) && (
+              <div className="text-sm text-gray-400 text-center py-4">
+                Нет задач или тикетов
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <CCD open={createOpen} onClose={setCreateOpen} wsId={workspaceId} />
     </div>
   );
@@ -864,6 +1347,42 @@ function ChItem({
   );
 }
 
+function SortableChItem({
+  ch,
+  active,
+  onClick,
+}: {
+  ch: Channel;
+  active: boolean;
+  onClick: () => void;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: ch.id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    zIndex: isDragging ? 10 : undefined,
+  };
+  return (
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+      <ChItem ch={ch} active={active} onClick={onClick} />
+    </div>
+  );
+}
+
+function fmtSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} Б`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} КБ`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`;
+}
+
 function hl(c: string) {
   return c.split(/(@\w+)/g).map((p, i) =>
     p.startsWith("@") ? (
@@ -892,6 +1411,18 @@ function CCD({
   const [n, setN] = useState("");
   const [d, setD] = useState("");
   const [tp, setTp] = useState<"PUBLIC" | "PRIVATE">("PUBLIC");
+  const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
+
+  const { data: memD } = useQuery<{
+    members?: Array<{ id: string; login: string }>;
+  }>({
+    queryKey: ["workspace-members", wsId],
+    queryFn: () => fetch(`/api/workspaces/${wsId}`).then((r) => r.json()),
+    staleTime: 60_000,
+    enabled: open,
+  });
+  const allMembers = memD?.members ?? [];
+
   const mut = useMutation({
     mutationFn: () =>
       fetch(`/api/workspaces/${wsId}/chat-channels`, {
@@ -901,6 +1432,7 @@ function CCD({
           name: n.trim(),
           description: d.trim() || undefined,
           type: tp,
+          memberIds: tp === "PRIVATE" ? selectedMembers : undefined,
         }),
       }).then(async (r) => {
         if (!r.ok)
@@ -912,6 +1444,7 @@ function CCD({
       toastSuccess("Канал создан");
       setN("");
       setD("");
+      setSelectedMembers([]);
       onClose(false);
     },
     onError: toastApiError,
@@ -957,6 +1490,43 @@ function CCD({
               🔒 Приватный
             </label>
           </div>
+          <div className="text-[11px] text-gray-400">
+            {tp === "PUBLIC"
+              ? "Все участники пространства видят канал и могут писать"
+              : "Только выбранные участники видят канал"}
+          </div>
+          {tp === "PRIVATE" && allMembers.length > 0 && (
+            <div className="space-y-1 max-h-32 overflow-y-auto border rounded-lg p-2">
+              <div className="text-[10px] font-bold text-gray-400 uppercase mb-1">
+                Участники
+              </div>
+              {allMembers.map((m) => (
+                <label
+                  key={m.id}
+                  className="flex items-center gap-2 py-1 px-1 rounded hover:bg-gray-50 cursor-pointer"
+                >
+                  <input
+                    type="checkbox"
+                    className="rounded"
+                    checked={selectedMembers.includes(m.id)}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedMembers((prev) => [...prev, m.id]);
+                      } else {
+                        setSelectedMembers((prev) =>
+                          prev.filter((id) => id !== m.id),
+                        );
+                      }
+                    }}
+                  />
+                  <div className="w-5 h-5 rounded-full bg-gray-200 flex items-center justify-center text-[9px] font-bold text-gray-500">
+                    {m.login[0]?.toUpperCase()}
+                  </div>
+                  <span className="text-xs text-gray-700">{m.login}</span>
+                </label>
+              ))}
+            </div>
+          )}
           <Button
             className="w-full"
             disabled={!n.trim() || mut.isPending}

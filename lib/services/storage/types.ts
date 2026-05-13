@@ -8,11 +8,12 @@ export interface FileStorage {
 }
 
 export type UploadInput = {
-  scope?: "task" | "kb" | "ticket" | "persona"; // default "task"
+  scope?: "task" | "kb" | "ticket" | "persona" | "chat"; // default "task"
   projectId?: string; // для scope=task (совместимость)
   workspaceId?: string; // для scope=kb/ticket
   taskId?: string; // для scope=task
   ticketId?: string; // для scope=ticket
+  channelId?: string; // для scope=chat
   originalName: string;
   buffer: Buffer | Uint8Array;
   mimeType: string;

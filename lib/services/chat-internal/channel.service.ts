@@ -105,9 +105,11 @@ export async function listChannels(
     include: {
       _count: { select: { members: true } },
       members: {
-        where: { userId },
-        select: { lastReadAt: true },
-        take: 1,
+        select: {
+          userId: true,
+          lastReadAt: true,
+          user: { select: { login: true } },
+        },
       },
       messages: {
         where: { deletedAt: null },
@@ -122,7 +124,7 @@ export async function listChannels(
   // Compute unread counts
   const results: ChannelView[] = [];
   for (const ch of channels) {
-    const myMembership = ch.members[0];
+    const myMembership = ch.members.find((m) => m.userId === userId);
     const lastMsg = ch.messages[0];
 
     let unreadCount = 0;
@@ -137,10 +139,17 @@ export async function listChannels(
       });
     }
 
+    // For DM channels, show the other person's name
+    let displayName = ch.name;
+    if (ch.type === "DM") {
+      const other = ch.members.find((m) => m.userId !== userId);
+      displayName = other?.user.login ?? "Личные";
+    }
+
     results.push({
       id: ch.id,
       type: ch.type,
-      name: ch.name,
+      name: displayName,
       description: ch.description,
       memberCount: ch._count.members,
       lastMessage: lastMsg
@@ -175,7 +184,18 @@ export async function createChannel(
     throw new ApiError("Нет доступа", "FORBIDDEN", 403);
 
   const type = input.type ?? "PUBLIC";
-  const memberIds = new Set(input.memberIds ?? []);
+  let memberIds: Set<string>;
+
+  if (type === "PUBLIC") {
+    // Public channels — add all workspace members
+    const wsMembers = await db.workspaceMember.findMany({
+      where: { workspaceId },
+      select: { userId: true },
+    });
+    memberIds = new Set(wsMembers.map((m) => m.userId));
+  } else {
+    memberIds = new Set(input.memberIds ?? []);
+  }
   memberIds.add(userId); // creator always in
 
   const channel = await db.chatChannel.create({
