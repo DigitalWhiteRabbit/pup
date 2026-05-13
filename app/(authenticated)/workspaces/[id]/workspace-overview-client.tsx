@@ -17,6 +17,7 @@ import {
   Users,
   UserPlus,
   Settings,
+  LayoutDashboard,
   Trash2,
   Crown,
   User,
@@ -404,26 +405,34 @@ export function WorkspaceOverviewClient({
             участн.
           </p>
         </div>
-        {isOwner && (
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setAddMemberOpen(true)}
-            >
-              <UserPlus className="mr-1 h-4 w-4" />
-              Добавить участника
+        <div className="flex gap-2">
+          <Link href={`/workspaces/${workspace.id}/dashboard`}>
+            <Button variant="default" size="sm">
+              <LayoutDashboard className="mr-1 h-4 w-4" />
+              Dashboard
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setSettingsOpen(true)}
-            >
-              <Settings className="mr-1 h-4 w-4" />
-              Настройки
-            </Button>
-          </div>
-        )}
+          </Link>
+          {isOwner && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setAddMemberOpen(true)}
+              >
+                <UserPlus className="mr-1 h-4 w-4" />
+                Добавить участника
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setSettingsOpen(true)}
+              >
+                <Settings className="mr-1 h-4 w-4" />
+                Настройки
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
       {/* ── Modules grid ── */}
