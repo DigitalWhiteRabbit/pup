@@ -15,8 +15,6 @@ import {
 } from "@/components/ui/dialog";
 import { toastSuccess, toastApiError } from "@/lib/toast";
 
-// ─── Types ──────────────────────────────────────────────────────────────────
-
 type Channel = {
   id: string;
   type: string;
@@ -37,24 +35,18 @@ type Msg = {
   authorLogin: string;
   content: string;
   parentId: string | null;
-  linkedTicketId: string | null;
-  linkedTaskId: string | null;
   editedAt: string | null;
   createdAt: string;
   replyCount: number;
   reactions: Array<{ emoji: string; count: number; myReaction: boolean }>;
 };
 
-// ─── Quick emoji picker ─────────────────────────────────────────────────────
-
-const QUICK_EMOJIS = ["👍", "❤️", "😂", "🔥", "👀", "🚀", "✅", "👎"];
-
-// ─── Component ──────────────────────────────────────────────────────────────
+const QUICK_EMOJIS = ["👍", "❤️", "😂", "🔥"];
 
 export function ChatClient({
   workspaceId,
   currentUserId,
-  currentUserLogin,
+  currentUserLogin: _login,
 }: {
   workspaceId: string;
   currentUserId: string;
@@ -68,62 +60,86 @@ export function ChatClient({
   const [msgText, setMsgText] = useState("");
   const [replyTo, setReplyTo] = useState<Msg | null>(null);
   const [threadMsgId, setThreadMsgId] = useState<string | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const endRef = useRef<HTMLDivElement>(null);
 
-  // ─── Channels ─────────────────────────────────────────────────────────────
+  /* ── data ──────────────────────────────────────────────────────────────── */
 
-  const { data: channelsData } = useQuery<{ data: Channel[] }>({
+  const { data: chD } = useQuery<{ data: Channel[] }>({
     queryKey: ["chat-channels", workspaceId],
-    queryFn: async () => {
-      const r = await fetch(`/api/workspaces/${workspaceId}/chat-channels`);
-      if (!r.ok) throw new Error("Failed");
-      return r.json();
-    },
+    queryFn: () =>
+      fetch(`/api/workspaces/${workspaceId}/chat-channels`).then((r) =>
+        r.json(),
+      ),
     refetchInterval: 5000,
   });
-
-  const channels = channelsData?.data ?? [];
-  const firstChannelId = channels[0]?.id ?? null;
-
-  // Auto-select first channel
+  const channels = chD?.data ?? [];
+  const first = channels[0]?.id ?? null;
   useEffect(() => {
-    if (!activeChannelId && firstChannelId) {
-      setActiveChannelId(firstChannelId);
-    }
-  }, [firstChannelId, activeChannelId]);
+    if (!activeChannelId && first) setActiveChannelId(first);
+  }, [first, activeChannelId]);
 
-  // ─── Messages ─────────────────────────────────────────────────────────────
-
-  const { data: msgsData } = useQuery<{ data: Msg[] }>({
+  const { data: mD } = useQuery<{ data: Msg[] }>({
     queryKey: ["chat-messages", activeChannelId],
-    queryFn: async () => {
-      const r = await fetch(
+    queryFn: () =>
+      fetch(
         `/api/workspaces/${workspaceId}/chat-channels/${activeChannelId}/messages`,
-      );
-      if (!r.ok) throw new Error("Failed");
-      return r.json();
-    },
+      ).then((r) => r.json()),
     enabled: !!activeChannelId,
     refetchInterval: 2000,
   });
-
-  const messages = msgsData?.data ?? [];
-
-  // Scroll to bottom
+  const msgs = mD?.data ?? [];
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages.length]);
-
-  // Mark read
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [msgs.length]);
   useEffect(() => {
-    if (!activeChannelId) return;
-    void fetch(
-      `/api/workspaces/${workspaceId}/chat-channels/${activeChannelId}/read`,
-      { method: "POST" },
-    );
-  }, [activeChannelId, workspaceId, messages.length]);
+    if (activeChannelId)
+      void fetch(
+        `/api/workspaces/${workspaceId}/chat-channels/${activeChannelId}/read`,
+        { method: "POST" },
+      );
+  }, [activeChannelId, workspaceId, msgs.length]);
 
-  // ─── Send message ─────────────────────────────────────────────────────────
+  const { data: sD } = useQuery<{
+    data: Array<{
+      id: string;
+      content: string;
+      authorLogin: string;
+      channelId: string;
+      channelName: string;
+    }>;
+  }>({
+    queryKey: ["chat-search", workspaceId, searchQuery],
+    queryFn: () =>
+      fetch(
+        `/api/workspaces/${workspaceId}/chat-channels/search?q=${encodeURIComponent(searchQuery)}`,
+      ).then((r) => r.json()),
+    enabled: searchQuery.length >= 2,
+  });
+  const searchResults = sD?.data ?? [];
+
+  const { data: memD } = useQuery<{
+    members?: Array<{ id: string; login: string }>;
+  }>({
+    queryKey: ["workspace-members", workspaceId],
+    queryFn: () =>
+      fetch(`/api/workspaces/${workspaceId}`).then((r) => r.json()),
+    staleTime: 60_000,
+  });
+  const members = memD?.members ?? [];
+
+  const { data: thD } = useQuery<{ data: Msg[] }>({
+    queryKey: ["chat-thread", threadMsgId],
+    queryFn: () =>
+      fetch(
+        `/api/workspaces/${workspaceId}/chat-channels/${activeChannelId}/messages/${threadMsgId}/thread`,
+      ).then((r) => r.json()),
+    enabled: !!threadMsgId,
+    refetchInterval: 3000,
+  });
+  const threadReplies = thD?.data ?? [];
+  const aCh = channels.find((c) => c.id === activeChannelId);
+
+  /* ── actions ───────────────────────────────────────────────────────────── */
 
   const sendMut = useMutation({
     mutationFn: (content: string) =>
@@ -132,10 +148,7 @@ export function ChatClient({
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            content,
-            parentId: replyTo?.id,
-          }),
+          body: JSON.stringify({ content, parentId: replyTo?.id }),
         },
       ).then(async (r) => {
         if (!r.ok)
@@ -152,18 +165,14 @@ export function ChatClient({
     },
     onError: toastApiError,
   });
-
-  function handleSend() {
-    const text = msgText.trim();
-    if (!text || !activeChannelId) return;
-    sendMut.mutate(text);
+  function send() {
+    const t = msgText.trim();
+    if (t && activeChannelId) sendMut.mutate(t);
   }
 
-  // ─── Reaction ─────────────────────────────────────────────────────────────
-
-  async function handleReaction(messageId: string, emoji: string) {
+  async function react(mid: string, emoji: string) {
     await fetch(
-      `/api/workspaces/${workspaceId}/chat-channels/${activeChannelId}/messages/${messageId}/reactions`,
+      `/api/workspaces/${workspaceId}/chat-channels/${activeChannelId}/messages/${mid}/reactions`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -173,110 +182,73 @@ export function ChatClient({
     void qc.invalidateQueries({ queryKey: ["chat-messages", activeChannelId] });
   }
 
-  // ─── Thread ───────────────────────────────────────────────────────────────
-
-  const { data: threadData } = useQuery<{ data: Msg[] }>({
-    queryKey: ["chat-thread", threadMsgId],
-    queryFn: async () => {
-      const r = await fetch(
-        `/api/workspaces/${workspaceId}/chat-channels/${activeChannelId}/messages/${threadMsgId}/thread`,
-      );
-      if (!r.ok) throw new Error("Failed");
-      return r.json();
-    },
-    enabled: !!threadMsgId,
-    refetchInterval: 3000,
-  });
-
-  const threadReplies = threadData?.data ?? [];
-
-  // Search
-  const { data: searchData } = useQuery<{
-    data: Array<{
-      id: string;
-      content: string;
-      authorLogin: string;
-      channelId: string;
-      channelName: string;
-    }>;
-  }>({
-    queryKey: ["chat-search", workspaceId, searchQuery],
-    queryFn: async () => {
-      const r = await fetch(
-        `/api/workspaces/${workspaceId}/chat-channels/search?q=${encodeURIComponent(searchQuery)}`,
-      );
-      if (!r.ok) return { data: [] };
-      return r.json();
-    },
-    enabled: searchQuery.length >= 2,
-  });
-  const searchResults = searchData?.data ?? [];
-
-  // Workspace members (for DM creation + info panel)
-  const { data: membersData } = useQuery<{
-    members?: Array<{ id: string; login: string }>;
-  }>({
-    queryKey: ["workspace-members", workspaceId],
-    queryFn: () =>
-      fetch(`/api/workspaces/${workspaceId}`).then((r) => r.json()),
-    staleTime: 60_000,
-  });
-  const members = membersData?.members ?? [];
-
-  // Create DM
-  async function startDM(targetUserId: string) {
-    try {
-      const r = await fetch(`/api/workspaces/${workspaceId}/chat-channels/dm`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ targetUserId }),
-      });
-      if (!r.ok) return;
-      const dm = (await r.json()) as { id: string };
-      void qc.invalidateQueries({ queryKey: ["chat-channels", workspaceId] });
-      setActiveChannelId(dm.id);
-      setThreadMsgId(null);
-    } catch {
-      /* silent */
-    }
+  async function startDM(uid: string) {
+    const r = await fetch(`/api/workspaces/${workspaceId}/chat-channels/dm`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ targetUserId: uid }),
+    });
+    if (!r.ok) return;
+    const dm = (await r.json()) as { id: string };
+    void qc.invalidateQueries({ queryKey: ["chat-channels", workspaceId] });
+    setActiveChannelId(dm.id);
   }
 
-  const activeChannel = channels.find((c) => c.id === activeChannelId);
-
-  // ─── Render ───────────────────────────────────────────────────────────────
+  /* ── render ────────────────────────────────────────────────────────────── */
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] -m-6">
-      {/* ═══ LEFT: Channel list ═══ */}
-      <div className="w-[280px] bg-white border-r flex flex-col shrink-0">
-        <div className="px-3 py-3 border-b flex items-center justify-between">
-          <span className="font-semibold text-sm">Чат</span>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            onClick={() => setCreateOpen(true)}
-          >
-            <Plus className="h-4 w-4" />
-          </Button>
-        </div>
-
-        {/* Search */}
-        <div className="px-3 py-1.5">
-          <Input
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Поиск сообщений..."
-            className="h-8 text-xs"
-          />
-        </div>
-
-        {/* Search results */}
-        {searchQuery.length >= 2 && searchResults.length > 0 && (
-          <div className="px-3 pb-2 border-b">
-            <div className="text-[10px] text-gray-400 mb-1">
-              Найдено: {searchResults.length}
+    <div className="flex" style={{ height: "100vh", marginTop: "-1px" }}>
+      {/* ═══ LEFT ═══ */}
+      <div className="w-[300px] bg-white border-r flex flex-col shrink-0 h-full">
+        {/* header */}
+        <div className="px-4 py-3 border-b flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center text-white text-sm font-bold">
+              💬
             </div>
+            <span className="font-semibold text-sm text-gray-800">Чат</span>
+          </div>
+          <button
+            onClick={() => setCreateOpen(true)}
+            className="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center"
+            title="Новый канал"
+          >
+            <Plus className="w-5 h-5 text-gray-500" />
+          </button>
+        </div>
+
+        {/* search */}
+        <div className="px-3 py-2 shrink-0">
+          <div className="flex items-center gap-2 bg-gray-100 rounded-lg px-3 py-1.5">
+            <svg
+              className="w-4 h-4 text-gray-400 shrink-0"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+              />
+            </svg>
+            <input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Поиск..."
+              className="bg-transparent text-sm outline-none flex-1 text-gray-600"
+            />
+            {searchQuery && (
+              <button onClick={() => setSearchQuery("")}>
+                <X className="w-3 h-3 text-gray-400" />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {searchQuery.length >= 2 && searchResults.length > 0 && (
+          <div className="px-3 pb-2 border-b shrink-0 max-h-40 overflow-y-auto">
             {searchResults.slice(0, 5).map((r) => (
               <button
                 key={r.id}
@@ -286,92 +258,79 @@ export function ChatClient({
                 }}
                 className="w-full text-left px-2 py-1.5 rounded hover:bg-gray-50 text-xs"
               >
-                <div className="text-gray-500">
-                  <span className="font-medium text-gray-700">
-                    {r.authorLogin}
-                  </span>{" "}
-                  в {r.channelName}
-                </div>
-                <div className="text-gray-600 truncate">{r.content}</div>
+                <span className="font-medium text-gray-700">
+                  {r.authorLogin}
+                </span>{" "}
+                <span className="text-gray-400">в {r.channelName}</span>
+                <div className="text-gray-500 truncate">{r.content}</div>
               </button>
             ))}
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto">
-          {channels.map((ch) => {
-            const isActive = ch.id === activeChannelId;
-            const icon =
-              ch.type === "GENERAL"
-                ? "💬"
-                : ch.type === "DM"
-                  ? "👤"
-                  : ch.type === "PRIVATE"
-                    ? "🔒"
-                    : "#";
-            return (
-              <button
+        {/* channels */}
+        <div className="px-4 pt-2 shrink-0">
+          <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">
+            Каналы
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto min-h-0">
+          {channels
+            .filter((c) => c.type !== "DM")
+            .map((ch) => (
+              <ChItem
                 key={ch.id}
+                ch={ch}
+                active={ch.id === activeChannelId}
                 onClick={() => {
                   setActiveChannelId(ch.id);
                   setThreadMsgId(null);
+                  setShowInfo(false);
                 }}
-                className={`w-full text-left px-3 py-2.5 flex items-center gap-2.5 transition-colors ${
-                  isActive
-                    ? "bg-emerald-50 border-l-2 border-emerald-500"
-                    : "hover:bg-gray-50 border-l-2 border-transparent"
-                }`}
-              >
-                <span className="text-lg w-8 text-center shrink-0">{icon}</span>
-                <div className="flex-1 min-w-0">
-                  <div className="flex justify-between">
-                    <span
-                      className={`text-sm truncate ${isActive ? "font-semibold" : "font-medium"} text-gray-800`}
-                    >
-                      {ch.name ?? "Личные"}
-                    </span>
-                    {ch.lastMessage && (
-                      <span className="text-[10px] text-gray-400 shrink-0">
-                        {formatDistanceToNow(
-                          new Date(ch.lastMessage.createdAt),
-                          { locale: ru },
-                        )}
-                      </span>
-                    )}
-                  </div>
-                  {ch.lastMessage && (
-                    <div className="text-xs text-gray-500 truncate">
-                      {ch.lastMessage.authorName}: {ch.lastMessage.content}
-                    </div>
-                  )}
-                </div>
-                {ch.unreadCount > 0 && (
-                  <div className="bg-emerald-500 text-white text-[10px] rounded-full px-1.5 py-0.5 min-w-[18px] text-center font-medium">
-                    {ch.unreadCount}
-                  </div>
-                )}
-              </button>
-            );
-          })}
+              />
+            ))}
+          {channels.some((c) => c.type === "DM") && (
+            <div className="px-4 pt-3">
+              <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">
+                Личные сообщения
+              </div>
+            </div>
+          )}
+          {channels
+            .filter((c) => c.type === "DM")
+            .map((ch) => (
+              <ChItem
+                key={ch.id}
+                ch={ch}
+                active={ch.id === activeChannelId}
+                onClick={() => {
+                  setActiveChannelId(ch.id);
+                  setThreadMsgId(null);
+                  setShowInfo(false);
+                }}
+              />
+            ))}
         </div>
 
-        {/* Members for DM */}
-        <div className="border-t px-3 py-2">
+        {/* members */}
+        <div className="border-t px-3 py-2 shrink-0">
           <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-1 mb-1">
             Участники
           </div>
-          <div className="space-y-0.5 max-h-[150px] overflow-y-auto">
+          <div className="space-y-0.5 max-h-[100px] overflow-y-auto">
             {members
               .filter((m) => m.id !== currentUserId)
               .map((m) => (
                 <button
                   key={m.id}
                   onClick={() => void startDM(m.id)}
-                  className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-50 text-left transition-colors"
-                  title={`Написать ${m.login}`}
+                  className="w-full flex items-center gap-2 px-2 py-1 rounded hover:bg-gray-50 text-left"
                 >
-                  <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-[10px] font-bold text-gray-500">
-                    {m.login[0]?.toUpperCase()}
+                  <div className="relative">
+                    <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-[10px] font-bold text-gray-500">
+                      {m.login[0]?.toUpperCase()}
+                    </div>
+                    <div className="absolute -bottom-0.5 -right-0.5 w-2 h-2 bg-emerald-400 border border-white rounded-full" />
                   </div>
                   <span className="text-xs text-gray-700">{m.login}</span>
                 </button>
@@ -380,34 +339,156 @@ export function ChatClient({
         </div>
       </div>
 
-      {/* ═══ CENTER: Messages ═══ */}
-      <div className="flex-1 flex flex-col min-w-0 bg-gray-50">
-        {activeChannel ? (
+      {/* ═══ CENTER ═══ */}
+      <div className="flex-1 flex flex-col min-w-0 bg-gray-50 h-full">
+        {aCh ? (
           <>
-            {/* Header */}
-            <div className="bg-white border-b px-4 py-2.5 flex items-center justify-between shrink-0">
+            {/* header */}
+            <div className="bg-white border-b px-5 py-3 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-3">
-                <div className="text-sm font-semibold text-gray-800">
-                  {activeChannel.name ?? `ЛС: ${currentUserLogin}`}
+                <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-lg">
+                  {aCh.type === "GENERAL"
+                    ? "💬"
+                    : aCh.type === "DM"
+                      ? "👤"
+                      : aCh.type === "PRIVATE"
+                        ? "🔒"
+                        : "#"}
                 </div>
-                <div className="text-xs text-gray-400">
-                  {activeChannel.type !== "DM" &&
-                    `${activeChannel.memberCount} участников`}
+                <div>
+                  <div className="text-sm font-semibold text-gray-800">
+                    {aCh.name ?? "Личные сообщения"}
+                  </div>
+                  <div className="text-[11px] text-gray-400">
+                    {aCh.memberCount} участников
+                  </div>
                 </div>
               </div>
-              <div className="flex gap-1">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7"
-                  onClick={() => {
-                    setShowInfo(!showInfo);
-                    setThreadMsgId(null);
-                  }}
-                  title="Инфо о канале"
+              <button
+                className="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center"
+                onClick={() => {
+                  setShowInfo(!showInfo);
+                  setThreadMsgId(null);
+                }}
+              >
+                <svg
+                  className="w-4 h-4 text-gray-500"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
                 >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
+                </svg>
+              </button>
+            </div>
+
+            {/* messages */}
+            <div className="flex-1 overflow-y-auto px-5 py-4 min-h-0">
+              {msgs.length === 0 && (
+                <div className="flex items-center justify-center h-full text-sm text-gray-400">
+                  Нет сообщений. Начните диалог!
+                </div>
+              )}
+              {msgs.map((m) => (
+                <div
+                  key={m.id}
+                  className="group flex gap-2.5 mb-4 hover:bg-white/60 rounded-lg px-2 py-1.5 -mx-2 transition-colors"
+                >
+                  <div
+                    className={`w-8 h-8 rounded-full shrink-0 mt-0.5 flex items-center justify-center text-xs font-bold ${m.authorId === currentUserId ? "bg-emerald-500 text-white" : "bg-gray-200 text-gray-600"}`}
+                  >
+                    {m.authorLogin[0]?.toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="text-sm font-semibold text-gray-800">
+                        {m.authorLogin}
+                      </span>
+                      <span className="text-[10px] text-gray-400">
+                        {format(new Date(m.createdAt), "HH:mm", { locale: ru })}
+                      </span>
+                      {m.editedAt && (
+                        <span className="text-[10px] text-gray-400">
+                          (ред.)
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-sm text-gray-700 whitespace-pre-wrap break-words">
+                      {hl(m.content)}
+                    </div>
+                    {m.reactions.length > 0 && (
+                      <div className="flex gap-1 mt-1.5">
+                        {m.reactions.map((r) => (
+                          <button
+                            key={r.emoji}
+                            onClick={() => void react(m.id, r.emoji)}
+                            className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${r.myReaction ? "bg-emerald-50 border border-emerald-200" : "bg-gray-100 hover:bg-gray-200"}`}
+                          >
+                            {r.emoji}{" "}
+                            <span className="text-gray-500">{r.count}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {m.replyCount > 0 && (
+                      <button
+                        onClick={() => {
+                          setThreadMsgId(m.id);
+                          setShowInfo(false);
+                        }}
+                        className="flex items-center gap-1.5 mt-1.5 text-xs text-emerald-600 hover:bg-emerald-50 rounded-lg px-2 py-1"
+                      >
+                        <CornerDownRight className="h-3.5 w-3.5" />
+                        {m.replyCount} ответ{m.replyCount > 1 ? "ов" : ""}
+                      </button>
+                    )}
+                    <div className="opacity-0 group-hover:opacity-100 flex gap-0.5 mt-1 transition-opacity">
+                      <button
+                        onClick={() => setReplyTo(m)}
+                        className="p-1 rounded hover:bg-gray-200 text-gray-400"
+                        title="Ответить"
+                      >
+                        <CornerDownRight className="h-3 w-3" />
+                      </button>
+                      {QUICK_EMOJIS.map((e) => (
+                        <button
+                          key={e}
+                          onClick={() => void react(m.id, e)}
+                          className="p-1 rounded hover:bg-gray-200 text-xs"
+                        >
+                          {e}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ))}
+              <div ref={endRef} />
+            </div>
+
+            {/* reply indicator */}
+            {replyTo && (
+              <div className="bg-white border-t px-5 py-1.5 flex items-center gap-2 text-xs text-gray-500 shrink-0">
+                <CornerDownRight className="h-3 w-3 text-emerald-500" />
+                Ответ: <b>{replyTo.authorLogin}</b>:{" "}
+                {replyTo.content.slice(0, 50)}
+                <button onClick={() => setReplyTo(null)} className="ml-auto">
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            )}
+
+            {/* input */}
+            <div className="bg-white border-t px-5 py-3 shrink-0">
+              <div className="flex items-end gap-2">
+                <button className="w-9 h-9 rounded-lg hover:bg-gray-100 flex items-center justify-center shrink-0">
                   <svg
-                    className="w-4 h-4 text-gray-500"
+                    className="w-5 h-5 text-gray-400"
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
@@ -416,139 +497,35 @@ export function ChatClient({
                       strokeLinecap="round"
                       strokeLinejoin="round"
                       strokeWidth={2}
-                      d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                      d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"
                     />
                   </svg>
-                </Button>
-              </div>
-            </div>
-
-            {/* Messages area */}
-            <div className="flex-1 overflow-y-auto px-4 py-3">
-              {messages.map((m) => {
-                const isMe = m.authorId === currentUserId;
-                return (
-                  <div
-                    key={m.id}
-                    className="group flex gap-2 mb-3 hover:bg-white/50 rounded-lg px-2 py-1 -mx-2 transition-colors"
-                  >
-                    <div
-                      className={`w-8 h-8 rounded-full shrink-0 mt-0.5 flex items-center justify-center text-xs font-bold ${isMe ? "bg-emerald-500 text-white" : "bg-gray-200 text-gray-600"}`}
-                    >
-                      {m.authorLogin[0]?.toUpperCase()}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold text-gray-800">
-                          {m.authorLogin}
-                        </span>
-                        <span className="text-[10px] text-gray-400">
-                          {format(new Date(m.createdAt), "HH:mm", {
-                            locale: ru,
-                          })}
-                        </span>
-                        {m.editedAt && (
-                          <span className="text-[10px] text-gray-400">
-                            (ред.)
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-sm text-gray-700 whitespace-pre-wrap break-words">
-                        {renderContent(m.content)}
-                      </div>
-                      {/* Reactions */}
-                      {m.reactions.length > 0 && (
-                        <div className="flex gap-1 mt-1">
-                          {m.reactions.map((r) => (
-                            <button
-                              key={r.emoji}
-                              onClick={() => void handleReaction(m.id, r.emoji)}
-                              className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-xs transition-colors ${
-                                r.myReaction
-                                  ? "bg-emerald-50 border border-emerald-200"
-                                  : "bg-gray-100 hover:bg-gray-200"
-                              }`}
-                            >
-                              {r.emoji}{" "}
-                              <span className="text-gray-500">{r.count}</span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                      {/* Thread link */}
-                      {m.replyCount > 0 && (
-                        <button
-                          onClick={() => setThreadMsgId(m.id)}
-                          className="flex items-center gap-1 mt-1 text-xs text-emerald-600 hover:text-emerald-700"
-                        >
-                          <CornerDownRight className="h-3 w-3" />
-                          {m.replyCount}{" "}
-                          {m.replyCount === 1 ? "ответ" : "ответов"}
-                        </button>
-                      )}
-                      {/* Actions (hover) */}
-                      <div className="opacity-0 group-hover:opacity-100 flex gap-0.5 mt-1 transition-opacity">
-                        <button
-                          onClick={() => setReplyTo(m)}
-                          className="p-1 rounded hover:bg-gray-200 text-gray-400"
-                          title="Ответить"
-                        >
-                          <CornerDownRight className="h-3 w-3" />
-                        </button>
-                        {QUICK_EMOJIS.slice(0, 4).map((e) => (
-                          <button
-                            key={e}
-                            onClick={() => void handleReaction(m.id, e)}
-                            className="p-1 rounded hover:bg-gray-200 text-xs"
-                          >
-                            {e}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-              <div ref={messagesEndRef} />
-            </div>
-
-            {/* Reply indicator */}
-            {replyTo && (
-              <div className="bg-white border-t px-4 py-1.5 flex items-center gap-2 text-xs text-gray-500">
-                <CornerDownRight className="h-3 w-3 text-emerald-500" />
-                Ответ на:{" "}
-                <span className="font-medium">{replyTo.authorLogin}</span>:{" "}
-                {replyTo.content.slice(0, 50)}
-                <button onClick={() => setReplyTo(null)} className="ml-auto">
-                  <X className="h-3 w-3" />
+                </button>
+                <div className="flex-1 bg-gray-100 rounded-2xl px-4 py-2.5">
+                  <textarea
+                    value={msgText}
+                    onChange={(e) => setMsgText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                        e.preventDefault();
+                        send();
+                      }
+                    }}
+                    placeholder="Напишите сообщение..."
+                    rows={1}
+                    className="w-full bg-transparent text-sm outline-none resize-none min-h-[20px] max-h-[120px] text-gray-700"
+                  />
+                </div>
+                <button
+                  className="w-9 h-9 rounded-xl bg-emerald-500 hover:bg-emerald-600 flex items-center justify-center shrink-0 disabled:opacity-40"
+                  disabled={!msgText.trim() || sendMut.isPending}
+                  onClick={send}
+                >
+                  <Send className="w-4 h-4 text-white" />
                 </button>
               </div>
-            )}
-
-            {/* Input */}
-            <div className="bg-white border-t px-4 py-2.5 shrink-0">
-              <div className="flex items-end gap-2">
-                <textarea
-                  value={msgText}
-                  onChange={(e) => setMsgText(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                      e.preventDefault();
-                      handleSend();
-                    }
-                  }}
-                  placeholder="Напишите сообщение... (@упоминание)"
-                  rows={1}
-                  className="flex-1 resize-none rounded-xl border border-gray-200 px-3.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500"
-                />
-                <Button
-                  size="icon"
-                  className="h-9 w-9 rounded-xl bg-emerald-500 hover:bg-emerald-600 shrink-0"
-                  disabled={!msgText.trim() || sendMut.isPending}
-                  onClick={handleSend}
-                >
-                  <Send className="h-4 w-4" />
-                </Button>
+              <div className="text-[10px] text-gray-400 mt-1 pl-12">
+                @упоминание · Ctrl+Enter — отправить
               </div>
             </div>
           </>
@@ -559,22 +536,22 @@ export function ChatClient({
         )}
       </div>
 
-      {/* ═══ RIGHT: Thread panel ═══ */}
+      {/* ═══ RIGHT: Thread ═══ */}
       {threadMsgId && (
-        <div className="w-[300px] bg-white border-l flex flex-col shrink-0">
-          <div className="px-4 py-2.5 border-b flex items-center justify-between">
+        <div className="w-[300px] bg-white border-l flex flex-col shrink-0 h-full">
+          <div className="px-4 py-3 border-b flex items-center justify-between shrink-0">
             <span className="text-sm font-semibold">Тред</span>
             <button onClick={() => setThreadMsgId(null)}>
               <X className="h-4 w-4 text-gray-400" />
             </button>
           </div>
-          <div className="flex-1 overflow-y-auto px-3 py-2">
+          <div className="flex-1 overflow-y-auto px-3 py-2 min-h-0">
             {threadReplies.map((m) => (
               <div key={m.id} className="flex gap-2 mb-3">
                 <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-[10px] font-bold text-gray-500 shrink-0 mt-0.5">
                   {m.authorLogin[0]?.toUpperCase()}
                 </div>
-                <div>
+                <div className="min-w-0">
                   <div className="flex items-center gap-1.5">
                     <span className="text-xs font-semibold">
                       {m.authorLogin}
@@ -584,18 +561,17 @@ export function ChatClient({
                     </span>
                   </div>
                   <div className="text-xs text-gray-700 whitespace-pre-wrap">
-                    {renderContent(m.content)}
+                    {hl(m.content)}
                   </div>
                 </div>
               </div>
             ))}
           </div>
-          {/* Thread reply input */}
-          <div className="border-t px-3 py-2">
-            <ThreadReplyInput
-              workspaceId={workspaceId}
-              channelId={activeChannelId!}
-              parentId={threadMsgId}
+          <div className="border-t px-3 py-2 shrink-0">
+            <TRI
+              wsId={workspaceId}
+              chId={activeChannelId!}
+              pId={threadMsgId}
               onSent={() => {
                 void qc.invalidateQueries({
                   queryKey: ["chat-thread", threadMsgId],
@@ -609,179 +585,230 @@ export function ChatClient({
         </div>
       )}
 
-      {/* ═══ RIGHT: Info panel ═══ */}
-      {showInfo && activeChannel && !threadMsgId && (
-        <div className="w-[280px] bg-white border-l flex flex-col shrink-0">
-          <div className="px-4 py-3 border-b flex items-center justify-between">
+      {/* ═══ RIGHT: Info ═══ */}
+      {showInfo && aCh && !threadMsgId && (
+        <div className="w-[280px] bg-white border-l flex flex-col shrink-0 h-full">
+          <div className="px-4 py-3 border-b flex items-center justify-between shrink-0">
             <span className="text-sm font-semibold">
-              {activeChannel.type === "DM"
-                ? "Личные сообщения"
-                : activeChannel.name}
+              {aCh.type === "DM" ? "Личные сообщения" : aCh.name}
             </span>
             <button onClick={() => setShowInfo(false)}>
               <X className="h-4 w-4 text-gray-400" />
             </button>
           </div>
-
-          {activeChannel.description && (
-            <div className="px-4 py-2 border-b">
+          {aCh.description && (
+            <div className="px-4 py-3 border-b">
               <div className="text-[10px] font-bold text-gray-400 uppercase mb-1">
                 Описание
               </div>
-              <div className="text-xs text-gray-600">
-                {activeChannel.description}
-              </div>
+              <div className="text-xs text-gray-600">{aCh.description}</div>
             </div>
           )}
-
-          <div className="px-4 py-2 border-b">
+          <div className="px-4 py-3 border-b shrink-0">
             <div className="text-[10px] font-bold text-gray-400 uppercase mb-1">
               Тип
             </div>
             <div className="text-xs text-gray-600">
-              {activeChannel.type === "GENERAL"
-                ? "💬 Общий (все участники)"
-                : activeChannel.type === "PUBLIC"
+              {aCh.type === "GENERAL"
+                ? "💬 Общий"
+                : aCh.type === "PUBLIC"
                   ? "# Публичный"
-                  : activeChannel.type === "PRIVATE"
+                  : aCh.type === "PRIVATE"
                     ? "🔒 Приватный"
-                    : "👤 Личные сообщения"}
+                    : "👤 ЛС"}
             </div>
           </div>
-
-          <div className="px-4 py-2 flex-1 overflow-y-auto">
+          <div className="px-4 py-3 flex-1 overflow-y-auto min-h-0">
             <div className="text-[10px] font-bold text-gray-400 uppercase mb-2">
-              Участники · {activeChannel.memberCount}
+              Участники · {aCh.memberCount}
             </div>
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               {members.map((m) => (
-                <div key={m.id} className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-full bg-gray-200 flex items-center justify-center text-[10px] font-bold text-gray-500">
-                    {m.login[0]?.toUpperCase()}
+                <div key={m.id} className="flex items-center gap-2.5">
+                  <div className="relative">
+                    <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-xs font-bold text-gray-500">
+                      {m.login[0]?.toUpperCase()}
+                    </div>
+                    <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-400 border-2 border-white rounded-full" />
                   </div>
-                  <span className="text-xs text-gray-700">{m.login}</span>
-                  {m.id === currentUserId && (
-                    <span className="text-[10px] text-gray-400">(вы)</span>
-                  )}
+                  <div>
+                    <div className="text-xs font-medium text-gray-700">
+                      {m.login}
+                    </div>
+                    {m.id === currentUserId && (
+                      <div className="text-[10px] text-gray-400">(вы)</div>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
           </div>
+          <div className="border-t px-4 py-3 shrink-0">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" defaultChecked className="rounded" />
+              <span className="text-xs text-gray-600">
+                Уведомления в Telegram
+              </span>
+            </label>
+          </div>
         </div>
       )}
 
-      {/* Create channel dialog */}
-      <CreateChannelDialog
-        open={createOpen}
-        onOpenChange={setCreateOpen}
-        workspaceId={workspaceId}
-      />
+      <CCD open={createOpen} onClose={setCreateOpen} wsId={workspaceId} />
     </div>
   );
 }
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
+/* ── sub-components ────────────────────────────────────────────────────────── */
 
-function renderContent(content: string) {
-  // Highlight @mentions
-  return content.split(/(@\w+)/g).map((part, i) =>
-    part.startsWith("@") ? (
+function ChItem({
+  ch,
+  active,
+  onClick,
+}: {
+  ch: Channel;
+  active: boolean;
+  onClick: () => void;
+}) {
+  const icon =
+    ch.type === "GENERAL"
+      ? "💬"
+      : ch.type === "DM"
+        ? "👤"
+        : ch.type === "PRIVATE"
+          ? "🔒"
+          : "#";
+  return (
+    <button
+      onClick={onClick}
+      className={`w-full text-left px-4 py-2.5 flex items-center gap-3 transition-colors ${active ? "bg-emerald-50 border-l-[3px] border-emerald-500" : "hover:bg-gray-50 border-l-[3px] border-transparent"}`}
+    >
+      <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-lg shrink-0">
+        {icon}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex justify-between">
+          <span
+            className={`text-sm truncate ${active ? "font-semibold" : "font-medium"} text-gray-800`}
+          >
+            {ch.name ?? "Личные"}
+          </span>
+          {ch.lastMessage && (
+            <span className="text-[10px] text-gray-400 shrink-0 ml-1">
+              {formatDistanceToNow(new Date(ch.lastMessage.createdAt), {
+                locale: ru,
+              })}
+            </span>
+          )}
+        </div>
+        {ch.lastMessage && (
+          <div className="flex justify-between items-center">
+            <span className="text-xs text-gray-500 truncate">
+              {ch.lastMessage.authorName}: {ch.lastMessage.content}
+            </span>
+            {ch.unreadCount > 0 && (
+              <div className="bg-emerald-500 text-white text-[10px] rounded-full px-1.5 py-0.5 min-w-[18px] text-center font-medium shrink-0 ml-1">
+                {ch.unreadCount}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </button>
+  );
+}
+
+function hl(c: string) {
+  return c.split(/(@\w+)/g).map((p, i) =>
+    p.startsWith("@") ? (
       <span
         key={i}
         className="text-emerald-600 font-medium bg-emerald-50 rounded px-0.5"
       >
-        {part}
+        {p}
       </span>
     ) : (
-      <span key={i}>{part}</span>
+      <span key={i}>{p}</span>
     ),
   );
 }
 
-function ThreadReplyInput({
-  workspaceId,
-  channelId,
-  parentId,
+function TRI({
+  wsId,
+  chId,
+  pId,
   onSent,
 }: {
-  workspaceId: string;
-  channelId: string;
-  parentId: string;
+  wsId: string;
+  chId: string;
+  pId: string;
   onSent: () => void;
 }) {
-  const [text, setText] = useState("");
-  const [sending, setSending] = useState(false);
-
-  async function send() {
-    if (!text.trim()) return;
-    setSending(true);
+  const [t, setT] = useState("");
+  const [s, setS] = useState(false);
+  async function go() {
+    if (!t.trim()) return;
+    setS(true);
     try {
-      await fetch(
-        `/api/workspaces/${workspaceId}/chat-channels/${channelId}/messages`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ content: text.trim(), parentId }),
-        },
-      );
-      setText("");
+      await fetch(`/api/workspaces/${wsId}/chat-channels/${chId}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: t.trim(), parentId: pId }),
+      });
+      setT("");
       onSent();
     } catch {
-      /* silent */
     } finally {
-      setSending(false);
+      setS(false);
     }
   }
-
   return (
     <div className="flex gap-1.5">
       <input
-        value={text}
-        onChange={(e) => setText(e.target.value)}
+        value={t}
+        onChange={(e) => setT(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
-            void send();
+            void go();
           }
         }}
         placeholder="Ответить в тред..."
         className="flex-1 rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500"
       />
-      <Button
-        size="icon"
-        className="h-7 w-7 rounded-lg bg-emerald-500 hover:bg-emerald-600 shrink-0"
-        disabled={!text.trim() || sending}
-        onClick={() => void send()}
+      <button
+        className="h-7 w-7 rounded-lg bg-emerald-500 hover:bg-emerald-600 flex items-center justify-center shrink-0 disabled:opacity-40"
+        disabled={!t.trim() || s}
+        onClick={() => void go()}
       >
-        <Send className="h-3 w-3" />
-      </Button>
+        <Send className="h-3 w-3 text-white" />
+      </button>
     </div>
   );
 }
 
-function CreateChannelDialog({
+function CCD({
   open,
-  onOpenChange,
-  workspaceId,
+  onClose,
+  wsId,
 }: {
   open: boolean;
-  onOpenChange: (v: boolean) => void;
-  workspaceId: string;
+  onClose: (v: boolean) => void;
+  wsId: string;
 }) {
   const qc = useQueryClient();
-  const [name, setName] = useState("");
-  const [desc, setDesc] = useState("");
-  const [type, setType] = useState<"PUBLIC" | "PRIVATE">("PUBLIC");
-
+  const [n, setN] = useState("");
+  const [d, setD] = useState("");
+  const [tp, setTp] = useState<"PUBLIC" | "PRIVATE">("PUBLIC");
   const mut = useMutation({
     mutationFn: () =>
-      fetch(`/api/workspaces/${workspaceId}/chat-channels`, {
+      fetch(`/api/workspaces/${wsId}/chat-channels`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: name.trim(),
-          description: desc.trim() || undefined,
-          type,
+          name: n.trim(),
+          description: d.trim() || undefined,
+          type: tp,
         }),
       }).then(async (r) => {
         if (!r.ok)
@@ -789,65 +816,58 @@ function CreateChannelDialog({
         return r.json();
       }),
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["chat-channels", workspaceId] });
+      void qc.invalidateQueries({ queryKey: ["chat-channels", wsId] });
       toastSuccess("Канал создан");
-      setName("");
-      setDesc("");
-      onOpenChange(false);
+      setN("");
+      setD("");
+      onClose(false);
     },
     onError: toastApiError,
   });
-
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-sm">
         <DialogHeader>
           <DialogTitle>Новый канал</DialogTitle>
         </DialogHeader>
         <div className="space-y-3 pt-2">
-          <div>
-            <label className="text-sm font-medium mb-1 block">Название</label>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Разработка"
-            />
-          </div>
-          <div>
-            <label className="text-sm font-medium mb-1 block">Описание</label>
-            <Input
-              value={desc}
-              onChange={(e) => setDesc(e.target.value)}
-              placeholder="Обсуждение разработки"
-            />
-          </div>
+          <Input
+            value={n}
+            onChange={(e) => setN(e.target.value)}
+            placeholder="Название канала"
+          />
+          <Input
+            value={d}
+            onChange={(e) => setD(e.target.value)}
+            placeholder="Описание"
+          />
           <div className="flex gap-2">
             <label
-              className={`flex-1 p-2 border rounded-lg cursor-pointer text-center text-xs ${type === "PUBLIC" ? "border-emerald-500 bg-emerald-50" : ""}`}
+              className={`flex-1 p-2.5 border rounded-lg cursor-pointer text-center text-xs ${tp === "PUBLIC" ? "border-emerald-500 bg-emerald-50 text-emerald-700" : "text-gray-500"}`}
             >
               <input
                 type="radio"
                 className="hidden"
-                checked={type === "PUBLIC"}
-                onChange={() => setType("PUBLIC")}
+                checked={tp === "PUBLIC"}
+                onChange={() => setTp("PUBLIC")}
               />
               # Публичный
             </label>
             <label
-              className={`flex-1 p-2 border rounded-lg cursor-pointer text-center text-xs ${type === "PRIVATE" ? "border-emerald-500 bg-emerald-50" : ""}`}
+              className={`flex-1 p-2.5 border rounded-lg cursor-pointer text-center text-xs ${tp === "PRIVATE" ? "border-emerald-500 bg-emerald-50 text-emerald-700" : "text-gray-500"}`}
             >
               <input
                 type="radio"
                 className="hidden"
-                checked={type === "PRIVATE"}
-                onChange={() => setType("PRIVATE")}
+                checked={tp === "PRIVATE"}
+                onChange={() => setTp("PRIVATE")}
               />
               🔒 Приватный
             </label>
           </div>
           <Button
             className="w-full"
-            disabled={!name.trim() || mut.isPending}
+            disabled={!n.trim() || mut.isPending}
             onClick={() => mut.mutate()}
           >
             {mut.isPending ? "Создание..." : "Создать канал"}
