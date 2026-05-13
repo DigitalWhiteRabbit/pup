@@ -457,21 +457,13 @@ export async function autoRespondWithTyping(
       messages: toClaudeMessages(ticket.messages),
     });
 
-    const reply =
+    const rawReply =
       response.content[0]?.type === "text" ? response.content[0].text : "";
 
     // Remove typing indicator
     await db.ticketMessage.delete({ where: { id: typingMsg.id } });
 
-    if (!reply) {
-      await db.ticketMessage.create({
-        data: {
-          ticketId,
-          authorType: "SYSTEM",
-          content: "Менеджер изучает ваш вопрос. Мы ответим в ближайшее время.",
-          systemAction: "HANDOFF",
-        },
-      });
+    if (!rawReply) {
       await db.ticket.update({
         where: { id: ticketId },
         data: {
@@ -483,26 +475,21 @@ export async function autoRespondWithTyping(
       return;
     }
 
-    // Check for handoff markers
-    const handoffMarkers = [
-      "не могу помочь",
-      "передаю менеджеру",
-      "свяжу с специалистом",
-      "[HANDOFF]",
-    ];
-    const needsHandoff = handoffMarkers.some((marker) =>
-      reply.toLowerCase().includes(marker),
-    );
+    const parsed = parseAgentResponse(rawReply);
 
-    if (needsHandoff) {
+    // Save visible reply to customer
+    if (parsed.reply) {
       await db.ticketMessage.create({
         data: {
           ticketId,
-          authorType: "SYSTEM",
-          content: "Менеджер изучает ваш вопрос. Мы ответим в ближайшее время.",
-          systemAction: "HANDOFF",
+          authorType: "AGENT" as TicketMessageAuthorType,
+          content: parsed.reply,
         },
       });
+    }
+
+    // If needs human — set flag + save summary for managers
+    if (parsed.needsHuman) {
       await db.ticket.update({
         where: { id: ticketId },
         data: {
@@ -511,17 +498,17 @@ export async function autoRespondWithTyping(
           agentConfidence: 0.3,
         },
       });
-      return;
+      if (parsed.summary) {
+        await db.ticketMessage.create({
+          data: {
+            ticketId,
+            authorType: "SYSTEM",
+            content: `📋 Сводка для менеджера: ${parsed.summary}`,
+            systemAction: "AGENT_SUMMARY",
+          },
+        });
+      }
     }
-
-    // Save agent reply
-    await db.ticketMessage.create({
-      data: {
-        ticketId,
-        authorType: "AGENT" as TicketMessageAuthorType,
-        content: reply,
-      },
-    });
 
     void logActivity({
       workspaceId,
@@ -532,7 +519,7 @@ export async function autoRespondWithTyping(
       summary: generateSummary("AGENT_RESPONSE_GENERATED", {
         kbArticleTitle: `#${ticket.number} ${ticket.title}`,
       }),
-      metadata: {},
+      metadata: { needsHuman: parsed.needsHuman },
     });
   } catch (err) {
     // Remove typing on error, show handoff message
@@ -604,8 +591,26 @@ function buildSystemPrompt(
 
   parts.push(
     customPrompt ??
-      "Ты — AI-помощник поддержки. Отвечай вежливо, точно и по делу на русском языке. Если не знаешь ответа, скажи что передашь вопрос менеджеру.",
+      "Ты — AI-помощник поддержки. Отвечай вежливо, точно и по делу на русском языке.",
   );
+
+  parts.push(`
+ВАЖНЫЕ ПРАВИЛА ПОВЕДЕНИЯ:
+1. Ты общаешься от имени менеджера поддержки. Клиент НЕ знает что ты AI.
+2. Сначала собери ВСЮ необходимую информацию от клиента: задавай уточняющие вопросы один за другим.
+3. НЕ советуй клиенту "обратиться к менеджеру" или "передать менеджеру" — ты и есть менеджер для клиента.
+4. НЕ пиши [HANDOFF], не упоминай "передачу менеджеру" в тексте ответа.
+5. НЕ проси клиента "сообщить менеджеру" какие-то данные — спрашивай их сам.
+6. Если вопрос требует доступа к внутренним системам, скажи: "Сейчас проверю, подождите пожалуйста."
+
+ФОРМАТ ОТВЕТА:
+Всегда отвечай в формате JSON:
+{"reply": "Текст ответа клиенту", "needsHuman": false, "summary": null}
+
+Когда ты собрал всю информацию и понимаешь что для решения нужен доступ к внутренним системам:
+{"reply": "Спасибо за информацию! Я сейчас проверю всё в системе, это займёт немного времени.", "needsHuman": true, "summary": "Клиент сообщает что...  ID: 678, ID партнёра: 1956. Нужно проверить реферальную связь."}
+
+Поле summary — это краткая сводка для менеджера с собранными данными. Клиент её НЕ видит.`);
 
   if (guardrails) {
     try {
@@ -628,9 +633,43 @@ function buildSystemPrompt(
     });
   }
 
-  parts.push(
-    "\nЕсли ты не уверен в ответе или вопрос выходит за рамки сценариев, ответь: «Передаю ваш вопрос менеджеру для более точного ответа.» с пометкой [HANDOFF].",
-  );
-
   return parts.join("\n");
+}
+
+type AgentResponse = {
+  reply: string;
+  needsHuman: boolean;
+  summary: string | null;
+};
+
+function parseAgentResponse(raw: string): AgentResponse {
+  // Try parsing as JSON first
+  try {
+    const trimmed = raw.trim();
+    // Handle markdown code blocks
+    const jsonMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/);
+    const jsonStr = jsonMatch ? jsonMatch[1]!.trim() : trimmed;
+    const parsed = JSON.parse(jsonStr) as Record<string, unknown>;
+    return {
+      reply: (parsed.reply as string) ?? raw,
+      needsHuman: (parsed.needsHuman as boolean) ?? false,
+      summary: (parsed.summary as string) ?? null,
+    };
+  } catch {
+    // Fallback: use raw text as reply, check for old handoff markers
+    const hasHandoff = [
+      "[HANDOFF]",
+      "передаю менеджеру",
+      "передам менеджеру",
+    ].some((m) => raw.toLowerCase().includes(m));
+    // Strip [HANDOFF] from visible text
+    const cleanReply = raw.replace(/\[HANDOFF\]/gi, "").trim();
+    return {
+      reply: cleanReply,
+      needsHuman: hasHandoff,
+      summary: hasHandoff
+        ? `Агент решил передать менеджеру. Контекст диалога доступен в сообщениях.`
+        : null,
+    };
+  }
 }

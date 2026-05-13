@@ -1172,5 +1172,10 @@ export async function getTicketForCustomer(
   if (ticket.customerId !== customerId) {
     throw new ApiError("Нет доступа к тикету", "FORBIDDEN", 403);
   }
-  return mapTicketFull(ticket);
+  const full = mapTicketFull(ticket);
+  // Hide internal messages from customer view
+  full.messages = full.messages.filter(
+    (m) => m.systemAction !== "AGENT_SUMMARY" && m.systemAction !== "TYPING",
+  );
+  return full;
 }
