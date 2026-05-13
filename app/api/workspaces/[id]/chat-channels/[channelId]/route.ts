@@ -82,13 +82,13 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
     const session = await auth();
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const { channelId } = await params;
+    const { id: workspaceId, channelId } = await params;
 
     const channel = await db.chatChannel.findUnique({
       where: { id: channelId },
-      select: { type: true },
+      select: { type: true, workspaceId: true },
     });
-    if (!channel)
+    if (!channel || channel.workspaceId !== workspaceId)
       return NextResponse.json({ error: "Не найдено" }, { status: 404 });
     if (channel.type === "GENERAL")
       return NextResponse.json(

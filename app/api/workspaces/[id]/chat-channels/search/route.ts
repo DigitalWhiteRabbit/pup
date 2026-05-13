@@ -24,7 +24,14 @@ export async function GET(
 
     const messages = await db.chatMsg.findMany({
       where: {
-        channel: { workspaceId },
+        channel: {
+          workspaceId,
+          OR: [
+            { type: "GENERAL" },
+            { type: "PUBLIC" },
+            { members: { some: { userId: session.user.id } } },
+          ],
+        },
         content: { contains: q },
         deletedAt: null,
       },

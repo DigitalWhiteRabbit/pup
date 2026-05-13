@@ -1001,8 +1001,10 @@ model ChatMsg {
   bookmarks     ChatMsgBookmark[]
   attachments   ChatMsgAttachment[]
 
+  @@index([channelId, deletedAt, createdAt])
   @@index([channelId, createdAt])
   @@index([parentId])
+  @@index([forwardedFromId])
 }
 
 model ChatMsgReaction {

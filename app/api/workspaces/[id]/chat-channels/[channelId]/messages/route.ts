@@ -26,7 +26,10 @@ export async function GET(
     const { channelId } = await params;
     const url = new URL(req.url);
     const before = url.searchParams.get("before") ?? undefined;
-    const limit = parseInt(url.searchParams.get("limit") ?? "50", 10);
+    const limit = Math.min(
+      Math.max(parseInt(url.searchParams.get("limit") ?? "50", 10) || 50, 1),
+      100,
+    );
     const messages = await listMessages(channelId, session.user.id, {
       limit,
       before,

@@ -40,13 +40,18 @@ export async function GET(req: Request, { params }: RouteParams) {
     const stream = await storage().download(att.storagePath);
     const url = new URL(req.url);
     const forceDownload = url.searchParams.get("download") === "1";
-    const disposition = forceDownload ? "attachment" : "inline";
+    // Only allow inline for safe types (images, audio, video, pdf)
+    const safeInline =
+      /^(image|audio|video)\//.test(att.mimeType) ||
+      att.mimeType === "application/pdf";
+    const disposition = !forceDownload && safeInline ? "inline" : "attachment";
 
     return new NextResponse(stream, {
       headers: {
         "Content-Type": att.mimeType,
         "Content-Disposition": `${disposition}; filename="${encodeURIComponent(att.originalName)}"`,
         "Content-Length": String(att.size),
+        "X-Content-Type-Options": "nosniff",
       },
     });
   } catch {

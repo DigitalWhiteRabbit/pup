@@ -244,15 +244,37 @@ export function ChatClient({
     refetchInterval: 2000,
   });
   const msgs = mD?.data ?? [];
+  const prevMsgCountRef = useRef(0);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
+    // Only auto-scroll if new messages arrived AND user is near bottom
+    if (msgs.length > prevMsgCountRef.current) {
+      const container = messagesContainerRef.current;
+      if (container) {
+        const isNearBottom =
+          container.scrollHeight -
+            container.scrollTop -
+            container.clientHeight <
+          150;
+        if (isNearBottom) {
+          endRef.current?.scrollIntoView({ behavior: "smooth" });
+        }
+      } else {
+        endRef.current?.scrollIntoView({ behavior: "smooth" });
+      }
+    }
+    prevMsgCountRef.current = msgs.length;
   }, [msgs.length]);
+  const prevMsgCountForRead = useRef(0);
   useEffect(() => {
-    if (activeChannelId)
+    // Only mark read when channel changes or new messages arrive
+    if (activeChannelId && msgs.length > prevMsgCountForRead.current) {
       void fetch(
         `/api/workspaces/${workspaceId}/chat-channels/${activeChannelId}/read`,
         { method: "POST" },
       );
+    }
+    prevMsgCountForRead.current = msgs.length;
   }, [activeChannelId, workspaceId, msgs.length]);
 
   const { data: sD } = useQuery<{
@@ -374,24 +396,34 @@ export function ChatClient({
     staleTime: 10_000,
     refetchInterval: 15_000,
   });
-  const onlineLogins = new Set(onlineD?.data ?? []);
+  const onlineLogins = useMemo(
+    () => new Set(onlineD?.data ?? []),
+    [onlineD?.data],
+  );
 
   const aCh = channels.find((c) => c.id === activeChannelId);
 
   /* ── actions ───────────────────────────────────────────────────────────── */
 
   const sendMut = useMutation({
-    mutationFn: async (content: string) => {
+    mutationFn: async (args: {
+      content: string;
+      parentId?: string;
+      linkedTicketId?: string;
+      linkedTaskId?: string;
+      files: File[];
+      channelId: string;
+    }) => {
       const r = await fetch(
-        `/api/workspaces/${workspaceId}/chat-channels/${activeChannelId}/messages`,
+        `/api/workspaces/${workspaceId}/chat-channels/${args.channelId}/messages`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            content,
-            parentId: replyTo?.id,
-            linkedTicketId: linkedTicketId ?? undefined,
-            linkedTaskId: linkedTaskId ?? undefined,
+            content: args.content,
+            parentId: args.parentId,
+            linkedTicketId: args.linkedTicketId,
+            linkedTaskId: args.linkedTaskId,
           }),
         },
       );
@@ -399,16 +431,18 @@ export function ChatClient({
         throw new Error((await r.json().catch(() => ({}))).error ?? "Ошибка");
       const msg = await r.json();
       // Upload pending files
-      if (pendingFiles.length > 0) {
-        for (const file of pendingFiles) {
-          const fd = new FormData();
-          fd.append("file", file);
-          await fetch(
-            `/api/workspaces/${workspaceId}/chat-channels/${activeChannelId}/messages/${msg.id}/attachments`,
-            { method: "POST", body: fd },
-          );
-        }
+      const failedFiles: string[] = [];
+      for (const file of args.files) {
+        const fd = new FormData();
+        fd.append("file", file);
+        const ur = await fetch(
+          `/api/workspaces/${workspaceId}/chat-channels/${args.channelId}/messages/${msg.id}/attachments`,
+          { method: "POST", body: fd },
+        );
+        if (!ur.ok) failedFiles.push(file.name);
       }
+      if (failedFiles.length > 0)
+        throw new Error(`Не удалось загрузить: ${failedFiles.join(", ")}`);
       return msg;
     },
     onSuccess: () => {
@@ -427,7 +461,14 @@ export function ChatClient({
   function send() {
     const t = msgText.trim();
     if ((t || pendingFiles.length > 0) && activeChannelId)
-      sendMut.mutate(t || (pendingFiles.length > 0 ? "📎" : ""));
+      sendMut.mutate({
+        content: t || (pendingFiles.length > 0 ? "📎" : ""),
+        parentId: replyTo?.id,
+        linkedTicketId: linkedTicketId ?? undefined,
+        linkedTaskId: linkedTaskId ?? undefined,
+        files: pendingFiles,
+        channelId: activeChannelId,
+      });
   }
 
   async function react(mid: string, emoji: string) {
@@ -839,6 +880,7 @@ export function ChatClient({
 
             {/* messages + drag & drop zone */}
             <div
+              ref={messagesContainerRef}
               className={`flex-1 overflow-y-auto px-5 py-4 min-h-0 relative ${dragOver ? "bg-emerald-50" : ""}`}
               onDragOver={(e) => {
                 e.preventDefault();
@@ -1215,11 +1257,7 @@ export function ChatClient({
                   return (
                     <div key={i} className="relative group/file">
                       {isImage ? (
-                        <img
-                          src={URL.createObjectURL(f)}
-                          alt={f.name}
-                          className="w-16 h-16 rounded-lg object-cover border"
-                        />
+                        <FilePreviewImg file={f} />
                       ) : (
                         <div className="w-16 h-16 rounded-lg border bg-gray-50 flex flex-col items-center justify-center text-[9px] text-gray-500 px-1">
                           <FileText className="h-5 w-5 mb-0.5 text-gray-400" />
@@ -1761,6 +1799,23 @@ function SortableChItem({
     <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
       <ChItem ch={ch} active={active} onClick={onClick} />
     </div>
+  );
+}
+
+function FilePreviewImg({ file }: { file: File }) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    const u = URL.createObjectURL(file);
+    setUrl(u);
+    return () => URL.revokeObjectURL(u);
+  }, [file]);
+  if (!url) return null;
+  return (
+    <img
+      src={url}
+      alt={file.name}
+      className="w-16 h-16 rounded-lg object-cover border"
+    />
   );
 }
 

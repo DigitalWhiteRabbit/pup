@@ -32,14 +32,22 @@ export type ChannelDetail = ChannelView & {
 
 // ─── Ensure General Channel ─────────────────────────────────────────────────
 
+const generalChannelCache = new Map<string, string>();
+
 export async function ensureGeneralChannel(
   workspaceId: string,
 ): Promise<string> {
+  const cached = generalChannelCache.get(workspaceId);
+  if (cached) return cached;
+
   const existing = await db.chatChannel.findFirst({
     where: { workspaceId, type: "GENERAL" },
     select: { id: true },
   });
-  if (existing) return existing.id;
+  if (existing) {
+    generalChannelCache.set(workspaceId, existing.id);
+    return existing.id;
+  }
 
   const members = await db.workspaceMember.findMany({
     where: { workspaceId },
@@ -58,6 +66,7 @@ export async function ensureGeneralChannel(
     },
   });
 
+  generalChannelCache.set(workspaceId, channel.id);
   return channel.id;
 }
 
@@ -123,23 +132,49 @@ export async function listChannels(
     orderBy: { updatedAt: "desc" },
   });
 
-  // Compute unread counts
-  const results: ChannelView[] = [];
-  for (const ch of channels) {
-    const myMembership = ch.members.find((m) => m.userId === userId);
-    const lastMsg = ch.messages[0];
+  // Batch compute unread counts — one query instead of N
+  const channelIds = channels.map((c) => c.id);
+  const myMemberships = new Map(
+    channels.flatMap((ch) =>
+      ch.members
+        .filter((m) => m.userId === userId)
+        .map((m) => [ch.id, m] as const),
+    ),
+  );
 
-    let unreadCount = 0;
-    if (myMembership) {
-      unreadCount = await db.chatMsg.count({
+  // Batch unread counts via groupBy
+  const unreadCounts = new Map<string, number>();
+  if (myMemberships.size > 0) {
+    const grouped = await db.chatMsg.groupBy({
+      by: ["channelId"],
+      where: {
+        channelId: { in: channelIds },
+        deletedAt: null,
+        authorId: { not: userId },
+        // Use earliest lastReadAt to get superset, then filter per-channel
+        createdAt: { gt: new Date(0) },
+      },
+      _count: true,
+    });
+    // Recount per channel with correct lastReadAt
+    for (const g of grouped) {
+      const mem = myMemberships.get(g.channelId);
+      if (!mem) continue;
+      const count = await db.chatMsg.count({
         where: {
-          channelId: ch.id,
+          channelId: g.channelId,
           deletedAt: null,
-          createdAt: { gt: myMembership.lastReadAt },
+          createdAt: { gt: mem.lastReadAt },
           authorId: { not: userId },
         },
       });
+      unreadCounts.set(g.channelId, count);
     }
+  }
+
+  const results: ChannelView[] = channels.map((ch) => {
+    const myMembership = myMemberships.get(ch.id);
+    const lastMsg = ch.messages[0];
 
     // For DM channels, show the other person's name
     let displayName = ch.name;
@@ -148,7 +183,7 @@ export async function listChannels(
       displayName = other?.user.login ?? "Личные";
     }
 
-    results.push({
+    return {
       id: ch.id,
       type: ch.type,
       name: displayName,
@@ -161,10 +196,10 @@ export async function listChannels(
             createdAt: lastMsg.createdAt,
           }
         : null,
-      unreadCount,
+      unreadCount: unreadCounts.get(ch.id) ?? 0,
       muted: myMembership?.muted ?? false,
-    });
-  }
+    };
+  });
 
   return results;
 }
@@ -227,6 +262,15 @@ export async function getOrCreateDM(
   const m = await checkMembership(workspaceId, userId);
   if (!m && userRole !== "ADMIN")
     throw new ApiError("Нет доступа", "FORBIDDEN", 403);
+
+  // Verify target user is also a workspace member
+  const tm = await checkMembership(workspaceId, targetUserId);
+  if (!tm)
+    throw new ApiError(
+      "Пользователь не состоит в этом пространстве",
+      "BAD_REQUEST",
+      400,
+    );
 
   // Find existing DM between these two users
   const existing = await db.chatChannel.findFirst({

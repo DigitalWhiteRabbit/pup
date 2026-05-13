@@ -176,6 +176,20 @@ export async function getThreadReplies(
   });
   if (!parent) throw new ApiError("Сообщение не найдено", "NOT_FOUND", 404);
 
+  // Verify channel access
+  const membership = await db.chatChannelMember.findUnique({
+    where: { channelId_userId: { channelId: parent.channelId, userId } },
+  });
+  if (!membership) {
+    const ch = await db.chatChannel.findUnique({
+      where: { id: parent.channelId },
+      select: { type: true },
+    });
+    if (!ch || (ch.type !== "PUBLIC" && ch.type !== "GENERAL")) {
+      throw new ApiError("Нет доступа", "FORBIDDEN", 403);
+    }
+  }
+
   const replies = await db.chatMsg.findMany({
     where: { parentId: messageId, deletedAt: null },
     orderBy: { createdAt: "asc" },

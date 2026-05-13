@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { Mic, Square } from "lucide-react";
 
 export function VoiceRecorder({
@@ -95,6 +95,19 @@ export function VoicePlayer({ src, isMe }: { src: string; isMe: boolean }) {
   const [progress, setProgress] = useState(0);
   const [dur, setDur] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.onloadedmetadata = null;
+        audioRef.current.ontimeupdate = null;
+        audioRef.current.onended = null;
+        audioRef.current = null;
+      }
+    };
+  }, []);
 
   const toggle = () => {
     if (!audioRef.current) {

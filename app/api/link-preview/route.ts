@@ -54,16 +54,31 @@ export async function GET(req: Request) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
-    let response: Response;
+    let response!: Response;
+    let finalUrl = url.toString();
     try {
-      response = await fetch(url.toString(), {
-        signal: controller.signal,
-        headers: {
-          "User-Agent": "PUP-LinkPreview/1.0",
-          Accept: "text/html",
-        },
-        redirect: "follow",
-      });
+      // Follow redirects manually to validate each hop against SSRF
+      let hops = 0;
+      while (hops < 3) {
+        response = await fetch(finalUrl, {
+          signal: controller.signal,
+          headers: {
+            "User-Agent": "PUP-LinkPreview/1.0",
+            Accept: "text/html",
+          },
+          redirect: "manual",
+        });
+        if (response.status >= 300 && response.status < 400) {
+          const location = response.headers.get("location");
+          if (!location) break;
+          const redirectUrl = new URL(location, finalUrl);
+          await validateExternalUrl(redirectUrl.toString()); // SSRF check on redirect target
+          finalUrl = redirectUrl.toString();
+          hops++;
+          continue;
+        }
+        break;
+      }
     } finally {
       clearTimeout(timeout);
     }

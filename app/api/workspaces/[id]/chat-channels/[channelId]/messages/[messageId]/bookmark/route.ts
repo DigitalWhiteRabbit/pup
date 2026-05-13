@@ -12,7 +12,20 @@ export async function POST(_req: Request, { params }: RouteParams) {
     const session = await auth();
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const { messageId } = await params;
+    const { channelId, messageId } = await params;
+
+    // Verify channel access
+    const membership = await db.chatChannelMember.findUnique({
+      where: { channelId_userId: { channelId, userId: session.user.id } },
+    });
+    if (!membership) {
+      const ch = await db.chatChannel.findUnique({
+        where: { id: channelId },
+        select: { type: true },
+      });
+      if (!ch || (ch.type !== "PUBLIC" && ch.type !== "GENERAL"))
+        return NextResponse.json({ error: "Нет доступа" }, { status: 403 });
+    }
 
     const existing = await db.chatMsgBookmark.findUnique({
       where: {

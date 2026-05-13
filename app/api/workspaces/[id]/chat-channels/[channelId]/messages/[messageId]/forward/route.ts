@@ -19,15 +19,33 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const { messageId } = await params;
+    const { channelId, messageId } = await params;
     const body: unknown = await req.json();
     const { targetChannelId } = forwardSchema.parse(body);
+
+    // Verify access to source channel
+    const srcMembership = await db.chatChannelMember.findUnique({
+      where: { channelId_userId: { channelId, userId: session.user.id } },
+    });
+    if (!srcMembership) {
+      const srcCh = await db.chatChannel.findUnique({
+        where: { id: channelId },
+        select: { type: true },
+      });
+      if (!srcCh || (srcCh.type !== "PUBLIC" && srcCh.type !== "GENERAL"))
+        return NextResponse.json({ error: "Нет доступа" }, { status: 403 });
+    }
 
     // Get original message
     const original = await db.chatMsg.findUnique({
       where: { id: messageId },
-      select: { content: true, deletedAt: true },
+      select: { content: true, deletedAt: true, channelId: true },
     });
+    if (original && original.channelId !== channelId)
+      return NextResponse.json(
+        { error: "Сообщение не в этом канале" },
+        { status: 400 },
+      );
     if (!original || original.deletedAt)
       return NextResponse.json(
         { error: "Сообщение не найдено" },
