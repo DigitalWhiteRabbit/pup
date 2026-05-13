@@ -28,7 +28,19 @@ import {
   XCircle,
 } from "lucide-react";
 import type { ActivityAction } from "@prisma/client";
-import type { ActivityLogItem } from "@/lib/services/logger.service";
+
+type ActivityLogItem = {
+  id: string;
+  action: ActivityAction;
+  entityType: string | null;
+  entityId: string | null;
+  summary: string;
+  metadata: Record<string, unknown>;
+  taskId: string | null;
+  columnId: string | null;
+  actor: { id: string; login: string } | null;
+  createdAt: Date;
+};
 
 type GlobalLogItem = ActivityLogItem & { workspaceName: string | null };
 type PaginatedGlobal = { data: GlobalLogItem[]; total: number };

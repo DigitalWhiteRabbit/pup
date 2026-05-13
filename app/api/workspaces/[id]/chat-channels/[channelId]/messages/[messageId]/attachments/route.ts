@@ -18,6 +18,8 @@ const ALLOWED_TYPES = [
   "application/zip",
   "video/mp4",
   "audio/mpeg",
+  "audio/webm",
+  "audio/ogg",
 ];
 
 type RouteParams = {

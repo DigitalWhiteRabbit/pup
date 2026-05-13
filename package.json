@@ -74,6 +74,8 @@
     "react-day-picker": "^9",
     "react-dom": "^18",
     "react-hook-form": "^7.75.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
     "server-only": "^0.0.1",
     "slugify": "^1.6.9",
     "sonner": "^2.0.7",

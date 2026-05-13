@@ -32,6 +32,8 @@ export type ChatMsgView = {
   reactions: Array<{ emoji: string; count: number; myReaction: boolean }>;
   attachments: ChatAttachmentView[];
   forwardedFrom: ForwardInfo | null;
+  readByCount: number;
+  pinnedAt: Date | null;
 };
 
 // ─── List messages ──────────────────────────────────────────────────────────
@@ -71,6 +73,12 @@ export async function listMessages(
     }
   }
 
+  // Fetch all member lastReadAt for read receipt computation
+  const members = await db.chatChannelMember.findMany({
+    where: { channelId },
+    select: { userId: true, lastReadAt: true },
+  });
+
   const messages = await db.chatMsg.findMany({
     where,
     orderBy: { createdAt: "desc" },
@@ -109,6 +117,11 @@ export async function listMessages(
       }
     }
 
+    // Compute read receipts: count members (excluding author) whose lastReadAt >= msg.createdAt
+    const readByCount = members.filter(
+      (mem) => mem.userId !== m.authorId && mem.lastReadAt >= m.createdAt,
+    ).length;
+
     return {
       id: m.id,
       authorId: m.author.id,
@@ -145,6 +158,8 @@ export async function listMessages(
             originalChannelName: m.forwardedFrom.channel.name,
           }
         : null,
+      readByCount,
+      pinnedAt: m.pinnedAt,
     };
   });
 }
@@ -217,6 +232,8 @@ export async function getThreadReplies(
             originalChannelName: m.forwardedFrom.channel.name,
           }
         : null,
+      readByCount: 0,
+      pinnedAt: null,
     };
   });
 }
@@ -298,6 +315,8 @@ export async function sendMessage(
     reactions: [],
     attachments: [],
     forwardedFrom: null,
+    readByCount: 0,
+    pinnedAt: null,
   };
 }
 
@@ -409,7 +428,7 @@ async function notifyMentions(
     // Check @all
     if (mentions.has("all")) {
       const members = await db.chatChannelMember.findMany({
-        where: { channelId, userId: { not: senderId } },
+        where: { channelId, userId: { not: senderId }, muted: false },
         include: {
           user: {
             select: { telegramChatId: true, tgNotifyChat: true },
@@ -433,12 +452,16 @@ async function notifyMentions(
         where: { login },
         select: { id: true, telegramChatId: true, tgNotifyChat: true },
       });
-      if (
-        user &&
-        user.id !== senderId &&
-        user.telegramChatId &&
-        user.tgNotifyChat
-      ) {
+      if (!user || user.id === senderId) continue;
+
+      // Skip if user has muted this channel
+      const memberRecord = await db.chatChannelMember.findUnique({
+        where: { channelId_userId: { channelId, userId: user.id } },
+        select: { muted: true },
+      });
+      if (memberRecord?.muted) continue;
+
+      if (user.telegramChatId && user.tgNotifyChat) {
         const short =
           content.length > 100 ? content.slice(0, 100) + "..." : content;
         const msg = `<b>💬 Вас упомянули в "${channelName}"</b>\n${senderLogin}: ${short}`;

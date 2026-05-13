@@ -28,11 +28,36 @@ import {
   ChevronUp,
   XCircle,
 } from "lucide-react";
-import type {
-  ActivityLogItem,
-  SystemLogItem,
-} from "@/lib/services/logger.service";
 import type { ActivityAction, LogLevel } from "@prisma/client";
+
+type ActivityLogItem = {
+  id: string;
+  action: ActivityAction;
+  entityType: string | null;
+  entityId: string | null;
+  summary: string;
+  metadata: Record<string, unknown>;
+  taskId: string | null;
+  columnId: string | null;
+  actor: { id: string; login: string } | null;
+  createdAt: Date;
+};
+
+type SystemLogItem = {
+  id: string;
+  level: LogLevel;
+  source: string;
+  method: string | null;
+  path: string | null;
+  statusCode: number | null;
+  durationMs: number | null;
+  message: string;
+  errorStack: string | null;
+  metadata: Record<string, unknown> | null;
+  workspaceId: string | null;
+  userId: string | null;
+  createdAt: Date;
+};
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

@@ -32,6 +32,14 @@ import {
   FileText,
   Download,
   Link2,
+  Pin,
+  Bookmark,
+  BookmarkCheck,
+  BellOff,
+  Bell,
+  UserPlus,
+  UserMinus,
+  CheckCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -42,6 +50,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toastSuccess, toastApiError } from "@/lib/toast";
+import { MessageContent } from "@/components/chat/message-content";
+import { LinkPreview, extractUrl } from "@/components/chat/link-preview";
+import { VoiceRecorder, VoicePlayer } from "@/components/chat/voice-recorder";
 
 type Channel = {
   id: string;
@@ -55,6 +66,7 @@ type Channel = {
     createdAt: string;
   } | null;
   unreadCount: number;
+  muted: boolean;
 };
 
 type MsgAttachment = {
@@ -82,6 +94,9 @@ type Msg = {
     originalAuthorLogin: string;
     originalChannelName: string | null;
   } | null;
+  readByCount: number;
+  pinnedAt: string | null;
+  bookmarked?: boolean;
 };
 
 const QUICK_EMOJIS = ["👍", "❤️", "😂", "🔥"];
@@ -114,6 +129,9 @@ export function ChatClient({
   const [linkedTaskId, setLinkedTaskId] = useState<string | null>(null);
   const [channelOrder, setChannelOrder] = useState<string[]>([]);
   const [dmOrder, setDmOrder] = useState<string[]>([]);
+  const [dragOver, setDragOver] = useState(false);
+  const [bookmarksOpen, setBookmarksOpen] = useState(false);
+  const [manageMembersOpen, setManageMembersOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   /* thread panel removed — Telegram-style inline replies */
   const endRef = useRef<HTMLDivElement>(null);
@@ -289,6 +307,75 @@ export function ChatClient({
     enabled: linkPickerOpen,
   });
 
+  // Typing indicator
+  const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sendTyping = useCallback(() => {
+    if (!activeChannelId) return;
+    void fetch(
+      `/api/workspaces/${workspaceId}/chat-channels/${activeChannelId}/typing`,
+      { method: "POST" },
+    );
+    if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+    typingTimerRef.current = setTimeout(() => {
+      typingTimerRef.current = null;
+    }, 3000);
+  }, [activeChannelId, workspaceId]);
+
+  const { data: typingD } = useQuery<{ data: Array<{ login: string }> }>({
+    queryKey: ["chat-typing", activeChannelId],
+    queryFn: () =>
+      fetch(
+        `/api/workspaces/${workspaceId}/chat-channels/${activeChannelId}/typing`,
+      ).then((r) => r.json()),
+    enabled: !!activeChannelId,
+    refetchInterval: 2000,
+  });
+  const typingUsers = typingD?.data ?? [];
+
+  // Pinned messages
+  const { data: pinnedD } = useQuery<{ data: Msg[] }>({
+    queryKey: ["chat-pinned", activeChannelId],
+    queryFn: () =>
+      fetch(
+        `/api/workspaces/${workspaceId}/chat-channels/${activeChannelId}/pinned`,
+      ).then((r) => r.json()),
+    enabled: !!activeChannelId,
+    staleTime: 10_000,
+  });
+  const pinnedMsgs = pinnedD?.data ?? [];
+
+  // Bookmarks
+  const { data: bookmarksD } = useQuery<{
+    data: Array<{
+      id: string;
+      messageId: string;
+      message: {
+        content: string;
+        authorLogin: string;
+        channelName: string;
+        channelId: string;
+      };
+    }>;
+  }>({
+    queryKey: ["chat-bookmarks"],
+    queryFn: () => fetch("/api/bookmarks").then((r) => r.json()),
+    enabled: bookmarksOpen,
+  });
+
+  // Online users
+  const { data: onlineD } = useQuery<{ data: string[] }>({
+    queryKey: ["online-users"],
+    queryFn: () =>
+      fetch("/api/users/online")
+        .then((r) => r.json())
+        .then((d) => ({
+          data: d.users?.map((u: { login: string }) => u.login) ?? [],
+        })),
+    staleTime: 10_000,
+    refetchInterval: 15_000,
+  });
+  const onlineLogins = new Set(onlineD?.data ?? []);
+
   const aCh = channels.find((c) => c.id === activeChannelId);
 
   /* ── actions ───────────────────────────────────────────────────────────── */
@@ -391,6 +478,82 @@ export function ChatClient({
     setActiveChannelId(dm.id);
   }
 
+  async function togglePin(msgId: string) {
+    if (!activeChannelId) return;
+    await fetch(
+      `/api/workspaces/${workspaceId}/chat-channels/${activeChannelId}/messages/${msgId}/pin`,
+      { method: "POST" },
+    );
+    void qc.invalidateQueries({ queryKey: ["chat-pinned", activeChannelId] });
+    void qc.invalidateQueries({ queryKey: ["chat-messages", activeChannelId] });
+  }
+
+  async function toggleBookmark(msgId: string) {
+    if (!activeChannelId) return;
+    await fetch(
+      `/api/workspaces/${workspaceId}/chat-channels/${activeChannelId}/messages/${msgId}/bookmark`,
+      { method: "POST" },
+    );
+    void qc.invalidateQueries({ queryKey: ["chat-messages", activeChannelId] });
+    void qc.invalidateQueries({ queryKey: ["chat-bookmarks"] });
+  }
+
+  async function toggleMute() {
+    if (!activeChannelId) return;
+    await fetch(
+      `/api/workspaces/${workspaceId}/chat-channels/${activeChannelId}/mute`,
+      { method: "POST" },
+    );
+    void qc.invalidateQueries({ queryKey: ["chat-channels", workspaceId] });
+    toastSuccess(aCh?.muted ? "Уведомления включены" : "Канал отключён");
+  }
+
+  async function addMember(userId: string) {
+    if (!activeChannelId) return;
+    await fetch(
+      `/api/workspaces/${workspaceId}/chat-channels/${activeChannelId}/members`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId }),
+      },
+    );
+    void qc.invalidateQueries({ queryKey: ["chat-channels", workspaceId] });
+    toastSuccess("Участник добавлен");
+  }
+
+  async function removeMember(userId: string) {
+    if (!activeChannelId) return;
+    await fetch(
+      `/api/workspaces/${workspaceId}/chat-channels/${activeChannelId}/members`,
+      {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId }),
+      },
+    );
+    void qc.invalidateQueries({ queryKey: ["chat-channels", workspaceId] });
+    toastSuccess("Участник удалён");
+  }
+
+  async function deleteChannel() {
+    if (!activeChannelId || !confirm("Удалить канал?")) return;
+    await fetch(
+      `/api/workspaces/${workspaceId}/chat-channels/${activeChannelId}`,
+      { method: "DELETE" },
+    );
+    setActiveChannelId(null);
+    void qc.invalidateQueries({ queryKey: ["chat-channels", workspaceId] });
+    toastSuccess("Канал удалён");
+  }
+
+  function handleFileDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setDragOver(false);
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0) setPendingFiles((prev) => [...prev, ...files]);
+  }
+
   async function forwardToChannel(targetChannelId: string) {
     if (!forwardMsg || !activeChannelId) return;
     await fetch(
@@ -411,18 +574,18 @@ export function ChatClient({
   return (
     <div className="flex" style={{ height: "100vh", marginTop: "-1px" }}>
       {/* ═══ LEFT ═══ */}
-      <div className="w-[300px] bg-white border-r flex flex-col shrink-0 h-full">
+      <div className="w-[300px] bg-card border-r flex flex-col shrink-0 h-full">
         {/* header */}
         <div className="px-4 py-3 border-b flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center text-white text-sm font-bold">
               💬
             </div>
-            <span className="font-semibold text-sm text-gray-800">Чат</span>
+            <span className="font-semibold text-sm text-foreground">Чат</span>
           </div>
           <button
             onClick={() => setCreateOpen(true)}
-            className="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center"
+            className="w-8 h-8 rounded-lg hover:bg-muted flex items-center justify-center"
             title="Новый канал"
           >
             <Plus className="w-5 h-5 text-gray-500" />
@@ -431,7 +594,7 @@ export function ChatClient({
 
         {/* search */}
         <div className="px-3 py-2 shrink-0">
-          <div className="flex items-center gap-2 bg-gray-100 rounded-lg px-3 py-1.5">
+          <div className="flex items-center gap-2 bg-muted rounded-lg px-3 py-1.5">
             <svg
               className="w-4 h-4 text-gray-400 shrink-0"
               fill="none"
@@ -449,7 +612,7 @@ export function ChatClient({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Поиск..."
-              className="bg-transparent text-sm outline-none flex-1 text-gray-600"
+              className="bg-transparent text-sm outline-none flex-1 text-foreground"
             />
             {searchQuery && (
               <button onClick={() => setSearchQuery("")}>
@@ -468,7 +631,7 @@ export function ChatClient({
                   setActiveChannelId(r.channelId);
                   setSearchQuery("");
                 }}
-                className="w-full text-left px-2 py-1.5 rounded hover:bg-gray-50 text-xs"
+                className="w-full text-left px-2 py-1.5 rounded hover:bg-muted/50 text-xs"
               >
                 <span className="font-medium text-gray-700">
                   {r.authorLogin}
@@ -577,15 +740,15 @@ export function ChatClient({
                 <button
                   key={m.id}
                   onClick={() => void startDM(m.id)}
-                  className="w-full flex items-center gap-2 px-2 py-1 rounded hover:bg-gray-50 text-left"
+                  className="w-full flex items-center gap-2 px-2 py-1 rounded hover:bg-muted/50 text-left"
                 >
                   <div className="relative">
-                    <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-[10px] font-bold text-gray-500">
+                    <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center text-[10px] font-bold text-muted-foreground">
                       {m.login[0]?.toUpperCase()}
                     </div>
                     <div className="absolute -bottom-0.5 -right-0.5 w-2 h-2 bg-emerald-400 border border-white rounded-full" />
                   </div>
-                  <span className="text-xs text-gray-700">{m.login}</span>
+                  <span className="text-xs text-foreground">{m.login}</span>
                 </button>
               ))}
           </div>
@@ -593,11 +756,11 @@ export function ChatClient({
       </div>
 
       {/* ═══ CENTER ═══ */}
-      <div className="flex-1 flex flex-col min-w-0 bg-gray-50 h-full">
+      <div className="flex-1 flex flex-col min-w-0 bg-muted/30 h-full">
         {aCh ? (
           <>
             {/* header */}
-            <div className="bg-white border-b px-5 py-3 flex items-center justify-between shrink-0">
+            <div className="bg-card border-b px-5 py-3 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-lg">
                   {aCh.type === "GENERAL"
@@ -609,7 +772,7 @@ export function ChatClient({
                         : "#"}
                 </div>
                 <div>
-                  <div className="text-sm font-semibold text-gray-800">
+                  <div className="text-sm font-semibold text-foreground">
                     {aCh.name ?? "Личные сообщения"}
                   </div>
                   <div className="text-[11px] text-gray-400">
@@ -617,30 +780,80 @@ export function ChatClient({
                   </div>
                 </div>
               </div>
-              <button
-                className="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center"
-                onClick={() => {
-                  setShowInfo(!showInfo);
-                }}
-              >
-                <svg
-                  className="w-4 h-4 text-gray-500"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => void toggleMute()}
+                  className={`w-8 h-8 rounded-lg hover:bg-muted flex items-center justify-center ${aCh?.muted ? "text-red-400" : "text-gray-400"}`}
+                  title={
+                    aCh?.muted
+                      ? "Включить уведомления"
+                      : "Отключить уведомления"
+                  }
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                  />
-                </svg>
-              </button>
+                  {aCh?.muted ? (
+                    <BellOff className="w-4 h-4" />
+                  ) : (
+                    <Bell className="w-4 h-4" />
+                  )}
+                </button>
+                <button
+                  onClick={() => setBookmarksOpen(true)}
+                  className="w-8 h-8 rounded-lg hover:bg-muted flex items-center justify-center text-gray-400"
+                  title="Избранное"
+                >
+                  <Bookmark className="w-4 h-4" />
+                </button>
+                <button
+                  className="w-8 h-8 rounded-lg hover:bg-muted flex items-center justify-center text-gray-400"
+                  onClick={() => setShowInfo(!showInfo)}
+                  title="Информация"
+                >
+                  <svg
+                    className="w-4 h-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                </button>
+              </div>
             </div>
 
-            {/* messages */}
-            <div className="flex-1 overflow-y-auto px-5 py-4 min-h-0">
+            {/* pinned messages banner */}
+            {pinnedMsgs.length > 0 && (
+              <div className="bg-amber-50 dark:bg-amber-900/20 border-b px-5 py-2 shrink-0 flex items-center gap-2">
+                <Pin className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+                <span className="text-xs text-amber-700 truncate flex-1">
+                  <b>{pinnedMsgs[0]?.authorLogin}</b>:{" "}
+                  {pinnedMsgs[0]?.content.slice(0, 60)}
+                  {pinnedMsgs.length > 1 && ` (+${pinnedMsgs.length - 1})`}
+                </span>
+              </div>
+            )}
+
+            {/* messages + drag & drop zone */}
+            <div
+              className={`flex-1 overflow-y-auto px-5 py-4 min-h-0 relative ${dragOver ? "bg-emerald-50" : ""}`}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragOver(true);
+              }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={handleFileDrop}
+            >
+              {dragOver && (
+                <div className="absolute inset-0 flex items-center justify-center bg-emerald-50/80 dark:bg-emerald-900/30 z-10 border-2 border-dashed border-emerald-400 rounded-lg">
+                  <div className="text-emerald-600 font-medium text-sm">
+                    Перетащите файлы сюда
+                  </div>
+                </div>
+              )}
               {msgs.length === 0 && (
                 <div className="flex items-center justify-center h-full text-sm text-gray-400">
                   Нет сообщений. Начните диалог!
@@ -655,8 +868,13 @@ export function ChatClient({
                     className={`group flex mb-3 transition-colors duration-700 rounded-lg ${isMe ? "justify-end" : "justify-start"} ${highlightMsgId === m.id ? "bg-emerald-100" : ""}`}
                   >
                     {!isMe && (
-                      <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-xs font-bold text-gray-600 shrink-0 mt-0.5 mr-2">
-                        {m.authorLogin[0]?.toUpperCase()}
+                      <div className="relative shrink-0 mt-0.5 mr-2">
+                        <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-xs font-bold text-muted-foreground">
+                          {m.authorLogin[0]?.toUpperCase()}
+                        </div>
+                        {onlineLogins.has(m.authorLogin) && (
+                          <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-400 border-2 border-gray-50 rounded-full" />
+                        )}
                       </div>
                     )}
                     <div
@@ -665,7 +883,7 @@ export function ChatClient({
                       <div
                         className={`flex items-center gap-2 mb-0.5 ${isMe ? "flex-row-reverse" : ""}`}
                       >
-                        <span className="text-xs font-semibold text-gray-700">
+                        <span className="text-xs font-semibold text-foreground">
                           {m.authorLogin}
                         </span>
                         <span className="text-[10px] text-gray-400">
@@ -673,6 +891,25 @@ export function ChatClient({
                             locale: ru,
                           })}
                         </span>
+                        {isMe && (
+                          <span
+                            className={`text-[10px] ${m.readByCount > 0 ? "text-blue-400" : "text-gray-300"}`}
+                            title={
+                              m.readByCount > 0
+                                ? `Прочитано: ${m.readByCount}`
+                                : "Доставлено"
+                            }
+                          >
+                            {m.readByCount > 0 ? (
+                              <CheckCheck className="h-3 w-3 inline" />
+                            ) : (
+                              <Check className="h-3 w-3 inline" />
+                            )}
+                          </span>
+                        )}
+                        {m.pinnedAt && (
+                          <Pin className="h-3 w-3 text-amber-500 inline" />
+                        )}
                         {m.editedAt && (
                           <span
                             className="text-[10px] text-gray-400"
@@ -686,7 +923,7 @@ export function ChatClient({
                         )}
                       </div>
                       <div
-                        className={`rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap break-words ${isMe ? "bg-emerald-500 text-white rounded-br-md" : "bg-white border shadow-sm text-gray-700 rounded-bl-md"}`}
+                        className={`rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap break-words ${isMe ? "bg-emerald-500 text-white rounded-br-md" : "bg-card border shadow-sm text-card-foreground rounded-bl-md"}`}
                       >
                         {/* forwarded header */}
                         {m.forwardedFrom && (
@@ -766,16 +1003,15 @@ export function ChatClient({
                               </button>
                             </div>
                           </div>
-                        ) : isMe ? (
-                          m.content
                         ) : (
-                          hl(m.content)
+                          <MessageContent content={m.content} isMe={isMe} />
                         )}
                         {/* attachments */}
                         {m.attachments?.length > 0 && (
                           <div className="mt-1.5 space-y-1">
                             {m.attachments.map((att) => {
                               const isImage = att.mimeType.startsWith("image/");
+                              const isAudio = att.mimeType.startsWith("audio/");
                               return isImage ? (
                                 <button
                                   key={att.id}
@@ -793,11 +1029,18 @@ export function ChatClient({
                                     className="max-w-[120px] max-h-[90px] rounded-lg object-cover cursor-pointer hover:opacity-90 transition-opacity"
                                   />
                                 </button>
+                              ) : isAudio ? (
+                                <div key={att.id}>
+                                  <VoicePlayer
+                                    src={`/api/chat-attachments/${att.id}`}
+                                    isMe={isMe}
+                                  />
+                                </div>
                               ) : (
                                 <a
                                   key={att.id}
                                   href={`/api/chat-attachments/${att.id}?download=1`}
-                                  className={`flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs ${isMe ? "bg-white/10 hover:bg-white/20 text-white" : "bg-gray-50 hover:bg-gray-100 text-gray-600"}`}
+                                  className={`flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs ${isMe ? "bg-white/10 hover:bg-white/20 text-white" : "bg-gray-50 hover:bg-muted text-gray-600"}`}
                                 >
                                   <FileText className="h-4 w-4 shrink-0" />
                                   <span className="truncate flex-1">
@@ -833,6 +1076,13 @@ export function ChatClient({
                             )}
                           </div>
                         )}
+                        {/* link preview */}
+                        {(() => {
+                          const url = extractUrl(m.content);
+                          return url ? (
+                            <LinkPreview url={url} isMe={isMe} />
+                          ) : null;
+                        })()}
                       </div>
                       {m.reactions.length > 0 && (
                         <div
@@ -842,7 +1092,7 @@ export function ChatClient({
                             <button
                               key={r.emoji}
                               onClick={() => void react(m.id, r.emoji)}
-                              className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${r.myReaction ? "bg-emerald-50 border border-emerald-200" : "bg-gray-100 hover:bg-gray-200"}`}
+                              className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${r.myReaction ? "bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-700" : "bg-muted hover:bg-muted/80"}`}
                             >
                               {r.emoji}{" "}
                               <span className="text-gray-500">{r.count}</span>
@@ -856,17 +1106,39 @@ export function ChatClient({
                       >
                         <button
                           onClick={() => setReplyTo(m)}
-                          className="p-1 rounded hover:bg-gray-200 text-gray-400"
+                          className="p-1 rounded hover:bg-muted text-muted-foreground"
                           title="Ответить"
                         >
                           <CornerDownRight className="h-3 w-3" />
                         </button>
                         <button
                           onClick={() => setForwardMsg(m)}
-                          className="p-1 rounded hover:bg-gray-200 text-gray-400"
+                          className="p-1 rounded hover:bg-muted text-muted-foreground"
                           title="Переслать"
                         >
                           <Forward className="h-3 w-3" />
+                        </button>
+                        <button
+                          onClick={() => void togglePin(m.id)}
+                          className={`p-1 rounded hover:bg-gray-200 ${m.pinnedAt ? "text-amber-500" : "text-gray-400"}`}
+                          title={m.pinnedAt ? "Открепить" : "Закрепить"}
+                        >
+                          <Pin className="h-3 w-3" />
+                        </button>
+                        <button
+                          onClick={() => void toggleBookmark(m.id)}
+                          className={`p-1 rounded hover:bg-gray-200 ${m.bookmarked ? "text-blue-500" : "text-gray-400"}`}
+                          title={
+                            m.bookmarked
+                              ? "Убрать из избранного"
+                              : "В избранное"
+                          }
+                        >
+                          {m.bookmarked ? (
+                            <BookmarkCheck className="h-3 w-3" />
+                          ) : (
+                            <Bookmark className="h-3 w-3" />
+                          )}
                         </button>
                         {isMe && (
                           <>
@@ -875,7 +1147,7 @@ export function ChatClient({
                                 setEditingMsgId(m.id);
                                 setEditText(m.content);
                               }}
-                              className="p-1 rounded hover:bg-gray-200 text-gray-400"
+                              className="p-1 rounded hover:bg-muted text-muted-foreground"
                               title="Редактировать"
                             >
                               <Pencil className="h-3 w-3" />
@@ -914,9 +1186,18 @@ export function ChatClient({
               <div ref={endRef} />
             </div>
 
+            {/* typing indicator */}
+            {typingUsers.length > 0 && (
+              <div className="bg-white border-t px-5 py-1 shrink-0">
+                <span className="text-xs text-gray-400 italic">
+                  {typingUsers.map((u) => u.login).join(", ")} печатает...
+                </span>
+              </div>
+            )}
+
             {/* reply indicator */}
             {replyTo && (
-              <div className="bg-white border-t px-5 py-1.5 flex items-center gap-2 text-xs text-gray-500 shrink-0">
+              <div className="bg-card border-t px-5 py-1.5 flex items-center gap-2 text-xs text-gray-500 shrink-0">
                 <CornerDownRight className="h-3 w-3 text-emerald-500" />
                 Ответ: <b>{replyTo.authorLogin}</b>:{" "}
                 {replyTo.content.slice(0, 50)}
@@ -928,7 +1209,7 @@ export function ChatClient({
 
             {/* pending files preview */}
             {pendingFiles.length > 0 && (
-              <div className="bg-white border-t px-5 py-2 flex gap-2 flex-wrap shrink-0">
+              <div className="bg-card border-t px-5 py-2 flex gap-2 flex-wrap shrink-0">
                 {pendingFiles.map((f, i) => {
                   const isImage = f.type.startsWith("image/");
                   return (
@@ -965,7 +1246,7 @@ export function ChatClient({
 
             {/* linked item indicator */}
             {(linkedTicketId || linkedTaskId) && (
-              <div className="bg-white border-t px-5 py-1.5 flex items-center gap-2 text-xs text-gray-500 shrink-0">
+              <div className="bg-card border-t px-5 py-1.5 flex items-center gap-2 text-xs text-gray-500 shrink-0">
                 <Link2 className="h-3 w-3 text-blue-500" />
                 Привязано: {linkedTicketId ? "🎫 Тикет" : "📋 Задача"}
                 <button
@@ -981,7 +1262,7 @@ export function ChatClient({
             )}
 
             {/* input */}
-            <div className="bg-white border-t px-5 py-3 shrink-0">
+            <div className="bg-card border-t px-5 py-3 shrink-0">
               <input
                 ref={fileInputRef}
                 type="file"
@@ -998,19 +1279,19 @@ export function ChatClient({
               <div className="flex items-end gap-2">
                 <button
                   onClick={() => fileInputRef.current?.click()}
-                  className="w-9 h-9 rounded-lg hover:bg-gray-100 flex items-center justify-center shrink-0"
+                  className="w-9 h-9 rounded-lg hover:bg-muted flex items-center justify-center shrink-0"
                   title="Прикрепить файл"
                 >
                   <Paperclip className="w-5 h-5 text-gray-400" />
                 </button>
                 <button
                   onClick={() => setLinkPickerOpen(true)}
-                  className={`w-9 h-9 rounded-lg hover:bg-gray-100 flex items-center justify-center shrink-0 ${linkedTicketId || linkedTaskId ? "text-blue-500" : ""}`}
+                  className={`w-9 h-9 rounded-lg hover:bg-muted flex items-center justify-center shrink-0 ${linkedTicketId || linkedTaskId ? "text-blue-500" : ""}`}
                   title="Привязать к задаче/тикету"
                 >
                   <Link2 className="w-5 h-5 text-gray-400" />
                 </button>
-                <div className="flex-1 bg-gray-100 rounded-2xl px-4 py-2.5 relative">
+                <div className="flex-1 bg-muted rounded-2xl px-4 py-2.5 relative">
                   {/* @mention dropdown */}
                   {mentionQuery !== null &&
                     (() => {
@@ -1042,7 +1323,7 @@ export function ChatClient({
                                   ? "📢"
                                   : m.login[0]?.toUpperCase()}
                               </div>
-                              <span className="text-sm text-gray-700">
+                              <span className="text-sm text-foreground">
                                 {m.login === "all"
                                   ? "@all — все участники"
                                   : m.login}
@@ -1057,6 +1338,7 @@ export function ChatClient({
                     onChange={(e) => {
                       const val = e.target.value;
                       setMsgText(val);
+                      if (val.trim() && !typingTimerRef.current) sendTyping();
                       // Detect @mention
                       const cursor = e.target.selectionStart;
                       const textBeforeCursor = val.slice(0, cursor);
@@ -1081,22 +1363,27 @@ export function ChatClient({
                     onBlur={() => setTimeout(() => setMentionQuery(null), 200)}
                     placeholder="Напишите сообщение..."
                     rows={1}
-                    className="w-full bg-transparent text-sm outline-none resize-none min-h-[20px] max-h-[120px] text-gray-700"
+                    className="w-full bg-transparent text-sm outline-none resize-none min-h-[20px] max-h-[120px] text-foreground"
                   />
                 </div>
-                <button
-                  className="w-9 h-9 rounded-xl bg-emerald-500 hover:bg-emerald-600 flex items-center justify-center shrink-0 disabled:opacity-40"
-                  disabled={
-                    (!msgText.trim() && pendingFiles.length === 0) ||
-                    sendMut.isPending
-                  }
-                  onClick={send}
-                >
-                  <Send className="w-4 h-4 text-white" />
-                </button>
+                {msgText.trim() || pendingFiles.length > 0 ? (
+                  <button
+                    className="w-9 h-9 rounded-xl bg-emerald-500 hover:bg-emerald-600 flex items-center justify-center shrink-0 disabled:opacity-40"
+                    disabled={sendMut.isPending}
+                    onClick={send}
+                  >
+                    <Send className="w-4 h-4 text-white" />
+                  </button>
+                ) : (
+                  <VoiceRecorder
+                    onRecorded={(file) => setPendingFiles([file])}
+                    disabled={sendMut.isPending}
+                  />
+                )}
               </div>
               <div className="text-[10px] text-gray-400 mt-1 pl-[88px]">
-                @упоминание · Enter — отправить · Shift+Enter — новая строка
+                @упоминание · Enter — отправить · Shift+Enter — новая строка ·
+                🎤 голосовое
               </div>
             </div>
           </>
@@ -1109,7 +1396,7 @@ export function ChatClient({
 
       {/* ═══ RIGHT: Info ═══ */}
       {showInfo && aCh && (
-        <div className="w-[280px] bg-white border-l flex flex-col shrink-0 h-full">
+        <div className="w-[280px] bg-card border-l flex flex-col shrink-0 h-full">
           <div className="px-4 py-3 border-b flex items-center justify-between shrink-0">
             <span className="text-sm font-semibold">
               {aCh.type === "DM" ? "Личные сообщения" : aCh.name}
@@ -1123,14 +1410,16 @@ export function ChatClient({
               <div className="text-[10px] font-bold text-gray-400 uppercase mb-1">
                 Описание
               </div>
-              <div className="text-xs text-gray-600">{aCh.description}</div>
+              <div className="text-xs text-muted-foreground">
+                {aCh.description}
+              </div>
             </div>
           )}
           <div className="px-4 py-3 border-b shrink-0">
             <div className="text-[10px] font-bold text-gray-400 uppercase mb-1">
               Тип
             </div>
-            <div className="text-xs text-gray-600">
+            <div className="text-xs text-muted-foreground">
               {aCh.type === "GENERAL"
                 ? "💬 Общий"
                 : aCh.type === "PUBLIC"
@@ -1154,7 +1443,7 @@ export function ChatClient({
                     <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-400 border-2 border-white rounded-full" />
                   </div>
                   <div>
-                    <div className="text-xs font-medium text-gray-700">
+                    <div className="text-xs font-medium text-foreground">
                       {m.login}
                     </div>
                     {m.id === currentUserId && (
@@ -1165,13 +1454,23 @@ export function ChatClient({
               ))}
             </div>
           </div>
-          <div className="border-t px-4 py-3 shrink-0">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" defaultChecked className="rounded" />
-              <span className="text-xs text-gray-600">
-                Уведомления в Telegram
-              </span>
-            </label>
+          <div className="border-t px-4 py-2 shrink-0 space-y-1">
+            {aCh.type !== "GENERAL" && aCh.type !== "DM" && (
+              <button
+                onClick={() => setManageMembersOpen(true)}
+                className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs text-muted-foreground hover:bg-muted/50"
+              >
+                <UserPlus className="h-3.5 w-3.5" /> Управление участниками
+              </button>
+            )}
+            {aCh.type !== "GENERAL" && aCh.type !== "DM" && (
+              <button
+                onClick={() => void deleteChannel()}
+                className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs text-red-500 hover:bg-red-50"
+              >
+                <Trash2 className="h-3.5 w-3.5" /> Удалить канал
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -1213,12 +1512,12 @@ export function ChatClient({
                 <button
                   key={c.id}
                   onClick={() => void forwardToChannel(c.id)}
-                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 flex items-center gap-2"
+                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-muted/50 flex items-center gap-2"
                 >
                   <span className="text-sm">
                     {c.type === "DM" ? "👤" : c.type === "PRIVATE" ? "🔒" : "#"}
                   </span>
-                  <span className="text-sm text-gray-700 truncate">
+                  <span className="text-sm text-foreground truncate">
                     {c.name ?? "Личные"}
                   </span>
                 </button>
@@ -1247,7 +1546,7 @@ export function ChatClient({
                       setLinkedTaskId(null);
                       setLinkPickerOpen(false);
                     }}
-                    className={`w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 text-sm ${linkedTicketId === t.id ? "bg-blue-50 border border-blue-200" : ""}`}
+                    className={`w-full text-left px-3 py-2 rounded-lg hover:bg-muted/50 text-sm ${linkedTicketId === t.id ? "bg-blue-50 border border-blue-200" : ""}`}
                   >
                     🎫 #{t.number} {t.title}
                   </button>
@@ -1267,7 +1566,7 @@ export function ChatClient({
                       setLinkedTicketId(null);
                       setLinkPickerOpen(false);
                     }}
-                    className={`w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 text-sm ${linkedTaskId === t.id ? "bg-amber-50 border border-amber-200" : ""}`}
+                    className={`w-full text-left px-3 py-2 rounded-lg hover:bg-muted/50 text-sm ${linkedTaskId === t.id ? "bg-amber-50 border border-amber-200" : ""}`}
                   >
                     📋 {t.title}
                   </button>
@@ -1277,6 +1576,94 @@ export function ChatClient({
             {!(tasksD?.data?.length ?? 0) && !(ticketsD?.data?.length ?? 0) && (
               <div className="text-sm text-gray-400 text-center py-4">
                 Нет задач или тикетов
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bookmarks dialog */}
+      <Dialog open={bookmarksOpen} onOpenChange={setBookmarksOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Избранные сообщения</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 max-h-80 overflow-y-auto">
+            {(bookmarksD?.data?.length ?? 0) === 0 && (
+              <div className="text-sm text-gray-400 text-center py-4">
+                Нет сохранённых сообщений
+              </div>
+            )}
+            {bookmarksD?.data?.map((b) => (
+              <button
+                key={b.id}
+                onClick={() => {
+                  setActiveChannelId(b.message.channelId);
+                  setBookmarksOpen(false);
+                }}
+                className="w-full text-left px-3 py-2 rounded-lg hover:bg-muted/50"
+              >
+                <div className="text-xs font-medium text-foreground">
+                  {b.message.authorLogin}{" "}
+                  <span className="text-gray-400 font-normal">
+                    в {b.message.channelName}
+                  </span>
+                </div>
+                <div className="text-xs text-muted-foreground truncate mt-0.5">
+                  {b.message.content}
+                </div>
+              </button>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Manage members dialog */}
+      <Dialog open={manageMembersOpen} onOpenChange={setManageMembersOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Участники канала</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-1 max-h-60 overflow-y-auto">
+            {members.map((m) => (
+              <div
+                key={m.id}
+                className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-muted/50"
+              >
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center text-[10px] font-bold text-muted-foreground">
+                    {m.login[0]?.toUpperCase()}
+                  </div>
+                  <span className="text-sm text-foreground">{m.login}</span>
+                </div>
+                {m.id !== currentUserId && (
+                  <button
+                    onClick={() => void removeMember(m.id)}
+                    className="text-xs text-red-400 hover:text-red-600"
+                  >
+                    <UserMinus className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+          <div className="border-t pt-2 mt-2">
+            <div className="text-[10px] font-bold text-gray-400 uppercase mb-1">
+              Добавить
+            </div>
+            {members.filter((m) => m.id !== currentUserId).length <
+              (memD?.members?.length ?? 0) && (
+              <div className="space-y-1 max-h-32 overflow-y-auto">
+                {(memD?.members ?? []).map((m) => (
+                  <button
+                    key={m.id}
+                    onClick={() => void addMember(m.id)}
+                    className="w-full flex items-center gap-2 px-3 py-1.5 rounded hover:bg-emerald-50 text-left"
+                  >
+                    <UserPlus className="h-3 w-3 text-emerald-500" />
+                    <span className="text-xs text-foreground">{m.login}</span>
+                  </button>
+                ))}
               </div>
             )}
           </div>
@@ -1310,9 +1697,9 @@ function ChItem({
   return (
     <button
       onClick={onClick}
-      className={`w-full text-left px-4 py-2.5 flex items-center gap-3 transition-colors ${active ? "bg-emerald-50 border-l-[3px] border-emerald-500" : "hover:bg-gray-50 border-l-[3px] border-transparent"}`}
+      className={`w-full text-left px-4 py-2.5 flex items-center gap-3 transition-colors ${active ? "bg-emerald-50 border-l-[3px] border-emerald-500" : "hover:bg-muted/50 border-l-[3px] border-transparent"}`}
     >
-      <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-lg shrink-0">
+      <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center text-lg shrink-0">
         {icon}
       </div>
       <div className="flex-1 min-w-0">
@@ -1332,7 +1719,7 @@ function ChItem({
         </div>
         {ch.lastMessage && (
           <div className="flex justify-between items-center">
-            <span className="text-xs text-gray-500 truncate">
+            <span className="text-xs text-muted-foreground truncate">
               {ch.lastMessage.authorName}: {ch.lastMessage.content}
             </span>
             {ch.unreadCount > 0 && (
@@ -1381,21 +1768,6 @@ function fmtSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} Б`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} КБ`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`;
-}
-
-function hl(c: string) {
-  return c.split(/(@\w+)/g).map((p, i) =>
-    p.startsWith("@") ? (
-      <span
-        key={i}
-        className="text-emerald-600 font-medium bg-emerald-50 rounded px-0.5"
-      >
-        {p}
-      </span>
-    ) : (
-      <span key={i}>{p}</span>
-    ),
-  );
 }
 
 function CCD({
@@ -1503,7 +1875,7 @@ function CCD({
               {allMembers.map((m) => (
                 <label
                   key={m.id}
-                  className="flex items-center gap-2 py-1 px-1 rounded hover:bg-gray-50 cursor-pointer"
+                  className="flex items-center gap-2 py-1 px-1 rounded hover:bg-muted/50 cursor-pointer"
                 >
                   <input
                     type="checkbox"
@@ -1522,7 +1894,7 @@ function CCD({
                   <div className="w-5 h-5 rounded-full bg-gray-200 flex items-center justify-center text-[9px] font-bold text-gray-500">
                     {m.login[0]?.toUpperCase()}
                   </div>
-                  <span className="text-xs text-gray-700">{m.login}</span>
+                  <span className="text-xs text-foreground">{m.login}</span>
                 </label>
               ))}
             </div>

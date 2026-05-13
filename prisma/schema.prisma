@@ -72,6 +72,7 @@ model User {
   chatMessages             ChatMsg[]           @relation("ChatMsgAuthor")
   chatReactions            ChatMsgReaction[]
   globalChatMessages       GlobalChatMsg[]     @relation("GlobalChatAuthor")
+  chatBookmarks            ChatMsgBookmark[]
 
   @@index([email])
   @@index([login])
@@ -952,11 +953,13 @@ model ChatChannel {
 }
 
 model ChatChannelMember {
-  id        String   @id @default(cuid())
-  channelId String
-  userId    String
-  joinedAt  DateTime @default(now())
+  id         String   @id @default(cuid())
+  channelId  String
+  userId     String
+  joinedAt   DateTime @default(now())
   lastReadAt DateTime @default(now())
+  muted      Boolean  @default(false)
+  typingAt   DateTime? // null = not typing
 
   channel ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
   user    User        @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -982,6 +985,10 @@ model ChatMsg {
   // Forward
   forwardedFromId String?  // original message id
 
+  // Pin
+  pinnedAt  DateTime?
+  pinnedById String?
+
   createdAt DateTime @default(now())
 
   channel       ChatChannel      @relation(fields: [channelId], references: [id], onDelete: Cascade)
@@ -991,6 +998,7 @@ model ChatMsg {
   forwardedFrom ChatMsg?         @relation("ChatMsgForward", fields: [forwardedFromId], references: [id], onDelete: SetNull)
   forwards      ChatMsg[]        @relation("ChatMsgForward")
   reactions     ChatMsgReaction[]
+  bookmarks     ChatMsgBookmark[]
   attachments   ChatMsgAttachment[]
 
   @@index([channelId, createdAt])
@@ -1024,19 +1032,49 @@ model ChatMsgAttachment {
   @@index([messageId])
 }
 
+model ChatMsgBookmark {
+  id        String   @id @default(cuid())
+  messageId String
+  userId    String
+  createdAt DateTime @default(now())
+
+  message ChatMsg @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId])
+  @@index([userId])
+}
+
 // ─── Global Chat (lobby for all users) ──────────────────────────────────────
 
 model GlobalChatMsg {
   id        String    @id @default(cuid())
   authorId  String
   content   String
+  parentId  String?
   editedAt  DateTime?
   deletedAt DateTime?
   createdAt DateTime  @default(now())
 
-  author User @relation("GlobalChatAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  author    User              @relation("GlobalChatAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  parent    GlobalChatMsg?    @relation("GlobalReply", fields: [parentId], references: [id], onDelete: SetNull)
+  replies   GlobalChatMsg[]   @relation("GlobalReply")
+  reactions GlobalChatReaction[]
 
   @@index([createdAt])
+  @@index([parentId])
+}
+
+model GlobalChatReaction {
+  id        String @id @default(cuid())
+  messageId String
+  userId    String
+  emoji     String
+
+  message GlobalChatMsg @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId, emoji])
+  @@index([messageId])
 }
 
 model AgentConfig {

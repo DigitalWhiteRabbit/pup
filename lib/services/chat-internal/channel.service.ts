@@ -18,6 +18,7 @@ export type ChannelView = {
     createdAt: Date;
   } | null;
   unreadCount: number;
+  muted: boolean;
 };
 
 export type ChannelDetail = ChannelView & {
@@ -108,6 +109,7 @@ export async function listChannels(
         select: {
           userId: true,
           lastReadAt: true,
+          muted: true,
           user: { select: { login: true } },
         },
       },
@@ -160,6 +162,7 @@ export async function listChannels(
           }
         : null,
       unreadCount,
+      muted: myMembership?.muted ?? false,
     });
   }
 
@@ -299,6 +302,7 @@ export async function getChannelDetail(
         }
       : null,
     unreadCount: 0,
+    muted: channel.members.find((m) => m.userId === userId)?.muted ?? false,
     members: channel.members.map((m) => ({
       id: m.id,
       userId: m.user.id,
