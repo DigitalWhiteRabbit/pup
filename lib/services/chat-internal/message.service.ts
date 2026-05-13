@@ -16,6 +16,7 @@ export type ChatMsgView = {
   editedAt: Date | null;
   createdAt: Date;
   replyCount: number;
+  replyTo: { authorLogin: string; content: string } | null;
   reactions: Array<{ emoji: string; count: number; myReaction: boolean }>;
 };
 
@@ -44,7 +45,6 @@ export async function listMessages(
   const limit = opts.limit ?? 50;
   const where: Record<string, unknown> = {
     channelId,
-    parentId: null, // top-level only
     deletedAt: null,
   };
   if (opts.before) {
@@ -63,6 +63,9 @@ export async function listMessages(
     take: limit,
     include: {
       author: { select: { id: true, login: true } },
+      parent: {
+        select: { content: true, author: { select: { login: true } } },
+      },
       _count: { select: { replies: true } },
       reactions: { select: { emoji: true, userId: true } },
     },
@@ -94,6 +97,20 @@ export async function listMessages(
       editedAt: m.editedAt,
       createdAt: m.createdAt,
       replyCount: m._count.replies,
+      replyTo: (
+        m as unknown as {
+          parent?: { content: string; author: { login: string } };
+        }
+      ).parent
+        ? {
+            authorLogin: (
+              m as unknown as { parent: { author: { login: string } } }
+            ).parent.author.login,
+            content: (
+              m as unknown as { parent: { content: string } }
+            ).parent.content.slice(0, 100),
+          }
+        : null,
       reactions: Array.from(reactionMap.entries()).map(([emoji, data]) => ({
         emoji,
         ...data,
@@ -149,6 +166,7 @@ export async function getThreadReplies(
       editedAt: m.editedAt,
       createdAt: m.createdAt,
       replyCount: m._count.replies,
+      replyTo: null,
       reactions: Array.from(reactionMap.entries()).map(([emoji, data]) => ({
         emoji,
         ...data,
@@ -228,6 +246,7 @@ export async function sendMessage(
     editedAt: null,
     createdAt: msg.createdAt,
     replyCount: msg._count.replies,
+    replyTo: null,
     reactions: [],
   };
 }

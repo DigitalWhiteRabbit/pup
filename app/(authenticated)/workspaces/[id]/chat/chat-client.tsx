@@ -38,6 +38,7 @@ type Msg = {
   editedAt: string | null;
   createdAt: string;
   replyCount: number;
+  replyTo: { authorLogin: string; content: string } | null;
   reactions: Array<{ emoji: string; count: number; myReaction: boolean }>;
 };
 
@@ -59,7 +60,7 @@ export function ChatClient({
   const [searchQuery, setSearchQuery] = useState("");
   const [msgText, setMsgText] = useState("");
   const [replyTo, setReplyTo] = useState<Msg | null>(null);
-  const [threadMsgId, setThreadMsgId] = useState<string | null>(null);
+  /* thread panel removed — Telegram-style inline replies */
   const endRef = useRef<HTMLDivElement>(null);
 
   /* ── data ──────────────────────────────────────────────────────────────── */
@@ -127,16 +128,6 @@ export function ChatClient({
   });
   const members = memD?.members ?? [];
 
-  const { data: thD } = useQuery<{ data: Msg[] }>({
-    queryKey: ["chat-thread", threadMsgId],
-    queryFn: () =>
-      fetch(
-        `/api/workspaces/${workspaceId}/chat-channels/${activeChannelId}/messages/${threadMsgId}/thread`,
-      ).then((r) => r.json()),
-    enabled: !!threadMsgId,
-    refetchInterval: 3000,
-  });
-  const threadReplies = thD?.data ?? [];
   const aCh = channels.find((c) => c.id === activeChannelId);
 
   /* ── actions ───────────────────────────────────────────────────────────── */
@@ -284,7 +275,7 @@ export function ChatClient({
                 active={ch.id === activeChannelId}
                 onClick={() => {
                   setActiveChannelId(ch.id);
-                  setThreadMsgId(null);
+
                   setShowInfo(false);
                 }}
               />
@@ -305,7 +296,7 @@ export function ChatClient({
                 active={ch.id === activeChannelId}
                 onClick={() => {
                   setActiveChannelId(ch.id);
-                  setThreadMsgId(null);
+
                   setShowInfo(false);
                 }}
               />
@@ -368,7 +359,6 @@ export function ChatClient({
                 className="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center"
                 onClick={() => {
                   setShowInfo(!showInfo);
-                  setThreadMsgId(null);
                 }}
               >
                 <svg
@@ -429,6 +419,22 @@ export function ChatClient({
                       <div
                         className={`rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap break-words ${isMe ? "bg-emerald-500 text-white rounded-br-md" : "bg-white border shadow-sm text-gray-700 rounded-bl-md"}`}
                       >
+                        {m.replyTo && (
+                          <div
+                            className={`mb-1.5 pl-2 border-l-2 text-xs ${isMe ? "border-white/50" : "border-emerald-400"}`}
+                          >
+                            <div
+                              className={`font-semibold ${isMe ? "text-white/80" : "text-emerald-600"}`}
+                            >
+                              {m.replyTo.authorLogin}
+                            </div>
+                            <div
+                              className={`truncate ${isMe ? "text-white/60" : "text-gray-400"}`}
+                            >
+                              {m.replyTo.content}
+                            </div>
+                          </div>
+                        )}
                         {isMe ? m.content : hl(m.content)}
                       </div>
                       {m.reactions.length > 0 && (
@@ -447,18 +453,7 @@ export function ChatClient({
                           ))}
                         </div>
                       )}
-                      {m.replyCount > 0 && (
-                        <button
-                          onClick={() => {
-                            setThreadMsgId(m.id);
-                            setShowInfo(false);
-                          }}
-                          className="flex items-center gap-1.5 mt-1 text-xs text-emerald-600 hover:bg-emerald-50 rounded-lg px-2 py-1"
-                        >
-                          <CornerDownRight className="h-3.5 w-3.5" />
-                          {m.replyCount} ответ{m.replyCount > 1 ? "ов" : ""}
-                        </button>
-                      )}
+                      {/* replyCount removed — Telegram-style inline replies */}
                       <div
                         className={`opacity-0 group-hover:opacity-100 flex gap-0.5 mt-1 transition-opacity ${isMe ? "flex-row-reverse" : ""}`}
                       >
@@ -556,57 +551,8 @@ export function ChatClient({
         )}
       </div>
 
-      {/* ═══ RIGHT: Thread ═══ */}
-      {threadMsgId && (
-        <div className="w-[300px] bg-white border-l flex flex-col shrink-0 h-full">
-          <div className="px-4 py-3 border-b flex items-center justify-between shrink-0">
-            <span className="text-sm font-semibold">Тред</span>
-            <button onClick={() => setThreadMsgId(null)}>
-              <X className="h-4 w-4 text-gray-400" />
-            </button>
-          </div>
-          <div className="flex-1 overflow-y-auto px-3 py-2 min-h-0">
-            {threadReplies.map((m) => (
-              <div key={m.id} className="flex gap-2 mb-3">
-                <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-[10px] font-bold text-gray-500 shrink-0 mt-0.5">
-                  {m.authorLogin[0]?.toUpperCase()}
-                </div>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-xs font-semibold">
-                      {m.authorLogin}
-                    </span>
-                    <span className="text-[10px] text-gray-400">
-                      {format(new Date(m.createdAt), "HH:mm")}
-                    </span>
-                  </div>
-                  <div className="text-xs text-gray-700 whitespace-pre-wrap">
-                    {hl(m.content)}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="border-t px-3 py-2 shrink-0">
-            <TRI
-              wsId={workspaceId}
-              chId={activeChannelId!}
-              pId={threadMsgId}
-              onSent={() => {
-                void qc.invalidateQueries({
-                  queryKey: ["chat-thread", threadMsgId],
-                });
-                void qc.invalidateQueries({
-                  queryKey: ["chat-messages", activeChannelId],
-                });
-              }}
-            />
-          </div>
-        </div>
-      )}
-
       {/* ═══ RIGHT: Info ═══ */}
-      {showInfo && aCh && !threadMsgId && (
+      {showInfo && aCh && (
         <div className="w-[280px] bg-white border-l flex flex-col shrink-0 h-full">
           <div className="px-4 py-3 border-b flex items-center justify-between shrink-0">
             <span className="text-sm font-semibold">
@@ -750,60 +696,6 @@ function hl(c: string) {
     ) : (
       <span key={i}>{p}</span>
     ),
-  );
-}
-
-function TRI({
-  wsId,
-  chId,
-  pId,
-  onSent,
-}: {
-  wsId: string;
-  chId: string;
-  pId: string;
-  onSent: () => void;
-}) {
-  const [t, setT] = useState("");
-  const [s, setS] = useState(false);
-  async function go() {
-    if (!t.trim()) return;
-    setS(true);
-    try {
-      await fetch(`/api/workspaces/${wsId}/chat-channels/${chId}/messages`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: t.trim(), parentId: pId }),
-      });
-      setT("");
-      onSent();
-    } catch {
-    } finally {
-      setS(false);
-    }
-  }
-  return (
-    <div className="flex gap-1.5">
-      <input
-        value={t}
-        onChange={(e) => setT(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && !e.shiftKey) {
-            e.preventDefault();
-            void go();
-          }
-        }}
-        placeholder="Ответить в тред..."
-        className="flex-1 rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500"
-      />
-      <button
-        className="h-7 w-7 rounded-lg bg-emerald-500 hover:bg-emerald-600 flex items-center justify-center shrink-0 disabled:opacity-40"
-        disabled={!t.trim() || s}
-        onClick={() => void go()}
-      >
-        <Send className="h-3 w-3 text-white" />
-      </button>
-    </div>
   );
 }
 
