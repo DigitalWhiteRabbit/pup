@@ -18,6 +18,7 @@ vi.mock("@/lib/db", () => ({
 
 vi.mock("@/lib/services/chat/persona-rotation.service", () => ({
   getActivePersona: vi.fn().mockResolvedValue(null),
+  getActivePersonas: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock("@/lib/services/workspace.service", () => ({

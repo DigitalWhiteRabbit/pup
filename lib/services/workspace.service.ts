@@ -427,6 +427,13 @@ export async function addMember(
     data: { workspaceId, userId: user.id, role: "MEMBER" },
   });
 
+  // Auto-add to General chat channel
+  void import("./chat-internal/channel.service")
+    .then(({ addUserToGeneralChannel }) =>
+      addUserToGeneralChannel(workspaceId, user.id),
+    )
+    .catch(() => {});
+
   await notify({
     type: "PROJECT_ADDED",
     recipientId: user.id,

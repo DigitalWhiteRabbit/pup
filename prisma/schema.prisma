@@ -66,6 +66,12 @@ model User {
   tgNotifyTicketMessage     Boolean @default(true)
   tgNotifyTicketSlaBreached Boolean @default(true)
 
+  // Chat
+  tgNotifyChat             Boolean @default(true)
+  chatChannelMemberships   ChatChannelMember[]
+  chatMessages             ChatMsg[]           @relation("ChatMsgAuthor")
+  chatReactions            ChatMsgReaction[]
+
   @@index([email])
   @@index([login])
 }
@@ -124,6 +130,7 @@ model Workspace {
   cannedResponses CannedResponse[]
   emailConfig     WorkspaceEmailConfig?
   agentConfig     AgentConfig?
+  chatChannels    ChatChannel[]
 
   @@index([ownerId])
 }
@@ -490,6 +497,10 @@ enum ActivityAction {
   AGENT_SCENARIO_UPDATED
   AGENT_SCENARIO_DELETED
   AGENT_RESPONSE_GENERATED
+
+  // Chat
+  CHAT_CHANNEL_CREATED
+  CHAT_MESSAGE_SENT
 
   // System
   USER_LOGIN
@@ -910,6 +921,101 @@ model TicketAttachment {
   uploadedByCustomer Customer? @relation(fields: [uploadedByCustomerId], references: [id], onDelete: SetNull)
 
   @@index([ticketId])
+}
+
+// ─────────────────────────────────────────
+// ЧАТ (внутренний мессенджер)
+// ─────────────────────────────────────────
+
+enum ChatChannelType {
+  GENERAL    // авто-создаётся, все участники, нельзя удалить
+  PUBLIC     // виден всем, можно присоединиться
+  PRIVATE    // только по приглашению
+  DM         // личные сообщения (2 участника)
+}
+
+model ChatChannel {
+  id          String          @id @default(cuid())
+  workspaceId String
+  type        ChatChannelType @default(PUBLIC)
+  name        String?         // null для DM
+  description String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  workspace Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  members   ChatChannelMember[]
+  messages  ChatMsg[]
+
+  @@index([workspaceId, type])
+}
+
+model ChatChannelMember {
+  id        String   @id @default(cuid())
+  channelId String
+  userId    String
+  joinedAt  DateTime @default(now())
+  lastReadAt DateTime @default(now())
+
+  channel ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  user    User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([channelId, userId])
+  @@index([channelId])
+  @@index([userId])
+}
+
+model ChatMsg {
+  id        String   @id @default(cuid())
+  channelId String
+  authorId  String
+  content   String
+  parentId  String?  // thread reply
+  editedAt  DateTime?
+  deletedAt DateTime? // soft delete
+
+  // Links
+  linkedTicketId String?
+  linkedTaskId   String?
+
+  createdAt DateTime @default(now())
+
+  channel   ChatChannel      @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  author    User             @relation("ChatMsgAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  parent    ChatMsg?         @relation("ChatMsgThread", fields: [parentId], references: [id], onDelete: SetNull)
+  replies   ChatMsg[]        @relation("ChatMsgThread")
+  reactions ChatMsgReaction[]
+  attachments ChatMsgAttachment[]
+
+  @@index([channelId, createdAt])
+  @@index([parentId])
+}
+
+model ChatMsgReaction {
+  id        String @id @default(cuid())
+  messageId String
+  userId    String
+  emoji     String // "👍", "🚀", etc
+
+  message ChatMsg @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId, emoji])
+  @@index([messageId])
+}
+
+model ChatMsgAttachment {
+  id          String @id @default(cuid())
+  messageId   String
+  originalName String
+  size        Int
+  mimeType    String
+  storagePath String
+  createdAt   DateTime @default(now())
+
+  message ChatMsg @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
 }
 
 model AgentConfig {
