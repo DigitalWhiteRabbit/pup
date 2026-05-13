@@ -401,49 +401,40 @@ export async function autoRespondWithTyping(
   });
   if (!cfg?.enabled || cfg.mode !== "autopilot") return;
 
-  // Stage 1: typing indicators — longer delays so polling can catch them
-  await db.ticketMessage.create({
-    data: {
-      ticketId,
-      authorType: "SYSTEM",
-      content: "Менеджер подключился к диалогу",
-      systemAction: "TYPING_STAGE",
-    },
+  // Determine if this is the first agent response in the conversation
+  const agentMsgCount = await db.ticketMessage.count({
+    where: { ticketId, authorType: { in: ["AGENT", "MANAGER"] } },
   });
+  const isFirstResponse = agentMsgCount === 0;
 
-  await new Promise((r) => setTimeout(r, 2000));
+  // Typing stages — different text for first vs follow-up
+  const typingStages = isFirstResponse
+    ? [
+        "Менеджер подключился к диалогу",
+        "Менеджер изучает ваш вопрос...",
+        "Менеджер готовит ответ...",
+      ]
+    : [
+        "Менеджер читает сообщение...",
+        "Менеджер думает...",
+        "Менеджер готовит ответ...",
+      ];
 
-  await db.ticketMessage.create({
-    data: {
-      ticketId,
-      authorType: "SYSTEM",
-      content: "Менеджер изучает ваш вопрос...",
-      systemAction: "TYPING_STAGE",
-    },
-  });
-
-  await new Promise((r) => setTimeout(r, 2000));
-
-  // Delete old stages, keep latest
-  const stages = await db.ticketMessage.findMany({
-    where: { ticketId, systemAction: "TYPING_STAGE" },
-    orderBy: { createdAt: "asc" },
-    select: { id: true },
-  });
-  if (stages.length > 1) {
+  for (const text of typingStages) {
+    // Remove previous typing stages
     await db.ticketMessage.deleteMany({
-      where: { id: { in: stages.slice(0, -1).map((s) => s.id) } },
+      where: { ticketId, systemAction: "TYPING_STAGE" },
     });
+    await db.ticketMessage.create({
+      data: {
+        ticketId,
+        authorType: "SYSTEM",
+        content: text,
+        systemAction: "TYPING_STAGE",
+      },
+    });
+    await new Promise((r) => setTimeout(r, 2000));
   }
-
-  await db.ticketMessage.create({
-    data: {
-      ticketId,
-      authorType: "SYSTEM",
-      content: "Менеджер готовит ответ...",
-      systemAction: "TYPING_STAGE",
-    },
-  });
 
   // Load ticket messages (excluding SYSTEM typing messages)
   const ticket = await db.ticket.findUnique({
