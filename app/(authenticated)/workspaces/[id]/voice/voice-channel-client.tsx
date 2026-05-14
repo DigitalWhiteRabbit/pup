@@ -110,6 +110,9 @@ export function VoiceChannelClient({
   const [elapsed, setElapsed] = useState(0);
   const [newRoomName, setNewRoomName] = useState("");
   const [showNewRoom, setShowNewRoom] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [renameValue, setRenameValue] = useState("");
+  const [viewSession, setViewSession] = useState<VoiceSessionItem | null>(null);
   const [volumes, setVolumes] = useState<Record<string, number>>({});
   const [isSpeaking, setIsSpeaking] = useState(false);
   const elapsedRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -286,6 +289,21 @@ export function VoiceChannelClient({
       fetch(`${base}/rooms/${roomId}`, { method: "DELETE" }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["voice-rooms", workspaceId] });
+      toastSuccess("Канал удалён");
+    },
+  });
+
+  const renameRoomMut = useMutation({
+    mutationFn: ({ roomId, name }: { roomId: string; name: string }) =>
+      fetch(`${base}/rooms/${roomId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["voice-rooms", workspaceId] });
+      setShowSettings(false);
+      toastSuccess("Канал переименован");
     },
   });
 
@@ -509,9 +527,10 @@ export function VoiceChannelClient({
             <div className="text-[9px] font-bold text-muted-foreground/70 uppercase tracking-widest px-4 pt-3 pb-1">
               История звонков
             </div>
-            {sessions.slice(0, 3).map((s) => (
+            {sessions.slice(0, 5).map((s) => (
               <div
                 key={s.id}
+                onClick={() => setViewSession(s)}
                 className="flex items-center gap-2 px-4 py-1.5 hover:bg-muted/50 rounded-lg mx-2 cursor-pointer"
               >
                 <Clock className="h-3.5 w-3.5 text-muted-foreground/70 shrink-0" />
@@ -565,7 +584,10 @@ export function VoiceChannelClient({
               <Link2 className="h-4 w-4" />
             </button>
             <button
-              onClick={() => toastSuccess("Настройки канала — скоро")}
+              onClick={() => {
+                setRenameValue(activeRoom?.name ?? "");
+                setShowSettings(true);
+              }}
               className="w-8 h-8 rounded-lg border border-border text-muted-foreground hover:bg-muted hover:text-white flex items-center justify-center transition-colors"
               title="Настройки"
             >
@@ -831,6 +853,192 @@ export function VoiceChannelClient({
             </div>
           </div>
         </aside>
+      )}
+
+      {/* ═══ Session Summary Modal ═══ */}
+      {viewSession && (
+        <div
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center"
+          onClick={() => setViewSession(null)}
+        >
+          <div
+            className="bg-card border border-border rounded-2xl p-6 w-full max-w-[500px] shadow-2xl max-h-[80vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-foreground">
+                Сводка звонка
+              </h3>
+              <button
+                onClick={() => setViewSession(null)}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 mb-4">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Канал</span>
+                <span className="text-foreground font-medium">
+                  {viewSession.roomName}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Дата</span>
+                <span className="text-foreground">
+                  {format(
+                    new Date(viewSession.startedAt),
+                    "d MMM yyyy, HH:mm",
+                    { locale: ru },
+                  )}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Длительность</span>
+                <span className="text-foreground">
+                  {viewSession.duration
+                    ? fmtDuration(viewSession.duration)
+                    : "—"}
+                </span>
+              </div>
+              <div className="text-sm">
+                <span className="text-muted-foreground">Участники: </span>
+                <span className="text-foreground">
+                  {(() => {
+                    try {
+                      const p = JSON.parse(viewSession.participants) as Array<{
+                        login?: string;
+                        guestName?: string;
+                      }>;
+                      return (
+                        p
+                          .map((x) => x.login ?? x.guestName ?? "Гость")
+                          .join(", ") || "—"
+                      );
+                    } catch {
+                      return "—";
+                    }
+                  })()}
+                </span>
+              </div>
+            </div>
+
+            {viewSession.summary ? (
+              <div className="p-4 bg-muted/50 rounded-xl border border-border">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-[10px] text-purple-500 bg-purple-500/10 px-2 py-0.5 rounded font-semibold">
+                    AI Саммари
+                  </span>
+                </div>
+                <div className="text-sm text-foreground/80 whitespace-pre-wrap leading-relaxed">
+                  {viewSession.summary}
+                </div>
+              </div>
+            ) : (
+              <div className="p-4 bg-muted/50 rounded-xl text-center">
+                <p className="text-sm text-muted-foreground">
+                  Саммари ещё не сгенерировано
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ═══ Settings Modal ═══ */}
+      {showSettings && activeRoom && (
+        <div
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center"
+          onClick={() => setShowSettings(false)}
+        >
+          <div
+            className="bg-card border border-border rounded-2xl p-6 w-full max-w-[400px] shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="text-lg font-bold text-foreground">
+                Настройки канала
+              </h3>
+              <button
+                onClick={() => setShowSettings(false)}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Rename */}
+            <div className="mb-4">
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
+                Название канала
+              </label>
+              <div className="flex gap-2">
+                <input
+                  value={renameValue}
+                  onChange={(e) => setRenameValue(e.target.value)}
+                  className="flex-1 px-3 py-2 bg-muted border border-border rounded-lg text-sm text-foreground outline-none focus:border-emerald-500"
+                  onKeyDown={(e) => {
+                    if (
+                      e.key === "Enter" &&
+                      renameValue.trim() &&
+                      renameValue !== activeRoom.name
+                    )
+                      renameRoomMut.mutate({
+                        roomId: activeRoom.id,
+                        name: renameValue.trim(),
+                      });
+                  }}
+                />
+                <button
+                  onClick={() => {
+                    if (renameValue.trim() && renameValue !== activeRoom.name)
+                      renameRoomMut.mutate({
+                        roomId: activeRoom.id,
+                        name: renameValue.trim(),
+                      });
+                  }}
+                  disabled={
+                    !renameValue.trim() || renameValue === activeRoom.name
+                  }
+                  className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-40 text-white rounded-lg text-sm font-medium transition-colors"
+                >
+                  Сохранить
+                </button>
+              </div>
+            </div>
+
+            {/* Info */}
+            <div className="mb-4 p-3 bg-muted/50 rounded-lg">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Тип</span>
+                <span className="text-foreground">
+                  {activeRoom.isDefault ? "Общая (по умолчанию)" : "Приватная"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-sm mt-2">
+                <span className="text-muted-foreground">Участников</span>
+                <span className="text-foreground">{participants.length}</span>
+              </div>
+            </div>
+
+            {/* Delete */}
+            {!activeRoom.isDefault && (
+              <button
+                onClick={() => {
+                  if (confirm(`Удалить канал "${activeRoom.name}"?`)) {
+                    deleteRoomMut.mutate(activeRoom.id);
+                    setShowSettings(false);
+                    setActiveRoomId(rooms.find((r) => r.isDefault)?.id ?? null);
+                  }
+                }}
+                className="w-full py-2.5 border border-red-500/30 text-red-500 hover:bg-red-500/10 rounded-lg text-sm font-medium transition-colors"
+              >
+                Удалить канал
+              </button>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );

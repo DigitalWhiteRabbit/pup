@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { generateVoiceSessionSummary } from "@/lib/services/voice-summary.service";
 
 type RouteParams = { params: Promise<{ id: string; roomId: string }> };
 
@@ -70,8 +71,40 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         participants: "[]",
       },
     });
-  } else {
-    // No-op: session already exists
+  }
+
+  // Update session participants list
+  const activeSession = await db.voiceSession.findFirst({
+    where: { roomId, endedAt: null },
+    orderBy: { startedAt: "desc" },
+  });
+  if (activeSession) {
+    let pList: Array<{ userId?: string; login?: string; guestName?: string }> =
+      [];
+    try {
+      pList = JSON.parse(activeSession.participants);
+    } catch {
+      /* */
+    }
+    const newEntry = isGuest
+      ? { guestName: body.guestName }
+      : {
+          userId: session!.user.id,
+          login: (session!.user as unknown as { login?: string }).login,
+        };
+    if (
+      !pList.some((p) =>
+        isGuest
+          ? p.guestName === body.guestName
+          : p.userId === session!.user.id,
+      )
+    ) {
+      pList.push(newEntry);
+      await db.voiceSession.update({
+        where: { id: activeSession.id },
+        data: { participants: JSON.stringify(pList) },
+      });
+    }
   }
 
   const participant = await db.voiceParticipant.create({
@@ -116,6 +149,8 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
         where: { id: activeSession.id },
         data: { endedAt: new Date(), duration },
       });
+      // Generate AI summary in background
+      void generateVoiceSessionSummary(activeSession.id);
     }
   }
 
