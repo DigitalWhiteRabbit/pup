@@ -39,9 +39,9 @@ export function AppShell({ userLogin, userRole, children }: Props) {
       </div>
 
       {/* Main content */}
-      <main className="flex-1 overflow-y-auto">
+      <main className="flex-1 flex flex-col overflow-hidden">
         {collapsed && (
-          <div className="sticky top-0 z-50 flex items-center h-12 px-3 border-b bg-background">
+          <div className="flex items-center h-12 px-3 border-b bg-background shrink-0">
             <button
               type="button"
               onClick={() => setCollapsed(false)}
@@ -52,7 +52,9 @@ export function AppShell({ userLogin, userRole, children }: Props) {
             </button>
           </div>
         )}
-        {children}
+        <div className="flex-1 overflow-y-auto flex flex-col min-h-0">
+          {children}
+        </div>
       </main>
     </div>
   );

@@ -75,6 +75,10 @@ model User {
   globalChatMessages       GlobalChatMsg[]     @relation("GlobalChatAuthor")
   chatBookmarks            ChatMsgBookmark[]
 
+  // Voice
+  voiceParticipations      VoiceParticipant[]
+  voiceMessages            VoiceMessage[]
+
   @@index([email])
   @@index([login])
 }
@@ -138,8 +142,92 @@ model Workspace {
   emailConfig     WorkspaceEmailConfig?
   agentConfig     AgentConfig?
   chatChannels    ChatChannel[]
+  voiceRooms      VoiceRoom[]
 
   @@index([ownerId])
+}
+
+// ─────────────────────────────────────────
+// VOICE CHANNELS
+// ─────────────────────────────────────────
+
+model VoiceRoom {
+  id          String  @id @default(cuid())
+  workspaceId String
+  name        String
+  isDefault   Boolean @default(false)
+  createdAt   DateTime @default(now())
+
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  participants VoiceParticipant[]
+  signals      VoiceSignal[]
+  messages     VoiceMessage[]
+  sessions     VoiceSession[]
+
+  @@index([workspaceId])
+}
+
+model VoiceParticipant {
+  id           String   @id @default(cuid())
+  roomId       String
+  userId       String?
+  guestName    String?
+  guestToken   String?
+  isMuted      Boolean  @default(false)
+  isScreenSharing Boolean @default(false)
+  joinedAt     DateTime @default(now())
+  lastHeartbeat DateTime @default(now())
+
+  room VoiceRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+  @@index([roomId])
+}
+
+model VoiceSignal {
+  id         String   @id @default(cuid())
+  roomId     String
+  fromUserId String
+  toUserId   String
+  type       String   // "offer" | "answer" | "ice-candidate"
+  payload    String   // JSON
+  createdAt  DateTime @default(now())
+  consumedAt DateTime?
+
+  room VoiceRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@index([roomId, toUserId, consumedAt])
+}
+
+model VoiceMessage {
+  id        String   @id @default(cuid())
+  roomId    String
+  userId    String?
+  guestName String?
+  content   String
+  createdAt DateTime @default(now())
+
+  room VoiceRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([roomId, createdAt])
+}
+
+model VoiceSession {
+  id          String   @id @default(cuid())
+  roomId      String
+  roomName    String
+  workspaceId String
+  startedAt   DateTime @default(now())
+  endedAt     DateTime?
+  duration    Int?     // seconds
+  participants String  // JSON array of {userId, login, guestName}
+  summary     String?  // AI summary
+
+  room VoiceRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, startedAt])
 }
 
 model WorkspaceMember {
