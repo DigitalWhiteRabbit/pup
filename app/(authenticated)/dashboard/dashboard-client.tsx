@@ -112,7 +112,7 @@ export function DashboardClient() {
                 className="flex items-center gap-3 p-3 rounded-lg border bg-background"
               >
                 <Link
-                  href={`/workspaces/${ws.id}`}
+                  href={`/workspaces/${ws.id}/dashboard`}
                   className="flex items-center gap-3 flex-1 min-w-0 hover:opacity-80 transition-opacity"
                 >
                   <WorkspaceLogo
