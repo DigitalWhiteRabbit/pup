@@ -391,7 +391,7 @@ export function WorkspaceOverviewClient({
   );
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
+    <div className="p-6 max-w-7xl mx-auto">
       {/* ── Header ── */}
       <div className="mb-8 flex flex-wrap items-start justify-between gap-3">
         <div className="flex items-start gap-4">

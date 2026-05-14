@@ -96,7 +96,7 @@ export function DashboardClient() {
   const globalChat = data?.globalChat;
 
   return (
-    <div className="p-6 max-w-[1200px] mx-auto">
+    <div className="p-6 max-w-7xl mx-auto">
       <h1 className="text-2xl font-bold mb-6 text-foreground">Главная</h1>
 
       <div className="grid grid-cols-3 gap-5">

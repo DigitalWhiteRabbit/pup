@@ -556,7 +556,7 @@ function SystemTab({ workspaceId }: { workspaceId: string }) {
 
 export function LogsClient({ workspaceId }: Props) {
   return (
-    <div className="p-6 max-w-4xl mx-auto">
+    <div className="p-6 max-w-7xl mx-auto">
       <h1 className="text-2xl font-bold mb-6">Логи активности</h1>
 
       <Tabs defaultValue="activity">
