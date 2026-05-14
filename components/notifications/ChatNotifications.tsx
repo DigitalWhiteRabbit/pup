@@ -10,6 +10,7 @@ type ChatNotif = {
   author: string;
   hasAvatar: boolean;
   content: string;
+  channelId: string;
   channelName: string;
   workspaceName: string;
   workspaceId: string;
@@ -143,11 +144,10 @@ export function ChatNotifications() {
           className="bg-card border border-border rounded-xl shadow-2xl p-3.5 flex gap-3 animate-in slide-in-from-right-5 fade-in duration-300 cursor-pointer hover:bg-muted/50 transition-colors"
           onClick={() => {
             dismiss(t.id);
-            // Navigate to chat
             if (t.type === "global") {
               window.location.href = "/global-chat";
             } else if (t.workspaceId) {
-              window.location.href = `/workspaces/${t.workspaceId}/chat`;
+              window.location.href = `/workspaces/${t.workspaceId}/chat${t.channelId ? `?channel=${t.channelId}` : ""}`;
             }
           }}
         >

@@ -111,7 +111,10 @@ export function ChatClient({
   currentUserLogin: string;
 }) {
   const qc = useQueryClient();
-  const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
+  const [activeChannelId, setActiveChannelId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    return new URLSearchParams(window.location.search).get("channel");
+  });
   const [createOpen, setCreateOpen] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
