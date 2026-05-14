@@ -1,7 +1,9 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect } from "react";
-import { Mic, Square, X, Send } from "lucide-react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import { Mic, X, Send, Play, Pause, Type, Loader2 } from "lucide-react";
+
+/* ── VoiceRecorder ── */
 
 export function VoiceRecorder({
   onRecorded,
@@ -67,7 +69,6 @@ export function VoiceRecorder({
       clearInterval(timerRef.current);
       timerRef.current = null;
     }
-    // Clear chunks so onstop won't call onRecorded
     chunksRef.current = [];
     mediaRecorderRef.current?.stop();
     streamRef.current?.getTracks().forEach((t) => t.stop());
@@ -124,81 +125,274 @@ export function VoiceRecorder({
   );
 }
 
+/* ── VoicePlayer (Telegram-style with transcription) ── */
+
+const BAR_COUNT = 32;
+
+function generateWaveform(seed: string): number[] {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = seed.charCodeAt(i) + ((h << 5) - h);
+  const bars: number[] = [];
+  for (let i = 0; i < BAR_COUNT; i++) {
+    h = (((h * 16807) % 2147483647) + 2147483647) % 2147483647;
+    const v = (h % 100) / 100;
+    const env = Math.sin((i / BAR_COUNT) * Math.PI) * 0.4 + 0.6;
+    bars.push(Math.max(0.15, v * env));
+  }
+  return bars;
+}
+
+function fmtTime(s: number): string {
+  if (!s || !isFinite(s)) return "0:00";
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  return `${m}:${String(sec).padStart(2, "0")}`;
+}
+
+// Cache transcription availability check
+let _transcribeAvailable: boolean | null = null;
+
 export function VoicePlayer({ src, isMe }: { src: string; isMe: boolean }) {
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [dur, setDur] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [currentTime, setCurrent] = useState(0);
+  const [transcript, setTranscript] = useState<string | null>(null);
+  const [transcribing, setTranscribing] = useState(false);
+  const [canTranscribe, setCanTranscribe] = useState(false);
+  const [showTranscript, setShowTranscript] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const animRef = useRef<number>(0);
+
+  const waveform = useMemo(() => generateWaveform(src), [src]);
+
+  // Check if transcription is available
+  useEffect(() => {
+    if (_transcribeAvailable !== null) {
+      setCanTranscribe(_transcribeAvailable);
+      return;
+    }
+    void fetch("/api/transcribe")
+      .then((r) => r.json())
+      .then((d: { available: boolean }) => {
+        _transcribeAvailable = d.available;
+        setCanTranscribe(d.available);
+      })
+      .catch(() => {
+        _transcribeAvailable = false;
+      });
+  }, []);
 
   useEffect(() => {
     return () => {
+      cancelAnimationFrame(animRef.current);
       if (audioRef.current) {
         audioRef.current.pause();
-        audioRef.current.onloadedmetadata = null;
-        audioRef.current.ontimeupdate = null;
-        audioRef.current.onended = null;
+        audioRef.current.src = "";
         audioRef.current = null;
       }
     };
   }, []);
 
-  const toggle = () => {
+  function ensureAudio(): HTMLAudioElement {
     if (!audioRef.current) {
       const a = new Audio(src);
+      a.preload = "metadata";
       audioRef.current = a;
-      a.onloadedmetadata = () => setDur(Math.floor(a.duration));
-      a.ontimeupdate = () =>
-        setProgress(a.duration ? a.currentTime / a.duration : 0);
-      a.onended = () => {
+
+      a.addEventListener("loadedmetadata", () => {
+        if (isFinite(a.duration)) setDuration(a.duration);
+      });
+      a.addEventListener("durationchange", () => {
+        if (isFinite(a.duration)) setDuration(a.duration);
+      });
+      a.addEventListener("ended", () => {
         setPlaying(false);
         setProgress(0);
-      };
-    }
-    if (playing) {
-      audioRef.current.pause();
-      setPlaying(false);
-    } else {
-      void audioRef.current.play();
-      setPlaying(true);
-    }
-  };
+        setCurrent(0);
+        cancelAnimationFrame(animRef.current);
+      });
 
-  const fmt = (s: number) =>
-    `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+      a.addEventListener(
+        "loadeddata",
+        () => {
+          if (!isFinite(a.duration)) {
+            a.currentTime = 1e10;
+            a.addEventListener("timeupdate", function fix() {
+              if (isFinite(a.duration)) {
+                setDuration(a.duration);
+                a.currentTime = 0;
+                a.removeEventListener("timeupdate", fix);
+              }
+            });
+          }
+        },
+        { once: true },
+      );
+    }
+    return audioRef.current;
+  }
+
+  function tick() {
+    const a = audioRef.current;
+    if (a && !a.paused) {
+      const p = a.duration ? a.currentTime / a.duration : 0;
+      setProgress(p);
+      setCurrent(a.currentTime);
+      animRef.current = requestAnimationFrame(tick);
+    }
+  }
+
+  function toggle() {
+    const a = ensureAudio();
+    if (playing) {
+      a.pause();
+      setPlaying(false);
+      cancelAnimationFrame(animRef.current);
+    } else {
+      void a.play();
+      setPlaying(true);
+      animRef.current = requestAnimationFrame(tick);
+    }
+  }
+
+  function seekFromBar(barIndex: number) {
+    const a = ensureAudio();
+    const t = (barIndex / BAR_COUNT) * (a.duration || 0);
+    if (isFinite(t)) {
+      a.currentTime = t;
+      setProgress(barIndex / BAR_COUNT);
+      setCurrent(t);
+    }
+  }
+
+  async function transcribe() {
+    if (transcript !== null) {
+      setShowTranscript(!showTranscript);
+      return;
+    }
+    setTranscribing(true);
+    try {
+      // Fetch the audio file
+      const audioRes = await fetch(src);
+      const blob = await audioRes.blob();
+      const fd = new FormData();
+      fd.append(
+        "file",
+        new File([blob], "voice.webm", { type: blob.type || "audio/webm" }),
+      );
+
+      const res = await fetch("/api/transcribe", { method: "POST", body: fd });
+      if (!res.ok) throw new Error("Transcription failed");
+
+      const data = (await res.json()) as { text: string };
+      setTranscript(data.text);
+      setShowTranscript(true);
+    } catch {
+      setTranscript("Не удалось распознать");
+      setShowTranscript(true);
+    } finally {
+      setTranscribing(false);
+    }
+  }
+
+  const playedBars = Math.floor(progress * BAR_COUNT);
+  const timeLabel =
+    playing || currentTime > 0 ? fmtTime(currentTime) : fmtTime(duration);
 
   return (
-    <div className="flex items-center gap-2 min-w-[140px]">
-      <button
-        onClick={toggle}
-        className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
-          isMe
-            ? "bg-white/20 text-white"
-            : "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400"
-        }`}
-      >
-        {playing ? (
-          <Square className="w-3 h-3 fill-current" />
-        ) : (
-          <svg className="w-3 h-3 fill-current ml-0.5" viewBox="0 0 24 24">
-            <path d="M8 5v14l11-7z" />
-          </svg>
-        )}
-      </button>
-      <div className="flex-1 min-w-[60px]">
-        <div
-          className={`h-1 rounded-full ${isMe ? "bg-white/20" : "bg-muted"}`}
+    <div className="min-w-[200px] max-w-[300px]">
+      <div className="flex items-center gap-2.5">
+        {/* Play/Pause */}
+        <button
+          onClick={toggle}
+          className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 transition-colors ${
+            isMe
+              ? "bg-white/20 hover:bg-white/30 text-white"
+              : "bg-emerald-500 hover:bg-emerald-600 text-white"
+          }`}
         >
+          {playing ? (
+            <Pause className="w-4 h-4 fill-current" />
+          ) : (
+            <Play className="w-4 h-4 fill-current ml-0.5" />
+          )}
+        </button>
+
+        {/* Waveform */}
+        <div className="flex-1 min-w-0">
           <div
-            className={`h-1 rounded-full transition-all ${isMe ? "bg-white" : "bg-emerald-500"}`}
-            style={{ width: `${progress * 100}%` }}
-          />
+            className="flex items-center gap-[2px] h-[28px] cursor-pointer"
+            onClick={(e) => {
+              const rect = e.currentTarget.getBoundingClientRect();
+              const x = (e.clientX - rect.left) / rect.width;
+              seekFromBar(Math.round(x * BAR_COUNT));
+            }}
+          >
+            {waveform.map((h, i) => (
+              <div
+                key={i}
+                className="flex-1 rounded-full transition-colors duration-100"
+                style={{
+                  height: `${h * 100}%`,
+                  minWidth: 2,
+                  maxWidth: 4,
+                  backgroundColor:
+                    i < playedBars
+                      ? isMe
+                        ? "rgba(255,255,255,0.9)"
+                        : "#10b981"
+                      : isMe
+                        ? "rgba(255,255,255,0.25)"
+                        : "rgba(16,185,129,0.25)",
+                }}
+              />
+            ))}
+          </div>
+
+          {/* Time + transcribe button */}
+          <div className="flex items-center justify-between mt-0.5">
+            <span
+              className={`text-[10px] font-mono ${
+                isMe ? "text-white/60" : "text-muted-foreground"
+              }`}
+            >
+              {timeLabel}
+            </span>
+            {canTranscribe && (
+              <button
+                onClick={() => void transcribe()}
+                disabled={transcribing}
+                className={`text-[10px] flex items-center gap-0.5 transition-colors ${
+                  isMe
+                    ? "text-white/50 hover:text-white/80"
+                    : "text-muted-foreground hover:text-foreground"
+                } ${showTranscript ? (isMe ? "text-white/80" : "text-foreground") : ""}`}
+                title="Транскрибация"
+              >
+                {transcribing ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <Type className="w-3 h-3" />
+                )}
+              </button>
+            )}
+          </div>
         </div>
       </div>
-      <span
-        className={`text-[10px] shrink-0 ${isMe ? "text-white/60" : "text-muted-foreground"}`}
-      >
-        {fmt(dur || 0)}
-      </span>
+
+      {/* Transcript text */}
+      {showTranscript && transcript && (
+        <div
+          className={`mt-1.5 text-[11px] leading-relaxed rounded-lg px-2 py-1.5 ${
+            isMe
+              ? "bg-white/10 text-white/80"
+              : "bg-muted/50 text-muted-foreground"
+          }`}
+        >
+          {transcript}
+        </div>
+      )}
     </div>
   );
 }

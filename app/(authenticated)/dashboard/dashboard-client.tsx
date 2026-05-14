@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { WorkspaceLogo } from "@/components/ui/workspace-logo";
+import { VoiceRecorder, VoicePlayer } from "@/components/chat/voice-recorder";
 
 type WsStats = {
   id: string;
@@ -50,6 +51,7 @@ type GlobalChatMsg = {
   authorHasAvatar: boolean;
   content: string;
   createdAt: string;
+  audioAttachmentId: string | null;
 };
 
 type DashboardData = {
@@ -189,8 +191,15 @@ export function DashboardClient() {
                   <div className="text-[10px] font-semibold text-muted-foreground">
                     {m.authorLogin}
                   </div>
-                  <div className="text-xs text-card-foreground bg-muted rounded-lg px-2.5 py-1.5 max-w-[220px]">
-                    {m.content}
+                  <div className="text-xs text-card-foreground bg-muted rounded-lg px-2.5 py-1.5 max-w-[260px]">
+                    {m.audioAttachmentId ? (
+                      <VoicePlayer
+                        src={`/api/global-chat-attachments/${m.audioAttachmentId}`}
+                        isMe={false}
+                      />
+                    ) : (
+                      m.content
+                    )}
                   </div>
                   <div className="text-[9px] text-muted-foreground mt-0.5">
                     {format(new Date(m.createdAt), "HH:mm", { locale: ru })}
@@ -342,8 +351,30 @@ function GlobalChatInput({ onSent }: { onSent: () => void }) {
     }
   }
 
+  async function handleVoice(file: File) {
+    setSending(true);
+    try {
+      const r = await fetch("/api/global-chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: "🎤 Голосовое сообщение" }),
+      });
+      if (!r.ok) return;
+      const msg = await r.json();
+      const fd = new FormData();
+      fd.append("file", file);
+      await fetch(`/api/global-chat/${msg.id}/attachments`, {
+        method: "POST",
+        body: fd,
+      });
+      onSent();
+    } finally {
+      setSending(false);
+    }
+  }
+
   return (
-    <div className="flex items-center gap-2 bg-muted rounded-2xl px-4 py-2 mt-3">
+    <div className="flex items-center gap-2 bg-muted rounded-2xl px-3 py-1.5 mt-3">
       <input
         value={text}
         onChange={(e) => setText(e.target.value)}
@@ -356,7 +387,7 @@ function GlobalChatInput({ onSent }: { onSent: () => void }) {
         placeholder="Напишите сообщение..."
         className="flex-1 bg-transparent text-sm outline-none text-foreground placeholder:text-muted-foreground"
       />
-      {text.trim() && (
+      {text.trim() ? (
         <button
           onClick={() => void handleSend()}
           disabled={sending}
@@ -364,6 +395,11 @@ function GlobalChatInput({ onSent }: { onSent: () => void }) {
         >
           <Send className="w-3.5 h-3.5 text-white" />
         </button>
+      ) : (
+        <VoiceRecorder
+          onRecorded={(file) => void handleVoice(file)}
+          disabled={sending}
+        />
       )}
     </div>
   );

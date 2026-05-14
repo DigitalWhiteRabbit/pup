@@ -1414,7 +1414,14 @@ export function ChatClient({
                   </button>
                 ) : (
                   <VoiceRecorder
-                    onRecorded={(file) => setPendingFiles([file])}
+                    onRecorded={(file) => {
+                      if (!activeChannelId) return;
+                      sendMut.mutate({
+                        content: "🎤 Голосовое сообщение",
+                        files: [file],
+                        channelId: activeChannelId,
+                      });
+                    }}
                     disabled={sendMut.isPending}
                   />
                 )}

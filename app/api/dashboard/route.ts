@@ -122,6 +122,7 @@ export async function GET() {
       take: 5,
       include: {
         author: { select: { id: true, login: true, avatarPath: true } },
+        attachments: { select: { id: true, mimeType: true } },
       },
     });
 
@@ -168,6 +169,9 @@ export async function GET() {
           authorHasAvatar: !!m.author.avatarPath,
           content: m.content.slice(0, 100),
           createdAt: m.createdAt,
+          audioAttachmentId:
+            m.attachments.find((a) => a.mimeType.startsWith("audio/"))?.id ??
+            null,
         })),
       },
     });

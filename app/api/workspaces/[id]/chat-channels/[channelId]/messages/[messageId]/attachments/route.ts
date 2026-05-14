@@ -55,9 +55,10 @@ export async function POST(req: Request, { params }: RouteParams) {
         { status: 400 },
       );
 
-    if (!ALLOWED_TYPES.includes(file.type))
+    const baseMime = file.type.split(";")[0]!.trim();
+    if (!ALLOWED_TYPES.includes(baseMime))
       return NextResponse.json(
-        { error: "Неподдерживаемый тип файла" },
+        { error: `Неподдерживаемый тип файла: ${baseMime}` },
         { status: 400 },
       );
 
@@ -68,7 +69,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       channelId,
       originalName: file.name,
       buffer,
-      mimeType: file.type,
+      mimeType: baseMime,
     });
 
     const attachment = await db.chatMsgAttachment.create({

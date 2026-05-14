@@ -593,11 +593,8 @@ export function TicketDetailClient({
                   if (e.key === "Escape") {
                     setShowCanned(false);
                   }
-                  if (
-                    e.key === "Enter" &&
-                    (e.metaKey || e.ctrlKey) &&
-                    replyText.trim()
-                  ) {
+                  if (e.key === "Enter" && !e.shiftKey && replyText.trim()) {
+                    e.preventDefault();
                     replyMut.mutate(replyText.trim());
                   }
                 }}
