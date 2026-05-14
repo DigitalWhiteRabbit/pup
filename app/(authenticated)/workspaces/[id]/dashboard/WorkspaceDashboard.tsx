@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { CheckSquare, Clock, ListTodo, TrendingUp } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TaskModal } from "@/components/board/TaskModal";
+import { WorkspaceLogo } from "@/components/ui/workspace-logo";
 import type { WorkspaceBoard } from "@/lib/services/workspace.service";
 
 async function fetchWorkspace(id: string): Promise<WorkspaceBoard> {
@@ -85,13 +86,22 @@ export function WorkspaceDashboard({
 
   return (
     <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">{workspace.name}</h1>
-        {workspace.description && (
-          <p className="mt-1 text-sm text-muted-foreground">
-            {workspace.description}
-          </p>
-        )}
+      <div className="flex items-center gap-4">
+        <WorkspaceLogo
+          workspaceId={workspace.id}
+          name={workspace.name}
+          hasLogo={!!workspace.logoPath}
+          size={48}
+          className="rounded-xl"
+        />
+        <div>
+          <h1 className="text-2xl font-bold">{workspace.name}</h1>
+          {workspace.description && (
+            <p className="mt-1 text-sm text-muted-foreground">
+              {workspace.description}
+            </p>
+          )}
+        </div>
       </div>
 
       {/* ── Stats row ── */}

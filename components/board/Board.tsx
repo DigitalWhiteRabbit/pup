@@ -19,7 +19,7 @@ import {
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { Column } from "./Column";
 import { TaskModal } from "./TaskModal";
 import { toastError } from "@/lib/toast";
@@ -41,9 +41,11 @@ type Props = {
 
 export function Board({ initialData, workspaceId }: Props) {
   const queryClient = useQueryClient();
-  const searchParams = useSearchParams();
   const router = useRouter();
-  const urlTaskId = searchParams.get("taskId");
+  const [urlTaskId, setUrlTaskId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    return new URLSearchParams(window.location.search).get("taskId");
+  });
 
   // TanStack Query manages board state; initialData from SSR for instant render
   const { data: board } = useQuery({
@@ -412,14 +414,8 @@ export function Board({ initialData, workspaceId }: Props) {
           workspaceId={workspaceId}
           members={board.members}
           onClose={() => {
-            // Remove taskId from URL without full reload
-            const params = new URLSearchParams(searchParams.toString());
-            params.delete("taskId");
-            const qs = params.toString();
-            router.replace(
-              `/workspaces/${workspaceId}/crm${qs ? `?${qs}` : ""}`,
-              { scroll: false },
-            );
+            setUrlTaskId(null);
+            router.replace(`/workspaces/${workspaceId}/crm`, { scroll: false });
           }}
         />
       )}

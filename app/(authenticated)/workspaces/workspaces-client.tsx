@@ -17,6 +17,7 @@ import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { WorkspaceLogo } from "@/components/ui/workspace-logo";
 import {
   Dialog,
   DialogContent,
@@ -215,9 +216,17 @@ export function WorkspacesClient({
             >
               <CardHeader className="pb-2">
                 <div className="flex items-start justify-between gap-2">
-                  <CardTitle className="truncate text-base flex-1">
-                    {workspace.name}
-                  </CardTitle>
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <WorkspaceLogo
+                      workspaceId={workspace.id}
+                      name={workspace.name}
+                      hasLogo={workspace.hasLogo}
+                      size={36}
+                    />
+                    <CardTitle className="truncate text-base flex-1">
+                      {workspace.name}
+                    </CardTitle>
+                  </div>
                   <div
                     className="flex gap-1 shrink-0"
                     onClick={(e) => e.stopPropagation()}

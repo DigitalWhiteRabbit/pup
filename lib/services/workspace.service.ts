@@ -45,6 +45,7 @@ export type WorkspaceSummary = {
   id: string;
   name: string;
   description: string | null;
+  hasLogo: boolean;
   owner: { id: string; login: string };
   memberCount: number;
   createdAt: Date;
@@ -210,6 +211,7 @@ export async function getWorkspacesForUser(
       id: w.id,
       name: w.name,
       description: w.description,
+      hasLogo: !!w.logoPath,
       owner: w.owner,
       memberCount: w._count.members,
       createdAt: w.createdAt,
