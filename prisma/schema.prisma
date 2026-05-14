@@ -114,6 +114,9 @@ model Workspace {
   chatAllowedEmbedOrigins String?
   chatTimezone           String                 @default("Europe/Moscow")
 
+  // External integrations
+  externalAnalyticsUrl   String?
+
   members       WorkspaceMember[]
   modules       WorkspaceModule[]
   columns       Column[]
