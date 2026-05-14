@@ -5,11 +5,8 @@ import { db } from "@/lib/db";
 type RouteParams = { params: Promise<{ id: string; roomId: string }> };
 
 // GET — list participants, prune stale (>15s heartbeat)
+// No auth required — guests can see participants
 export async function GET(req: NextRequest, { params }: RouteParams) {
-  const session = await auth();
-  if (!session?.user?.id)
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
   const { roomId } = await params;
 
   // Prune stale participants

@@ -4,12 +4,8 @@ import { db } from "@/lib/db";
 
 type RouteParams = { params: Promise<{ id: string; roomId: string }> };
 
-// GET — last 50 messages
+// GET — last 50 messages (no auth — guests can read)
 export async function GET(req: NextRequest, { params }: RouteParams) {
-  const session = await auth();
-  if (!session?.user?.id)
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
   const { roomId } = await params;
 
   const messages = await db.voiceMessage.findMany({
