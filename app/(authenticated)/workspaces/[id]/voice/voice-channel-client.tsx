@@ -111,6 +111,8 @@ export function VoiceChannelClient({
   const [elapsed, setElapsed] = useState(0);
   const [newRoomName, setNewRoomName] = useState("");
   const [showNewRoom, setShowNewRoom] = useState(false);
+  const [isPrivateRoom, setIsPrivateRoom] = useState(false);
+  const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
   const [showSettings, setShowSettings] = useState(false);
   const [renameValue, setRenameValue] = useState("");
   const [viewSession, setViewSession] = useState<VoiceSessionItem | null>(null);
@@ -222,6 +224,18 @@ export function VoiceChannelClient({
     staleTime: 30_000,
   });
   const sessions = sessionsData?.data ?? [];
+
+  /* ── Workspace members (for private room creation) ── */
+  type WsMember = { id: string; login: string; hasAvatar: boolean };
+  const { data: wsMembers = [] } = useQuery<WsMember[]>({
+    queryKey: ["ws-members-voice", workspaceId],
+    queryFn: async () => {
+      const res = await fetch(`/api/users/all`);
+      return res.json();
+    },
+    staleTime: 60_000,
+    enabled: showNewRoom,
+  });
 
   /* ── Mutations ── */
   const joinMut = useMutation({
@@ -447,27 +461,82 @@ export function VoiceChannelClient({
           </button>
         </div>
 
-        {/* New room input */}
+        {/* New room form */}
         {showNewRoom && (
-          <div className="px-3 pt-3 flex gap-1.5">
+          <div className="px-3 pt-3 space-y-2">
             <input
               value={newRoomName}
               onChange={(e) => setNewRoomName(e.target.value)}
-              placeholder="Название..."
-              className="flex-1 px-2 py-1.5 bg-muted border border-border rounded-md text-xs text-white outline-none focus:border-emerald-500"
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && newRoomName.trim())
-                  createRoomMut.mutate(newRoomName.trim());
-                if (e.key === "Escape") setShowNewRoom(false);
-              }}
+              placeholder="Название канала..."
+              className="w-full px-2.5 py-1.5 bg-muted border border-border rounded-lg text-xs text-foreground outline-none focus:border-emerald-500"
               autoFocus
             />
+            {/* Private toggle */}
             <button
-              onClick={() => setShowNewRoom(false)}
-              className="text-muted-foreground hover:text-white"
+              onClick={() => setIsPrivateRoom((v) => !v)}
+              className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] border transition-colors ${isPrivateRoom ? "border-emerald-500 bg-emerald-500/10 text-emerald-400" : "border-border text-muted-foreground hover:border-border"}`}
             >
-              <X className="h-4 w-4" />
+              <Lock className="h-3 w-3" />
+              {isPrivateRoom ? "Приватный канал" : "Сделать приватным"}
             </button>
+            {/* Member selection for private */}
+            {isPrivateRoom && (
+              <div className="max-h-[120px] overflow-y-auto space-y-0.5 bg-muted/50 rounded-lg p-1.5">
+                {wsMembers
+                  .filter((m) => m.id !== currentUserId)
+                  .map((m) => (
+                    <label
+                      key={m.id}
+                      className="flex items-center gap-2 px-2 py-1 rounded-md hover:bg-muted/80 cursor-pointer text-[11px]"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedMembers.includes(m.id)}
+                        onChange={(e) =>
+                          setSelectedMembers((prev) =>
+                            e.target.checked
+                              ? [...prev, m.id]
+                              : prev.filter((id) => id !== m.id),
+                          )
+                        }
+                        className="w-3 h-3 rounded accent-emerald-500"
+                      />
+                      <UserAvatar
+                        userId={m.hasAvatar ? m.id : undefined}
+                        login={m.login}
+                        size={18}
+                      />
+                      <span className="text-foreground">{m.login}</span>
+                    </label>
+                  ))}
+              </div>
+            )}
+            <div className="flex gap-1.5">
+              <button
+                onClick={() => {
+                  if (newRoomName.trim()) {
+                    createRoomMut.mutate(newRoomName.trim());
+                    setIsPrivateRoom(false);
+                    setSelectedMembers([]);
+                  }
+                }}
+                disabled={!newRoomName.trim()}
+                className="flex-1 py-1.5 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-40 text-white rounded-lg text-[11px] font-medium transition-colors"
+              >
+                Создать
+              </button>
+              <button
+                onClick={() => {
+                  setShowNewRoom(false);
+                  setIsPrivateRoom(false);
+                  setSelectedMembers([]);
+                  setNewRoomName("");
+                }}
+                className="px-3 py-1.5 text-muted-foreground hover:text-foreground text-[11px] rounded-lg hover:bg-muted transition-colors"
+              >
+                Отмена
+              </button>
+            </div>
           </div>
         )}
 

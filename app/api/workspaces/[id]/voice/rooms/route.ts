@@ -12,6 +12,14 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
   const { id: workspaceId } = await params;
 
+  // Auto-create default "Общая" room if none exist
+  const count = await db.voiceRoom.count({ where: { workspaceId } });
+  if (count === 0) {
+    await db.voiceRoom.create({
+      data: { workspaceId, name: "Общая", isDefault: true },
+    });
+  }
+
   const rooms = await db.voiceRoom.findMany({
     where: { workspaceId },
     orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
@@ -20,7 +28,14 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     },
   });
 
-  return NextResponse.json(rooms);
+  return NextResponse.json(
+    rooms.map((r) => ({
+      id: r.id,
+      name: r.name,
+      isDefault: r.isDefault,
+      participantCount: r._count.participants,
+    })),
+  );
 }
 
 // POST /api/workspaces/[id]/voice/rooms — create room
@@ -35,14 +50,6 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
   if (!name)
     return NextResponse.json({ error: "Name is required" }, { status: 400 });
-
-  // Auto-create default room if none exist
-  const count = await db.voiceRoom.count({ where: { workspaceId } });
-  if (count === 0) {
-    await db.voiceRoom.create({
-      data: { workspaceId, name: "Общая", isDefault: true },
-    });
-  }
 
   const room = await db.voiceRoom.create({
     data: { workspaceId, name, isDefault: false },
