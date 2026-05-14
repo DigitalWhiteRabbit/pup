@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { toastSuccess } from "@/lib/toast";
+import { useWebRTC } from "./use-webrtc";
 
 /* ── Types ── */
 
@@ -122,6 +123,8 @@ export function VoiceChannelClient({
   const speakingCheckRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const base = `/api/workspaces/${workspaceId}/voice`;
+  const screenStreamRef = useRef<MediaStream | null>(null);
+  const screenVideoRef = useRef<HTMLVideoElement | null>(null);
 
   /* ── Rooms ── */
   const { data: rooms = [] } = useQuery<VoiceRoom[]>({
@@ -165,6 +168,22 @@ export function VoiceChannelClient({
     },
     enabled: !!activeRoomId,
     refetchInterval: connected ? 3000 : 10000,
+  });
+
+  // WebRTC hook (must be after participants query)
+  const participantUserIds = participants
+    .map((p) => p.userId)
+    .filter((id): id is string => !!id);
+
+  const { remoteScreens } = useWebRTC({
+    roomId: activeRoomId,
+    workspaceId,
+    currentUserId,
+    connected,
+    localStream: mediaStreamRef.current,
+    screenStream: screenStreamRef.current,
+    volumes,
+    participantUserIds,
   });
 
   /* ── Messages ── */
@@ -333,9 +352,6 @@ export function VoiceChannelClient({
       if (elapsedRef.current) clearInterval(elapsedRef.current);
     };
   }, [connected]);
-
-  const screenStreamRef = useRef<MediaStream | null>(null);
-  const screenVideoRef = useRef<HTMLVideoElement | null>(null);
 
   // Attach screen stream to video element
   useEffect(() => {
@@ -620,9 +636,28 @@ export function VoiceChannelClient({
           </div>
         )}
 
+        {/* Remote screen shares */}
+        {remoteScreens.map((rs) => {
+          const sharer = participants.find((p) => p.userId === rs.userId);
+          const sharerName = sharer?.login ?? "Участник";
+          return (
+            <div
+              key={rs.userId}
+              className="mx-6 mt-4 bg-card border border-border rounded-xl overflow-hidden shrink-0"
+            >
+              <div className="px-3 py-2 border-b border-border flex items-center gap-2 text-[11px] text-muted-foreground">
+                <Monitor className="h-3.5 w-3.5 text-blue-400" />
+                <b className="text-blue-400">{sharerName}</b> демонстрирует
+                экран
+              </div>
+              <RemoteVideo stream={rs.stream} />
+            </div>
+          );
+        })}
+
         {/* Participants area */}
         <div
-          className={`flex-1 overflow-y-auto flex flex-wrap items-center justify-center gap-5 p-6 bg-background content-center ${isScreenSharing ? "min-h-[120px]" : ""}`}
+          className={`flex-1 overflow-y-auto flex flex-wrap items-center justify-center gap-5 p-6 bg-background content-center ${isScreenSharing || remoteScreens.length > 0 ? "min-h-[120px]" : ""}`}
         >
           {!connected && participants.length === 0 && (
             <div className="text-center">
@@ -1041,5 +1076,26 @@ export function VoiceChannelClient({
         </div>
       )}
     </div>
+  );
+}
+
+/* ── Remote Video (attaches stream to video element) ── */
+
+function RemoteVideo({ stream }: { stream: MediaStream }) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.srcObject = stream;
+    }
+  }, [stream]);
+
+  return (
+    <video
+      ref={videoRef}
+      autoPlay
+      playsInline
+      className="w-full max-h-[280px] object-contain bg-black"
+    />
   );
 }
