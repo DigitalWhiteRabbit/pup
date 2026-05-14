@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { QueryProvider } from "@/components/providers/query-provider";
 import { SessionProvider } from "@/components/providers/session-provider";
 import { AppShell } from "@/components/layout/AppShell";
+import { ChatNotifications } from "@/components/notifications/ChatNotifications";
 
 export default async function AuthenticatedLayout({
   children,
@@ -23,6 +24,7 @@ export default async function AuthenticatedLayout({
           userRole={session.user.role}
         >
           {children}
+          <ChatNotifications />
         </AppShell>
       </SessionProvider>
     </QueryProvider>

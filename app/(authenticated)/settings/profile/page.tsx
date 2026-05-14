@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { TelegramSettings } from "./telegram-settings";
 import { ChangePassword } from "./change-password";
 import { AvatarUpload } from "./avatar-upload";
+import { NotificationSettings } from "./notification-settings";
 
 function SectionColumns({
   title,
@@ -53,6 +54,8 @@ export default async function ProfileSettingsPage() {
       tgNotifyMemberRemoved: true,
       tgNotifyWorkspaceDeleted: true,
       tgNotifyRoleChanged: true,
+      chatSoundEnabled: true,
+      chatDesktopNotify: true,
     },
   });
 
@@ -146,6 +149,19 @@ export default async function ProfileSettingsPage() {
               tgNotifyWorkspaceDeleted: user.tgNotifyWorkspaceDeleted,
               tgNotifyRoleChanged: user.tgNotifyRoleChanged,
             }}
+          />
+        </SectionColumns>
+
+        <Separator />
+
+        {/* Notification Settings */}
+        <SectionColumns
+          title="Уведомления в чатах"
+          description="Настройте всплывающие и звуковые уведомления о новых сообщениях."
+        >
+          <NotificationSettings
+            chatSoundEnabled={user.chatSoundEnabled}
+            chatDesktopNotify={user.chatDesktopNotify}
           />
         </SectionColumns>
       </div>

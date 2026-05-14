@@ -69,6 +69,8 @@ model User {
 
   // Chat
   tgNotifyChat             Boolean @default(true)
+  chatSoundEnabled         Boolean @default(true)
+  chatDesktopNotify        Boolean @default(true)
   chatChannelMemberships   ChatChannelMember[]
   chatMessages             ChatMsg[]           @relation("ChatMsgAuthor")
   chatReactions            ChatMsgReaction[]
