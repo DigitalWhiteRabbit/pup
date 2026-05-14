@@ -40,26 +40,36 @@ export function MessageInput({ onSend, disabled, placeholder, accent }: Props) {
   const isEmpty = !text.trim();
 
   return (
-    <div className="flex items-end gap-2">
-      <textarea
-        ref={textareaRef}
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={handleKeyDown}
-        placeholder={placeholder}
-        disabled={disabled}
-        rows={1}
-        className="flex-1 resize-none rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 disabled:opacity-50"
-        aria-label="Сообщение"
-      />
+    <div className="flex items-end gap-2.5">
+      <div className="flex-1 relative">
+        <textarea
+          ref={textareaRef}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder={placeholder}
+          disabled={disabled}
+          rows={1}
+          className="w-full resize-none rounded-xl border border-gray-200 bg-gray-50/50 px-4 py-2.5 text-sm leading-relaxed text-gray-900 placeholder:text-gray-400 transition-all focus:outline-none focus:ring-2 focus:border-transparent focus:bg-white disabled:opacity-40"
+          style={
+            {
+              "--tw-ring-color": `${accent}30`,
+            } as React.CSSProperties
+          }
+          aria-label="Сообщение"
+        />
+      </div>
       <button
         onClick={handleSubmit}
         disabled={isEmpty || disabled}
-        className="shrink-0 w-10 h-10 rounded-xl flex items-center justify-center text-white transition-opacity disabled:opacity-30"
-        style={{ backgroundColor: accent }}
+        className="shrink-0 w-10 h-10 rounded-xl flex items-center justify-center text-white transition-all duration-200 disabled:opacity-25 hover:shadow-lg"
+        style={{
+          backgroundColor: accent,
+          boxShadow: isEmpty || disabled ? "none" : `0 4px 12px ${accent}30`,
+        }}
         aria-label="Отправить"
       >
-        {disabled ? (
+        {disabled && !isEmpty ? (
           <Loader2 className="h-4 w-4 animate-spin" />
         ) : (
           <Send className="h-4 w-4" />

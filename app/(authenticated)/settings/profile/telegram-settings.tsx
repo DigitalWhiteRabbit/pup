@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
@@ -148,11 +147,8 @@ export function TelegramSettings({
 
   return (
     <>
-      <Card>
-        <CardHeader>
-          <CardTitle>Telegram</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
+      <div>
+        <div className="space-y-4">
           {!isConnected ? (
             <div className="space-y-3">
               <p className="text-sm text-muted-foreground">
@@ -211,8 +207,8 @@ export function TelegramSettings({
               </div>
             </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       <Dialog open={codeDialogOpen} onOpenChange={setCodeDialogOpen}>
         <DialogContent>

@@ -32,11 +32,14 @@ export async function GET(req: Request) {
       orderBy: { createdAt: "desc" },
       take: 50,
       include: {
-        author: { select: { id: true, login: true } },
+        author: { select: { id: true, login: true, avatarPath: true } },
         parent: {
           select: { content: true, author: { select: { login: true } } },
         },
         reactions: { select: { emoji: true, userId: true } },
+        attachments: {
+          select: { id: true, originalName: true, size: true, mimeType: true },
+        },
       },
     });
 
@@ -62,6 +65,7 @@ export async function GET(req: Request) {
           id: m.id,
           authorId: m.author.id,
           authorLogin: m.author.login,
+          authorHasAvatar: !!m.author.avatarPath,
           content: m.content,
           parentId: m.parentId,
           editedAt: m.editedAt,
@@ -76,6 +80,7 @@ export async function GET(req: Request) {
             emoji,
             ...data,
           })),
+          attachments: m.attachments,
         };
       }),
     });
@@ -107,12 +112,14 @@ export async function POST(req: Request) {
         id: msg.id,
         authorId: msg.author.id,
         authorLogin: msg.author.login,
+        authorHasAvatar: false,
         content: msg.content,
         parentId: msg.parentId,
         editedAt: null,
         createdAt: msg.createdAt,
         replyTo: null,
         reactions: [],
+        attachments: [],
       },
       { status: 201 },
     );

@@ -47,16 +47,10 @@ export function ChangePassword() {
   }
 
   return (
-    <div className="rounded-lg border bg-card p-5">
-      <h2 className="text-lg font-semibold text-foreground mb-4">
-        Изменить пароль
-      </h2>
-      <form
-        onSubmit={(e) => void handleSubmit(e)}
-        className="space-y-3 max-w-sm"
-      >
+    <div>
+      <form onSubmit={(e) => void handleSubmit(e)} className="space-y-3.5">
         <div>
-          <label className="text-xs text-muted-foreground mb-1 block">
+          <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 block">
             Текущий пароль
           </label>
           <Input
@@ -67,7 +61,7 @@ export function ChangePassword() {
           />
         </div>
         <div>
-          <label className="text-xs text-muted-foreground mb-1 block">
+          <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 block">
             Новый пароль
           </label>
           <Input
@@ -78,8 +72,8 @@ export function ChangePassword() {
           />
         </div>
         <div>
-          <label className="text-xs text-muted-foreground mb-1 block">
-            Подтвердите новый пароль
+          <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 block">
+            Подтвердите пароль
           </label>
           <Input
             type="password"

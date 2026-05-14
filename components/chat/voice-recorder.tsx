@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import { Mic, Square } from "lucide-react";
+import { Mic, Square, X, Send } from "lucide-react";
 
 export function VoiceRecorder({
   onRecorded,
@@ -13,12 +13,14 @@ export function VoiceRecorder({
   const [recording, setRecording] = useState(false);
   const [duration, setDuration] = useState(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const start = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
       const mr = new MediaRecorder(stream, {
         mimeType: MediaRecorder.isTypeSupported("audio/webm")
           ? "audio/webm"
@@ -30,12 +32,15 @@ export function VoiceRecorder({
       };
       mr.onstop = () => {
         stream.getTracks().forEach((t) => t.stop());
-        const blob = new Blob(chunksRef.current, { type: mr.mimeType });
-        const ext = mr.mimeType.includes("webm") ? "webm" : "m4a";
-        const file = new File([blob], `voice-${Date.now()}.${ext}`, {
-          type: mr.mimeType,
-        });
-        onRecorded(file);
+        streamRef.current = null;
+        if (chunksRef.current.length > 0) {
+          const blob = new Blob(chunksRef.current, { type: mr.mimeType });
+          const ext = mr.mimeType.includes("webm") ? "webm" : "m4a";
+          const file = new File([blob], `voice-${Date.now()}.${ext}`, {
+            type: mr.mimeType,
+          });
+          onRecorded(file);
+        }
         setDuration(0);
       };
       mr.start();
@@ -48,13 +53,27 @@ export function VoiceRecorder({
     }
   }, [onRecorded]);
 
-  const stop = useCallback(() => {
-    mediaRecorderRef.current?.stop();
-    setRecording(false);
+  const stopAndSend = useCallback(() => {
     if (timerRef.current) {
       clearInterval(timerRef.current);
       timerRef.current = null;
     }
+    mediaRecorderRef.current?.stop();
+    setRecording(false);
+  }, []);
+
+  const cancel = useCallback(() => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    // Clear chunks so onstop won't call onRecorded
+    chunksRef.current = [];
+    mediaRecorderRef.current?.stop();
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    setRecording(false);
+    setDuration(0);
   }, []);
 
   const fmt = (s: number) =>
@@ -62,17 +81,32 @@ export function VoiceRecorder({
 
   if (recording) {
     return (
-      <div className="flex items-center gap-2">
-        <div className="flex items-center gap-1.5 text-red-500 text-xs animate-pulse">
-          <div className="w-2 h-2 bg-red-500 rounded-full" />
-          {fmt(duration)}
+      <div className="flex items-center gap-3 flex-1">
+        <button
+          onClick={cancel}
+          className="w-8 h-8 rounded-full hover:bg-muted flex items-center justify-center shrink-0 text-muted-foreground"
+          title="Отменить"
+        >
+          <X className="w-4 h-4" />
+        </button>
+        <div className="flex items-center gap-2 flex-1">
+          <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+          <div className="flex-1 h-1 bg-red-500/20 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-red-500 rounded-full transition-all"
+              style={{ width: `${Math.min(duration * 2, 100)}%` }}
+            />
+          </div>
+          <span className="text-xs text-red-400 font-mono w-10 text-right">
+            {fmt(duration)}
+          </span>
         </div>
         <button
-          onClick={stop}
-          className="w-9 h-9 rounded-xl bg-red-500 hover:bg-red-600 flex items-center justify-center shrink-0"
-          title="Остановить запись"
+          onClick={stopAndSend}
+          className="w-9 h-9 rounded-xl bg-emerald-500 hover:bg-emerald-600 flex items-center justify-center shrink-0"
+          title="Отправить"
         >
-          <Square className="w-4 h-4 text-white fill-white" />
+          <Send className="w-4 h-4 text-white" />
         </button>
       </div>
     );
@@ -82,10 +116,10 @@ export function VoiceRecorder({
     <button
       onClick={() => void start()}
       disabled={disabled}
-      className="w-9 h-9 rounded-lg hover:bg-gray-100 flex items-center justify-center shrink-0 disabled:opacity-40"
+      className="w-9 h-9 rounded-lg hover:bg-muted flex items-center justify-center shrink-0 disabled:opacity-40"
       title="Голосовое сообщение"
     >
-      <Mic className="w-5 h-5 text-gray-400" />
+      <Mic className="w-5 h-5 text-muted-foreground" />
     </button>
   );
 }
@@ -96,7 +130,6 @@ export function VoicePlayer({ src, isMe }: { src: string; isMe: boolean }) {
   const [dur, setDur] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (audioRef.current) {
@@ -162,7 +195,7 @@ export function VoicePlayer({ src, isMe }: { src: string; isMe: boolean }) {
         </div>
       </div>
       <span
-        className={`text-[10px] shrink-0 ${isMe ? "text-white/60" : "text-gray-400"}`}
+        className={`text-[10px] shrink-0 ${isMe ? "text-white/60" : "text-muted-foreground"}`}
       >
         {fmt(dur || 0)}
       </span>

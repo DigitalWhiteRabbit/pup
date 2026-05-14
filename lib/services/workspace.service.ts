@@ -54,6 +54,7 @@ export type WorkspaceBoard = {
   id: string;
   name: string;
   description: string | null;
+  logoPath: string | null;
   owner: { id: string; login: string };
   members: Array<{
     id: string;
@@ -270,6 +271,7 @@ export async function getWorkspaceById(
     id: workspace.id,
     name: workspace.name,
     description: workspace.description,
+    logoPath: workspace.logoPath,
     owner: workspace.owner,
     members: workspace.members.map((m) => ({
       id: m.user.id,

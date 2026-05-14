@@ -45,6 +45,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toastSuccess, toastApiError } from "@/lib/toast";
+import { WorkspaceLogoUpload } from "./workspace-logo-upload";
 import {
   updateWorkspaceSchema,
   type UpdateWorkspaceInput,
@@ -393,17 +394,25 @@ export function WorkspaceOverviewClient({
     <div className="p-6 max-w-6xl mx-auto">
       {/* ── Header ── */}
       <div className="mb-8 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-3xl font-bold">{workspace.name}</h1>
-          {workspace.description && (
-            <p className="mt-1 text-muted-foreground">
-              {workspace.description}
+        <div className="flex items-start gap-4">
+          <WorkspaceLogoUpload
+            workspaceId={workspace.id}
+            name={workspace.name}
+            hasLogo={!!workspace.logoPath}
+            isOwner={isOwner}
+          />
+          <div>
+            <h1 className="text-3xl font-bold">{workspace.name}</h1>
+            {workspace.description && (
+              <p className="mt-1 text-muted-foreground">
+                {workspace.description}
+              </p>
+            )}
+            <p className="mt-1 text-sm text-muted-foreground">
+              Владелец: {workspace.owner.login} · {workspace.members.length}{" "}
+              участн.
             </p>
-          )}
-          <p className="mt-1 text-sm text-muted-foreground">
-            Владелец: {workspace.owner.login} · {workspace.members.length}{" "}
-            участн.
-          </p>
+          </div>
         </div>
         <div className="flex gap-2">
           <Link href={`/workspaces/${workspace.id}/dashboard`}>
