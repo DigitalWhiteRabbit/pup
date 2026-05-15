@@ -5,6 +5,8 @@ import { useRef, useCallback, useEffect, useState } from "react";
 type PeerState = {
   pc: RTCPeerConnection;
   audioEl: HTMLAudioElement;
+  analyser: AnalyserNode | null;
+  analyserData: Uint8Array<ArrayBuffer> | null;
 };
 
 type RemoteScreen = { userId: string; stream: MediaStream };
@@ -68,6 +70,8 @@ export function useWebRTC({
   const iceBuf = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
   const localStreamRef = useRef<MediaStream | null>(null);
   const [remoteScreens, setRemoteScreens] = useState<RemoteScreen[]>([]);
+  const [speakingPeers, setSpeakingPeers] = useState<Set<string>>(new Set());
+  const speakingCheckRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Keep ref in sync with prop (so callbacks see latest)
   localStreamRef.current = localStream;
@@ -146,6 +150,19 @@ export function useWebRTC({
           const remoteAudio = new MediaStream([ev.track]);
           audioEl.srcObject = remoteAudio;
           void audioEl.play().catch(() => {});
+          // Setup speaking analyser for this peer
+          try {
+            const actx = new AudioContext();
+            const src = actx.createMediaStreamSource(remoteAudio);
+            const analyser = actx.createAnalyser();
+            analyser.fftSize = 256;
+            analyser.smoothingTimeConstant = 0.5;
+            src.connect(analyser);
+            state.analyser = analyser;
+            state.analyserData = new Uint8Array(analyser.frequencyBinCount);
+          } catch {
+            /* no AudioContext */
+          }
           // Notify recorder about remote audio
           onRemoteAudio?.(uid, remoteAudio);
         } else if (ev.track.kind === "video") {
@@ -176,7 +193,12 @@ export function useWebRTC({
         }
       };
 
-      const state: PeerState = { pc, audioEl };
+      const state: PeerState = {
+        pc,
+        audioEl,
+        analyser: null,
+        analyserData: null,
+      };
       peersRef.current.set(uid, state);
 
       if (isInitiator) {
@@ -333,6 +355,34 @@ export function useWebRTC({
     }
   }, [connected, localStream, peerUserIds, makePeerAsync, closePeer]);
 
+  /* ── speaking detection for remote peers ── */
+
+  useEffect(() => {
+    if (!connected) {
+      if (speakingCheckRef.current) clearInterval(speakingCheckRef.current);
+      setSpeakingPeers(new Set());
+      return;
+    }
+
+    speakingCheckRef.current = setInterval(() => {
+      const speaking = new Set<string>();
+      for (const [uid, peer] of Array.from(peersRef.current)) {
+        if (peer.analyser && peer.analyserData) {
+          peer.analyser.getByteFrequencyData(peer.analyserData);
+          const avg =
+            peer.analyserData.reduce((a, b) => a + b, 0) /
+            peer.analyserData.length;
+          if (avg > 12) speaking.add(uid);
+        }
+      }
+      setSpeakingPeers(speaking);
+    }, 200);
+
+    return () => {
+      if (speakingCheckRef.current) clearInterval(speakingCheckRef.current);
+    };
+  }, [connected]);
+
   /* ── cleanup on disconnect / unmount ── */
 
   useEffect(() => {
@@ -346,8 +396,9 @@ export function useWebRTC({
     return () => {
       closeAll();
       if (pollRef.current) clearInterval(pollRef.current);
+      if (speakingCheckRef.current) clearInterval(speakingCheckRef.current);
     };
   }, [closeAll]);
 
-  return { remoteScreens };
+  return { remoteScreens, speakingPeers };
 }

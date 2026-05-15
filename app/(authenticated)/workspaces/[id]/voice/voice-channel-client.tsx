@@ -182,7 +182,7 @@ export function VoiceChannelClient({
     .filter((id): id is string => !!id);
 
   const signalBase = activeRoomId ? `${base}/rooms/${activeRoomId}` : "";
-  const { remoteScreens } = useWebRTC({
+  const { remoteScreens, speakingPeers } = useWebRTC({
     signalBase,
     currentUserId,
     connected,
@@ -625,13 +625,13 @@ export function VoiceChannelClient({
                       className="flex items-center gap-1.5 py-1 text-[11px] text-muted-foreground"
                     >
                       <div
-                        className={`w-5 h-5 rounded-full flex items-center justify-center text-[7px] font-bold text-white shrink-0 ${p.userId === currentUserId && isSpeaking && !p.isMuted ? "ring-2 ring-emerald-500" : ""}`}
+                        className={`w-5 h-5 rounded-full flex items-center justify-center text-[7px] font-bold text-white shrink-0 ${((p.userId === currentUserId && isSpeaking) || (p.userId && p.userId !== currentUserId && speakingPeers.has(p.userId))) && !p.isMuted ? "ring-2 ring-emerald-500" : ""}`}
                         style={{ background: colorFor(displayName(p)) }}
                       >
                         {displayName(p)[0]?.toUpperCase()}
                       </div>
                       <span
-                        className={`truncate ${p.userId === currentUserId && isSpeaking && !p.isMuted ? "text-emerald-400" : ""}`}
+                        className={`truncate ${((p.userId === currentUserId && isSpeaking) || (p.userId && p.userId !== currentUserId && speakingPeers.has(p.userId))) && !p.isMuted ? "text-emerald-400" : ""}`}
                       >
                         {displayName(p)}
                       </span>
@@ -807,7 +807,7 @@ export function VoiceChannelClient({
               return (
                 <div
                   key={p.id}
-                  className={`w-[170px] flex flex-col items-center gap-2 p-5 rounded-2xl border transition-all group relative bg-card ${isMe && isSpeaking && !isMuted ? "border-emerald-500 shadow-[0_0_20px_rgba(16,185,129,0.15)]" : "border-border/40 hover:border-border/60"}`}
+                  className={`w-[170px] flex flex-col items-center gap-2 p-5 rounded-2xl border transition-all group relative bg-card ${((isMe && isSpeaking) || (!isMe && p.userId && speakingPeers.has(p.userId))) && !p.isMuted ? "border-emerald-500 shadow-[0_0_20px_rgba(16,185,129,0.15)]" : "border-border/40 hover:border-border/60"}`}
                 >
                   {/* Mute badge */}
                   {p.isMuted && (
@@ -817,7 +817,7 @@ export function VoiceChannelClient({
                   )}
                   {/* Avatar */}
                   <div
-                    className={`rounded-full ${isMe && isSpeaking && !isMuted ? "ring-[3px] ring-emerald-500 ring-offset-2 ring-offset-card" : ""}`}
+                    className={`rounded-full ${((isMe && isSpeaking) || (!isMe && p.userId && speakingPeers.has(p.userId))) && !p.isMuted ? "ring-[3px] ring-emerald-500 ring-offset-2 ring-offset-card" : ""}`}
                   >
                     {p.hasAvatar && p.userId ? (
                       <UserAvatar userId={p.userId} login={name} size={64} />
