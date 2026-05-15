@@ -31,6 +31,7 @@ type VoiceRoom = {
   id: string;
   name: string;
   isDefault: boolean;
+  isPrivate: boolean;
   participantCount: number;
 };
 
@@ -302,11 +303,15 @@ export function VoiceChannelClient({
   });
 
   const createRoomMut = useMutation({
-    mutationFn: (name: string) =>
+    mutationFn: (args: {
+      name: string;
+      isPrivate: boolean;
+      allowedUserIds: string[];
+    }) =>
       fetch(`${base}/rooms`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify(args),
       }),
     onSuccess: () => {
       setNewRoomName("");
@@ -512,7 +517,11 @@ export function VoiceChannelClient({
               <button
                 onClick={() => {
                   if (newRoomName.trim()) {
-                    createRoomMut.mutate(newRoomName.trim());
+                    createRoomMut.mutate({
+                      name: newRoomName.trim(),
+                      isPrivate: isPrivateRoom,
+                      allowedUserIds: selectedMembers,
+                    });
                     setIsPrivateRoom(false);
                     setSelectedMembers([]);
                   }

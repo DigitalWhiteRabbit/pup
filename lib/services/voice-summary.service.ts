@@ -29,11 +29,26 @@ export async function generateVoiceSessionSummary(sessionId: string) {
     if (!session) return;
 
     const messages = session.room.messages;
-    if (messages.length < 2) {
-      // Too few messages for meaningful summary
+    if (messages.length < 1) {
+      const durationMin = session.duration
+        ? Math.ceil(session.duration / 60)
+        : 0;
+      let pNames: string[] = [];
+      try {
+        pNames = (
+          JSON.parse(session.participants) as Array<{
+            login?: string;
+            guestName?: string;
+          }>
+        ).map((p) => p.login ?? p.guestName ?? "Гость");
+      } catch {
+        /* */
+      }
       await db.voiceSession.update({
         where: { id: sessionId },
-        data: { summary: "Короткий звонок без обсуждений в чате." },
+        data: {
+          summary: `Голосовой звонок без текстового чата.\nУчастники: ${pNames.join(", ") || "неизвестно"}\nДлительность: ${durationMin} мин`,
+        },
       });
       return;
     }

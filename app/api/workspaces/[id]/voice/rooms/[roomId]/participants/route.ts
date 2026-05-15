@@ -42,6 +42,25 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     );
   }
 
+  // Check private room access
+  const room = await db.voiceRoom.findUnique({
+    where: { id: roomId },
+    select: { isPrivate: true, allowedUserIds: true },
+  });
+  if (room?.isPrivate && !isGuest) {
+    try {
+      const allowed = JSON.parse(room.allowedUserIds) as string[];
+      if (!allowed.includes(session!.user.id)) {
+        return NextResponse.json(
+          { error: "Нет доступа к приватному каналу" },
+          { status: 403 },
+        );
+      }
+    } catch {
+      /* */
+    }
+  }
+
   // Prevent duplicate join
   const where = isGuest
     ? { roomId, guestToken: body.guestToken }

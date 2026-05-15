@@ -174,11 +174,13 @@ model ExternalUsersConfig {
 // ─────────────────────────────────────────
 
 model VoiceRoom {
-  id          String  @id @default(cuid())
-  workspaceId String
-  name        String
-  isDefault   Boolean @default(false)
-  createdAt   DateTime @default(now())
+  id             String  @id @default(cuid())
+  workspaceId    String
+  name           String
+  isDefault      Boolean @default(false)
+  isPrivate      Boolean @default(false)
+  allowedUserIds String  @default("[]") // JSON array of userIds
+  createdAt      DateTime @default(now())
 
   workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   participants VoiceParticipant[]
