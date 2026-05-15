@@ -9,12 +9,38 @@ type PeerState = {
 
 type RemoteScreen = { userId: string; stream: MediaStream };
 
-const ICE_CONFIG: RTCConfiguration = {
-  iceServers: [
-    { urls: "stun:stun.l.google.com:19302" },
-    { urls: "stun:stun1.l.google.com:19302" },
-  ],
-};
+// Fetched from /api/voice/ice-servers (includes TURN if configured)
+let _iceConfigCache: RTCConfiguration | null = null;
+let _iceConfigFetching = false;
+
+async function getIceConfig(): Promise<RTCConfiguration> {
+  if (_iceConfigCache) return _iceConfigCache;
+  if (_iceConfigFetching) {
+    // Wait for in-flight fetch
+    await new Promise((r) => setTimeout(r, 500));
+    return (
+      _iceConfigCache ?? {
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      }
+    );
+  }
+  _iceConfigFetching = true;
+  try {
+    const res = await fetch("/api/voice/ice-servers");
+    if (res.ok) {
+      const data = (await res.json()) as { iceServers: RTCIceServer[] };
+      _iceConfigCache = { iceServers: data.iceServers };
+    }
+  } catch {
+    /* fallback */
+  }
+  _iceConfigFetching = false;
+  return (
+    _iceConfigCache ?? {
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+    }
+  );
+}
 
 type Props = {
   signalBase: string; // e.g. /api/workspaces/.../voice/rooms/{roomId}
@@ -81,12 +107,13 @@ export function useWebRTC({
 
   /* ── create peer ── */
 
-  const makePeer = useCallback(
-    (uid: string, isInitiator: boolean) => {
+  const makePeerAsync = useCallback(
+    async (uid: string, isInitiator: boolean) => {
       // Avoid duplicate
       if (peersRef.current.has(uid)) return peersRef.current.get(uid)!;
 
-      const pc = new RTCPeerConnection(ICE_CONFIG);
+      const iceConfig = await getIceConfig();
+      const pc = new RTCPeerConnection(iceConfig);
       const audioEl = new Audio();
       audioEl.autoplay = true;
 
@@ -144,17 +171,15 @@ export function useWebRTC({
       peersRef.current.set(uid, state);
 
       if (isInitiator) {
-        void (async () => {
-          try {
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
-            if (pc.localDescription) {
-              await signal(uid, "offer", pc.localDescription.toJSON());
-            }
-          } catch (e) {
-            console.warn("WebRTC offer failed:", e);
+        try {
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          if (pc.localDescription) {
+            await signal(uid, "offer", pc.localDescription.toJSON());
           }
-        })();
+        } catch (e) {
+          console.warn("WebRTC offer failed:", e);
+        }
       }
 
       return state;
@@ -176,7 +201,7 @@ export function useWebRTC({
       if (type === "offer") {
         // Someone sent us an offer — create peer (non-initiator), answer
         closePeer(from); // Clean up stale peer if any
-        const p = makePeer(from, false);
+        const p = await makePeerAsync(from, false);
         try {
           await p.pc.setRemoteDescription(
             new RTCSessionDescription(payload as RTCSessionDescriptionInit),
@@ -241,7 +266,7 @@ export function useWebRTC({
         }
       }
     },
-    [makePeer, signal, closePeer],
+    [makePeerAsync, signal, closePeer],
   );
 
   /* ── poll signals ── */
@@ -287,7 +312,7 @@ export function useWebRTC({
     // Create peers for participants we don't have yet
     for (const uid of peerUserIds) {
       if (!peersRef.current.has(uid)) {
-        makePeer(uid, true);
+        void makePeerAsync(uid, true);
       }
     }
 
@@ -297,7 +322,7 @@ export function useWebRTC({
         closePeer(uid);
       }
     }
-  }, [connected, localStream, peerUserIds, makePeer, closePeer]);
+  }, [connected, localStream, peerUserIds, makePeerAsync, closePeer]);
 
   /* ── cleanup on disconnect / unmount ── */
 
