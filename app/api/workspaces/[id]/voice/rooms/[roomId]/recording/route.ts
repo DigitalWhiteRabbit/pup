@@ -23,6 +23,13 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   const file = formData.get("file") as File | null;
   const sessionId = formData.get("sessionId") as string | null;
 
+  console.log("[VOICE RECORDING] Upload received:", {
+    fileSize: file?.size,
+    fileType: file?.type,
+    sessionId,
+    roomId,
+  });
+
   if (!file)
     return NextResponse.json({ error: "No audio file" }, { status: 400 });
 
@@ -33,6 +40,13 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         where: { roomId },
         orderBy: { startedAt: "desc" },
       });
+
+  console.log(
+    "[VOICE RECORDING] Session found:",
+    voiceSession?.id,
+    "endedAt:",
+    voiceSession?.endedAt,
+  );
 
   if (!voiceSession)
     return NextResponse.json({ error: "No session found" }, { status: 404 });

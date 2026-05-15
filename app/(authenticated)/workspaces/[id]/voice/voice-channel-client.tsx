@@ -293,6 +293,12 @@ export function VoiceChannelClient({
       // 1. Stop recording and upload BEFORE leaving
       try {
         const blob = await stopRecording();
+        console.log(
+          "[VOICE] Recording blob:",
+          blob?.size,
+          "bytes, roomId:",
+          activeRoomId,
+        );
         if (blob && blob.size > 1000 && activeRoomId) {
           const fd = new FormData();
           fd.append(

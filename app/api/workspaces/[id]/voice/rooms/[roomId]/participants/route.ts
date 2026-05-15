@@ -11,28 +11,10 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
   const { roomId } = await params;
 
   // Prune stale participants
-  const staleThreshold = new Date(Date.now() - 15_000);
+  const staleThreshold = new Date(Date.now() - 30_000);
   await db.voiceParticipant.deleteMany({
     where: { roomId, lastHeartbeat: { lt: staleThreshold } },
   });
-
-  // Close stale sessions (open but no participants)
-  const currentCount = await db.voiceParticipant.count({ where: { roomId } });
-  if (currentCount === 0) {
-    const staleSessions = await db.voiceSession.findMany({
-      where: { roomId, endedAt: null },
-    });
-    for (const s of staleSessions) {
-      await db.voiceSession.update({
-        where: { id: s.id },
-        data: {
-          endedAt: new Date(),
-          duration: Math.floor((Date.now() - s.startedAt.getTime()) / 1000),
-        },
-      });
-      void generateVoiceSessionSummary(s.id);
-    }
-  }
 
   const participants = await db.voiceParticipant.findMany({
     where: { roomId },
@@ -94,17 +76,18 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     return NextResponse.json(existing);
   }
 
-  // If first participant, create VoiceSession
-  const participantCount = await db.voiceParticipant.count({
-    where: { roomId },
+  // Ensure active VoiceSession exists (create if none)
+  const existingSession = await db.voiceSession.findFirst({
+    where: { roomId, endedAt: null },
+    orderBy: { startedAt: "desc" },
   });
-  if (participantCount === 0) {
-    const room = await db.voiceRoom.findUnique({ where: { id: roomId } });
+  if (!existingSession) {
+    const roomData = await db.voiceRoom.findUnique({ where: { id: roomId } });
     await db.voiceSession.create({
       data: {
         roomId,
-        roomName: room?.name ?? "Unknown",
-        workspaceId: room?.workspaceId ?? "",
+        roomName: roomData?.name ?? "Unknown",
+        workspaceId: roomData?.workspaceId ?? "",
         participants: "[]",
       },
     });
