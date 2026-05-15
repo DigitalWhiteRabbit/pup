@@ -24,23 +24,42 @@ export async function GET() {
 
   const provider = process.env.TURN_PROVIDER;
 
-  if (provider === "metered" && process.env.METERED_API_KEY) {
-    // Metered.ca — fetch dynamic TURN credentials
-    try {
-      const res = await fetch(
-        `https://pup.metered.live/api/v1/turn/credentials?apiKey=${process.env.METERED_API_KEY}`,
-        { next: { revalidate: 3600 } }, // Cache 1 hour
-      );
-      if (res.ok) {
-        const servers = (await res.json()) as Array<{
-          urls: string | string[];
-          username?: string;
-          credential?: string;
-        }>;
-        iceServers.push(...servers);
+  if (provider === "metered") {
+    const domain = process.env.METERED_DOMAIN ?? "global.relay.metered.ca";
+    const apiKey = process.env.METERED_API_KEY ?? "";
+
+    // Try fetching dynamic credentials first
+    let fetched = false;
+    if (apiKey) {
+      try {
+        const res = await fetch(
+          `https://${domain}/api/v1/turn/credentials?apiKey=${apiKey}`,
+          { next: { revalidate: 3600 } },
+        );
+        if (res.ok) {
+          const servers = (await res.json()) as Array<{
+            urls: string | string[];
+            username?: string;
+            credential?: string;
+          }>;
+          if (Array.isArray(servers) && servers.length > 0) {
+            iceServers.push(...servers);
+            fetched = true;
+          }
+        }
+      } catch {
+        /* fallback below */
       }
-    } catch {
-      /* fallback to STUN only */
+    }
+
+    // Fallback: use Metered's standard TURN servers with domain
+    if (!fetched && domain) {
+      iceServers.push(
+        { urls: `stun:${domain}:80` },
+        { urls: `turn:${domain}:80`, username: "open", credential: "open" },
+        { urls: `turn:${domain}:443`, username: "open", credential: "open" },
+        { urls: `turns:${domain}:443`, username: "open", credential: "open" },
+      );
     }
   } else if (provider === "custom") {
     // Self-hosted coturn
