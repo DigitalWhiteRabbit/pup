@@ -355,6 +355,54 @@ export function useWebRTC({
     }
   }, [connected, localStream, peerUserIds, makePeerAsync, closePeer]);
 
+  /* ── screen share: add/remove video track + renegotiate ── */
+
+  useEffect(() => {
+    if (!connected) return;
+
+    for (const [uid, peer] of Array.from(peersRef.current)) {
+      const senders = peer.pc.getSenders();
+      const videoSender = senders.find((s) => s.track?.kind === "video");
+
+      if (screenStream) {
+        const videoTrack = screenStream.getVideoTracks()[0];
+        if (videoTrack) {
+          if (videoSender) {
+            void videoSender.replaceTrack(videoTrack);
+          } else {
+            peer.pc.addTrack(videoTrack, screenStream);
+          }
+          // Renegotiate
+          void (async () => {
+            try {
+              const offer = await peer.pc.createOffer();
+              await peer.pc.setLocalDescription(offer);
+              if (peer.pc.localDescription) {
+                await signal(uid, "offer", peer.pc.localDescription.toJSON());
+              }
+            } catch {
+              /* */
+            }
+          })();
+        }
+      } else if (videoSender) {
+        peer.pc.removeTrack(videoSender);
+        // Renegotiate
+        void (async () => {
+          try {
+            const offer = await peer.pc.createOffer();
+            await peer.pc.setLocalDescription(offer);
+            if (peer.pc.localDescription) {
+              await signal(uid, "offer", peer.pc.localDescription.toJSON());
+            }
+          } catch {
+            /* */
+          }
+        })();
+      }
+    }
+  }, [connected, screenStream, signal]);
+
   /* ── speaking detection for remote peers ── */
 
   useEffect(() => {

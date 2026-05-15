@@ -264,7 +264,12 @@ export function VoiceChannelClient({
         .then((stream) => {
           setLocalStream(stream);
           // Start recording mixed audio for AI summary
-          startRecording(stream);
+          try {
+            startRecording(stream);
+            console.log("[VOICE] Recording started");
+          } catch (e) {
+            console.warn("[VOICE] Recording start failed:", e);
+          }
           // AudioContext analyser for speaking detection
           try {
             const ctx = new AudioContext();
@@ -300,18 +305,24 @@ export function VoiceChannelClient({
           activeRoomId,
         );
         if (blob && blob.size > 1000 && activeRoomId) {
+          console.log("[VOICE] Uploading recording...");
           const fd = new FormData();
           fd.append(
             "file",
             new File([blob], "call-recording.webm", { type: blob.type }),
           );
-          await fetch(`${base}/rooms/${activeRoomId}/recording`, {
+          const res = await fetch(`${base}/rooms/${activeRoomId}/recording`, {
             method: "POST",
             body: fd,
           });
+          console.log("[VOICE] Recording upload response:", res.status);
+        } else {
+          console.log(
+            "[VOICE] No recording to upload (blob null or too small)",
+          );
         }
-      } catch {
-        /* silent */
+      } catch (e) {
+        console.error("[VOICE] Recording upload error:", e);
       }
       // 2. Then leave the room
       await fetch(`${base}/rooms/${activeRoomId}/participants`, {
