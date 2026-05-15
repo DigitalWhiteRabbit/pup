@@ -289,8 +289,29 @@ export function VoiceChannelClient({
   });
 
   const leaveMut = useMutation({
-    mutationFn: () =>
-      fetch(`${base}/rooms/${activeRoomId}/participants`, { method: "DELETE" }),
+    mutationFn: async () => {
+      // 1. Stop recording and upload BEFORE leaving
+      try {
+        const blob = await stopRecording();
+        if (blob && blob.size > 1000 && activeRoomId) {
+          const fd = new FormData();
+          fd.append(
+            "file",
+            new File([blob], "call-recording.webm", { type: blob.type }),
+          );
+          await fetch(`${base}/rooms/${activeRoomId}/recording`, {
+            method: "POST",
+            body: fd,
+          });
+        }
+      } catch {
+        /* silent */
+      }
+      // 2. Then leave the room
+      await fetch(`${base}/rooms/${activeRoomId}/participants`, {
+        method: "DELETE",
+      });
+    },
     onSuccess: () => {
       setConnected(false);
       setIsMuted(false);
@@ -301,25 +322,6 @@ export function VoiceChannelClient({
       screenStream?.getTracks().forEach((t) => t.stop());
       setScreenStream(null);
       if (speakingCheckRef.current) clearInterval(speakingCheckRef.current);
-      // Stop recording and upload for AI summary
-      void (async () => {
-        try {
-          const blob = await stopRecording();
-          if (blob && blob.size > 1000 && activeRoomId) {
-            const fd = new FormData();
-            fd.append(
-              "file",
-              new File([blob], "call-recording.webm", { type: blob.type }),
-            );
-            await fetch(`${base}/rooms/${activeRoomId}/recording`, {
-              method: "POST",
-              body: fd,
-            });
-          }
-        } catch {
-          /* silent */
-        }
-      })();
       void qc.invalidateQueries({
         queryKey: ["voice-participants", activeRoomId],
       });
