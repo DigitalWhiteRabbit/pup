@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { isModuleEnabled } from "@/lib/services/workspace.service";
 import { redirect } from "next/navigation";
-import { PlaceholderModule } from "@/components/PlaceholderModule";
+import { UsersModuleClient } from "./users-module-client";
 
 type Props = { params: { id: string } };
 
@@ -16,5 +16,6 @@ export default async function UsersModulePage({ params }: Props) {
     redirect("/workspaces");
   });
   if (!on) redirect(`/workspaces/${params.id}`);
-  return <PlaceholderModule moduleKey="users" workspaceId={params.id} />;
+
+  return <UsersModuleClient workspaceId={params.id} />;
 }

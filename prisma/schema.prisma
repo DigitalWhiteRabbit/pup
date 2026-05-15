@@ -145,8 +145,28 @@ model Workspace {
   agentConfig     AgentConfig?
   chatChannels    ChatChannel[]
   voiceRooms      VoiceRoom[]
+  externalUsersConfig ExternalUsersConfig?
 
   @@index([ownerId])
+}
+
+// ─────────────────────────────────────────
+// EXTERNAL USERS (подключение сторонних проектов)
+// ─────────────────────────────────────────
+
+model ExternalUsersConfig {
+  id            String   @id @default(cuid())
+  workspaceId   String   @unique
+  apiEndpoint   String
+  apiKey        String
+  authType      String   @default("bearer") // "bearer" | "x-api-key" | "query"
+  isConnected   Boolean  @default(false)
+  lastSyncAt    DateTime?
+  lastError     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }
 
 // ─────────────────────────────────────────

@@ -1,0 +1,117 @@
+import { auth } from "@/lib/auth";
+import { db } from "@/lib/db";
+import { NextRequest, NextResponse } from "next/server";
+
+type RouteParams = { params: Promise<{ id: string }> };
+
+/** GET — get config status */
+export async function GET(_req: NextRequest, { params }: RouteParams) {
+  const session = await auth();
+  if (!session?.user?.id)
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const { id: workspaceId } = await params;
+
+  const config = await db.externalUsersConfig.findUnique({
+    where: { workspaceId },
+    select: {
+      id: true,
+      apiEndpoint: true,
+      authType: true,
+      isConnected: true,
+      lastSyncAt: true,
+      lastError: true,
+    },
+  });
+
+  return NextResponse.json({ config });
+}
+
+/** POST — create/update config */
+export async function POST(req: NextRequest, { params }: RouteParams) {
+  const session = await auth();
+  if (!session?.user?.id)
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const { id: workspaceId } = await params;
+  const body = await req.json();
+
+  const { apiEndpoint, apiKey, authType } = body as {
+    apiEndpoint: string;
+    apiKey: string;
+    authType?: string;
+  };
+
+  if (!apiEndpoint || !apiKey)
+    return NextResponse.json(
+      { error: "apiEndpoint and apiKey required" },
+      { status: 400 },
+    );
+
+  // Test connection
+  let isConnected = false;
+  let lastError: string | null = null;
+  try {
+    const headers: Record<string, string> = {};
+    const at = authType ?? "bearer";
+    if (at === "bearer") headers["Authorization"] = `Bearer ${apiKey}`;
+    else if (at === "x-api-key") headers["X-API-Key"] = apiKey;
+
+    const testUrl =
+      at === "query"
+        ? `${apiEndpoint}${apiEndpoint.includes("?") ? "&" : "?"}apiKey=${apiKey}`
+        : apiEndpoint;
+
+    const res = await fetch(testUrl, {
+      headers,
+      signal: AbortSignal.timeout(10000),
+    });
+
+    if (res.ok) {
+      isConnected = true;
+    } else {
+      lastError = `HTTP ${res.status}: ${res.statusText}`;
+    }
+  } catch (e) {
+    lastError = e instanceof Error ? e.message : "Connection failed";
+  }
+
+  const config = await db.externalUsersConfig.upsert({
+    where: { workspaceId },
+    create: {
+      workspaceId,
+      apiEndpoint,
+      apiKey,
+      authType: authType ?? "bearer",
+      isConnected,
+      lastError,
+      lastSyncAt: isConnected ? new Date() : null,
+    },
+    update: {
+      apiEndpoint,
+      apiKey,
+      authType: authType ?? "bearer",
+      isConnected,
+      lastError,
+      lastSyncAt: isConnected ? new Date() : null,
+    },
+  });
+
+  return NextResponse.json({
+    isConnected: config.isConnected,
+    lastError: config.lastError,
+  });
+}
+
+/** DELETE — disconnect */
+export async function DELETE(_req: NextRequest, { params }: RouteParams) {
+  const session = await auth();
+  if (!session?.user?.id)
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const { id: workspaceId } = await params;
+
+  await db.externalUsersConfig.deleteMany({ where: { workspaceId } });
+
+  return NextResponse.json({ ok: true });
+}
