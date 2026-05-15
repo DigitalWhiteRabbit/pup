@@ -118,15 +118,15 @@ export function VoiceChannelClient({
   const [viewSession, setViewSession] = useState<VoiceSessionItem | null>(null);
   const [volumes, setVolumes] = useState<Record<string, number>>({});
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
   const elapsedRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const mediaStreamRef = useRef<MediaStream | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const speakingCheckRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const screenVideoRef = useRef<HTMLVideoElement | null>(null);
 
   const base = `/api/workspaces/${workspaceId}/voice`;
-  const screenStreamRef = useRef<MediaStream | null>(null);
-  const screenVideoRef = useRef<HTMLVideoElement | null>(null);
 
   /* ── Rooms ── */
   const { data: rooms = [] } = useQuery<VoiceRoom[]>({
@@ -177,15 +177,14 @@ export function VoiceChannelClient({
     .map((p) => p.userId)
     .filter((id): id is string => !!id);
 
+  const signalBase = activeRoomId ? `${base}/rooms/${activeRoomId}` : "";
   const { remoteScreens } = useWebRTC({
-    roomId: activeRoomId,
-    workspaceId,
+    signalBase,
     currentUserId,
     connected,
-    localStream: mediaStreamRef.current,
-    screenStream: screenStreamRef.current,
-    volumes,
-    participantUserIds,
+    localStream,
+    screenStream,
+    peerUserIds: participantUserIds,
   });
 
   /* ── Messages ── */
@@ -257,7 +256,7 @@ export function VoiceChannelClient({
       void navigator.mediaDevices
         .getUserMedia({ audio: true })
         .then((stream) => {
-          mediaStreamRef.current = stream;
+          setLocalStream(stream);
           // AudioContext analyser for speaking detection
           try {
             const ctx = new AudioContext();
@@ -289,10 +288,10 @@ export function VoiceChannelClient({
       setIsMuted(false);
       setIsScreenSharing(false);
       setIsSpeaking(false);
-      mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
-      mediaStreamRef.current = null;
-      screenStreamRef.current?.getTracks().forEach((t) => t.stop());
-      screenStreamRef.current = null;
+      localStream?.getTracks().forEach((t) => t.stop());
+      setLocalStream(null);
+      screenStream?.getTracks().forEach((t) => t.stop());
+      setScreenStream(null);
       if (speakingCheckRef.current) clearInterval(speakingCheckRef.current);
       void qc.invalidateQueries({
         queryKey: ["voice-participants", activeRoomId],
@@ -369,16 +368,16 @@ export function VoiceChannelClient({
 
   // Attach screen stream to video element
   useEffect(() => {
-    if (screenVideoRef.current && screenStreamRef.current && isScreenSharing) {
-      screenVideoRef.current.srcObject = screenStreamRef.current;
+    if (screenVideoRef.current && screenStream && isScreenSharing) {
+      screenVideoRef.current.srcObject = screenStream;
     }
-  }, [isScreenSharing]);
+  }, [isScreenSharing, screenStream]);
 
   /* ── Screen share toggle ── */
   async function toggleScreenShare() {
     if (isScreenSharing) {
-      screenStreamRef.current?.getTracks().forEach((t) => t.stop());
-      screenStreamRef.current = null;
+      screenStream?.getTracks().forEach((t) => t.stop());
+      setScreenStream(null);
       setIsScreenSharing(false);
     } else {
       try {
@@ -386,16 +385,14 @@ export function VoiceChannelClient({
           video: true,
           audio: false,
         });
-        screenStreamRef.current = stream;
+        setScreenStream(stream);
         setIsScreenSharing(true);
-        // Attach to video after state update
         requestAnimationFrame(() => {
           if (screenVideoRef.current) screenVideoRef.current.srcObject = stream;
         });
-        // Auto-stop when user clicks browser's "Stop sharing"
         stream.getVideoTracks()[0]?.addEventListener("ended", () => {
           setIsScreenSharing(false);
-          screenStreamRef.current = null;
+          setScreenStream(null);
         });
       } catch {
         // User cancelled
@@ -407,8 +404,8 @@ export function VoiceChannelClient({
   function toggleMute() {
     const newMuted = !isMuted;
     setIsMuted(newMuted);
-    if (mediaStreamRef.current) {
-      mediaStreamRef.current.getAudioTracks().forEach((t) => {
+    if (localStream) {
+      localStream.getAudioTracks().forEach((t) => {
         t.enabled = !newMuted;
       });
     }

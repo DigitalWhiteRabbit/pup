@@ -5,362 +5,315 @@ import { useRef, useCallback, useEffect, useState } from "react";
 type PeerState = {
   pc: RTCPeerConnection;
   audioEl: HTMLAudioElement;
-  screenEl: HTMLVideoElement | null;
-};
-
-type UseWebRTCProps = {
-  roomId: string | null;
-  workspaceId: string;
-  currentUserId: string;
-  connected: boolean;
-  localStream: MediaStream | null;
-  screenStream: MediaStream | null;
-  volumes: Record<string, number>; // participantId → 0-100
-  participantUserIds: string[]; // userId list of other participants
 };
 
 type RemoteScreen = { userId: string; stream: MediaStream };
 
-const ICE_SERVERS: RTCConfiguration = {
+const ICE_CONFIG: RTCConfiguration = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
     { urls: "stun:stun1.l.google.com:19302" },
   ],
 };
 
+type Props = {
+  signalBase: string; // e.g. /api/workspaces/.../voice/rooms/{roomId}
+  currentUserId: string;
+  connected: boolean;
+  localStream: MediaStream | null;
+  screenStream: MediaStream | null;
+  peerUserIds: string[]; // other participant userIds (not self)
+};
+
 export function useWebRTC({
-  roomId,
-  workspaceId,
-  currentUserId,
+  signalBase,
+  currentUserId: _currentUserId,
   connected,
   localStream,
   screenStream,
-  volumes,
-  participantUserIds,
-}: UseWebRTCProps) {
+  peerUserIds,
+}: Props) {
   const peersRef = useRef<Map<string, PeerState>>(new Map());
-  const signalPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const pendingCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(
-    new Map(),
-  );
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const iceBuf = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
+  const localStreamRef = useRef<MediaStream | null>(null);
   const [remoteScreens, setRemoteScreens] = useState<RemoteScreen[]>([]);
 
-  const base = `/api/workspaces/${workspaceId}/voice/rooms/${roomId}`;
+  // Keep ref in sync with prop (so callbacks see latest)
+  localStreamRef.current = localStream;
 
-  // Send signal to server
-  const sendSignal = useCallback(
-    async (toUserId: string, type: string, payload: unknown) => {
-      if (!roomId) return;
-      await fetch(`${base}/signal`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          toUserId,
-          type,
-          payload: JSON.stringify(payload),
-        }),
-      });
+  /* ── helpers ── */
+
+  const signal = useCallback(
+    async (to: string, type: string, payload: unknown) => {
+      try {
+        await fetch(`${signalBase}/signal`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            toUserId: to,
+            type,
+            payload: JSON.stringify(payload),
+          }),
+        });
+      } catch {
+        /* silent */
+      }
     },
-    [roomId, base],
+    [signalBase],
   );
 
-  // Create peer connection for a remote user
-  const createPeer = useCallback(
-    (remoteUserId: string, initiator: boolean) => {
-      if (peersRef.current.has(remoteUserId))
-        return peersRef.current.get(remoteUserId)!;
+  const closePeer = useCallback((uid: string) => {
+    const p = peersRef.current.get(uid);
+    if (p) {
+      p.pc.close();
+      p.audioEl.pause();
+      p.audioEl.srcObject = null;
+      peersRef.current.delete(uid);
+    }
+    setRemoteScreens((prev) => prev.filter((s) => s.userId !== uid));
+  }, []);
 
-      const pc = new RTCPeerConnection(ICE_SERVERS);
+  const closeAll = useCallback(() => {
+    Array.from(peersRef.current.keys()).forEach(closePeer);
+    setRemoteScreens([]);
+  }, [closePeer]);
+
+  /* ── create peer ── */
+
+  const makePeer = useCallback(
+    (uid: string, isInitiator: boolean) => {
+      // Avoid duplicate
+      if (peersRef.current.has(uid)) return peersRef.current.get(uid)!;
+
+      const pc = new RTCPeerConnection(ICE_CONFIG);
       const audioEl = new Audio();
       audioEl.autoplay = true;
 
-      // Add local audio tracks
-      if (localStream) {
-        localStream.getAudioTracks().forEach((track) => {
-          pc.addTrack(track, localStream);
-        });
+      // Add local audio
+      const stream = localStreamRef.current;
+      if (stream) {
+        for (const track of stream.getAudioTracks()) {
+          pc.addTrack(track, stream);
+        }
       }
 
-      // Add screen share tracks if active
+      // Add screen video if sharing
       if (screenStream) {
-        screenStream.getTracks().forEach((track) => {
+        for (const track of screenStream.getTracks()) {
           pc.addTrack(track, screenStream);
-        });
+        }
       }
 
-      // Handle incoming tracks
-      pc.ontrack = (event) => {
-        const stream = event.streams[0];
-        if (!stream) return;
-
-        if (event.track.kind === "audio") {
-          audioEl.srcObject = stream;
-        } else if (event.track.kind === "video") {
-          setRemoteScreens((prev) => {
-            const filtered = prev.filter((s) => s.userId !== remoteUserId);
-            return [...filtered, { userId: remoteUserId, stream }];
-          });
-
-          event.track.onended = () => {
-            setRemoteScreens((prev) =>
-              prev.filter((s) => s.userId !== remoteUserId),
-            );
+      // Remote tracks
+      pc.ontrack = (ev) => {
+        if (ev.track.kind === "audio") {
+          // Create new MediaStream for audio
+          const remoteAudio = new MediaStream([ev.track]);
+          audioEl.srcObject = remoteAudio;
+          void audioEl.play().catch(() => {});
+        } else if (ev.track.kind === "video") {
+          const remoteVideo = ev.streams[0] ?? new MediaStream([ev.track]);
+          setRemoteScreens((prev) => [
+            ...prev.filter((s) => s.userId !== uid),
+            { userId: uid, stream: remoteVideo },
+          ]);
+          ev.track.onended = () => {
+            setRemoteScreens((prev) => prev.filter((s) => s.userId !== uid));
           };
         }
       };
 
-      // ICE candidates
-      pc.onicecandidate = (event) => {
-        if (event.candidate) {
-          void sendSignal(
-            remoteUserId,
-            "ice-candidate",
-            event.candidate.toJSON(),
-          );
+      // ICE
+      pc.onicecandidate = (ev) => {
+        if (ev.candidate) {
+          void signal(uid, "ice-candidate", ev.candidate.toJSON());
         }
       };
 
       pc.onconnectionstatechange = () => {
         if (
           pc.connectionState === "failed" ||
-          pc.connectionState === "disconnected"
+          pc.connectionState === "closed"
         ) {
-          closePeer(remoteUserId);
+          closePeer(uid);
         }
       };
 
-      const state: PeerState = { pc, audioEl, screenEl: null };
-      peersRef.current.set(remoteUserId, state);
+      const state: PeerState = { pc, audioEl };
+      peersRef.current.set(uid, state);
 
-      // If initiator, create offer
-      if (initiator) {
+      if (isInitiator) {
         void (async () => {
           try {
             const offer = await pc.createOffer();
             await pc.setLocalDescription(offer);
-            await sendSignal(
-              remoteUserId,
-              "offer",
-              pc.localDescription?.toJSON(),
-            );
+            if (pc.localDescription) {
+              await signal(uid, "offer", pc.localDescription.toJSON());
+            }
           } catch (e) {
-            console.error("WebRTC offer error:", e);
+            console.warn("WebRTC offer failed:", e);
           }
         })();
       }
 
       return state;
     },
-    [localStream, screenStream, sendSignal],
+    [screenStream, signal, closePeer],
   );
 
-  // Close a peer connection
-  const closePeer = useCallback((userId: string) => {
-    const peer = peersRef.current.get(userId);
-    if (peer) {
-      peer.pc.close();
-      peer.audioEl.srcObject = null;
-      peersRef.current.delete(userId);
-      setRemoteScreens((prev) => prev.filter((s) => s.userId !== userId));
-    }
-  }, []);
+  /* ── process signal ── */
 
-  // Close all peers
-  const closeAll = useCallback(() => {
-    for (const [userId] of Array.from(peersRef.current)) {
-      closePeer(userId);
-    }
-    peersRef.current.clear();
-    setRemoteScreens([]);
-  }, [closePeer]);
-
-  // Process incoming signal
-  const handleSignal = useCallback(
-    async (signal: { fromUserId: string; type: string; payload: string }) => {
-      const { fromUserId, type } = signal;
-      let payload: unknown;
+  const processSignal = useCallback(
+    async (from: string, type: string, raw: string) => {
+      let payload: RTCSessionDescriptionInit | RTCIceCandidateInit;
       try {
-        payload = JSON.parse(signal.payload);
+        payload = JSON.parse(raw);
       } catch {
         return;
       }
 
       if (type === "offer") {
-        const peer = createPeer(fromUserId, false);
-        if (!peer) return;
+        // Someone sent us an offer — create peer (non-initiator), answer
+        closePeer(from); // Clean up stale peer if any
+        const p = makePeer(from, false);
         try {
-          await peer.pc.setRemoteDescription(
+          await p.pc.setRemoteDescription(
             new RTCSessionDescription(payload as RTCSessionDescriptionInit),
           );
-          const answer = await peer.pc.createAnswer();
-          await peer.pc.setLocalDescription(answer);
-          await sendSignal(
-            fromUserId,
-            "answer",
-            peer.pc.localDescription?.toJSON(),
-          );
 
-          // Flush pending ICE candidates
-          const pending = pendingCandidatesRef.current.get(fromUserId) ?? [];
-          for (const c of pending) {
-            await peer.pc.addIceCandidate(new RTCIceCandidate(c));
+          const answer = await p.pc.createAnswer();
+          await p.pc.setLocalDescription(answer);
+          if (p.pc.localDescription) {
+            await signal(from, "answer", p.pc.localDescription.toJSON());
           }
-          pendingCandidatesRef.current.delete(fromUserId);
+
+          // Flush buffered ICE
+          const buf = iceBuf.current.get(from) ?? [];
+          for (const c of buf) {
+            try {
+              await p.pc.addIceCandidate(new RTCIceCandidate(c));
+            } catch {
+              /* */
+            }
+          }
+          iceBuf.current.delete(from);
         } catch (e) {
-          console.error("WebRTC answer error:", e);
+          console.warn("WebRTC answer failed:", e);
         }
       } else if (type === "answer") {
-        const peer = peersRef.current.get(fromUserId);
-        if (peer && peer.pc.signalingState === "have-local-offer") {
-          try {
-            await peer.pc.setRemoteDescription(
+        const p = peersRef.current.get(from);
+        if (!p) return;
+        try {
+          if (p.pc.signalingState === "have-local-offer") {
+            await p.pc.setRemoteDescription(
               new RTCSessionDescription(payload as RTCSessionDescriptionInit),
             );
-
-            const pending = pendingCandidatesRef.current.get(fromUserId) ?? [];
-            for (const c of pending) {
-              await peer.pc.addIceCandidate(new RTCIceCandidate(c));
-            }
-            pendingCandidatesRef.current.delete(fromUserId);
-          } catch (e) {
-            console.error("WebRTC set answer error:", e);
           }
+          // Flush buffered ICE
+          const buf = iceBuf.current.get(from) ?? [];
+          for (const c of buf) {
+            try {
+              await p.pc.addIceCandidate(new RTCIceCandidate(c));
+            } catch {
+              /* */
+            }
+          }
+          iceBuf.current.delete(from);
+        } catch (e) {
+          console.warn("WebRTC set-answer failed:", e);
         }
       } else if (type === "ice-candidate") {
-        const peer = peersRef.current.get(fromUserId);
-        if (peer && peer.pc.remoteDescription) {
+        const p = peersRef.current.get(from);
+        if (p && p.pc.remoteDescription) {
           try {
-            await peer.pc.addIceCandidate(
+            await p.pc.addIceCandidate(
               new RTCIceCandidate(payload as RTCIceCandidateInit),
             );
           } catch {
-            /* ignore */
+            /* */
           }
         } else {
-          // Queue candidate
-          const q = pendingCandidatesRef.current.get(fromUserId) ?? [];
-          q.push(payload as RTCIceCandidateInit);
-          pendingCandidatesRef.current.set(fromUserId, q);
+          // Buffer until remote description is set
+          const buf = iceBuf.current.get(from) ?? [];
+          buf.push(payload as RTCIceCandidateInit);
+          iceBuf.current.set(from, buf);
         }
       }
     },
-    [createPeer, sendSignal],
+    [makePeer, signal, closePeer],
   );
 
-  // Poll for signals
-  useEffect(() => {
-    if (!connected || !roomId) return;
+  /* ── poll signals ── */
 
-    signalPollRef.current = setInterval(async () => {
+  useEffect(() => {
+    if (!connected || !signalBase) {
+      if (pollRef.current) clearInterval(pollRef.current);
+      return;
+    }
+
+    // Poll every 1.5s for lower latency during connection setup
+    const poll = async () => {
       try {
-        const res = await fetch(`${base}/signal`);
+        const res = await fetch(`${signalBase}/signal`);
         if (!res.ok) return;
         const signals = (await res.json()) as Array<{
           fromUserId: string;
           type: string;
           payload: string;
         }>;
-        for (const sig of signals) {
-          await handleSignal(sig);
+        for (const s of signals) {
+          await processSignal(s.fromUserId, s.type, s.payload);
         }
       } catch {
-        /* silent */
+        /* */
       }
-    }, 2000);
+    };
+
+    // Initial poll immediately
+    void poll();
+    pollRef.current = setInterval(() => void poll(), 1500);
 
     return () => {
-      if (signalPollRef.current) clearInterval(signalPollRef.current);
+      if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [connected, roomId, base, handleSignal]);
+  }, [connected, signalBase, processSignal]);
 
-  // When participant list changes, create peers for new ones
+  /* ── react to participant changes: initiate connections ── */
+
   useEffect(() => {
-    if (!connected) return;
+    if (!connected || !localStream) return;
 
-    const otherIds = participantUserIds.filter((id) => id !== currentUserId);
-
-    // Create peers for new participants (we initiate)
-    for (const uid of otherIds) {
+    // Create peers for participants we don't have yet
+    for (const uid of peerUserIds) {
       if (!peersRef.current.has(uid)) {
-        createPeer(uid, true);
+        makePeer(uid, true);
       }
     }
 
-    // Close peers that left
-    for (const [uid] of Array.from(peersRef.current)) {
-      if (!otherIds.includes(uid)) {
+    // Close peers for participants that left
+    for (const uid of Array.from(peersRef.current.keys())) {
+      if (!peerUserIds.includes(uid)) {
         closePeer(uid);
       }
     }
-  }, [connected, participantUserIds, currentUserId, createPeer, closePeer]);
+  }, [connected, localStream, peerUserIds, makePeer, closePeer]);
 
-  // When screen stream changes, add/remove video tracks on all peers
-  useEffect(() => {
-    if (!connected) return;
+  /* ── cleanup on disconnect / unmount ── */
 
-    for (const [, peer] of Array.from(peersRef.current)) {
-      const senders = peer.pc.getSenders();
-      const videoSender = senders.find((s) => s.track?.kind === "video");
-
-      if (screenStream) {
-        const videoTrack = screenStream.getVideoTracks()[0];
-        if (videoTrack) {
-          if (videoSender) {
-            void videoSender.replaceTrack(videoTrack);
-          } else {
-            peer.pc.addTrack(videoTrack, screenStream);
-            // Renegotiate
-            void (async () => {
-              const offer = await peer.pc.createOffer();
-              await peer.pc.setLocalDescription(offer);
-              // Find userId for this peer
-              for (const [uid, p] of Array.from(peersRef.current)) {
-                if (p === peer) {
-                  await sendSignal(
-                    uid,
-                    "offer",
-                    peer.pc.localDescription?.toJSON(),
-                  );
-                  break;
-                }
-              }
-            })();
-          }
-        }
-      } else if (videoSender) {
-        peer.pc.removeTrack(videoSender);
-      }
-    }
-  }, [connected, screenStream, sendSignal]);
-
-  // Update audio volumes
-  useEffect(() => {
-    // volumes is keyed by participant id, but peers are keyed by userId
-    // For now, just iterate and try to match
-    for (const [, peer] of Array.from(peersRef.current)) {
-      if (peer.audioEl) {
-        // Default volume 100
-        peer.audioEl.volume = 1.0;
-      }
-    }
-    // Apply specific volumes where we can map participantId → userId
-    // This is simplified — in production you'd map properly
-  }, [volumes]);
-
-  // Cleanup on disconnect
   useEffect(() => {
     if (!connected) {
       closeAll();
+      iceBuf.current.clear();
     }
   }, [connected, closeAll]);
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       closeAll();
-      if (signalPollRef.current) clearInterval(signalPollRef.current);
+      if (pollRef.current) clearInterval(pollRef.current);
     };
   }, [closeAll]);
 
-  return { remoteScreens, closeAll };
+  return { remoteScreens };
 }
