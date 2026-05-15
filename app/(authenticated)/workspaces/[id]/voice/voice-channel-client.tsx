@@ -24,6 +24,7 @@ import {
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { toastSuccess } from "@/lib/toast";
 import { useWebRTC } from "./use-webrtc";
+import { useAudioRecorder } from "./use-audio-recorder";
 
 /* ── Types ── */
 
@@ -126,6 +127,8 @@ export function VoiceChannelClient({
   const analyserRef = useRef<AnalyserNode | null>(null);
   const speakingCheckRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const screenVideoRef = useRef<HTMLVideoElement | null>(null);
+  const { startRecording, stopRecording, addRemoteStream, removeRemoteStream } =
+    useAudioRecorder();
 
   const base = `/api/workspaces/${workspaceId}/voice`;
 
@@ -186,6 +189,8 @@ export function VoiceChannelClient({
     localStream,
     screenStream,
     peerUserIds: participantUserIds,
+    onRemoteAudio: addRemoteStream,
+    onPeerLeft: removeRemoteStream,
   });
 
   /* ── Messages ── */
@@ -258,6 +263,8 @@ export function VoiceChannelClient({
         .getUserMedia({ audio: true })
         .then((stream) => {
           setLocalStream(stream);
+          // Start recording mixed audio for AI summary
+          startRecording(stream);
           // AudioContext analyser for speaking detection
           try {
             const ctx = new AudioContext();
@@ -294,6 +301,25 @@ export function VoiceChannelClient({
       screenStream?.getTracks().forEach((t) => t.stop());
       setScreenStream(null);
       if (speakingCheckRef.current) clearInterval(speakingCheckRef.current);
+      // Stop recording and upload for AI summary
+      void (async () => {
+        try {
+          const blob = await stopRecording();
+          if (blob && blob.size > 1000 && activeRoomId) {
+            const fd = new FormData();
+            fd.append(
+              "file",
+              new File([blob], "call-recording.webm", { type: blob.type }),
+            );
+            await fetch(`${base}/rooms/${activeRoomId}/recording`, {
+              method: "POST",
+              body: fd,
+            });
+          }
+        } catch {
+          /* silent */
+        }
+      })();
       void qc.invalidateQueries({
         queryKey: ["voice-participants", activeRoomId],
       });

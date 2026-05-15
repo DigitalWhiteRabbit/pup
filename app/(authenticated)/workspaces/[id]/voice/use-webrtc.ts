@@ -43,12 +43,14 @@ async function getIceConfig(): Promise<RTCConfiguration> {
 }
 
 type Props = {
-  signalBase: string; // e.g. /api/workspaces/.../voice/rooms/{roomId}
+  signalBase: string;
   currentUserId: string;
   connected: boolean;
   localStream: MediaStream | null;
   screenStream: MediaStream | null;
-  peerUserIds: string[]; // other participant userIds (not self)
+  peerUserIds: string[];
+  onRemoteAudio?: (peerId: string, stream: MediaStream) => void;
+  onPeerLeft?: (peerId: string) => void;
 };
 
 export function useWebRTC({
@@ -58,6 +60,8 @@ export function useWebRTC({
   localStream,
   screenStream,
   peerUserIds,
+  onRemoteAudio,
+  onPeerLeft,
 }: Props) {
   const peersRef = useRef<Map<string, PeerState>>(new Map());
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -89,16 +93,20 @@ export function useWebRTC({
     [signalBase],
   );
 
-  const closePeer = useCallback((uid: string) => {
-    const p = peersRef.current.get(uid);
-    if (p) {
-      p.pc.close();
-      p.audioEl.pause();
-      p.audioEl.srcObject = null;
-      peersRef.current.delete(uid);
-    }
-    setRemoteScreens((prev) => prev.filter((s) => s.userId !== uid));
-  }, []);
+  const closePeer = useCallback(
+    (uid: string) => {
+      const p = peersRef.current.get(uid);
+      if (p) {
+        p.pc.close();
+        p.audioEl.pause();
+        p.audioEl.srcObject = null;
+        peersRef.current.delete(uid);
+      }
+      onPeerLeft?.(uid);
+      setRemoteScreens((prev) => prev.filter((s) => s.userId !== uid));
+    },
+    [onPeerLeft],
+  );
 
   const closeAll = useCallback(() => {
     Array.from(peersRef.current.keys()).forEach(closePeer);
@@ -135,10 +143,11 @@ export function useWebRTC({
       // Remote tracks
       pc.ontrack = (ev) => {
         if (ev.track.kind === "audio") {
-          // Create new MediaStream for audio
           const remoteAudio = new MediaStream([ev.track]);
           audioEl.srcObject = remoteAudio;
           void audioEl.play().catch(() => {});
+          // Notify recorder about remote audio
+          onRemoteAudio?.(uid, remoteAudio);
         } else if (ev.track.kind === "video") {
           const remoteVideo = ev.streams[0] ?? new MediaStream([ev.track]);
           setRemoteScreens((prev) => [
