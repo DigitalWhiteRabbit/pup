@@ -6,6 +6,7 @@ const Sidebar = dynamic(() => import("./Sidebar").then((m) => m.Sidebar), {
   ssr: false,
 });
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { MobileHeader } from "./MobileHeader";
 
 type Props = {
   userLogin: string;
@@ -18,13 +19,12 @@ export function AppShell({ userLogin, userRole, children }: Props) {
 
   return (
     <div className="flex h-screen overflow-hidden">
-      {/* Sidebar */}
+      {/* Desktop sidebar */}
       <div
         className={`relative hidden md:flex flex-col shrink-0 border-r bg-background transition-all duration-200 overflow-hidden ${
           collapsed ? "w-0 border-r-0" : "w-56"
         }`}
       >
-        {/* Collapse button inside sidebar header */}
         {!collapsed && (
           <button
             type="button"
@@ -40,8 +40,12 @@ export function AppShell({ userLogin, userRole, children }: Props) {
 
       {/* Main content */}
       <main className="flex-1 flex flex-col overflow-hidden">
+        {/* Mobile header with hamburger — visible only below md */}
+        <MobileHeader userLogin={userLogin} userRole={userRole} />
+
+        {/* Desktop collapsed expand button */}
         {collapsed && (
-          <div className="flex items-center h-12 px-3 border-b bg-background shrink-0">
+          <div className="hidden md:flex items-center h-12 px-3 border-b bg-background shrink-0">
             <button
               type="button"
               onClick={() => setCollapsed(false)}

@@ -112,3 +112,22 @@ a {
     @apply font-sans;
   }
 }
+
+/* ─── Mobile responsive utilities ─────────────────────────────────────────── */
+
+/* Tables: horizontal scroll on small screens */
+@layer utilities {
+  .mobile-table-wrap {
+    @apply overflow-x-auto -mx-4 px-4;
+  }
+}
+
+/* Safe area padding for notched devices */
+@supports (padding: env(safe-area-inset-bottom)) {
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .pt-safe {
+    padding-top: env(safe-area-inset-top);
+  }
+}

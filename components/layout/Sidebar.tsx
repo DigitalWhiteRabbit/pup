@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { usePathname, useParams, useRouter } from "next/navigation";
 import { signOut } from "next-auth/react";
-import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
 import { MoscowClock } from "./MoscowClock";
@@ -18,7 +17,6 @@ import {
   Settings,
   Users,
   LogOut,
-  Menu,
   ChevronLeft,
   Kanban,
   BookOpen,
@@ -41,7 +39,6 @@ import {
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 const NotificationBell = dynamic(
   () =>
@@ -484,37 +481,18 @@ function SidebarContent({
   );
 }
 
-export function Sidebar({ userLogin, userRole }: Props) {
-  const [mobileOpen, setMobileOpen] = useState(false);
-
+export function Sidebar({
+  userLogin,
+  userRole,
+  onNavigate,
+}: Props & { onNavigate?: () => void }) {
   return (
-    <>
-      {/* Desktop sidebar — rendered by AppShell wrapper */}
-      <div className="hidden md:flex md:flex-col h-full w-full">
-        <SidebarContent userLogin={userLogin} userRole={userRole} />
-      </div>
-
-      {/* Mobile hamburger */}
-      <div className="flex items-center border-b px-4 py-3 md:hidden">
-        <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-          <SheetTrigger asChild>
-            <Button variant="ghost" size="icon">
-              <Menu className="h-5 w-5" />
-              <span className="sr-only">Открыть меню</span>
-            </Button>
-          </SheetTrigger>
-          <SheetContent side="left" className="w-56 p-0">
-            <SidebarContent
-              userLogin={userLogin}
-              userRole={userRole}
-              onNavigate={() => setMobileOpen(false)}
-            />
-          </SheetContent>
-        </Sheet>
-        <span className="ml-3 flex-1 text-sm font-semibold"></span>
-        <ThemeToggle />
-        <NotificationBell />
-      </div>
-    </>
+    <div className="flex flex-col h-full w-full">
+      <SidebarContent
+        userLogin={userLogin}
+        userRole={userRole}
+        onNavigate={onNavigate}
+      />
+    </div>
   );
 }
