@@ -1571,7 +1571,7 @@ async function processFollowUps(workspaceId: string): Promise<void> {
 // Control: start / stop / status / logs
 // ═══════════════════════════════════════════════════════════════════════════
 
-export function start(workspaceId: string): void {
+export async function start(workspaceId: string): Promise<void> {
   if (workerState.running) {
     log("warn", "Worker already running — ignoring start()");
     return;
@@ -1630,7 +1630,7 @@ export function start(workspaceId: string): void {
   log("info", "Worker started — all loops active");
 }
 
-export function stop(): void {
+export async function stop(): Promise<void> {
   if (!workerState.running) {
     log("warn", "Worker not running — ignoring stop()");
     return;
@@ -1703,7 +1703,7 @@ export async function getStatus(workspaceId: string): Promise<WorkerStatus> {
   };
 }
 
-export function getWorkerLogs(): string[] {
+export async function getWorkerLogs(): Promise<string[]> {
   return getLogs();
 }
 

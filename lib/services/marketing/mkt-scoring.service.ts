@@ -31,9 +31,9 @@ export interface ScoreResult {
 
 // ─── Video Analysis ─────────────────────────────────────
 
-export function analyzeVideos(
+export async function analyzeVideos(
   lastVideosJson: string | null,
-): VideoAnalysis | null {
+): Promise<VideoAnalysis | null> {
   if (!lastVideosJson) return null;
 
   let videos: any[];
@@ -111,11 +111,11 @@ export function analyzeVideos(
 
 // ─── Score Computation ──────────────────────────────────
 
-export function computeScore(
+export async function computeScore(
   lead: any,
   videoAnalysis: VideoAnalysis | null,
   badFit?: string,
-): { score: number; breakdown: ScoreBreakdown } {
+): Promise<{ score: number; breakdown: ScoreBreakdown }> {
   const details: Record<string, any> = {};
 
   // ── shorts_fit (0-30) ──
@@ -245,8 +245,8 @@ export async function scoreLead(
     badFit = activeProject?.badFitExamples ?? undefined;
   }
 
-  const videoAnalysis = analyzeVideos(lead.lastVideosJson);
-  const { score, breakdown } = computeScore(lead, videoAnalysis, badFit);
+  const videoAnalysis = await analyzeVideos(lead.lastVideosJson);
+  const { score, breakdown } = await computeScore(lead, videoAnalysis, badFit);
 
   // Update lead in DB
   await db.mktLead.update({
