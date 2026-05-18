@@ -103,6 +103,34 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   });
 }
 
+/** PATCH — update config fields (without re-testing connection) */
+export async function PATCH(req: NextRequest, { params }: RouteParams) {
+  const session = await auth();
+  if (!session?.user?.id)
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const { id: workspaceId } = await params;
+  const body = await req.json();
+
+  const config = await db.externalUsersConfig.findUnique({
+    where: { workspaceId },
+  });
+  if (!config)
+    return NextResponse.json({ error: "Config not found" }, { status: 404 });
+
+  const update: Record<string, unknown> = {};
+  if (body.apiEndpoint) update.apiEndpoint = body.apiEndpoint;
+  if (body.authType) update.authType = body.authType;
+
+  const updated = await db.externalUsersConfig.update({
+    where: { workspaceId },
+    data: update,
+    select: { id: true, apiEndpoint: true, authType: true, isConnected: true },
+  });
+
+  return NextResponse.json({ config: updated });
+}
+
 /** DELETE — disconnect */
 export async function DELETE(_req: NextRequest, { params }: RouteParams) {
   const session = await auth();
