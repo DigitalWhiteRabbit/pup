@@ -841,7 +841,9 @@ export async function runYouTubeParser(
           const subs = parseInt(stats.subscriberCount || "0", 10);
           const _viewCount = parseInt(stats.viewCount || "0", 10);
           const _videoCount = parseInt(stats.videoCount || "0", 10);
-          // No hard filters — save all channels, let UI filter in table
+          // Filter by subscriber count (doesn't cost quota — applied before video fetch)
+          if (opts.minSubs && subs < opts.minSubs) continue;
+          if (opts.maxSubs && subs > opts.maxSubs) continue;
 
           // 6. Fetch recent videos for engagement calculation
           const uploadsPlaylistId =
