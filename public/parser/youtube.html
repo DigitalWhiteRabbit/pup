@@ -1253,11 +1253,80 @@ button:hover:not(:disabled) { transform: translateY(-1px); }
   const _originalFetch = window.fetch;
   const workspaceId = new URLSearchParams(window.location.search).get('workspaceId');
   if (!workspaceId) { console.error('No workspaceId in URL'); }
+  const base = '/api/workspaces/' + workspaceId + '/marketing';
+
+  // Track parse logs polling
+  let _logPollInterval = null;
+  let _lastLogIndex = 0;
+
   window.fetch = function(url, opts) {
     if (typeof url === 'string' && url.startsWith('/api/')) {
-      const base = '/api/workspaces/' + workspaceId + '/marketing';
       let newPath = url;
-      if (url.startsWith('/api/leads')) newPath = base + '/leads' + url.slice('/api/leads'.length);
+
+      // ─── Parser-specific rewrites ───
+      if (url === '/api/parse' || url.startsWith('/api/parse?')) {
+        // Start parser — also begin log polling
+        newPath = base + '/parsers/run';
+        _lastLogIndex = 0;
+        if (_logPollInterval) clearInterval(_logPollInterval);
+        _logPollInterval = setInterval(async () => {
+          try {
+            const r = await _originalFetch(base + '/parsers/run');
+            const j = await r.json();
+            const logArea = document.getElementById('logArea');
+            if (logArea && j.logs && j.logs.length > _lastLogIndex) {
+              for (let i = _lastLogIndex; i < j.logs.length; i++) {
+                logArea.textContent += j.logs[i] + '\n';
+              }
+              _lastLogIndex = j.logs.length;
+              logArea.scrollTop = logArea.scrollHeight;
+            }
+            if (!j.running) {
+              clearInterval(_logPollInterval);
+              _logPollInterval = null;
+              // Trigger table refresh
+              if (typeof loadResults === 'function') loadResults();
+              if (typeof updateStats === 'function') updateStats();
+              if (typeof updateKpis === 'function') updateKpis();
+              const btn = document.getElementById('btnStart');
+              const btnStop = document.getElementById('btnStop');
+              if (btn) btn.disabled = false;
+              if (btnStop) btnStop.disabled = true;
+              const badge = document.getElementById('statusBadge');
+              if (badge) { badge.className = 'status-badge ' + (j.error ? 'error' : 'done'); badge.textContent = j.error ? 'Ошибка' : 'Готово'; }
+            }
+          } catch(e) { console.error('Log poll error:', e); }
+        }, 2000);
+      }
+      else if (url === '/api/stop' || url.startsWith('/api/stop?')) {
+        // Stop parser — just clear polling
+        if (_logPollInterval) { clearInterval(_logPollInterval); _logPollInterval = null; }
+        return Promise.resolve(new Response(JSON.stringify({success:true}), {headers:{'Content-Type':'application/json'}}));
+      }
+      else if (url === '/api/status' || url.startsWith('/api/status?')) {
+        // Parser status — poll from run endpoint
+        newPath = base + '/parsers/run';
+        return _originalFetch(newPath).then(r => r.json()).then(j => {
+          const mapped = { status: j.running ? 'running' : (j.error ? 'error' : (j.result ? 'done' : 'idle')) };
+          return new Response(JSON.stringify(mapped), {headers:{'Content-Type':'application/json'}});
+        });
+      }
+      else if (url === '/api/quota' || url.startsWith('/api/quota?')) {
+        return Promise.resolve(new Response(JSON.stringify({used:0,limit:10000,percent:0}), {headers:{'Content-Type':'application/json'}}));
+      }
+      else if (url === '/api/download') {
+        return Promise.resolve(new Response('', {status: 404}));
+      }
+      else if (url.startsWith('/api/analytics')) {
+        newPath = base + '/analytics';
+      }
+      else if (url.startsWith('/api/progress')) {
+        // SSE not supported through iframe — skip
+        return Promise.resolve(new Response('', {status: 200}));
+      }
+
+      // ─── Standard rewrites ───
+      else if (url.startsWith('/api/leads')) newPath = base + '/leads' + url.slice('/api/leads'.length);
       else if (url.startsWith('/api/projects')) newPath = base + '/projects' + url.slice('/api/projects'.length);
       else if (url.startsWith('/api/dialogues')) newPath = base + '/dialogues' + url.slice('/api/dialogues'.length);
       else if (url.startsWith('/api/agent')) newPath = base + '/worker' + url.slice('/api/agent'.length);
@@ -1267,14 +1336,14 @@ button:hover:not(:disabled) { transform: translateY(-1px); }
       else if (url.startsWith('/api/settings')) newPath = base + '/config';
       else if (url.startsWith('/api/health')) newPath = base + '/worker';
       else if (url.startsWith('/api/knowledge')) newPath = base + '/knowledge' + url.slice('/api/knowledge'.length);
-      else if (url === '/api/parse' || url.startsWith('/api/parse?')) newPath = base + '/parsers/run' + (url.includes('?') ? url.slice(url.indexOf('?')) : '');
       else if (url.startsWith('/api/results')) newPath = base + '/leads';
       else if (url.startsWith('/api/presets')) newPath = base + '/parsers/tasks' + url.slice('/api/presets'.length);
       else if (url.startsWith('/api/history')) newPath = base + '/parsers/runs';
-      else if (url.startsWith('/api/progress')) return Promise.resolve(new Response('', {status: 200}));
+      else if (url.startsWith('/api/deleted')) return Promise.resolve(new Response(JSON.stringify([]), {headers:{'Content-Type':'application/json'}}));
       else if (url.startsWith('/api/auth')) return Promise.resolve(new Response(JSON.stringify({ok:true, authenticated:true}), {headers:{'Content-Type':'application/json'}}));
       else if (url.startsWith('/api/telegram')) newPath = base + '/config';
       else if (url.startsWith('/api/dev-tasks')) return Promise.resolve(new Response(JSON.stringify({stages:[]}), {headers:{'Content-Type':'application/json'}}));
+
       url = newPath;
     }
     return _originalFetch.call(this, url, opts);
@@ -1519,19 +1588,50 @@ button:hover:not(:disabled) { transform: translateY(-1px); }
                 <option value="KZ">Казахстан (KZ)</option><option value="BY">Беларусь (BY)</option>
                 <option value="UZ">Узбекистан (UZ)</option><option value="AZ">Азербайджан (AZ)</option>
                 <option value="AM">Армения (AM)</option><option value="GE">Грузия (GE)</option>
-                <option value="MD">Молдова (MD)</option>
+                <option value="MD">Молдова (MD)</option><option value="TJ">Таджикистан (TJ)</option>
+                <option value="TM">Туркменистан (TM)</option><option value="KG">Кыргызстан (KG)</option>
                 </optgroup>
                 <optgroup label="Европа">
                 <option value="GB">Великобритания (GB)</option><option value="DE">Германия (DE)</option>
                 <option value="ES">Испания (ES)</option><option value="FR">Франция (FR)</option>
                 <option value="IT">Италия (IT)</option><option value="PL">Польша (PL)</option>
                 <option value="NL">Нидерланды (NL)</option><option value="TR">Турция (TR)</option>
+                <option value="SE">Швеция (SE)</option><option value="NO">Норвегия (NO)</option>
+                <option value="DK">Дания (DK)</option><option value="FI">Финляндия (FI)</option>
+                <option value="CZ">Чехия (CZ)</option><option value="AT">Австрия (AT)</option>
+                <option value="CH">Швейцария (CH)</option><option value="BE">Бельгия (BE)</option>
+                <option value="PT">Португалия (PT)</option><option value="GR">Греция (GR)</option>
+                <option value="RO">Румыния (RO)</option><option value="HU">Венгрия (HU)</option>
+                <option value="IE">Ирландия (IE)</option><option value="BG">Болгария (BG)</option>
+                <option value="HR">Хорватия (HR)</option><option value="RS">Сербия (RS)</option>
+                <option value="SK">Словакия (SK)</option><option value="SI">Словения (SI)</option>
+                <option value="LT">Литва (LT)</option><option value="LV">Латвия (LV)</option>
+                <option value="EE">Эстония (EE)</option>
                 </optgroup>
-                <optgroup label="Другие">
+                <optgroup label="Америка">
                 <option value="US">США (US)</option><option value="CA">Канада (CA)</option>
-                <option value="BR">Бразилия (BR)</option><option value="IN">Индия (IN)</option>
-                <option value="AE">ОАЭ (AE)</option><option value="AU">Австралия (AU)</option>
-                <option value="IL">Израиль (IL)</option>
+                <option value="BR">Бразилия (BR)</option><option value="MX">Мексика (MX)</option>
+                <option value="AR">Аргентина (AR)</option><option value="CO">Колумбия (CO)</option>
+                <option value="CL">Чили (CL)</option><option value="PE">Перу (PE)</option>
+                <option value="VE">Венесуэла (VE)</option><option value="EC">Эквадор (EC)</option>
+                <option value="DO">Доминикана (DO)</option><option value="PR">Пуэрто-Рико (PR)</option>
+                </optgroup>
+                <optgroup label="Азия и Океания">
+                <option value="IN">Индия (IN)</option><option value="CN">Китай (CN)</option>
+                <option value="JP">Япония (JP)</option><option value="KR">Южная Корея (KR)</option>
+                <option value="ID">Индонезия (ID)</option><option value="TH">Таиланд (TH)</option>
+                <option value="VN">Вьетнам (VN)</option><option value="PH">Филиппины (PH)</option>
+                <option value="MY">Малайзия (MY)</option><option value="SG">Сингапур (SG)</option>
+                <option value="PK">Пакистан (PK)</option><option value="BD">Бангладеш (BD)</option>
+                <option value="TW">Тайвань (TW)</option><option value="HK">Гонконг (HK)</option>
+                <option value="AU">Австралия (AU)</option><option value="NZ">Новая Зеландия (NZ)</option>
+                </optgroup>
+                <optgroup label="Ближний Восток и Африка">
+                <option value="AE">ОАЭ (AE)</option><option value="SA">Саудовская Аравия (SA)</option>
+                <option value="IL">Израиль (IL)</option><option value="EG">Египет (EG)</option>
+                <option value="QA">Катар (QA)</option><option value="KW">Кувейт (KW)</option>
+                <option value="NG">Нигерия (NG)</option><option value="ZA">ЮАР (ZA)</option>
+                <option value="KE">Кения (KE)</option><option value="MA">Марокко (MA)</option>
                 </optgroup>
               </select>
             </div>
@@ -3901,6 +4001,7 @@ const ALL_LANGUAGES = [
   { code: 'nl', name: 'Нидерландский' },
   { code: 'pl', name: 'Польский' },
   { code: 'cs', name: 'Чешский' },
+  { code: 'sk', name: 'Словацкий' },
   { code: 'sv', name: 'Шведский' },
   { code: 'no', name: 'Норвежский' },
   { code: 'da', name: 'Датский' },
@@ -3921,6 +4022,31 @@ const ALL_LANGUAGES = [
   { code: 'id', name: 'Индонезийский' },
   { code: 'ms', name: 'Малайский' },
   { code: 'tl', name: 'Филиппинский' },
+  { code: 'bg', name: 'Болгарский' },
+  { code: 'hr', name: 'Хорватский' },
+  { code: 'sr', name: 'Сербский' },
+  { code: 'sl', name: 'Словенский' },
+  { code: 'lt', name: 'Литовский' },
+  { code: 'lv', name: 'Латышский' },
+  { code: 'et', name: 'Эстонский' },
+  { code: 'ga', name: 'Ирландский' },
+  { code: 'sw', name: 'Суахили' },
+  { code: 'af', name: 'Африкаанс' },
+  { code: 'am', name: 'Амхарский' },
+  { code: 'ne', name: 'Непальский' },
+  { code: 'si', name: 'Сингальский' },
+  { code: 'ta', name: 'Тамильский' },
+  { code: 'te', name: 'Телугу' },
+  { code: 'ml', name: 'Малаялам' },
+  { code: 'mr', name: 'Маратхи' },
+  { code: 'fa', name: 'Персидский' },
+  { code: 'my', name: 'Бирманский' },
+  { code: 'km', name: 'Кхмерский' },
+  { code: 'lo', name: 'Лаосский' },
+  { code: 'mn', name: 'Монгольский' },
+  { code: 'ca', name: 'Каталанский' },
+  { code: 'eu', name: 'Баскский' },
+  { code: 'gl', name: 'Галисийский' },
 ];
 
 // Страна → список нативных/распространённых языков (для приоритизации в dropdown)
@@ -3928,18 +4054,24 @@ const COUNTRY_LANGUAGES = {
   RU: ['ru', 'en'], UA: ['uk', 'ru', 'en'], BY: ['be', 'ru'], KZ: ['kk', 'ru', 'en'],
   UZ: ['uz', 'ru'], AZ: ['az', 'ru', 'en'], AM: ['hy', 'ru'], GE: ['ka', 'ru', 'en'],
   MD: ['ro', 'ru'], TJ: ['tg', 'ru'], TM: ['tk', 'ru'], KG: ['ky', 'ru'],
-  GB: ['en'], US: ['en', 'es'], CA: ['en', 'fr'], AU: ['en'],
-  DE: ['de', 'en'], AT: ['de'], CH: ['de', 'fr', 'it'],
-  ES: ['es', 'en'], MX: ['es'], AR: ['es'], BR: ['pt'], PT: ['pt'],
+  GB: ['en'], US: ['en', 'es'], CA: ['en', 'fr'], AU: ['en'], NZ: ['en'],
+  DE: ['de', 'en'], AT: ['de', 'en'], CH: ['de', 'fr', 'it'],
+  ES: ['es', 'ca', 'eu', 'gl'], MX: ['es'], AR: ['es'], BR: ['pt'], PT: ['pt'],
+  CO: ['es'], CL: ['es'], PE: ['es'], VE: ['es'], EC: ['es'], DO: ['es'], PR: ['es', 'en'],
   FR: ['fr', 'en'], BE: ['nl', 'fr'], NL: ['nl', 'en'],
-  IT: ['it', 'en'], PL: ['pl', 'en'], CZ: ['cs'], HU: ['hu'],
+  IT: ['it', 'en'], PL: ['pl', 'en'], CZ: ['cs', 'en'], HU: ['hu', 'en'],
   SE: ['sv', 'en'], NO: ['no', 'en'], DK: ['da', 'en'], FI: ['fi', 'en'],
-  GR: ['el', 'en'], RO: ['ro'], TR: ['tr', 'en'],
-  IN: ['hi', 'en', 'bn', 'ur'], BD: ['bn', 'en'], PK: ['ur', 'en'],
-  CN: ['zh', 'en'], JP: ['ja', 'en'], KR: ['ko', 'en'],
+  GR: ['el', 'en'], RO: ['ro', 'en'], TR: ['tr', 'en'],
+  IE: ['en', 'ga'], BG: ['bg', 'en'], HR: ['hr', 'en'], RS: ['sr', 'en'],
+  SK: ['sk', 'cs', 'en'], SI: ['sl', 'en'],
+  LT: ['lt', 'en'], LV: ['lv', 'en'], EE: ['et', 'en'],
+  IN: ['hi', 'en', 'bn', 'ta', 'te', 'mr', 'ml', 'ur'], BD: ['bn', 'en'], PK: ['ur', 'en'],
+  CN: ['zh', 'en'], JP: ['ja', 'en'], KR: ['ko', 'en'], TW: ['zh', 'en'], HK: ['zh', 'en'],
   TH: ['th', 'en'], VN: ['vi', 'en'], ID: ['id', 'en'], PH: ['tl', 'en'],
-  AE: ['ar', 'en'], SA: ['ar', 'en'], IL: ['he', 'en', 'ru'], EG: ['ar', 'en'],
-  NG: ['en'], ZA: ['en'],
+  MY: ['ms', 'en'], SG: ['en', 'zh', 'ms'],
+  AE: ['ar', 'en'], SA: ['ar', 'en'], IL: ['he', 'en', 'ru', 'ar'], EG: ['ar', 'en'],
+  QA: ['ar', 'en'], KW: ['ar', 'en'], MA: ['ar', 'fr'],
+  NG: ['en'], ZA: ['en', 'af'], KE: ['en', 'sw'],
 };
 
 function rebuildLanguageDropdown() {
