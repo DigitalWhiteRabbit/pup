@@ -699,6 +699,21 @@ model ActivityLog {
 }
 
 // ─────────────────────────────────────────
+// DEPLOY TRACKING
+// ─────────────────────────────────────────
+
+model DeployMessage {
+  id        String   @id @default(cuid())
+  commitSha String
+  chatId    String
+  messageId Int // Telegram message_id for editing
+  status    String   @default("building") // building | done | failed
+  createdAt DateTime @default(now())
+
+  @@index([status])
+}
+
+// ─────────────────────────────────────────
 // БАЗА ЗНАНИЙ
 // ─────────────────────────────────────────
 

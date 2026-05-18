@@ -22,6 +22,11 @@ export async function register() {
       })
       .catch((e) => console.error("[Crawl cleanup] Failed:", e));
 
+    // Mark deploy as completed (new instance just started)
+    const { onDeployCompleted } =
+      await import("@/lib/services/telegram/deploy");
+    void onDeployCompleted();
+
     const { cleanupOldLogs } = await import("@/lib/services/logger.service");
 
     // Initial cleanup on startup
