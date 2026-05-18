@@ -690,14 +690,13 @@ export async function runYouTubeParser(
 ): Promise<ParseResult> {
   const log = (msg: string) => onProgress?.(msg);
 
-  // 1. Load API key from MktConfig
-  const config = await db.mktConfig.findUnique({
-    where: { workspaceId: opts.workspaceId },
-  });
+  // 1. Load API key from MktConfig (with .env fallback)
+  const { getMktConfig } = await import("./mkt-config");
+  const config = await getMktConfig(opts.workspaceId);
 
-  if (!config?.youtubeApiKey) {
+  if (!config.youtubeApiKey) {
     throw new Error(
-      "YouTube API key not configured. Go to Marketing → Settings.",
+      "YouTube API key not configured. Set YOUTUBE_API_KEY in .env or go to Marketing → Settings.",
     );
   }
 

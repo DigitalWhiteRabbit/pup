@@ -79,13 +79,8 @@ const COUNTRY_PERSONAS: Record<string, string> = {
 async function getAiClient(
   workspaceId: string,
 ): Promise<{ client: Anthropic; config: MktAiConfig }> {
-  const row = await db.mktConfig.findUnique({
-    where: { workspaceId },
-  });
-
-  if (!row) {
-    throw new Error(`MktConfig not found for workspace ${workspaceId}`);
-  }
+  const { getMktConfig } = await import("./mkt-config");
+  const row = await getMktConfig(workspaceId);
 
   const apiKey = row.anthropicApiKey;
   if (!apiKey) {

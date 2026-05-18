@@ -134,13 +134,8 @@ async function isDryRun(workspaceId: string): Promise<boolean> {
 }
 
 async function getConfig(workspaceId: string) {
-  const config = await db.mktConfig.findUnique({
-    where: { workspaceId },
-  });
-  if (!config) {
-    throw new Error(`MktConfig not found for workspace ${workspaceId}`);
-  }
-  return config;
+  const { getMktConfig } = await import("./mkt-config");
+  return getMktConfig(workspaceId);
 }
 
 function todayKey(): string {

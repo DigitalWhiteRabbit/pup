@@ -1,7 +1,6 @@
 import "server-only";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { db } from "@/lib/db";
 // NOTE: imapflow and mailparser need to be installed:
 //   pnpm add imapflow mailparser
 //   pnpm add -D @types/mailparser
@@ -31,13 +30,8 @@ export interface InboxMessage {
 const RETRY_DELAYS = [1000, 3000, 9000];
 
 async function loadConfig(workspaceId: string) {
-  const config = await db.mktConfig.findUnique({
-    where: { workspaceId },
-  });
-  if (!config) {
-    throw new Error(`MktConfig not found for workspace ${workspaceId}`);
-  }
-  return config;
+  const { getMktConfig } = await import("./mkt-config");
+  return getMktConfig(workspaceId);
 }
 
 function sleep(ms: number) {
