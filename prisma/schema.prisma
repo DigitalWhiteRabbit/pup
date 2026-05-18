@@ -14,27 +14,28 @@ datasource db {
 // ─────────────────────────────────────────
 
 model User {
-  id        String   @id @default(cuid())
-  login     String   @unique
-  email     String   @unique
-  password  String // bcrypt hash
-  role      Role     @default(USER)
+  id         String    @id @default(cuid())
+  login      String    @unique
+  email      String    @unique
+  password   String // bcrypt hash
+  role       Role      @default(USER)
   isActive   Boolean   @default(true)
   avatarPath String?
   lastSeenAt DateTime?
-  createdAt DateTime @default(now())
+  createdAt  DateTime  @default(now())
 
   // Telegram
-  telegramChatId  String?  @unique
-  tgNotifyAssign  Boolean  @default(true)
-  tgNotifyComment Boolean  @default(true)
-  tgNotifyMove    Boolean  @default(true)
-  tgNotifyProject Boolean  @default(true) // kept for compat with existing records
+  telegramChatId  String? @unique
+  tgNotifyAssign  Boolean @default(true)
+  tgNotifyComment Boolean @default(true)
+  tgNotifyMove    Boolean @default(true)
+  tgNotifyProject Boolean @default(true) // kept for compat with existing records
 
   // Relations
   ownedWorkspaces    Workspace[]         @relation("WorkspaceOwner")
   memberships        WorkspaceMember[]
   taskAssignments    TaskAssignee[]      @relation("TaskAssignee")
+  createdTasks       Task[]              @relation("TaskCreator")
   comments           Comment[]
   attachments        Attachment[]
   notifications      Notification[]      @relation("NotificationRecipient")
@@ -49,12 +50,12 @@ model User {
   kbCrawlsInitiated  KbCrawl[]           @relation("KbCrawlInitiator")
 
   // Tickets
-  ticketsAsInternalCreator   Ticket[]           @relation("TicketInternalCreator")
-  ticketsAsAssignee          Ticket[]           @relation("TicketAssignee")
-  ticketsAsResolver          Ticket[]           @relation("TicketResolver")
-  ticketMessagesAsManager    TicketMessage[]     @relation("TicketMessageManagerAuthor")
-  ticketAttachmentsUploaded  TicketAttachment[]  @relation("TicketAttachmentUploader")
-  ticketCollaborations       TicketCollaborator[] @relation("TicketCollaborator")
+  ticketsAsInternalCreator  Ticket[]             @relation("TicketInternalCreator")
+  ticketsAsAssignee         Ticket[]             @relation("TicketAssignee")
+  ticketsAsResolver         Ticket[]             @relation("TicketResolver")
+  ticketMessagesAsManager   TicketMessage[]      @relation("TicketMessageManagerAuthor")
+  ticketAttachmentsUploaded TicketAttachment[]   @relation("TicketAttachmentUploader")
+  ticketCollaborations      TicketCollaborator[] @relation("TicketCollaborator")
 
   // Critical event Telegram notifications (default false)
   tgNotifyTaskDeleted      Boolean @default(false)
@@ -68,18 +69,18 @@ model User {
   tgNotifyTicketSlaBreached Boolean @default(true)
 
   // Chat
-  tgNotifyChat             Boolean @default(true)
-  chatSoundEnabled         Boolean @default(true)
-  chatDesktopNotify        Boolean @default(true)
-  chatChannelMemberships   ChatChannelMember[]
-  chatMessages             ChatMsg[]           @relation("ChatMsgAuthor")
-  chatReactions            ChatMsgReaction[]
-  globalChatMessages       GlobalChatMsg[]     @relation("GlobalChatAuthor")
-  chatBookmarks            ChatMsgBookmark[]
+  tgNotifyChat           Boolean             @default(true)
+  chatSoundEnabled       Boolean             @default(true)
+  chatDesktopNotify      Boolean             @default(true)
+  chatChannelMemberships ChatChannelMember[]
+  chatMessages           ChatMsg[]           @relation("ChatMsgAuthor")
+  chatReactions          ChatMsgReaction[]
+  globalChatMessages     GlobalChatMsg[]     @relation("GlobalChatAuthor")
+  chatBookmarks          ChatMsgBookmark[]
 
   // Voice
-  voiceParticipations      VoiceParticipant[]
-  voiceMessages            VoiceMessage[]
+  voiceParticipations VoiceParticipant[]
+  voiceMessages       VoiceMessage[]
 
   @@index([email])
   @@index([login])
@@ -102,9 +103,9 @@ enum CustomerIdentityMethod {
 }
 
 model Workspace {
-  id          String  @id @default(cuid())
+  id          String   @id @default(cuid())
   name        String
-  slug        String  @unique
+  slug        String   @unique
   description String?
   logoPath    String?
   createdAt   DateTime @default(now())
@@ -113,39 +114,50 @@ model Workspace {
   owner   User   @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Restrict)
 
   // Chat settings
-  chatTitle              String?
-  chatSubtitle           String?
-  chatAccentColor        String?
-  chatLogoUrl            String?
-  chatIdentityMethod     CustomerIdentityMethod @default(EMAIL_WITH_NAME)
-  chatPersonaRotation    Boolean                @default(true)
+  chatTitle               String?
+  chatSubtitle            String?
+  chatAccentColor         String?
+  chatLogoUrl             String?
+  chatIdentityMethod      CustomerIdentityMethod @default(EMAIL_WITH_NAME)
+  chatPersonaRotation     Boolean                @default(true)
   chatAllowedEmbedOrigins String?
-  chatTimezone           String                 @default("Europe/Moscow")
+  chatTimezone            String                 @default("Europe/Moscow")
 
   // External integrations
-  externalAnalyticsUrl   String?
+  externalAnalyticsUrl String?
 
-  members       WorkspaceMember[]
-  modules       WorkspaceModule[]
-  columns       Column[]
-  tasks         Task[]
-  labels        Label[]
-  notifications Notification[]
-  activityLogs  ActivityLog[]
-  kbCategories  KbCategory[]
-  kbTags        KbTag[]
-  kbArticles    KbArticle[]
-  kbFiles       KbFile[]
-  kbCrawls      KbCrawl[]
-  customers       Customer[]
-  tickets         Ticket[]
-  chatPersonas    ChatPersona[]
-  cannedResponses CannedResponse[]
-  emailConfig     WorkspaceEmailConfig?
-  agentConfig     AgentConfig?
-  chatChannels    ChatChannel[]
-  voiceRooms      VoiceRoom[]
+  members             WorkspaceMember[]
+  modules             WorkspaceModule[]
+  columns             Column[]
+  tasks               Task[]
+  labels              Label[]
+  notifications       Notification[]
+  activityLogs        ActivityLog[]
+  kbCategories        KbCategory[]
+  kbTags              KbTag[]
+  kbArticles          KbArticle[]
+  kbFiles             KbFile[]
+  kbCrawls            KbCrawl[]
+  customers           Customer[]
+  tickets             Ticket[]
+  chatPersonas        ChatPersona[]
+  cannedResponses     CannedResponse[]
+  emailConfig         WorkspaceEmailConfig?
+  agentConfig         AgentConfig?
+  chatChannels        ChatChannel[]
+  voiceRooms          VoiceRoom[]
   externalUsersConfig ExternalUsersConfig?
+
+  // Marketing
+  mktConfig        MktConfig?
+  mktProjects      MktProject[]
+  mktLeads         MktLead[]
+  mktSearchTasks   MktSearchTask[]
+  mktSegments      MktSegment[]
+  mktTemplates     MktTemplate[]
+  mktKnowledgeDocs MktKnowledgeDoc[]
+  mktDailyCounters MktDailyCounter[]
+  mktSettings      MktSetting[]
 
   @@index([ownerId])
 }
@@ -155,16 +167,16 @@ model Workspace {
 // ─────────────────────────────────────────
 
 model ExternalUsersConfig {
-  id            String   @id @default(cuid())
-  workspaceId   String   @unique
-  apiEndpoint   String
-  apiKey        String
-  authType      String   @default("bearer") // "bearer" | "x-api-key" | "query"
-  isConnected   Boolean  @default(false)
-  lastSyncAt    DateTime?
-  lastError     String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id          String    @id @default(cuid())
+  workspaceId String    @unique
+  apiEndpoint String
+  apiKey      String
+  authType    String    @default("bearer") // "bearer" | "x-api-key" | "query"
+  isConnected Boolean   @default(false)
+  lastSyncAt  DateTime?
+  lastError   String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }
@@ -174,15 +186,15 @@ model ExternalUsersConfig {
 // ─────────────────────────────────────────
 
 model VoiceRoom {
-  id             String  @id @default(cuid())
+  id             String   @id @default(cuid())
   workspaceId    String
   name           String
-  isDefault      Boolean @default(false)
-  isPrivate      Boolean @default(false)
-  allowedUserIds String  @default("[]") // JSON array of userIds
+  isDefault      Boolean  @default(false)
+  isPrivate      Boolean  @default(false)
+  allowedUserIds String   @default("[]") // JSON array of userIds
   createdAt      DateTime @default(now())
 
-  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace    Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   participants VoiceParticipant[]
   signals      VoiceSignal[]
   messages     VoiceMessage[]
@@ -192,15 +204,15 @@ model VoiceRoom {
 }
 
 model VoiceParticipant {
-  id           String   @id @default(cuid())
-  roomId       String
-  userId       String?
-  guestName    String?
-  guestToken   String?
-  isMuted      Boolean  @default(false)
-  isScreenSharing Boolean @default(false)
-  joinedAt     DateTime @default(now())
-  lastHeartbeat DateTime @default(now())
+  id              String   @id @default(cuid())
+  roomId          String
+  userId          String?
+  guestName       String?
+  guestToken      String?
+  isMuted         Boolean  @default(false)
+  isScreenSharing Boolean  @default(false)
+  joinedAt        DateTime @default(now())
+  lastHeartbeat   DateTime @default(now())
 
   room VoiceRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
   user User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -210,13 +222,13 @@ model VoiceParticipant {
 }
 
 model VoiceSignal {
-  id         String   @id @default(cuid())
+  id         String    @id @default(cuid())
   roomId     String
   fromUserId String
   toUserId   String
-  type       String   // "offer" | "answer" | "ice-candidate"
-  payload    String   // JSON
-  createdAt  DateTime @default(now())
+  type       String // "offer" | "answer" | "ice-candidate"
+  payload    String // JSON
+  createdAt  DateTime  @default(now())
   consumedAt DateTime?
 
   room VoiceRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
@@ -239,15 +251,15 @@ model VoiceMessage {
 }
 
 model VoiceSession {
-  id          String   @id @default(cuid())
-  roomId      String
-  roomName    String
-  workspaceId String
-  startedAt   DateTime @default(now())
-  endedAt     DateTime?
-  duration    Int?     // seconds
-  participants String  // JSON array of {userId, login, guestName}
-  summary     String?  // AI summary
+  id           String    @id @default(cuid())
+  roomId       String
+  roomName     String
+  workspaceId  String
+  startedAt    DateTime  @default(now())
+  endedAt      DateTime?
+  duration     Int? // seconds
+  participants String // JSON array of {userId, login, guestName}
+  summary      String? // AI summary
 
   room VoiceRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
 
@@ -281,7 +293,7 @@ enum MemberRole {
 model WorkspaceModule {
   id          String   @id @default(cuid())
   workspaceId String
-  moduleKey   String   // "crm" | "knowledge" | "tickets" | "logs" | "chat" | "marketing" | "analytics" | "users"
+  moduleKey   String // "crm" | "knowledge" | "tickets" | "logs" | "chat" | "marketing" | "analytics" | "users"
   enabled     Boolean  @default(true)
   createdAt   DateTime @default(now())
 
@@ -332,9 +344,11 @@ model Task {
   startDate   DateTime?
   dueDate     DateTime?
   createdAt   DateTime     @default(now())
+  createdById String?
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   column    Column    @relation(fields: [columnId], references: [id], onDelete: Restrict)
+  createdBy User?     @relation("TaskCreator", fields: [createdById], references: [id], onDelete: SetNull)
 
   assignees      TaskAssignee[]
   labels         TaskLabel[]
@@ -494,9 +508,9 @@ model Notification {
   isRead      Boolean          @default(false)
   createdAt   DateTime         @default(now())
 
-  recipient User      @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
-  actor     User?     @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
-  task      Task?     @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  recipient User       @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  actor     User?      @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
+  task      Task?      @relation(fields: [taskId], references: [id], onDelete: SetNull)
   workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
 
   @@index([recipientId, isRead])
@@ -621,6 +635,26 @@ enum ActivityAction {
   CHAT_CHANNEL_CREATED
   CHAT_MESSAGE_SENT
 
+  // Marketing
+  MKT_LEAD_CREATED
+  MKT_LEAD_UPDATED
+  MKT_LEAD_DELETED
+  MKT_LEAD_ENRICHED
+  MKT_LEAD_SCORED
+  MKT_PROJECT_CREATED
+  MKT_PROJECT_UPDATED
+  MKT_PROJECT_DELETED
+  MKT_CAMPAIGN_STARTED
+  MKT_CAMPAIGN_PAUSED
+  MKT_PARSER_STARTED
+  MKT_PARSER_COMPLETED
+  MKT_PARSER_FAILED
+  MKT_OUTREACH_SENT
+  MKT_OUTREACH_REPLIED
+  MKT_DEAL_CREATED
+  MKT_DEAL_APPROVED
+  MKT_DEAL_REJECTED
+
   // System
   USER_LOGIN
   USER_LOGOUT
@@ -675,7 +709,7 @@ enum KbSourceType {
 }
 
 model KbCategory {
-  id          String     @id @default(cuid())
+  id          String  @id @default(cuid())
   workspaceId String
   name        String
   slug        String
@@ -706,7 +740,7 @@ model KbTag {
 }
 
 model KbArticle {
-  id          String       @id @default(cuid())
+  id          String @id @default(cuid())
   workspaceId String
   title       String
   slug        String
@@ -714,24 +748,24 @@ model KbArticle {
 
   categoryId String?
 
-  sourceType      KbSourceType @default(MANUAL)
-  sourceUrl       String?
-  sourceFileId    String?
-  sourceFile      KbFile?      @relation("ArticleSourceFile", fields: [sourceFileId], references: [id], onDelete: SetNull)
-  lastSyncedAt    DateTime?
+  sourceType   KbSourceType @default(MANUAL)
+  sourceUrl    String?
+  sourceFileId String?
+  sourceFile   KbFile?      @relation("ArticleSourceFile", fields: [sourceFileId], references: [id], onDelete: SetNull)
+  lastSyncedAt DateTime?
 
   // Search (KB-1c)
   searchText          String?
   searchTextUpdatedAt DateTime?
 
   // Embeddings — reserved for KB-2 (Voyage AI)
-  embedding          String?    // JSON.stringify(number[])
-  embeddingModel     String?    // e.g. "voyage-3-large"
+  embedding          String? // JSON.stringify(number[])
+  embeddingModel     String? // e.g. "voyage-3-large"
   embeddingUpdatedAt DateTime?
 
   authorId       String?
   lastEditedById String?
-  isPublished    Boolean  @default(true)
+  isPublished    Boolean @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -779,7 +813,7 @@ model KbArticleVersion {
 }
 
 model KbFile {
-  id           String   @id @default(cuid())
+  id           String  @id @default(cuid())
   workspaceId  String
   uploadedById String?
   originalName String
@@ -810,7 +844,7 @@ enum KbCrawlStatus {
 }
 
 model KbCrawl {
-  id          String        @id @default(cuid())
+  id          String @id @default(cuid())
   workspaceId String
   startUrl    String
 
@@ -911,17 +945,17 @@ enum TicketMessageAuthorType {
 }
 
 model Customer {
-  id          String   @id @default(cuid())
+  id          String  @id @default(cuid())
   workspaceId String
   email       String
   name        String?
   externalId  String?
   metadata    String?
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace   Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   tickets     Ticket[]
   messages    TicketMessage[]
   attachments TicketAttachment[]
@@ -933,48 +967,48 @@ model Customer {
 }
 
 model Ticket {
-  id          String          @id @default(cuid())
+  id          String @id @default(cuid())
   workspaceId String
   number      Int
 
   title       String
   description String
 
-  source      TicketSource
-  category    TicketCategory  @default(GENERAL)
-  status      TicketStatus    @default(OPEN)
-  priority    TicketPriority  @default(MEDIUM)
+  source   TicketSource
+  category TicketCategory @default(GENERAL)
+  status   TicketStatus   @default(OPEN)
+  priority TicketPriority @default(MEDIUM)
 
   slaDeadline DateTime?
-  slaBreached Boolean         @default(false)
+  slaBreached Boolean   @default(false)
 
   internalCreatorId String?
   customerId        String?
 
-  assigneeId  String?
-  assignedAt  DateTime?
+  assigneeId String?
+  assignedAt DateTime?
 
-  needsHumanHelp     Boolean   @default(false)
-  helpRequestedAt    DateTime?
-  agentConfidence    Float?
+  needsHumanHelp  Boolean   @default(false)
+  helpRequestedAt DateTime?
+  agentConfidence Float?
 
   resolvedAt   DateTime?
   resolvedById String?
   closedAt     DateTime?
 
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  workspace        Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  internalCreator  User?     @relation("TicketInternalCreator", fields: [internalCreatorId], references: [id], onDelete: SetNull)
-  customer         Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  assignee         User?     @relation("TicketAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
-  resolvedBy       User?     @relation("TicketResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
+  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  internalCreator User?     @relation("TicketInternalCreator", fields: [internalCreatorId], references: [id], onDelete: SetNull)
+  customer        Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  assignee        User?     @relation("TicketAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  resolvedBy      User?     @relation("TicketResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
 
-  messages         TicketMessage[]
-  attachments      TicketAttachment[]
-  rating           TicketRating?
-  collaborators    TicketCollaborator[]
+  messages      TicketMessage[]
+  attachments   TicketAttachment[]
+  rating        TicketRating?
+  collaborators TicketCollaborator[]
 
   @@unique([workspaceId, number])
   @@index([workspaceId, status, updatedAt])
@@ -999,31 +1033,31 @@ model TicketCollaborator {
 }
 
 model TicketMessage {
-  id          String                  @id @default(cuid())
-  ticketId    String
+  id       String @id @default(cuid())
+  ticketId String
 
-  authorType  TicketMessageAuthorType
+  authorType TicketMessageAuthorType
 
   managerAuthorId  String?
   customerAuthorId String?
 
-  content     String
+  content      String
   systemAction String?
-  metadata    String?
+  metadata     String?
 
-  createdAt   DateTime @default(now())
+  createdAt DateTime @default(now())
 
-  ticket          Ticket    @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  managerAuthor   User?     @relation("TicketMessageManagerAuthor", fields: [managerAuthorId], references: [id], onDelete: SetNull)
-  customerAuthor  Customer? @relation(fields: [customerAuthorId], references: [id], onDelete: SetNull)
+  ticket         Ticket    @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  managerAuthor  User?     @relation("TicketMessageManagerAuthor", fields: [managerAuthorId], references: [id], onDelete: SetNull)
+  customerAuthor Customer? @relation(fields: [customerAuthorId], references: [id], onDelete: SetNull)
 
   @@index([ticketId, createdAt])
 }
 
 model TicketAttachment {
-  id           String   @id @default(cuid())
-  ticketId     String
-  messageId    String?
+  id        String  @id @default(cuid())
+  ticketId  String
+  messageId String?
 
   originalName String
   size         Int
@@ -1033,7 +1067,7 @@ model TicketAttachment {
   uploadedById         String?
   uploadedByCustomerId String?
 
-  uploadedAt   DateTime @default(now())
+  uploadedAt DateTime @default(now())
 
   ticket             Ticket    @relation(fields: [ticketId], references: [id], onDelete: Cascade)
   uploadedBy         User?     @relation("TicketAttachmentUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
@@ -1047,22 +1081,22 @@ model TicketAttachment {
 // ─────────────────────────────────────────
 
 enum ChatChannelType {
-  GENERAL    // авто-создаётся, все участники, нельзя удалить
-  PUBLIC     // виден всем, можно присоединиться
-  PRIVATE    // только по приглашению
-  DM         // личные сообщения (2 участника)
+  GENERAL // авто-создаётся, все участники, нельзя удалить
+  PUBLIC // виден всем, можно присоединиться
+  PRIVATE // только по приглашению
+  DM // личные сообщения (2 участника)
 }
 
 model ChatChannel {
   id          String          @id @default(cuid())
   workspaceId String
   type        ChatChannelType @default(PUBLIC)
-  name        String?         // null для DM
+  name        String? // null для DM
   description String?
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
 
-  workspace Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   members   ChatChannelMember[]
   messages  ChatMsg[]
 
@@ -1070,12 +1104,12 @@ model ChatChannel {
 }
 
 model ChatChannelMember {
-  id         String   @id @default(cuid())
+  id         String    @id @default(cuid())
   channelId  String
   userId     String
-  joinedAt   DateTime @default(now())
-  lastReadAt DateTime @default(now())
-  muted      Boolean  @default(false)
+  joinedAt   DateTime  @default(now())
+  lastReadAt DateTime  @default(now())
+  muted      Boolean   @default(false)
   typingAt   DateTime? // null = not typing
 
   channel ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
@@ -1087,11 +1121,11 @@ model ChatChannelMember {
 }
 
 model ChatMsg {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   channelId String
   authorId  String
   content   String
-  parentId  String?  // thread reply
+  parentId  String? // thread reply
   editedAt  DateTime?
   deletedAt DateTime? // soft delete
 
@@ -1100,20 +1134,20 @@ model ChatMsg {
   linkedTaskId   String?
 
   // Forward
-  forwardedFromId String?  // original message id
+  forwardedFromId String? // original message id
 
   // Pin
-  pinnedAt  DateTime?
+  pinnedAt   DateTime?
   pinnedById String?
 
   createdAt DateTime @default(now())
 
-  channel       ChatChannel      @relation(fields: [channelId], references: [id], onDelete: Cascade)
-  author        User             @relation("ChatMsgAuthor", fields: [authorId], references: [id], onDelete: Cascade)
-  parent        ChatMsg?         @relation("ChatMsgThread", fields: [parentId], references: [id], onDelete: SetNull)
-  replies       ChatMsg[]        @relation("ChatMsgThread")
-  forwardedFrom ChatMsg?         @relation("ChatMsgForward", fields: [forwardedFromId], references: [id], onDelete: SetNull)
-  forwards      ChatMsg[]        @relation("ChatMsgForward")
+  channel       ChatChannel         @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  author        User                @relation("ChatMsgAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  parent        ChatMsg?            @relation("ChatMsgThread", fields: [parentId], references: [id], onDelete: SetNull)
+  replies       ChatMsg[]           @relation("ChatMsgThread")
+  forwardedFrom ChatMsg?            @relation("ChatMsgForward", fields: [forwardedFromId], references: [id], onDelete: SetNull)
+  forwards      ChatMsg[]           @relation("ChatMsgForward")
   reactions     ChatMsgReaction[]
   bookmarks     ChatMsgBookmark[]
   attachments   ChatMsgAttachment[]
@@ -1138,13 +1172,13 @@ model ChatMsgReaction {
 }
 
 model ChatMsgAttachment {
-  id          String @id @default(cuid())
-  messageId   String
+  id           String   @id @default(cuid())
+  messageId    String
   originalName String
-  size        Int
-  mimeType    String
-  storagePath String
-  createdAt   DateTime @default(now())
+  size         Int
+  mimeType     String
+  storagePath  String
+  createdAt    DateTime @default(now())
 
   message ChatMsg @relation(fields: [messageId], references: [id], onDelete: Cascade)
 
@@ -1175,24 +1209,24 @@ model GlobalChatMsg {
   deletedAt DateTime?
   createdAt DateTime  @default(now())
 
-  author    User              @relation("GlobalChatAuthor", fields: [authorId], references: [id], onDelete: Cascade)
-  parent    GlobalChatMsg?    @relation("GlobalReply", fields: [parentId], references: [id], onDelete: SetNull)
-  replies   GlobalChatMsg[]   @relation("GlobalReply")
-  reactions    GlobalChatReaction[]
-  attachments  GlobalChatAttachment[]
+  author      User                   @relation("GlobalChatAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  parent      GlobalChatMsg?         @relation("GlobalReply", fields: [parentId], references: [id], onDelete: SetNull)
+  replies     GlobalChatMsg[]        @relation("GlobalReply")
+  reactions   GlobalChatReaction[]
+  attachments GlobalChatAttachment[]
 
   @@index([createdAt])
   @@index([parentId])
 }
 
 model GlobalChatAttachment {
-  id          String @id @default(cuid())
-  messageId   String
+  id           String   @id @default(cuid())
+  messageId    String
   originalName String
-  size        Int
-  mimeType    String
-  storagePath String
-  createdAt   DateTime @default(now())
+  size         Int
+  mimeType     String
+  storagePath  String
+  createdAt    DateTime @default(now())
 
   message GlobalChatMsg @relation(fields: [messageId], references: [id], onDelete: Cascade)
 
@@ -1216,33 +1250,33 @@ model AgentConfig {
   workspaceId String  @unique
   enabled     Boolean @default(false)
 
-  mode        String  @default("copilot") // "copilot" | "autopilot"
-  model       String  @default("claude-sonnet-4-20250514")
-  temperature Float   @default(0.3)
+  mode        String @default("copilot") // "copilot" | "autopilot"
+  model       String @default("claude-sonnet-4-20250514")
+  temperature Float  @default(0.3)
 
-  systemPrompt    String?
-  greeting        String?
-  guardrails      String?  // JSON array of forbidden topics
-  handoffThreshold Float  @default(0.7) // confidence below this → human
+  systemPrompt     String?
+  greeting         String?
+  guardrails       String? // JSON array of forbidden topics
+  handoffThreshold Float   @default(0.7) // confidence below this → human
 
-  autoResolve     Boolean @default(false)
-  autoFaq         Boolean @default(false)
+  autoResolve      Boolean @default(false)
+  autoFaq          Boolean @default(false)
   autoContactNotes Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   scenarios AgentScenario[]
 }
 
 model AgentScenario {
-  id          String  @id @default(cuid())
+  id          String   @id @default(cuid())
   agentId     String
   title       String
   description String
   instruction String
-  enabled     Boolean @default(true)
+  enabled     Boolean  @default(true)
   position    Int
   createdAt   DateTime @default(now())
 
@@ -1257,13 +1291,13 @@ model WorkspaceEmailConfig {
   enabled     Boolean @default(false)
 
   // SMTP (outbound)
-  smtpHost    String?
-  smtpPort    Int?
-  smtpUser    String?
-  smtpPass    String?
-  smtpSecure  Boolean @default(true)
-  fromEmail   String?
-  fromName    String?
+  smtpHost   String?
+  smtpPort   Int?
+  smtpUser   String?
+  smtpPass   String?
+  smtpSecure Boolean @default(true)
+  fromEmail  String?
+  fromName   String?
 
   // Inbound webhook secret
   inboundSecret String?
@@ -1306,15 +1340,15 @@ model TicketRating {
 }
 
 model ChatPersona {
-  id          String   @id @default(cuid())
-  workspaceId String
-  displayName String
-  role        String
-  bio         String?
-  avatarUrl   String?
-  position    Int
-  scheduleDays String?  // JSON array: [1,2] = Mon,Tue. null = every day
-  createdAt   DateTime @default(now())
+  id           String   @id @default(cuid())
+  workspaceId  String
+  displayName  String
+  role         String
+  bio          String?
+  avatarUrl    String?
+  position     Int
+  scheduleDays String? // JSON array: [1,2] = Mon,Tue. null = every day
+  createdAt    DateTime @default(now())
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
@@ -1343,4 +1377,552 @@ model SystemLog {
   @@index([workspaceId])
   @@index([userId])
   @@index([createdAt])
+}
+
+// ─────────────────────────────────────────
+// МАРКЕТИНГ
+// ─────────────────────────────────────────
+
+// ─── Config ─────────────────────────────
+
+model MktConfig {
+  id          String @id @default(cuid())
+  workspaceId String @unique
+
+  // API keys (encrypted at app level)
+  youtubeApiKey     String?
+  anthropicApiKey   String?
+  apifyToken        String?
+  resendApiKey      String?
+  resendSenderEmail String?
+  resendSenderName  String?
+  imapHost          String?
+  imapPort          Int?
+  imapUser          String?
+  imapPass          String?
+  tgApiId           String?
+  tgApiHash         String?
+  tgPhone           String?
+  tgSession         String? // serialized gramjs session
+  adminBotToken     String?
+  adminTgChatId     String?
+
+  // AI models
+  claudeModel        String @default("claude-sonnet-4-20250514")
+  claudeModelSummary String @default("claude-haiku-4-5-20251001")
+  claudeModelComplex String @default("claude-opus-4-20250115")
+
+  // Outreach limits
+  dailyCapEmail     Int @default(200)
+  dailyCapTg        Int @default(50)
+  maxRepliesPerTick Int @default(3)
+  loopMessageLimit  Int @default(20)
+
+  // Budget limits
+  dailyBudgetApify    Float @default(5)
+  monthlyBudgetApify  Float @default(50)
+  dailyBudgetClaude   Float @default(3)
+  monthlyBudgetClaude Float @default(50)
+  budgetAlertPercent  Int   @default(80)
+
+  // Scoring
+  scoreModelId         String  @default("claude-haiku-4-5-20251001")
+  scoreThresholdHigh   Float   @default(0.75)
+  scoreThresholdMedium Float   @default(0.40)
+  scoreMinSubscribers  Int     @default(5000)
+  scorePrompt          String?
+
+  // Dedup rules
+  dedupByEmail    Boolean @default(true)
+  dedupByUsername Boolean @default(true)
+  dedupByNameGeo  Boolean @default(false)
+
+  // Worker
+  reviewMode          Boolean @default(false)
+  dryRun              Boolean @default(false)
+  followupEnabled     Boolean @default(true)
+  followupDelayDays   Int     @default(3)
+  followupMaxAttempts Int     @default(2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+// ─── Projects (campaigns) ───────────────
+
+model MktProject {
+  id                  String  @id @default(cuid())
+  workspaceId         String
+  name                String
+  description         String
+  uniqueSellingPoints String?
+  targetAudience      String?
+  budgetMin           Int?
+  budgetMax           Int?
+  adFormats           String? // JSON array
+  language            String  @default("ru")
+  isActive            Boolean @default(false)
+
+  // AI agent persona
+  agentPersona        String?
+  idealChannelProfile String?
+  badFitExamples      String?
+  proofPoints         String?
+  valueProp           String?
+  signature           String?
+  ctaText             String?
+  ctaLink             String?
+  creatorEconomics    String?
+  toneOfVoice         String?
+  stopWords           String? // JSON array
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  leads     MktLead[]
+  deals     MktDeal[]
+
+  @@index([workspaceId, isActive])
+}
+
+// ─── Leads ──────────────────────────────
+
+enum MktLeadStatus {
+  PENDING
+  READY
+  IN_WORK
+  DONE
+  REJECTED
+}
+
+enum MktDialogueStage {
+  NOT_CONTACTED
+  QUEUED
+  AWAITING_REVIEW
+  CONTACTED
+  AWAITING_REPLY
+  FOLLOWUP_1
+  FOLLOWUP_2
+  REPLIED
+  NEGOTIATING
+  DEAL_PENDING
+  WON
+  LOST
+}
+
+enum MktLeadSource {
+  YOUTUBE
+  TELEGRAM
+  INSTAGRAM
+  FACEBOOK
+  LINKEDIN
+  MANUAL
+}
+
+model MktLead {
+  id          String @id @default(cuid())
+  workspaceId String
+
+  // Identity
+  channelId   String // unique external id (yt channel id, tg username, etc)
+  channelName String?
+  channelUrl  String?
+  thumbnail   String?
+  source      MktLeadSource @default(YOUTUBE)
+
+  // Metrics
+  country        String?
+  subscribers    Int?
+  avgViews       Int?
+  engagementRate Float?
+  erNormalized   Float?
+  erFlags        String? // JSON
+
+  // Contacts
+  email       String?
+  telegram    String?
+  instagram   String?
+  twitter     String?
+  tiktok      String?
+  vk          String?
+  discord     String?
+  whatsapp    String?
+  website     String?
+  rawContacts String? // JSON — full contact extraction with sources
+
+  // Status
+  leadStatus    MktLeadStatus    @default(PENDING)
+  dialogueStage MktDialogueStage @default(NOT_CONTACTED)
+
+  // AI
+  leadScore      Float?
+  scoreBreakdown String? // JSON
+  contentSummary String?
+  isDeepSummary  Boolean @default(false)
+
+  // Enrichment
+  channelAboutText String?
+  channelTags      String? // JSON
+  channelLanguage  String?
+  mainCategory     String?
+  channelAgeDays   Int?
+  lastVideoDate    DateTime?
+  lastVideosJson   String? // JSON
+  topPlaylistsJson String? // JSON
+  postingFrequency Float?
+  shortsCount      Int?
+  shortsRatio      Float?
+  shortsAvgViews   Int?
+  longAvgViews     Int?
+
+  // Relations
+  projectId   String?
+  agreedPrice Int?
+  notes       String?
+  optedOut    Boolean @default(false)
+
+  // Followup
+  lockedUntil      DateTime?
+  followupAttempts Int       @default(0)
+  lastFollowupAt   DateTime?
+
+  enrichedAt DateTime?
+  scoredAt   DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  workspace      Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project        MktProject?       @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  dialogues      MktDialogue[]
+  deals          MktDeal[]
+  consultations  MktConsultation[]
+  pendingReplies MktPendingReply[]
+  emails         MktLeadEmail[]
+
+  @@unique([workspaceId, channelId])
+  @@index([workspaceId, leadStatus, dialogueStage])
+  @@index([workspaceId, source])
+  @@index([workspaceId, leadScore])
+  @@index([projectId])
+}
+
+// Fast email lookup (one lead can have multiple emails)
+model MktLeadEmail {
+  id     String @id @default(cuid())
+  leadId String
+  email  String
+
+  lead MktLead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@unique([leadId, email])
+  @@index([email])
+}
+
+// ─── Dialogues & Messages ───────────────
+
+model MktDialogue {
+  id               String  @id @default(cuid())
+  leadId           String
+  channel          String // "email" | "telegram"
+  externalThreadId String? // resend email thread / tg chat id
+
+  createdAt DateTime @default(now())
+
+  lead           MktLead           @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  messages       MktMessage[]
+  pendingReplies MktPendingReply[]
+
+  @@index([leadId])
+}
+
+enum MktMsgDirection {
+  IN
+  OUT
+}
+
+enum MktMsgSender {
+  AGENT
+  ADMIN
+  EXTERNAL
+}
+
+model MktMessage {
+  id         String          @id @default(cuid())
+  dialogueId String
+  direction  MktMsgDirection
+  sender     MktMsgSender
+  content    String
+  subject    String?
+  metadata   String? // JSON (resend_id, headers, etc)
+  resendId   String? // for fast email lookup
+
+  createdAt DateTime @default(now())
+
+  dialogue MktDialogue @relation(fields: [dialogueId], references: [id], onDelete: Cascade)
+
+  @@index([dialogueId, createdAt])
+  @@index([resendId])
+}
+
+// ─── Deals ──────────────────────────────
+
+enum MktDealDecision {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model MktDeal {
+  id            String          @id @default(cuid())
+  leadId        String
+  projectId     String
+  proposedPrice Int?
+  agentSummary  String?
+  adminDecision MktDealDecision @default(PENDING)
+  adminNotes    String?
+
+  createdAt DateTime  @default(now())
+  decidedAt DateTime?
+
+  lead    MktLead    @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  project MktProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([leadId])
+  @@index([projectId])
+  @@index([adminDecision])
+}
+
+// ─── Consultations ──────────────────────
+
+model MktConsultation {
+  id            String  @id @default(cuid())
+  leadId        String?
+  question      String
+  context       String?
+  adminResponse String?
+  status        String  @default("pending") // pending | answered
+
+  createdAt  DateTime  @default(now())
+  answeredAt DateTime?
+
+  lead MktLead? @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+}
+
+// ─── Pending Replies (review mode) ──────
+
+enum MktPendingStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SENT
+  FAILED
+}
+
+model MktPendingReply {
+  id         String  @id @default(cuid())
+  leadId     String
+  dialogueId String?
+  channel    String // "email" | "telegram"
+  recipient  String
+  subject    String?
+  body       String
+  context    String? // JSON (type: initial|reply|deal_accept|consultation_answer)
+
+  status        MktPendingStatus @default(PENDING)
+  editedBody    String?
+  editedSubject String?
+  adminNotes    String?
+
+  createdAt DateTime  @default(now())
+  decidedAt DateTime?
+  sentAt    DateTime?
+
+  lead     MktLead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  dialogue MktDialogue? @relation(fields: [dialogueId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([leadId])
+}
+
+// ─── Search Tasks & Runs ────────────────
+
+model MktSearchTask {
+  id            String        @id @default(cuid())
+  workspaceId   String
+  name          String
+  source        MktLeadSource
+  keywords      String? // comma-separated
+  hashtags      String?
+  country       String?
+  language      String?
+  category      String?
+  minSubs       Int?
+  maxSubs       Int?
+  minEngagement Float?
+  sortBy        String? // relevance | date | viewCount
+  maxResults    Int           @default(100)
+
+  // Schedule
+  cronExpression String? // null = manual only
+  isEnabled      Boolean @default(true)
+
+  // Last run info
+  lastRunAt     DateTime?
+  lastRunStatus String? // ok | error
+  lastRunFound  Int?
+  lastRunNew    Int?
+  lastRunCost   Float?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspace Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  runs      MktSearchRun[]
+
+  @@index([workspaceId])
+}
+
+model MktSearchRun {
+  id     String        @id @default(cuid())
+  taskId String
+  source MktLeadSource
+
+  found      Int     @default(0)
+  newLeads   Int     @default(0)
+  cost       Float   @default(0)
+  durationMs Int?
+  status     String  @default("running") // running | ok | error
+  error      String?
+  params     String? // JSON snapshot of search params
+
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  task MktSearchTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId, startedAt])
+}
+
+// ─── Segments ───────────────────────────
+
+model MktSegment {
+  id          String @id @default(cuid())
+  workspaceId String
+  name        String
+  filters     String // JSON — {source, minSubs, maxSubs, country, tags, hasEmail, scoreLevel, ...}
+  leadCount   Int    @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+}
+
+// ─── Templates ──────────────────────────
+
+model MktTemplate {
+  id          String  @id @default(cuid())
+  workspaceId String
+  name        String
+  channel     String // "email" | "telegram"
+  language    String  @default("ru")
+  subject     String?
+  body        String // with {{variables}}
+  category    String? // initial | followup_1 | followup_2 | custom
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+}
+
+// ─── Knowledge (RAG for outreach AI) ────
+
+enum MktKnowledgeStatus {
+  PENDING
+  INDEXING
+  INDEXED
+  FAILED
+}
+
+model MktKnowledgeDoc {
+  id          String             @id @default(cuid())
+  workspaceId String
+  projectId   String?
+  kind        String // "text" | "url" | "file"
+  title       String
+  source      String? // URL or filename
+  mime        String?
+  sizeBytes   Int?
+  content     String
+  checksum    String?
+  chunksCount Int                @default(0)
+  status      MktKnowledgeStatus @default(PENDING)
+  error       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspace Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  chunks    MktKnowledgeChunk[]
+
+  @@index([workspaceId, status])
+}
+
+model MktKnowledgeChunk {
+  id         String  @id @default(cuid())
+  docId      String
+  position   Int
+  chunkText  String
+  embedding  String? // JSON float array (SQLite has no vector type)
+  tokenCount Int?
+
+  createdAt DateTime @default(now())
+
+  doc MktKnowledgeDoc @relation(fields: [docId], references: [id], onDelete: Cascade)
+
+  @@index([docId, position])
+}
+
+// ─── Daily Counters ─────────────────────
+
+model MktDailyCounter {
+  id                String @id @default(cuid())
+  workspaceId       String
+  dateKey           String // "2026-05-18"
+  emailsSent        Int    @default(0)
+  tgSent            Int    @default(0)
+  tokensIn          Int    @default(0)
+  tokensOut         Int    @default(0)
+  tokensCacheRead   Int    @default(0)
+  tokensCacheCreate Int    @default(0)
+  costUsd           Float  @default(0)
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, dateKey])
+  @@index([workspaceId, dateKey])
+}
+
+// ─── Settings (key-value) ───────────────
+
+model MktSetting {
+  id          String @id @default(cuid())
+  workspaceId String
+  key         String
+  value       String
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, key])
+  @@index([workspaceId])
 }
