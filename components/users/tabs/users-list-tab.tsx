@@ -1,8 +1,14 @@
 import { useMemo, useState } from "react";
-import { ArrowLeft, Download, Save, SlidersHorizontal } from "lucide-react";
-import { careerStatuses, users } from "@/components/users/users-section-data";
-import type { UserRow } from "@/components/users/users-section-data";
+import {
+  ArrowLeft,
+  Download,
+  Loader2,
+  Save,
+  SlidersHorizontal,
+} from "lucide-react";
+import type { CareerStatus, UserRow } from "@/components/users/users-contract";
 import { cn } from "@/lib/utils";
+import { useUsersList, useCareerStatuses } from "../use-users-data";
 import {
   EmptyRow,
   FilterInput,
@@ -21,12 +27,24 @@ const accountLabels = {
 };
 
 export function UsersListTab({
+  workspaceId,
   selectedUserId,
   onSelectUser,
 }: {
+  workspaceId: string;
   selectedUserId: number;
   onSelectUser: (id: number) => void;
 }) {
+  const {
+    data: usersData,
+    isLoading: usersLoading,
+    error: usersError,
+  } = useUsersList(workspaceId);
+  const { data: careerStatusesData } = useCareerStatuses(workspaceId);
+
+  const users = usersData?.users ?? [];
+  const careerStatuses = careerStatusesData ?? [];
+
   const emptyFilters = {
     query: "",
     telegram: "",
@@ -59,13 +77,33 @@ export function UsersListTab({
         matchesSelect(walletState, filters.walletState)
       );
     });
-  }, [filters]);
+  }, [filters, users]);
 
   const profileUser = users.find((user) => user.id === profileUserId);
 
   if (profileUser) {
     return (
-      <UserProfile user={profileUser} onBack={() => setProfileUserId(null)} />
+      <UserProfile
+        user={profileUser}
+        careerStatuses={careerStatuses}
+        onBack={() => setProfileUserId(null)}
+      />
+    );
+  }
+
+  if (usersLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-5 w-5 animate-spin" />
+      </div>
+    );
+  }
+
+  if (usersError) {
+    return (
+      <div className="py-8 text-center text-sm text-destructive">
+        Ошибка загрузки пользователей
+      </div>
     );
   }
 
@@ -252,7 +290,15 @@ export function UsersListTab({
   );
 }
 
-function UserProfile({ user, onBack }: { user: UserRow; onBack: () => void }) {
+function UserProfile({
+  user,
+  careerStatuses,
+  onBack,
+}: {
+  user: UserRow;
+  careerStatuses: CareerStatus[];
+  onBack: () => void;
+}) {
   const [editorOpen, setEditorOpen] = useState(false);
   const [manualStatus, setManualStatus] = useState(
     user.careerStatus.toLowerCase(),

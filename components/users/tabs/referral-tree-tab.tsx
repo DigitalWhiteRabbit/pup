@@ -1,44 +1,37 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight } from "lucide-react";
-import { referralTreeByUserId } from "@/components/users/users-section-data";
-import type {
-  ReferralNode,
-  UserRow,
-} from "@/components/users/users-section-data";
+import { ArrowRight, Loader2 } from "lucide-react";
+import type { ReferralNode } from "@/components/users/users-contract";
 import { cn } from "@/lib/utils";
+import { useReferralTree } from "../use-users-data";
 import { HelpTitle, Metric, Panel } from "../users-ui";
 
-export function ReferralTreeTab({ selectedUser }: { selectedUser?: UserRow }) {
-  const rootNode = useMemo(
-    () =>
-      selectedUser
-        ? (referralTreeByUserId[selectedUser.id] ?? {
-            id: String(selectedUser.id),
-            name: selectedUser.name,
-            careerStatus: selectedUser.careerStatus,
-            lineLabel: "Корень",
-            treeVolume: selectedUser.treeVolume,
-            treeCount: selectedUser.treeCount,
-            activeTreeCount: selectedUser.activeTreeCount,
-            children: [],
-          })
-        : null,
-    [selectedUser],
-  );
+export function ReferralTreeTab({
+  workspaceId,
+  selectedUserId,
+}: {
+  workspaceId: string;
+  selectedUserId: number;
+}) {
+  const {
+    data: rootNode,
+    isLoading,
+    error,
+  } = useReferralTree(workspaceId, selectedUserId || null);
 
-  const [treePath, setTreePath] = useState<ReferralNode[]>(
-    rootNode ? [rootNode] : [],
-  );
+  const [treePath, setTreePath] = useState<ReferralNode[]>([]);
   const columnsRef = useRef<HTMLDivElement | null>(null);
-  const activeTreePath = useMemo(
-    () =>
-      rootNode && treePath[0]?.id === rootNode.id
-        ? treePath
-        : rootNode
-          ? [rootNode]
-          : [],
-    [rootNode, treePath],
-  );
+
+  // Reset tree path when root node changes
+  const activeTreePath = useMemo(() => {
+    if (!rootNode) return [];
+    if (treePath.length > 0 && treePath[0]?.id === rootNode.id) return treePath;
+    return [rootNode];
+  }, [rootNode, treePath]);
+
+  // Sync treePath when rootNode loads
+  useEffect(() => {
+    if (rootNode) setTreePath([rootNode]);
+  }, [rootNode]);
 
   const columns = useMemo(() => {
     if (!rootNode) return [];
@@ -74,33 +67,44 @@ export function ReferralTreeTab({ selectedUser }: { selectedUser?: UserRow }) {
     });
   }, [columns.length, activeTreePath]);
 
-  if (!rootNode)
+  if (!selectedUserId) {
     return (
       <div className="p-8 text-center text-muted-foreground">
         Выберите пользователя для просмотра дерева
       </div>
     );
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-5 w-5 animate-spin" />
+      </div>
+    );
+  }
+
+  if (error || !rootNode) {
+    return (
+      <div className="py-8 text-center text-sm text-destructive">
+        Ошибка загрузки реферального дерева
+      </div>
+    );
+  }
 
   return (
     <>
-      <Panel title={`Реферальное дерево: ${selectedUser?.name ?? ""}`}>
+      <Panel title={`Реферальное дерево: ${rootNode.name}`}>
         <div className="grid gap-3 md:grid-cols-3">
-          <Metric
-            label="Всего в дереве"
-            value={String(selectedUser?.treeCount ?? 0)}
-          />
+          <Metric label="Всего в дереве" value={rootNode.treeCount ?? "0"} />
           <Metric
             label={
               <span className="inline-flex items-center gap-1">
                 Активные <HelpTitle />
               </span>
             }
-            value={String(selectedUser?.activeTreeCount ?? 0)}
+            value={rootNode.activeTreeCount ?? "0"}
           />
-          <Metric
-            label="Объем"
-            value={`${selectedUser?.treeVolume ?? 0} USDT`}
-          />
+          <Metric label="Объем" value={`${rootNode.treeVolume ?? "0"} USDT`} />
         </div>
       </Panel>
 

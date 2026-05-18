@@ -62,7 +62,7 @@ export function UsersModuleClient({ workspaceId }: Props) {
 
         {/* Users Section from colleague's code */}
         <div className="flex-1 overflow-y-auto">
-          <UsersSection />
+          <UsersSection workspaceId={workspaceId} />
         </div>
       </div>
     );

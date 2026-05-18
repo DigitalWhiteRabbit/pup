@@ -514,6 +514,14 @@ export function TaskModal({ taskId, workspaceId, members, onClose }: Props) {
               </span>
               {" · "}Создана:{" "}
               {format(new Date(task.createdAt), "dd.MM.yyyy HH:mm")}
+              {task.createdBy && (
+                <>
+                  {" · "}Автор:{" "}
+                  <span className="font-medium text-foreground">
+                    {task.createdBy.login}
+                  </span>
+                </>
+              )}
             </div>
 
             {/* Move history */}

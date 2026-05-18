@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { users } from "@/components/users/users-section-data";
 import { cn } from "@/lib/utils";
 import { OverviewTab } from "./tabs/overview-tab";
 import { UsersListTab } from "./tabs/users-list-tab";
@@ -36,11 +35,9 @@ const tabs: Array<{ id: TabId; label: string }> = [
   { id: "logs", label: "Логи" },
 ];
 
-export function UsersSection() {
+export function UsersSection({ workspaceId }: { workspaceId: string }) {
   const [activeTab, setActiveTab] = useState<TabId>("overview");
-  const [selectedUserId, setSelectedUserId] = useState(users[0]?.id ?? 0);
-  const selectedUser =
-    users.find((user) => user.id === selectedUserId) ?? users[0];
+  const [selectedUserId, setSelectedUserId] = useState<number>(0);
 
   return (
     <div className="flex w-full min-w-0 flex-col gap-4 lg:gap-6">
@@ -72,20 +69,28 @@ export function UsersSection() {
         </div>
       </div>
 
-      {activeTab === "overview" && <OverviewTab />}
+      {activeTab === "overview" && <OverviewTab workspaceId={workspaceId} />}
       {activeTab === "users" && (
         <UsersListTab
+          workspaceId={workspaceId}
           onSelectUser={setSelectedUserId}
           selectedUserId={selectedUserId}
         />
       )}
-      {activeTab === "tree" && <ReferralTreeTab selectedUser={selectedUser} />}
-      {activeTab === "activity" && <ActivityTab />}
-      {activeTab === "wallets" && <WalletsTab />}
-      {activeTab === "operations" && <OperationsHistoryTab />}
-      {activeTab === "statuses" && <StatusesTab />}
-      {activeTab === "risks" && <RisksTab />}
-      {activeTab === "logs" && <LogsTab />}
+      {activeTab === "tree" && (
+        <ReferralTreeTab
+          workspaceId={workspaceId}
+          selectedUserId={selectedUserId}
+        />
+      )}
+      {activeTab === "activity" && <ActivityTab workspaceId={workspaceId} />}
+      {activeTab === "wallets" && <WalletsTab workspaceId={workspaceId} />}
+      {activeTab === "operations" && (
+        <OperationsHistoryTab workspaceId={workspaceId} />
+      )}
+      {activeTab === "statuses" && <StatusesTab workspaceId={workspaceId} />}
+      {activeTab === "risks" && <RisksTab workspaceId={workspaceId} />}
+      {activeTab === "logs" && <LogsTab workspaceId={workspaceId} />}
     </div>
   );
 }

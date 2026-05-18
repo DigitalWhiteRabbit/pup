@@ -50,6 +50,7 @@ export type TaskSummary = {
 
 export type TaskFull = TaskSummary & {
   columnName: string;
+  createdBy: { id: string; login: string } | null;
   checklistItems: ChecklistItemView[];
   comments: Array<{
     id: string;
@@ -129,6 +130,7 @@ export async function createTask(
         columnId: input.columnId,
         workspaceId: input.workspaceId,
         position,
+        createdById: userId,
         assignees:
           assigneeIds.length > 0
             ? { create: assigneeIds.map((uid) => ({ userId: uid })) }
@@ -706,6 +708,7 @@ export async function getTaskById(
     where: { id },
     include: {
       column: { select: { name: true } },
+      createdBy: { select: { id: true, login: true } },
       assignees: { include: assigneeSelect },
       labels: { include: { label: true } },
       checklistItems: { orderBy: { position: "asc" } },
@@ -761,6 +764,7 @@ export async function getTaskById(
     isInProgress,
     lastIntervalStartedAt,
     createdAt: task.createdAt,
+    createdBy: task.createdBy,
     comments: task.comments.map((c) => ({
       id: c.id,
       text: c.text,

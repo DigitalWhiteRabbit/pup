@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard Prototype</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0a0a0a;
+    color: #e5e5e5;
+    padding: 32px;
+    min-height: 100vh;
+  }
+
+  h1 { font-size: 24px; font-weight: 700; margin-bottom: 24px; color: #fff; }
+  h2 { font-size: 15px; font-weight: 600; color: #fff; margin-bottom: 12px; }
+  h3 { font-size: 13px; font-weight: 600; color: #ccc; margin-bottom: 8px; }
+
+  .grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; max-width: 1200px; }
+  .grid-full { grid-column: 1 / -1; }
+  .grid-2 { grid-column: span 2; }
+
+  .card {
+    background: #171717;
+    border: 1px solid #262626;
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .card:hover { border-color: #333; }
+
+  /* Project cards inside the projects block */
+  .project-list { display: flex; flex-direction: column; gap: 12px; }
+
+  .project-card {
+    background: #1c1c1c;
+    border: 1px solid #2a2a2a;
+    border-radius: 10px;
+    padding: 16px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    cursor: pointer;
+    transition: border-color 0.2s;
+  }
+  .project-card:hover { border-color: #10b981; }
+
+  .project-icon {
+    width: 44px; height: 44px;
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; font-weight: 700;
+    flex-shrink: 0;
+  }
+
+  .project-info { flex: 1; min-width: 0; }
+  .project-name { font-size: 14px; font-weight: 600; color: #fff; }
+  .project-role { font-size: 11px; color: #666; margin-top: 2px; }
+
+  .project-stats { display: flex; gap: 12px; flex-shrink: 0; }
+
+  .stat {
+    display: flex; flex-direction: column; align-items: center;
+    padding: 6px 10px; border-radius: 8px; background: #222; min-width: 52px;
+  }
+  .stat-value { font-size: 18px; font-weight: 700; line-height: 1; }
+  .stat-label { font-size: 9px; color: #888; margin-top: 3px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+  .stat-tickets .stat-value { color: #f59e0b; }
+  .stat-chat .stat-value { color: #10b981; }
+  .stat-tasks .stat-value { color: #6366f1; }
+
+  /* Guest chat card */
+  .chat-preview {
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .chat-msg {
+    display: flex; gap: 8px; align-items: flex-start;
+  }
+  .chat-avatar {
+    width: 28px; height: 28px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 700; flex-shrink: 0;
+  }
+  .chat-bubble {
+    background: #222; border-radius: 12px; padding: 8px 12px;
+    font-size: 12px; color: #ccc; max-width: 280px;
+  }
+  .chat-bubble-me {
+    background: #10b981; color: #fff; margin-left: auto; border-radius: 12px 12px 4px 12px;
+  }
+  .chat-author { font-size: 10px; font-weight: 600; color: #888; margin-bottom: 2px; }
+  .chat-time { font-size: 9px; color: #555; margin-top: 2px; }
+
+  .chat-input-preview {
+    display: flex; gap: 8px; align-items: center; margin-top: 8px;
+    background: #1c1c1c; border: 1px solid #333; border-radius: 20px;
+    padding: 8px 14px;
+  }
+  .chat-input-preview span { font-size: 12px; color: #555; }
+
+  /* Tasks list */
+  .task-list { display: flex; flex-direction: column; gap: 6px; }
+  .task-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; border-radius: 8px; background: #1c1c1c;
+    border: 1px solid #2a2a2a;
+  }
+  .task-priority {
+    width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+  }
+  .task-priority.high { background: #ef4444; }
+  .task-priority.medium { background: #f59e0b; }
+  .task-priority.low { background: #22c55e; }
+  .task-title { font-size: 12px; color: #ddd; flex: 1; }
+  .task-project { font-size: 10px; color: #666; flex-shrink: 0; }
+  .task-assignee {
+    width: 22px; height: 22px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 8px; font-weight: 700; flex-shrink: 0;
+  }
+
+  /* Logs */
+  .log-list { display: flex; flex-direction: column; gap: 4px; }
+  .log-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 8px; border-radius: 6px;
+    font-size: 11px; color: #999;
+  }
+  .log-item:hover { background: #1c1c1c; }
+  .log-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+  .log-dot.green { background: #10b981; }
+  .log-dot.blue { background: #3b82f6; }
+  .log-dot.yellow { background: #f59e0b; }
+  .log-dot.red { background: #ef4444; }
+  .log-time { font-size: 10px; color: #555; margin-left: auto; flex-shrink: 0; }
+
+  /* Badge */
+  .badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    background: #10b981; color: #fff; font-size: 10px; font-weight: 700;
+    border-radius: 10px; padding: 1px 6px; min-width: 18px; height: 18px;
+  }
+  .badge-amber { background: #f59e0b; }
+  .badge-red { background: #ef4444; }
+
+  /* Link */
+  .card-link {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 11px; color: #10b981; text-decoration: none;
+    margin-top: 12px;
+  }
+  .card-link:hover { text-decoration: underline; }
+
+  /* Section divider */
+  .section-label {
+    font-size: 10px; font-weight: 700; color: #555;
+    text-transform: uppercase; letter-spacing: 1px;
+    margin-bottom: 12px;
+  }
+</style>
+</head>
+<body>
+
+<h1>Главная</h1>
+
+<div class="grid">
+  <!-- ========== PROJECTS CARD ========== -->
+  <div class="card">
+    <h2>Мои проекты</h2>
+    <div class="project-list">
+
+      <!-- Project 1: Ananas -->
+      <div class="project-card">
+        <div class="project-icon" style="background: #10b981; color: #fff;">A</div>
+        <div class="project-info">
+          <div class="project-name">Ananas</div>
+          <div class="project-role">Участник</div>
+        </div>
+        <div class="project-stats">
+          <div class="stat stat-tickets">
+            <div class="stat-value">12</div>
+            <div class="stat-label">Тикеты</div>
+          </div>
+          <div class="stat stat-chat">
+            <div class="stat-value">3</div>
+            <div class="stat-label">Чат</div>
+          </div>
+          <div class="stat stat-tasks">
+            <div class="stat-value">7</div>
+            <div class="stat-label">Задачи</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Project 2: Test project -->
+      <div class="project-card">
+        <div class="project-icon" style="background: #6366f1; color: #fff;">T</div>
+        <div class="project-info">
+          <div class="project-name">Test project</div>
+          <div class="project-role">Владелец</div>
+        </div>
+        <div class="project-stats">
+          <div class="stat stat-tickets">
+            <div class="stat-value">2</div>
+            <div class="stat-label">Тикеты</div>
+          </div>
+          <div class="stat stat-chat">
+            <div class="stat-value">0</div>
+            <div class="stat-label">Чат</div>
+          </div>
+          <div class="stat stat-tasks">
+            <div class="stat-value">14</div>
+            <div class="stat-label">Задачи</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Project 3: Atlas -->
+      <div class="project-card">
+        <div class="project-icon" style="background: #f59e0b; color: #fff;">At</div>
+        <div class="project-info">
+          <div class="project-name">Atlas</div>
+          <div class="project-role">Админ</div>
+        </div>
+        <div class="project-stats">
+          <div class="stat stat-tickets">
+            <div class="stat-value">0</div>
+            <div class="stat-label">Тикеты</div>
+          </div>
+          <div class="stat stat-chat">
+            <div class="stat-value">5</div>
+            <div class="stat-label">Чат</div>
+          </div>
+          <div class="stat stat-tasks">
+            <div class="stat-value">3</div>
+            <div class="stat-label">Задачи</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+    <a href="#" class="card-link">Все проекты &rarr;</a>
+  </div>
+
+  <!-- ========== GUEST CHAT ========== -->
+  <div class="card">
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+      <h2 style="margin-bottom: 0;">Гостевой чат</h2>
+      <span class="badge">2</span>
+    </div>
+    <div class="chat-preview">
+      <div class="chat-msg">
+        <div class="chat-avatar" style="background: #6366f1; color: #fff;">R</div>
+        <div>
+          <div class="chat-author">RotenBerg</div>
+          <div class="chat-bubble">привет, кто подскажет по настройке?</div>
+          <div class="chat-time">13:22</div>
+        </div>
+      </div>
+      <div class="chat-msg">
+        <div class="chat-avatar" style="background: #10b981; color: #fff;">B</div>
+        <div>
+          <div class="chat-author">Bruno</div>
+          <div class="chat-bubble chat-bubble-me">напиши в тикеты, там быстрее ответят</div>
+          <div class="chat-time" style="text-align: right;">13:23</div>
+        </div>
+      </div>
+      <div class="chat-msg">
+        <div class="chat-avatar" style="background: #f59e0b; color: #fff;">D</div>
+        <div>
+          <div class="chat-author">Digitex</div>
+          <div class="chat-bubble">всем привет! я новенький</div>
+          <div class="chat-time">13:30</div>
+        </div>
+      </div>
+    </div>
+    <div class="chat-input-preview">
+      <span>Напишите сообщение...</span>
+    </div>
+    <a href="#" class="card-link">Открыть чат &rarr;</a>
+  </div>
+
+  <!-- ========== MY TASKS ========== -->
+  <div class="card">
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+      <h2 style="margin-bottom: 0;">Мои задачи</h2>
+      <span class="badge badge-amber">24</span>
+    </div>
+    <div class="task-list">
+      <div class="task-item">
+        <div class="task-priority high"></div>
+        <div class="task-title">Исправить баг оплаты</div>
+        <div class="task-project">Ananas</div>
+        <div class="task-assignee" style="background: #10b981; color: #fff;">B</div>
+      </div>
+      <div class="task-item">
+        <div class="task-priority high"></div>
+        <div class="task-title">Ответить клиенту #354</div>
+        <div class="task-project">Ananas</div>
+        <div class="task-assignee" style="background: #10b981; color: #fff;">B</div>
+      </div>
+      <div class="task-item">
+        <div class="task-priority medium"></div>
+        <div class="task-title">Обновить документацию API</div>
+        <div class="task-project">Test project</div>
+        <div class="task-assignee" style="background: #6366f1; color: #fff;">B</div>
+      </div>
+      <div class="task-item">
+        <div class="task-priority medium"></div>
+        <div class="task-title">Настроить мониторинг</div>
+        <div class="task-project">Atlas</div>
+        <div class="task-assignee" style="background: #f59e0b; color: #fff;">B</div>
+      </div>
+      <div class="task-item">
+        <div class="task-priority low"></div>
+        <div class="task-title">Заказать воду в офис</div>
+        <div class="task-project">Test project</div>
+        <div class="task-assignee" style="background: #6366f1; color: #fff;">B</div>
+      </div>
+    </div>
+    <a href="#" class="card-link">Все задачи &rarr;</a>
+  </div>
+
+  <!-- ========== RECENT LOGS ========== -->
+  <div class="card">
+    <h2>Последние события</h2>
+    <div class="log-list">
+      <div class="log-item">
+        <div class="log-dot green"></div>
+        <span><b style="color:#ccc">Bruno</b> создал задачу "Исправить баг оплаты"</span>
+        <span class="log-time">Ananas &middot; 13:31</span>
+      </div>
+      <div class="log-item">
+        <div class="log-dot blue"></div>
+        <span><b style="color:#ccc">Ivan_petrov2025</b> переместил задачу "Дизайн лендинга" в "Готово"</span>
+        <span class="log-time">Test project &middot; 13:28</span>
+      </div>
+      <div class="log-item">
+        <div class="log-dot yellow"></div>
+        <span><b style="color:#ccc">Digitex</b> назначен на тикет #412</span>
+        <span class="log-time">Ananas &middot; 13:15</span>
+      </div>
+      <div class="log-item">
+        <div class="log-dot red"></div>
+        <span><b style="color:#ccc">admin</b> удалил задачу "Тест"</span>
+        <span class="log-time">Atlas &middot; 12:50</span>
+      </div>
+      <div class="log-item">
+        <div class="log-dot green"></div>
+        <span><b style="color:#ccc">RotenBerg</b> зарегистрировался в системе</span>
+        <span class="log-time">Система &middot; 12:44</span>
+      </div>
+    </div>
+    <a href="#" class="card-link">Все логи &rarr;</a>
+  </div>
+</div>
+
+</body>
+</html>

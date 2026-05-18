@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { ArrowRight } from "lucide-react";
-import { operationRows } from "@/components/users/users-section-data";
+import { ArrowRight, Loader2 } from "lucide-react";
+import { useOperations } from "../use-users-data";
 import {
   FilterInput,
   FilterSelect,
@@ -24,7 +24,9 @@ const operationStatusLabels: Record<string, string> = {
   rejected: "Отклонено",
 };
 
-export function OperationsHistoryTab() {
+export function OperationsHistoryTab({ workspaceId }: { workspaceId: string }) {
+  const { data: operationRows, isLoading, error } = useOperations(workspaceId);
+
   const emptyFilters = {
     dateFrom: "",
     dateTo: "",
@@ -34,7 +36,25 @@ export function OperationsHistoryTab() {
     status: "all",
   };
   const [filters, setFilters] = useState(emptyFilters);
-  const filteredOperations = operationRows.filter(
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-5 w-5 animate-spin" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="py-8 text-center text-sm text-destructive">
+        Ошибка загрузки операций
+      </div>
+    );
+  }
+
+  const rows = operationRows ?? [];
+  const filteredOperations = rows.filter(
     (operation) =>
       inDateRange(operation.time, filters.dateFrom, filters.dateTo) &&
       includesText(operation.user, filters.query) &&

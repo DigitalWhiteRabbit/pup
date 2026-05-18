@@ -1,21 +1,43 @@
 import { useState } from "react";
-import { ChevronDown, Save } from "lucide-react";
-import { careerStatuses } from "@/components/users/users-section-data";
-import type { CareerStatus } from "@/components/users/users-section-data";
+import { ChevronDown, Loader2, Save } from "lucide-react";
+import type { CareerStatus } from "@/components/users/users-contract";
 import { cn } from "@/lib/utils";
+import { useCareerStatuses } from "../use-users-data";
 import { FilterInput, Panel } from "../users-ui";
 
-export function StatusesTab() {
+export function StatusesTab({ workspaceId }: { workspaceId: string }) {
+  const {
+    data: careerStatuses,
+    isLoading,
+    error,
+  } = useCareerStatuses(workspaceId);
+
   const [expanded, setExpanded] = useState(false);
-  const [selectedStatusId, setSelectedStatusId] = useState(
-    careerStatuses[0]?.id ?? "",
-  );
-  const selected =
-    careerStatuses.find((status) => status.id === selectedStatusId) ??
-    careerStatuses[0]!;
+  const [selectedStatusId, setSelectedStatusId] = useState<string>("");
   const [conditionDrafts, setConditionDrafts] = useState<
     Record<string, CareerStatus["conditions"]>
   >({});
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-5 w-5 animate-spin" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="py-8 text-center text-sm text-destructive">
+        Ошибка загрузки статусов
+      </div>
+    );
+  }
+
+  const statuses = careerStatuses ?? [];
+  const effectiveSelectedId = selectedStatusId || statuses[0]?.id || "";
+  const selected =
+    statuses.find((s) => s.id === effectiveSelectedId) ?? statuses[0];
   const conditions = selected
     ? (conditionDrafts[selected.id] ?? selected.conditions)
     : null;
@@ -52,13 +74,13 @@ export function StatusesTab() {
         </button>
         {expanded && (
           <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-            {careerStatuses.map((status) => (
+            {statuses.map((status) => (
               <button
                 key={status.id}
                 type="button"
                 className={cn(
                   "rounded-md border p-3 text-left hover:bg-accent",
-                  selectedStatusId === status.id
+                  effectiveSelectedId === status.id
                     ? "border-foreground bg-accent"
                     : "border-border bg-card",
                 )}
@@ -79,8 +101,8 @@ export function StatusesTab() {
 
       {conditions && (
         <Panel
-          title={`Условия статуса: ${selected.name}`}
-          meta={selected.description}
+          title={`Условия статуса: ${selected!.name}`}
+          meta={selected!.description}
         >
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
             <FilterInput

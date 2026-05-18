@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Profile Settings Prototype</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0a0a0a;
+    color: #e5e5e5;
+    padding: 32px;
+    min-height: 100vh;
+  }
+  h1 { font-size: 24px; font-weight: 700; margin-bottom: 24px; color: #fff; }
+
+  .container { max-width: 720px; }
+
+  .card {
+    background: #171717;
+    border: 1px solid #262626;
+    border-radius: 16px;
+    padding: 24px;
+    margin-bottom: 20px;
+  }
+
+  /* ── Profile Header Card ── */
+  .profile-header {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+  }
+  .avatar-wrapper {
+    position: relative;
+    cursor: pointer;
+  }
+  .avatar {
+    width: 96px;
+    height: 96px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #10b981, #059669);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 36px;
+    font-weight: 700;
+    color: #fff;
+    overflow: hidden;
+  }
+  .avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .avatar-overlay {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  .avatar-wrapper:hover .avatar-overlay {
+    opacity: 1;
+  }
+  .avatar-overlay svg {
+    width: 24px;
+    height: 24px;
+    color: #fff;
+  }
+  .profile-info { flex: 1; }
+  .profile-name {
+    font-size: 22px;
+    font-weight: 700;
+    color: #fff;
+  }
+  .profile-email {
+    font-size: 13px;
+    color: #888;
+    margin-top: 2px;
+  }
+  .profile-meta {
+    display: flex;
+    gap: 12px;
+    margin-top: 10px;
+  }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .badge-green {
+    background: rgba(16,185,129,0.15);
+    color: #10b981;
+  }
+  .badge-gray {
+    background: rgba(255,255,255,0.06);
+    color: #888;
+  }
+
+  /* ── Two column grid ── */
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+
+  /* ── Form elements ── */
+  .card-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: #fff;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .card-title svg {
+    width: 18px;
+    height: 18px;
+    color: #888;
+  }
+  .form-group {
+    margin-bottom: 14px;
+  }
+  .form-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: #666;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+    display: block;
+  }
+  .form-input {
+    width: 100%;
+    padding: 10px 14px;
+    background: #0a0a0a;
+    border: 1px solid #333;
+    border-radius: 10px;
+    color: #e5e5e5;
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .form-input:focus {
+    border-color: #10b981;
+  }
+  .form-input::placeholder {
+    color: #555;
+  }
+  .btn {
+    width: 100%;
+    padding: 10px;
+    border: none;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.2s;
+  }
+  .btn:hover { opacity: 0.9; }
+  .btn-primary {
+    background: #10b981;
+    color: #fff;
+  }
+  .btn-outline {
+    background: transparent;
+    border: 1px solid #333;
+    color: #e5e5e5;
+  }
+
+  /* ── Telegram section ── */
+  .tg-status {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    background: #0a0a0a;
+    border-radius: 10px;
+    margin-bottom: 14px;
+  }
+  .tg-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+  .tg-dot.connected { background: #10b981; }
+  .tg-dot.disconnected { background: #ef4444; }
+
+  .toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 0;
+  }
+  .toggle-label {
+    font-size: 12px;
+    color: #ccc;
+  }
+  .toggle {
+    width: 36px;
+    height: 20px;
+    background: #333;
+    border-radius: 10px;
+    position: relative;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  .toggle.on {
+    background: #10b981;
+  }
+  .toggle::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    background: #fff;
+    border-radius: 50%;
+    transition: transform 0.2s;
+  }
+  .toggle.on::after {
+    transform: translateX(16px);
+  }
+
+  /* ── Divider ── */
+  .divider {
+    border: none;
+    border-top: 1px solid #262626;
+    margin: 12px 0;
+  }
+
+  /* ── Danger zone ── */
+  .danger-text {
+    font-size: 11px;
+    color: #ef4444;
+    cursor: pointer;
+  }
+  .danger-text:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <h1>Настройки профиля</h1>
+
+  <!-- ═══ PROFILE HEADER ═══ -->
+  <div class="card">
+    <div class="profile-header">
+      <div class="avatar-wrapper">
+        <div class="avatar">B</div>
+        <div class="avatar-overlay">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/><circle cx="12" cy="13" r="3"/></svg>
+        </div>
+      </div>
+      <div class="profile-info">
+        <div class="profile-name">Bruno</div>
+        <div class="profile-email">bruno@example.com</div>
+        <div class="profile-meta">
+          <span class="badge badge-green">Пользователь</span>
+          <span class="badge badge-gray">С 13 мая 2026</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <!-- ═══ CHANGE PASSWORD ═══ -->
+    <div class="card">
+      <div class="card-title">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+        Изменить пароль
+      </div>
+      <div class="form-group">
+        <label class="form-label">Текущий пароль</label>
+        <input type="password" class="form-input" placeholder="••••••••" value="test1234">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Новый пароль</label>
+        <input type="password" class="form-input" placeholder="Минимум 6 символов">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Подтвердите пароль</label>
+        <input type="password" class="form-input" placeholder="Повторите пароль">
+      </div>
+      <button class="btn btn-primary">Изменить пароль</button>
+    </div>
+
+    <!-- ═══ TELEGRAM ═══ -->
+    <div class="card">
+      <div class="card-title">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
+        Telegram
+      </div>
+
+      <div class="tg-status">
+        <div class="tg-dot connected"></div>
+        <span style="font-size: 12px; color: #10b981; font-weight: 600;">Подключён</span>
+        <span style="font-size: 11px; color: #666; margin-left: auto;">@controler_panel_bot</span>
+      </div>
+
+      <div style="font-size: 11px; font-weight: 600; color: #666; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Уведомления</div>
+
+      <div class="toggle-row">
+        <span class="toggle-label">Назначение задачи</span>
+        <div class="toggle on"></div>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label">Комментарии</span>
+        <div class="toggle on"></div>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label">Перемещение задач</span>
+        <div class="toggle"></div>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label">Тикеты</span>
+        <div class="toggle on"></div>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label">Чат</span>
+        <div class="toggle on"></div>
+      </div>
+
+      <hr class="divider">
+      <span class="danger-text">Отключить Telegram</span>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

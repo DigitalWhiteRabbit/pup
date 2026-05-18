@@ -1,31 +1,52 @@
+import { Loader2 } from "lucide-react";
+import { useUsersSnapshot } from "../use-users-data";
 import { ChartLines, Metric, Panel } from "../users-ui";
 
-export function OverviewTab() {
+export function OverviewTab({ workspaceId }: { workspaceId: string }) {
+  const snapshot = useUsersSnapshot(workspaceId);
+
+  if (snapshot.isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-5 w-5 animate-spin" />
+      </div>
+    );
+  }
+
+  if (snapshot.error) {
+    return (
+      <div className="py-8 text-center text-sm text-destructive">
+        Ошибка загрузки данных
+      </div>
+    );
+  }
+
+  const s = snapshot.data;
+
   return (
     <>
       <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Metric
           label="Всего пользователей"
-          value="11 452"
-          hint="+530 за 5 дней"
+          value={s ? s.total.toLocaleString("ru-RU") : "—"}
+          hint={
+            s ? `+${s.newWeek.toLocaleString("ru-RU")} за неделю` : undefined
+          }
           tone="good"
         />
         <Metric
-          label="Активные за 7 дней"
-          value="3 187"
-          hint="+14,8%"
+          label="Активные с депозитом"
+          value={s ? s.activeWithDeposit.toLocaleString("ru-RU") : "—"}
           tone="good"
         />
         <Metric
           label="Регистрации сегодня"
-          value="236"
-          hint="из них 172 по рефералам"
+          value={s ? s.newToday.toLocaleString("ru-RU") : "—"}
           tone="good"
         />
         <Metric
-          label="Объем деревьев"
-          value="2.84M USDT"
-          hint="BEP-20"
+          label="Онлайн сейчас"
+          value={s ? s.online.toLocaleString("ru-RU") : "—"}
           tone="neutral"
         />
       </div>
@@ -56,12 +77,12 @@ export function OverviewTab() {
 
       <Panel title="Операционные сигналы">
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          <Metric label="Без кошелька" value="1 904" />
-          <Metric label="Кошелек без транзакций" value="842" />
-          <Metric label="На проверке рисков" value="37" tone="warn" />
-          <Metric label="Дубли IP" value="126" tone="warn" />
-          <Metric label="Ручные правки статуса" value="19" />
-          <Metric label="Ошибки контракта" value="8" tone="bad" />
+          <Metric label="Без кошелька" value="—" />
+          <Metric label="Кошелек без транзакций" value="—" />
+          <Metric label="На проверке рисков" value="—" tone="warn" />
+          <Metric label="Дубли IP" value="—" tone="warn" />
+          <Metric label="Ручные правки статуса" value="—" />
+          <Metric label="Ошибки контракта" value="—" tone="bad" />
         </div>
       </Panel>
     </>

@@ -1,7 +1,7 @@
 import type * as React from "react";
 import { HelpCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { Tone } from "@/components/users/users-section-data";
+import type { Tone } from "@/components/users/users-contract";
 
 export function Panel({
   title,

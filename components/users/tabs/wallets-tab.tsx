@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { walletRows } from "@/components/users/users-section-data";
+import { Loader2 } from "lucide-react";
+import { useWallets } from "../use-users-data";
 import {
   FilterInput,
   FilterSelect,
@@ -15,10 +16,30 @@ const walletStatusLabels: Record<string, string> = {
   noOperations: "Нет операций",
 };
 
-export function WalletsTab() {
+export function WalletsTab({ workspaceId }: { workspaceId: string }) {
+  const { data: walletRows, isLoading, error } = useWallets(workspaceId);
+
   const emptyFilters = { query: "", wallet: "", status: "all" };
   const [filters, setFilters] = useState(emptyFilters);
-  const filteredWallets = walletRows.filter(
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-5 w-5 animate-spin" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="py-8 text-center text-sm text-destructive">
+        Ошибка загрузки кошельков
+      </div>
+    );
+  }
+
+  const rows = walletRows ?? [];
+  const filteredWallets = rows.filter(
     (row) =>
       includesText(row.user, filters.query) &&
       includesText(row.wallet, filters.wallet) &&

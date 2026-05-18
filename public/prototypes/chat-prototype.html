@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ПУП Чат — Прототип</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+  .scrollbar-thin::-webkit-scrollbar { width: 4px; }
+  .scrollbar-thin::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
+  .msg-bubble { max-width: 70%; }
+  .channel-active { background: #ecfdf5; border-left: 3px solid #22c55e; }
+  .unread-dot { width: 8px; height: 8px; background: #22c55e; border-radius: 50%; }
+  .typing-dots span { animation: bounce 1.4s infinite; }
+  .typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+  .typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes bounce { 0%,80%,100% { transform: translateY(0); } 40% { transform: translateY(-4px); } }
+  .online-dot { width: 10px; height: 10px; background: #22c55e; border: 2px solid white; border-radius: 50%; position: absolute; bottom: 0; right: 0; }
+  .offline-dot { width: 10px; height: 10px; background: #9ca3af; border: 2px solid white; border-radius: 50%; position: absolute; bottom: 0; right: 0; }
+</style>
+</head>
+<body class="bg-gray-100 h-screen flex">
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!-- LEFT SIDEBAR — Каналы и личные сообщения            -->
+<!-- ═══════════════════════════════════════════════════ -->
+<div class="w-[300px] bg-white border-r flex flex-col shrink-0">
+
+  <!-- Header -->
+  <div class="px-4 py-3 border-b flex items-center justify-between">
+    <div class="flex items-center gap-2">
+      <div class="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center text-white text-sm font-bold">A</div>
+      <span class="font-semibold text-sm text-gray-800">Atlas — Чат</span>
+    </div>
+    <button class="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center" title="Новый чат">
+      <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+    </button>
+  </div>
+
+  <!-- Search -->
+  <div class="px-3 py-2">
+    <div class="flex items-center gap-2 bg-gray-100 rounded-lg px-3 py-1.5">
+      <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+      <input type="text" placeholder="Поиск..." class="bg-transparent text-sm outline-none flex-1 text-gray-600">
+    </div>
+  </div>
+
+  <!-- Channels section -->
+  <div class="px-3 pt-2">
+    <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-2 mb-1">Каналы</div>
+  </div>
+  <div class="flex-1 overflow-y-auto scrollbar-thin">
+
+    <!-- Общий (active) -->
+    <div class="channel-active px-4 py-2.5 cursor-pointer">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-lg">💬</div>
+        <div class="flex-1 min-w-0">
+          <div class="flex justify-between items-center">
+            <span class="text-sm font-semibold text-gray-800">Общий</span>
+            <span class="text-[10px] text-gray-400">14:32</span>
+          </div>
+          <div class="flex justify-between items-center">
+            <span class="text-xs text-gray-500 truncate">Bruno: Ребят, посмотрите тикет #45</span>
+            <div class="bg-emerald-500 text-white text-[10px] rounded-full px-1.5 py-0.5 min-w-[18px] text-center font-medium">3</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Разработка -->
+    <div class="px-4 py-2.5 cursor-pointer hover:bg-gray-50 transition-colors">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-lg">🛠</div>
+        <div class="flex-1 min-w-0">
+          <div class="flex justify-between items-center">
+            <span class="text-sm font-medium text-gray-700">Разработка</span>
+            <span class="text-[10px] text-gray-400">12:15</span>
+          </div>
+          <div class="flex justify-between items-center">
+            <span class="text-xs text-gray-500 truncate">admin: Деплой на прод в 18:00</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Маркетинг -->
+    <div class="px-4 py-2.5 cursor-pointer hover:bg-gray-50 transition-colors">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center text-lg">📣</div>
+        <div class="flex-1 min-w-0">
+          <div class="flex justify-between items-center">
+            <span class="text-sm font-medium text-gray-700">Маркетинг</span>
+            <span class="text-[10px] text-gray-400">вчера</span>
+          </div>
+          <span class="text-xs text-gray-500 truncate">Екатерина: Баннеры готовы</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Тикет #45 обсуждение -->
+    <div class="px-4 py-2.5 cursor-pointer hover:bg-gray-50 transition-colors">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center text-lg">🎫</div>
+        <div class="flex-1 min-w-0">
+          <div class="flex justify-between items-center">
+            <span class="text-sm font-medium text-gray-700">Тикет #45</span>
+            <span class="text-[10px] text-gray-400">11:20</span>
+          </div>
+          <div class="flex justify-between items-center">
+            <span class="text-xs text-gray-500 truncate">admin: Нужна помощь с возвратом</span>
+            <div class="bg-emerald-500 text-white text-[10px] rounded-full px-1.5 py-0.5 min-w-[18px] text-center font-medium">1</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- DMs section -->
+    <div class="px-3 pt-4">
+      <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-2 mb-1">Личные сообщения</div>
+    </div>
+
+    <!-- DM: Екатерина -->
+    <div class="px-4 py-2.5 cursor-pointer hover:bg-gray-50 transition-colors">
+      <div class="flex items-center gap-3">
+        <div class="relative">
+          <img src="https://i.pravatar.cc/40?img=5" class="w-10 h-10 rounded-full object-cover">
+          <div class="online-dot"></div>
+        </div>
+        <div class="flex-1 min-w-0">
+          <div class="flex justify-between items-center">
+            <span class="text-sm font-medium text-gray-700">Екатерина</span>
+            <span class="text-[10px] text-gray-400">13:45</span>
+          </div>
+          <span class="text-xs text-gray-500 truncate">Сделала, проверь пожалуйста</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- DM: Игнат -->
+    <div class="px-4 py-2.5 cursor-pointer hover:bg-gray-50 transition-colors">
+      <div class="flex items-center gap-3">
+        <div class="relative">
+          <img src="https://i.pravatar.cc/40?img=12" class="w-10 h-10 rounded-full object-cover">
+          <div class="offline-dot"></div>
+        </div>
+        <div class="flex-1 min-w-0">
+          <div class="flex justify-between items-center">
+            <span class="text-sm font-medium text-gray-700">Игнат</span>
+            <span class="text-[10px] text-gray-400">вчера</span>
+          </div>
+          <span class="text-xs text-gray-500 truncate">Ок, завтра созвонимся</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- DM: admin -->
+    <div class="px-4 py-2.5 cursor-pointer hover:bg-gray-50 transition-colors">
+      <div class="flex items-center gap-3">
+        <div class="relative">
+          <div class="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-sm font-bold text-gray-500">A</div>
+          <div class="online-dot"></div>
+        </div>
+        <div class="flex-1 min-w-0">
+          <div class="flex justify-between items-center">
+            <span class="text-sm font-medium text-gray-700">admin</span>
+            <span class="text-[10px] text-gray-400">10:30</span>
+          </div>
+          <span class="text-xs text-emerald-600 font-medium">Вы: Понял, спасибо!</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!-- CENTER — Сообщения                                  -->
+<!-- ═══════════════════════════════════════════════════ -->
+<div class="flex-1 flex flex-col min-w-0 bg-gray-50">
+
+  <!-- Chat header -->
+  <div class="bg-white border-b px-5 py-3 flex items-center justify-between shrink-0">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-lg">💬</div>
+      <div>
+        <div class="text-sm font-semibold text-gray-800">Общий</div>
+        <div class="text-[11px] text-gray-400">5 участников · 3 онлайн</div>
+      </div>
+    </div>
+    <div class="flex items-center gap-1">
+      <button class="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center" title="Поиск">
+        <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+      </button>
+      <button class="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center" title="Привязать к задаче">
+        <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
+      </button>
+      <button class="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center" title="Инфо о канале" onclick="document.getElementById('info-panel').classList.toggle('hidden')">
+        <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- Messages -->
+  <div class="flex-1 overflow-y-auto px-5 py-4 scrollbar-thin">
+
+    <!-- Date divider -->
+    <div class="flex items-center gap-3 my-4">
+      <div class="flex-1 h-px bg-gray-200"></div>
+      <span class="text-[11px] text-gray-400 font-medium bg-gray-50 px-2">Сегодня</span>
+      <div class="flex-1 h-px bg-gray-200"></div>
+    </div>
+
+    <!-- Message from admin -->
+    <div class="flex gap-2.5 mb-4">
+      <div class="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-xs font-bold text-gray-500 shrink-0 mt-0.5">A</div>
+      <div>
+        <div class="flex items-center gap-2 mb-0.5">
+          <span class="text-sm font-semibold text-gray-800">admin</span>
+          <span class="text-[10px] text-gray-400">10:15</span>
+        </div>
+        <div class="msg-bubble bg-white rounded-2xl rounded-tl-md px-4 py-2.5 text-sm text-gray-700 shadow-sm border">
+          Доброе утро! Сегодня важный день — запускаем новый модуль тикетов 🚀
+        </div>
+        <!-- Reactions -->
+        <div class="flex gap-1 mt-1">
+          <button class="flex items-center gap-1 bg-gray-100 hover:bg-gray-200 rounded-full px-2 py-0.5 text-xs transition-colors">
+            🚀 <span class="text-gray-500">3</span>
+          </button>
+          <button class="flex items-center gap-1 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5 text-xs">
+            👍 <span class="text-emerald-600">2</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Message from Екатерина -->
+    <div class="flex gap-2.5 mb-4">
+      <img src="https://i.pravatar.cc/32?img=5" class="w-8 h-8 rounded-full object-cover shrink-0 mt-0.5">
+      <div>
+        <div class="flex items-center gap-2 mb-0.5">
+          <span class="text-sm font-semibold text-gray-800">Екатерина</span>
+          <span class="text-[10px] text-emerald-500">Поддержка</span>
+          <span class="text-[10px] text-gray-400">10:22</span>
+        </div>
+        <div class="msg-bubble bg-white rounded-2xl rounded-tl-md px-4 py-2.5 text-sm text-gray-700 shadow-sm border">
+          Отлично! Я уже проверила — всё работает. Шаблоны ответов настроила ✅
+        </div>
+      </div>
+    </div>
+
+    <!-- Message from Bruno with @mention -->
+    <div class="flex gap-2.5 mb-4">
+      <div class="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-xs font-bold text-white shrink-0 mt-0.5">B</div>
+      <div>
+        <div class="flex items-center gap-2 mb-0.5">
+          <span class="text-sm font-semibold text-gray-800">Bruno</span>
+          <span class="text-[10px] text-gray-400">14:30</span>
+        </div>
+        <div class="msg-bubble bg-white rounded-2xl rounded-tl-md px-4 py-2.5 text-sm text-gray-700 shadow-sm border">
+          <span class="text-emerald-600 font-medium bg-emerald-50 rounded px-1">@admin</span> посмотри тикет #45 — клиент просит возврат, нужна твоя авторизация
+        </div>
+        <!-- Thread indicator -->
+        <button class="flex items-center gap-1.5 mt-1.5 text-xs text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg px-2 py-1 transition-colors">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"/></svg>
+          2 ответа
+          <span class="text-gray-400">· последний 14:35</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- admin reply -->
+    <div class="flex gap-2.5 mb-4">
+      <div class="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-xs font-bold text-gray-500 shrink-0 mt-0.5">A</div>
+      <div>
+        <div class="flex items-center gap-2 mb-0.5">
+          <span class="text-sm font-semibold text-gray-800">admin</span>
+          <span class="text-[10px] text-gray-400">14:32</span>
+        </div>
+        <div class="msg-bubble bg-white rounded-2xl rounded-tl-md px-4 py-2.5 text-sm text-gray-700 shadow-sm border">
+          Ребят, посмотрите тикет #45 — там сложный кейс с реферальной программой.
+          <span class="text-emerald-600 font-medium bg-emerald-50 rounded px-1">@Екатерина</span> можешь подключиться?
+        </div>
+        <!-- Linked ticket -->
+        <a href="#" class="flex items-center gap-2 mt-1.5 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 hover:bg-amber-100 transition-colors">
+          <span class="text-amber-600 text-sm">🎫</span>
+          <div>
+            <div class="text-xs font-medium text-amber-800">Тикет #45 — Реферальная проблема</div>
+            <div class="text-[10px] text-amber-600">OPEN · Средний · 9 сообщений</div>
+          </div>
+        </a>
+      </div>
+    </div>
+
+    <!-- Attachment message -->
+    <div class="flex gap-2.5 mb-4">
+      <img src="https://i.pravatar.cc/32?img=5" class="w-8 h-8 rounded-full object-cover shrink-0 mt-0.5">
+      <div>
+        <div class="flex items-center gap-2 mb-0.5">
+          <span class="text-sm font-semibold text-gray-800">Екатерина</span>
+          <span class="text-[10px] text-gray-400">14:35</span>
+        </div>
+        <div class="msg-bubble bg-white rounded-2xl rounded-tl-md px-4 py-2.5 text-sm text-gray-700 shadow-sm border">
+          Подключилась, смотрю. Вот скрин из системы:
+        </div>
+        <!-- Image attachment -->
+        <div class="mt-1.5 msg-bubble">
+          <div class="bg-gray-200 rounded-xl w-64 h-40 flex items-center justify-center text-gray-400">
+            <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Typing indicator -->
+    <div class="flex gap-2.5 mb-4">
+      <img src="https://i.pravatar.cc/32?img=12" class="w-8 h-8 rounded-full object-cover shrink-0 mt-0.5">
+      <div class="bg-white rounded-2xl rounded-tl-md px-4 py-3 shadow-sm border">
+        <div class="typing-dots flex gap-1">
+          <span class="w-2 h-2 bg-gray-400 rounded-full inline-block"></span>
+          <span class="w-2 h-2 bg-gray-400 rounded-full inline-block"></span>
+          <span class="w-2 h-2 bg-gray-400 rounded-full inline-block"></span>
+        </div>
+      </div>
+      <span class="text-[10px] text-gray-400 self-center">Игнат печатает...</span>
+    </div>
+
+  </div>
+
+  <!-- Input -->
+  <div class="bg-white border-t px-5 py-3 shrink-0">
+    <div class="flex items-end gap-2">
+      <!-- Attach -->
+      <button class="w-9 h-9 rounded-lg hover:bg-gray-100 flex items-center justify-center shrink-0" title="Прикрепить файл">
+        <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg>
+      </button>
+      <!-- Text input -->
+      <div class="flex-1 bg-gray-100 rounded-2xl px-4 py-2.5 flex items-end">
+        <div contenteditable="true" class="flex-1 text-sm outline-none min-h-[20px] max-h-[120px] overflow-y-auto text-gray-700" data-placeholder="Напишите сообщение..."></div>
+      </div>
+      <!-- Emoji -->
+      <button class="w-9 h-9 rounded-lg hover:bg-gray-100 flex items-center justify-center shrink-0" title="Эмодзи">
+        <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+      </button>
+      <!-- Send -->
+      <button class="w-9 h-9 rounded-xl bg-emerald-500 hover:bg-emerald-600 flex items-center justify-center shrink-0 transition-colors" title="Отправить">
+        <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
+      </button>
+    </div>
+    <div class="text-[10px] text-gray-400 mt-1 px-12">@упоминание · Ctrl+Enter — отправить · /команды</div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!-- RIGHT SIDEBAR — Инфо о канале                      -->
+<!-- ═══════════════════════════════════════════════════ -->
+<div id="info-panel" class="w-[280px] bg-white border-l flex flex-col shrink-0">
+
+  <!-- Header -->
+  <div class="px-4 py-3 border-b">
+    <div class="text-sm font-semibold text-gray-800">Общий</div>
+    <div class="text-[11px] text-gray-400">Автоматический канал для всех участников</div>
+  </div>
+
+  <!-- Members -->
+  <div class="px-4 py-3 border-b">
+    <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Участники · 5</div>
+
+    <div class="space-y-2">
+      <div class="flex items-center gap-2.5">
+        <div class="relative">
+          <div class="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-xs font-bold text-gray-500">A</div>
+          <div class="online-dot" style="width:8px;height:8px;border-width:1.5px"></div>
+        </div>
+        <div class="flex-1 min-w-0">
+          <div class="text-xs font-medium text-gray-700">admin</div>
+          <div class="text-[10px] text-emerald-500">онлайн</div>
+        </div>
+        <span class="text-[9px] bg-amber-100 text-amber-700 rounded px-1.5 py-0.5">OWNER</span>
+      </div>
+
+      <div class="flex items-center gap-2.5">
+        <div class="relative">
+          <div class="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-xs font-bold text-white">B</div>
+          <div class="online-dot" style="width:8px;height:8px;border-width:1.5px"></div>
+        </div>
+        <div class="flex-1 min-w-0">
+          <div class="text-xs font-medium text-gray-700">Bruno</div>
+          <div class="text-[10px] text-emerald-500">онлайн</div>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2.5">
+        <div class="relative">
+          <img src="https://i.pravatar.cc/32?img=5" class="w-8 h-8 rounded-full object-cover">
+          <div class="online-dot" style="width:8px;height:8px;border-width:1.5px"></div>
+        </div>
+        <div class="flex-1 min-w-0">
+          <div class="text-xs font-medium text-gray-700">Екатерина</div>
+          <div class="text-[10px] text-emerald-500">онлайн</div>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2.5">
+        <div class="relative">
+          <img src="https://i.pravatar.cc/32?img=12" class="w-8 h-8 rounded-full object-cover">
+          <div class="offline-dot" style="width:8px;height:8px;border-width:1.5px"></div>
+        </div>
+        <div class="flex-1 min-w-0">
+          <div class="text-xs font-medium text-gray-700">Игнат</div>
+          <div class="text-[10px] text-gray-400">был 2 часа назад</div>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2.5">
+        <div class="relative">
+          <img src="https://i.pravatar.cc/32?img=20" class="w-8 h-8 rounded-full object-cover">
+          <div class="offline-dot" style="width:8px;height:8px;border-width:1.5px"></div>
+        </div>
+        <div class="flex-1 min-w-0">
+          <div class="text-xs font-medium text-gray-700">Кирилл</div>
+          <div class="text-[10px] text-gray-400">был вчера</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Linked items -->
+  <div class="px-4 py-3 border-b">
+    <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Привязки</div>
+    <div class="space-y-1.5">
+      <a href="#" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-50 transition-colors">
+        <span class="text-sm">🎫</span>
+        <div class="text-xs text-gray-600">Тикет #45 — Реферальная проблема</div>
+      </a>
+      <a href="#" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-50 transition-colors">
+        <span class="text-sm">📋</span>
+        <div class="text-xs text-gray-600">Задача: Обновить лендинг</div>
+      </a>
+    </div>
+  </div>
+
+  <!-- Shared files -->
+  <div class="px-4 py-3">
+    <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Файлы · 3</div>
+    <div class="space-y-1.5">
+      <div class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors">
+        <div class="w-8 h-8 rounded bg-blue-100 flex items-center justify-center text-xs text-blue-600 font-medium">PDF</div>
+        <div>
+          <div class="text-xs font-medium text-gray-700">report-q4.pdf</div>
+          <div class="text-[10px] text-gray-400">2.4 МБ · вчера</div>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors">
+        <div class="w-8 h-8 rounded bg-green-100 flex items-center justify-center text-xs text-green-600 font-medium">IMG</div>
+        <div>
+          <div class="text-xs font-medium text-gray-700">screenshot.png</div>
+          <div class="text-[10px] text-gray-400">340 КБ · сегодня</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Notifications toggle -->
+  <div class="mt-auto px-4 py-3 border-t">
+    <label class="flex items-center gap-2 cursor-pointer">
+      <input type="checkbox" checked class="rounded">
+      <span class="text-xs text-gray-600">Уведомления в Telegram</span>
+    </label>
+  </div>
+</div>
+
+</body>
+</html>
