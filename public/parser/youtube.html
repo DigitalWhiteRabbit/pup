@@ -1326,7 +1326,59 @@ button:hover:not(:disabled) { transform: translateY(-1px); }
       }
 
       // ─── Standard rewrites ───
-      else if (url.startsWith('/api/leads')) newPath = base + '/leads' + url.slice('/api/leads'.length);
+      else if (url.startsWith('/api/leads')) {
+        const subPath = url.slice('/api/leads'.length);
+        // PATCH /api/leads/:id — transform snake_case to camelCase + uppercase enums
+        if (opts && (opts.method === 'PATCH' || opts.method === 'patch') && subPath.match(/^\/\w+$/)) {
+          const leadPupId = subPath.slice(1);
+          return (async () => {
+            try {
+              let body = opts.body ? JSON.parse(opts.body) : {};
+              // Map lead_status snake → camelCase + uppercase
+              if (body.lead_status) {
+                body = { leadStatus: body.lead_status.toUpperCase(), ...body };
+                delete body.lead_status;
+              }
+              if (body.notes !== undefined) body.notes = body.notes;
+              const r = await _originalFetch(base + '/leads/' + leadPupId, {
+                method: 'PATCH',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body),
+              });
+              return r;
+            } catch(e) { return new Response(JSON.stringify({error:e.message}), {status:500, headers:{'Content-Type':'application/json'}}); }
+          })();
+        }
+        // DELETE /api/leads/:id
+        if (opts && (opts.method === 'DELETE' || opts.method === 'delete') && subPath.match(/^\/\w+$/)) {
+          const leadPupId = subPath.slice(1);
+          return _originalFetch(base + '/leads/' + leadPupId, { method: 'DELETE' });
+        }
+        // POST /api/leads/bulk-status — transform
+        if (subPath === '/bulk-status' && opts && opts.method === 'POST') {
+          return (async () => {
+            try {
+              let body = JSON.parse(opts.body);
+              if (body.lead_status) body.status = body.lead_status.toUpperCase();
+              if (body.ids) body.leadIds = body.ids;
+              return _originalFetch(base + '/leads/bulk', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body),
+              });
+            } catch(e) { return new Response(JSON.stringify({error:e.message}), {status:500, headers:{'Content-Type':'application/json'}}); }
+          })();
+        }
+        // POST /api/leads/promote — create/promote a lead
+        if (subPath === '/promote' && opts && opts.method === 'POST') {
+          return _originalFetch(base + '/leads', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: opts.body,
+          });
+        }
+        newPath = base + '/leads' + subPath;
+      }
       else if (url.startsWith('/api/projects')) newPath = base + '/projects' + url.slice('/api/projects'.length);
       else if (url.startsWith('/api/dialogues')) newPath = base + '/dialogues' + url.slice('/api/dialogues'.length);
       else if (url.startsWith('/api/agent')) newPath = base + '/worker' + url.slice('/api/agent'.length);

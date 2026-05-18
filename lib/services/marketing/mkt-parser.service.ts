@@ -1012,11 +1012,20 @@ export async function runYouTubeParser(
     }
   }
 
-  // 10. Save to MktLead (upsert by channelId)
-  log(`Saving ${allChannels.length} channels to database...`);
+  // 10. Filter out channels without any contacts
+  const withContacts = allChannels.filter(
+    (ch) => ch.email || ch.telegram || ch.instagram || ch.twitter || ch.website,
+  );
+  const skippedNoContact = allChannels.length - withContacts.length;
+  if (skippedNoContact > 0) {
+    log(`Skipped ${skippedNoContact} channels without contacts`);
+  }
+
+  // 11. Save to MktLead (upsert by channelId)
+  log(`Saving ${withContacts.length} channels to database...`);
   let newLeads = 0;
 
-  for (const ch of allChannels) {
+  for (const ch of withContacts) {
     const existing = await db.mktLead.findUnique({
       where: {
         workspaceId_channelId: {
