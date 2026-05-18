@@ -8,6 +8,7 @@ type Props = { params: Promise<{ id: string }> };
 export default async function UsersModulePage({ params }: Props) {
   const { id } = await params;
   const session = await auth();
+  if (!session?.user?.id) redirect("/login");
   const on = await isModuleEnabled(
     id,
     "users",
