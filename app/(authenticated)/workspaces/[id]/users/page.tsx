@@ -3,19 +3,20 @@ import { isModuleEnabled } from "@/lib/services/workspace.service";
 import { redirect } from "next/navigation";
 import { UsersModuleClient } from "./users-module-client";
 
-type Props = { params: { id: string } };
+type Props = { params: Promise<{ id: string }> };
 
 export default async function UsersModulePage({ params }: Props) {
+  const { id } = await params;
   const session = await auth();
   const on = await isModuleEnabled(
-    params.id,
+    id,
     "users",
     session!.user.id,
     session!.user.role,
   ).catch(() => {
     redirect("/workspaces");
   });
-  if (!on) redirect(`/workspaces/${params.id}`);
+  if (!on) redirect(`/workspaces/${id}`);
 
-  return <UsersModuleClient workspaceId={params.id} />;
+  return <UsersModuleClient workspaceId={id} />;
 }
