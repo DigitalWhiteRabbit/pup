@@ -62,5 +62,15 @@ export async function POST(req: NextRequest) {
   const { onDeployStarted } = await import("@/lib/services/telegram/deploy");
   void onDeployStarted(commitSha, commitMsg, author);
 
+  // Trigger actual deploy via shell script
+  const { exec } = await import("child_process");
+  exec("/var/www/deploy.sh", { cwd: "/var/www/pup" }, (err, stdout, stderr) => {
+    if (err) {
+      console.error("[Deploy] deploy.sh failed:", stderr);
+    } else {
+      console.log("[Deploy] deploy.sh completed:", stdout.slice(-100));
+    }
+  });
+
   return NextResponse.json({ ok: true, commit: commitSha.slice(0, 7) });
 }
