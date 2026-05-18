@@ -1682,10 +1682,10 @@ button:hover:not(:disabled) { transform: translateY(-1px); }
           <div class="form-grid">
             <div class="full"><label>Keywords <span class="help-icon" data-tip="Ключевые слова через запятую. Парсер ищет видео на YouTube по каждому слову, затем собирает каналы-авторы этих видео. Пример: «инвестиции, крипта, web3»">?</span></label><input type="text" id="fKeywords" placeholder="финансы, инвестиции, крипта"></div>
             <div class="full"><label>Hashtags <span class="help-icon" data-tip="Хэштеги через запятую (без #). Парсер ищет видео по этим хэштегам и забирает каналы. Можно комбинировать с keywords.">?</span></label><input type="text" id="fHashtags" placeholder="пассивныйдоход, крипта"></div>
-            <div><label>Min подписчиков <span class="help-icon" data-tip="Минимальное число подписчиков канала. Каналы с меньшим числом будут отфильтрованы из результата (но всё равно тратят API quota).">?</span></label><input type="number" id="fMinSubs" placeholder="10000"></div>
-            <div><label>Max подписчиков <span class="help-icon" data-tip="Максимальное число подписчиков. Каналы крупнее будут отфильтрованы. Полезно если нужны только микро/нано-инфлюенсеры.">?</span></label><input type="number" id="fMaxSubs" placeholder="500000"></div>
-            <div><label>Min engagement % <span class="help-icon" data-tip="Минимальный engagement rate (среднее число просмотров последних видео ÷ подписчики, в %). Например 3 = 3%. Высокий ER = живая аудитория.">?</span></label><input type="number" id="fMinEng" step="0.01" placeholder="3"></div>
-            <div><label>Страна <span class="help-icon" data-tip="Фильтр по стране, указанной в настройках канала. Учти: многие блогеры не указывают страну — такие каналы будут отфильтрованы.">?</span></label>
+            <div><label>Min подписчиков <span class="help-icon" data-tip="Минимальное число подписчиков канала. Каналы с меньшим числом не попадут в результат.">?</span></label><input type="number" id="fMinSubs" placeholder="10000"></div>
+            <div><label>Max подписчиков <span class="help-icon" data-tip="Максимальное число подписчиков. Каналы крупнее не попадут в результат.">?</span></label><input type="number" id="fMaxSubs" placeholder="500000"></div>
+            <div style="display:none"><label>Min engagement %</label><input type="number" id="fMinEng" step="0.01" value="0"></div>
+            <div style="display:none"><label>Страна</label>
               <select id="fCountry">
                 <option value="">Любая</option>
                 <optgroup label="СНГ">
@@ -1784,7 +1784,7 @@ button:hover:not(:disabled) { transform: translateY(-1px); }
                 </optgroup>
               </select>
             </div>
-            <div><label>Тематика (Topic) <span class="help-icon" data-tip="YouTube Topic ID — сужает поиск до конкретной тематики на уровне YouTube. Гораздо точнее чем ключевые слова. Можно комбинировать с keywords для максимальной точности.">?</span></label>
+            <div style="display:none"><label>Тематика (Topic)</label>
               <select id="fTopicId">
                 <option value="">Любая</option>
                 <optgroup label="Бизнес и финансы">
@@ -1831,7 +1831,7 @@ button:hover:not(:disabled) { transform: translateY(-1px); }
             </div>
             <div><label>Активность за N дней <span class="help-icon" data-tip="Канал должен опубликовать хотя бы одно видео за последние N дней. Например 90 = только каналы активные за последние 3 месяца. Иначе фильтруется как «мёртвый».">?</span></label><input type="number" id="fActiveDays" placeholder="90"></div>
             <div><label>Лимит каналов <span class="help-icon" data-tip="Максимальное число каналов в финальном CSV. Не влияет на сам поиск (он работает по полному набору), только обрезает результат.">?</span></label><input type="number" id="fLimit" placeholder="100" value="100"></div>
-            <div><label>Категория YouTube <span class="help-icon" data-tip="Фильтр поиска по категории видео YouTube (Gaming, Music, Education и т.п.). Сужает поиск только до видео в указанной категории.">?</span></label>
+            <div style="display:none"><label>Категория YouTube</label>
               <select id="fCategory">
                 <option value="">Любая</option>
                 <option value="1">Film & Animation</option><option value="2">Autos & Vehicles</option>
@@ -1843,7 +1843,7 @@ button:hover:not(:disabled) { transform: translateY(-1px); }
                 <option value="27">Education</option><option value="28">Science & Technology</option>
               </select>
             </div>
-            <div><label>Сортировка <span class="help-icon" data-tip="Порядок результатов поиска. Relevance — по релевантности (по умолчанию). Date — самые свежие видео. ViewCount — топ по просмотрам. Rating — топ по лайкам.">?</span></label>
+            <div style="display:none"><label>Сортировка</label>
               <select id="fSortBy">
                 <option value="relevance">По релевантности</option>
                 <option value="date">По дате</option>
@@ -1854,7 +1854,7 @@ button:hover:not(:disabled) { transform: translateY(-1px); }
             <div><label>Язык поиска <span class="help-icon" data-tip="Параметр relevanceLanguage в YouTube API. YouTube приоритизирует видео на этом языке в выдаче. Это не жёсткий фильтр — другие языки могут попасть, но реже. «Все языки» отключает этот параметр.">?</span></label>
               <select id="fLanguage"></select>
             </div>
-            <div><label>Видео после даты <span class="help-icon" data-tip="Учитывать только видео, опубликованные после этой даты. Полезно чтобы не находить блогеров через очень старые ролики.">?</span></label><input type="date" id="fPublishedAfter"></div>
+            <div style="display:none"><label>Видео после даты</label><input type="date" id="fPublishedAfter"></div>
           </div>
           <div style="font-size:11px;color:var(--text-dim);margin-top:8px">Новые каналы автоматически добавляются к существующим (дубликаты игнорируются). Чтобы стереть базу — кнопка «Очистить» в таблице.</div>
           <div class="btn-row">
