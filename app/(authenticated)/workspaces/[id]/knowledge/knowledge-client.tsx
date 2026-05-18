@@ -976,11 +976,11 @@ export function KnowledgeClient({
   }
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    <div className="p-4 md:p-6 max-w-7xl mx-auto">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6 gap-4 flex-wrap">
+      <div className="flex items-center justify-between mb-4 md:mb-6 gap-3 md:gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold">База знаний</h1>
+          <h1 className="text-xl md:text-2xl font-bold">База знаний</h1>
           <p className="text-sm text-muted-foreground">
             Статьи и документы проекта
           </p>

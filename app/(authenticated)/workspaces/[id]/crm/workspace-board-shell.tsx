@@ -29,9 +29,11 @@ export function WorkspaceBoardShell({
   });
 
   return (
-    <div className="p-6">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold">{workspace.name} — CRM-доска</h1>
+    <div className="p-3 md:p-6">
+      <div className="mb-4 md:mb-6">
+        <h1 className="text-xl md:text-2xl font-bold">
+          {workspace.name} — CRM-доска
+        </h1>
         {workspace.description && (
           <p className="mt-1 text-sm text-muted-foreground">
             {workspace.description}

@@ -118,6 +118,7 @@ export function VoiceChannelClient({
   const [showSettings, setShowSettings] = useState(false);
   const [renameValue, setRenameValue] = useState("");
   const [viewSession, setViewSession] = useState<VoiceSessionItem | null>(null);
+  const [mobileShowSidebar, setMobileShowSidebar] = useState(true);
   const [volumes, setVolumes] = useState<Record<string, number>>({});
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
@@ -494,7 +495,9 @@ export function VoiceChannelClient({
   return (
     <div className="flex flex-1 overflow-hidden min-h-0">
       {/* ═══ LEFT: Channels Sidebar ═══ */}
-      <aside className="w-[240px] bg-card border-r border-border flex flex-col shrink-0 min-h-0">
+      <aside
+        className={`w-full md:w-[240px] bg-card border-r border-border flex flex-col shrink-0 min-h-0 ${mobileShowSidebar ? "flex" : "hidden md:flex"}`}
+      >
         <div className="px-4 py-4 border-b border-border flex items-center justify-between">
           <h3 className="text-[13px] font-bold text-white flex items-center gap-2">
             <Volume2 className="h-4 w-4 opacity-50" />
@@ -598,6 +601,7 @@ export function VoiceChannelClient({
               <div
                 onClick={() => {
                   if (!connected) setActiveRoomId(room.id);
+                  setMobileShowSidebar(false);
                 }}
                 className={`flex items-center gap-2 px-3 py-2 mx-2 rounded-lg cursor-pointer text-[13px] transition-colors ${room.id === activeRoomId ? "bg-emerald-500/10 text-emerald-400" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
               >
@@ -692,10 +696,30 @@ export function VoiceChannelClient({
       </aside>
 
       {/* ═══ CENTER: Channel View ═══ */}
-      <div className="flex-1 flex flex-col min-w-0 min-h-0">
+      <div
+        className={`flex-1 flex flex-col min-w-0 min-h-0 ${mobileShowSidebar ? "hidden md:flex" : "flex"}`}
+      >
         {/* Header */}
-        <div className="px-5 py-3 border-b border-border bg-card flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-3">
+        <div className="px-3 md:px-5 py-3 border-b border-border bg-card flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-2 md:gap-3">
+            <button
+              onClick={() => setMobileShowSidebar(true)}
+              className="md:hidden p-1 rounded-lg hover:bg-muted text-muted-foreground"
+            >
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M15 19l-7-7 7-7"
+                />
+              </svg>
+            </button>
             <Volume2 className="h-5 w-5 text-emerald-500" />
             <h2 className="text-[15px] font-bold text-white">
               {activeRoom?.name ?? "Голосовой канал"}
@@ -937,7 +961,7 @@ export function VoiceChannelClient({
 
       {/* ═══ RIGHT: Voice Chat Panel ═══ */}
       {showChat && connected && (
-        <aside className="w-[320px] bg-card border-l border-border flex flex-col shrink-0 min-h-0">
+        <aside className="fixed inset-0 z-40 bg-card md:static md:inset-auto md:z-auto md:w-[320px] md:border-l md:border-border flex flex-col shrink-0 min-h-0">
           <div className="px-4 py-3 border-b border-border flex items-center justify-between">
             <span className="text-[13px] font-bold text-white">Чат канала</span>
             <button

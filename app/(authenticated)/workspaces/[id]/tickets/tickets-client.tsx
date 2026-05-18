@@ -321,53 +321,65 @@ export function TicketsClient({ workspaceId }: { workspaceId: string }) {
   ];
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between mb-6 gap-4 flex-wrap">
+    <div className="p-4 md:p-6 max-w-7xl mx-auto">
+      <div className="flex items-center justify-between mb-4 md:mb-6 gap-3 md:gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold">Тикеты</h1>
+          <h1 className="text-xl md:text-2xl font-bold">Тикеты</h1>
           <p className="text-sm text-muted-foreground">
             Обращения и задачи поддержки
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <Link href={`/workspaces/${workspaceId}/tickets/analytics`}>
             <Button variant="outline" size="sm">
               <BarChart3 className="h-4 w-4 mr-1.5" />
-              Аналитика
+              <span className="hidden sm:inline">Аналитика</span>
             </Button>
           </Link>
           <Link href={`/workspaces/${workspaceId}/tickets/canned`}>
             <Button variant="outline" size="sm">
               <MessageSquareDashed className="h-4 w-4 mr-1.5" />
-              Шаблоны
+              <span className="hidden sm:inline">Шаблоны</span>
             </Button>
           </Link>
-          <Link href={`/workspaces/${workspaceId}/tickets/customers`}>
+          <Link
+            href={`/workspaces/${workspaceId}/tickets/customers`}
+            className="hidden sm:block"
+          >
             <Button variant="outline" size="sm">
               Клиенты
             </Button>
           </Link>
-          <Link href={`/workspaces/${workspaceId}/tickets/email-settings`}>
+          <Link
+            href={`/workspaces/${workspaceId}/tickets/email-settings`}
+            className="hidden sm:block"
+          >
             <Button variant="outline" size="sm">
               <Mail className="h-4 w-4 mr-1.5" />
               Email
             </Button>
           </Link>
-          <Link href={`/workspaces/${workspaceId}/tickets/agent-settings`}>
+          <Link
+            href={`/workspaces/${workspaceId}/tickets/agent-settings`}
+            className="hidden sm:block"
+          >
             <Button variant="outline" size="sm">
               <Bot className="h-4 w-4 mr-1.5" />
               AI Агент
             </Button>
           </Link>
-          <Link href={`/workspaces/${workspaceId}/tickets/settings`}>
+          <Link
+            href={`/workspaces/${workspaceId}/tickets/settings`}
+            className="hidden sm:block"
+          >
             <Button variant="outline" size="sm">
               <Settings className="h-4 w-4 mr-1.5" />
-              Настройки чата
+              <span className="hidden md:inline">Настройки чата</span>
             </Button>
           </Link>
           <Button size="sm" onClick={() => setCreateOpen(true)}>
             <Plus className="h-4 w-4 mr-1.5" />
-            Создать тикет
+            Создать
           </Button>
         </div>
       </div>
@@ -500,8 +512,8 @@ export function TicketsClient({ workspaceId }: { workspaceId: string }) {
           </Button>
         </div>
       ) : (
-        <div className="border rounded-lg overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="border rounded-lg overflow-x-auto">
+          <table className="w-full text-sm min-w-[800px]">
             <thead className="bg-muted/50 text-left">
               <tr>
                 <th className="px-3 py-2 w-8">

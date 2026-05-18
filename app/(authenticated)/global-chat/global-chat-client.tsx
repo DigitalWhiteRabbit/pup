@@ -88,6 +88,7 @@ export function GlobalChatClient({
   const endRef = useRef<HTMLDivElement>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
+  const [mobileShowMembers, setMobileShowMembers] = useState(false);
 
   /* ── Data fetching ── */
 
@@ -227,13 +228,15 @@ export function GlobalChatClient({
   /* ── Render ── */
 
   return (
-    <div className="flex" style={{ height: "100vh", marginTop: "-1px" }}>
+    <div className="flex h-[100dvh] md:h-screen" style={{ marginTop: "-1px" }}>
       {/* ═══ LEFT: Members Panel ═══ */}
-      <aside className="w-[260px] bg-[#141414] border-r border-[#222] flex-col shrink-0 hidden lg:flex">
+      <aside
+        className={`w-full md:w-[260px] bg-card border-r border flex-col shrink-0 ${mobileShowMembers ? "flex" : "hidden"} lg:flex`}
+      >
         {/* Members header */}
-        <div className="px-5 py-4 border-b border-[#222]">
-          <h2 className="text-[15px] font-bold text-white">Участники</h2>
-          <p className="text-[11px] text-[#666] mt-0.5">
+        <div className="px-5 py-4 border-b border">
+          <h2 className="text-[15px] font-bold text-foreground">Участники</h2>
+          <p className="text-[11px] text-muted-foreground mt-0.5">
             Все пользователи системы
           </p>
         </div>
@@ -245,7 +248,7 @@ export function GlobalChatClient({
             placeholder="Поиск..."
             value={memberSearch}
             onChange={(e) => setMemberSearch(e.target.value)}
-            className="w-full px-3 py-2 bg-[#1c1c1c] border border-[#2a2a2a] rounded-[10px] text-[#ccc] text-xs outline-none placeholder:text-[#555] focus:border-emerald-500 transition-colors"
+            className="w-full px-3 py-2 bg-muted border border rounded-[10px] text-foreground text-xs outline-none placeholder:text-muted-foreground focus:border-emerald-500 transition-colors"
           />
         </div>
 
@@ -254,14 +257,14 @@ export function GlobalChatClient({
           {/* Online */}
           {filteredOnline.length > 0 && (
             <div className="mb-4">
-              <div className="flex items-center gap-1.5 text-[9px] font-bold text-[#555] uppercase tracking-widest mb-2">
+              <div className="flex items-center gap-1.5 text-[9px] font-bold text-muted-foreground/60 uppercase tracking-widest mb-2">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                 Онлайн — {filteredOnline.length}
               </div>
               {filteredOnline.map((u) => (
                 <div
                   key={u.id}
-                  className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-[#1c1c1c] transition-colors cursor-default"
+                  className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-muted transition-colors cursor-default"
                 >
                   <div className="relative shrink-0">
                     <UserAvatar
@@ -269,13 +272,13 @@ export function GlobalChatClient({
                       login={u.login}
                       size={32}
                     />
-                    <span className="absolute -bottom-px -right-px w-2.5 h-2.5 bg-emerald-500 border-2 border-[#141414] rounded-full" />
+                    <span className="absolute -bottom-px -right-px w-2.5 h-2.5 bg-emerald-500 border-2 border-card rounded-full" />
                   </div>
                   <div className="min-w-0">
-                    <div className="text-[13px] text-[#ddd] font-medium truncate">
+                    <div className="text-[13px] text-foreground font-medium truncate">
                       {u.login}
                     </div>
-                    <div className="text-[10px] text-[#555]">
+                    <div className="text-[10px] text-muted-foreground/60">
                       {u.role === "ADMIN" ? "Администратор" : "Пользователь"}
                     </div>
                   </div>
@@ -287,7 +290,7 @@ export function GlobalChatClient({
           {/* Offline */}
           {filteredOffline.length > 0 && (
             <div>
-              <div className="text-[9px] font-bold text-[#555] uppercase tracking-widest mb-2">
+              <div className="text-[9px] font-bold text-muted-foreground/60 uppercase tracking-widest mb-2">
                 Офлайн — {filteredOffline.length}
               </div>
               {filteredOffline.map((u) => (
@@ -301,10 +304,10 @@ export function GlobalChatClient({
                     size={32}
                   />
                   <div className="min-w-0">
-                    <div className="text-[13px] text-[#ddd] font-medium truncate">
+                    <div className="text-[13px] text-foreground font-medium truncate">
                       {u.login}
                     </div>
-                    <div className="text-[10px] text-[#555]">
+                    <div className="text-[10px] text-muted-foreground/60">
                       {u.role === "ADMIN" ? "Администратор" : "Пользователь"}
                     </div>
                   </div>
@@ -318,30 +321,51 @@ export function GlobalChatClient({
       {/* ═══ CENTER: Chat ═══ */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-[#222] shrink-0 bg-[#111] flex items-center justify-between">
+        <div className="px-4 md:px-6 py-3 md:py-4 border-b border shrink-0 bg-card flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center text-lg">
               💬
             </div>
             <div>
-              <h2 className="text-[15px] font-bold text-white">Общий чат</h2>
-              <p className="text-[11px] text-[#666]">
+              <h2 className="text-[15px] font-bold text-foreground">
+                Общий чат
+              </h2>
+              <p className="text-[11px] text-muted-foreground">
                 {allUsers.length} участников · {onlineUsers.length} онлайн
               </p>
             </div>
           </div>
           <div className="flex gap-2">
             <button
+              onClick={() => setMobileShowMembers(!mobileShowMembers)}
+              className={`w-9 h-9 rounded-[10px] border flex lg:hidden items-center justify-center transition-colors ${mobileShowMembers ? "border-emerald-500 bg-emerald-500/10 text-emerald-400" : "border text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+              title="Участники"
+            >
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"
+                />
+              </svg>
+            </button>
+            <button
               onClick={() => {
                 setSearchOpen(!searchOpen);
               }}
-              className={`w-9 h-9 rounded-[10px] border flex items-center justify-center transition-colors ${searchOpen ? "border-emerald-500 bg-emerald-500/10 text-emerald-400" : "border-[#2a2a2a] text-[#888] hover:bg-[#1c1c1c] hover:text-white"}`}
+              className={`w-9 h-9 rounded-[10px] border flex items-center justify-center transition-colors ${searchOpen ? "border-emerald-500 bg-emerald-500/10 text-emerald-400" : "border text-muted-foreground hover:bg-muted hover:text-foreground"}`}
               title="Поиск"
             >
               <Search className="w-4 h-4" />
             </button>
             <button
-              className="w-9 h-9 rounded-[10px] border border-[#2a2a2a] text-[#888] flex items-center justify-center hover:bg-[#1c1c1c] hover:text-white transition-colors"
+              className="w-9 h-9 rounded-[10px] border text-muted-foreground flex items-center justify-center hover:bg-muted hover:text-foreground transition-colors"
               title="Закреплённые"
             >
               <Bookmark className="w-4 h-4" />
@@ -351,21 +375,21 @@ export function GlobalChatClient({
 
         {/* Search panel */}
         {searchOpen && (
-          <div className="border-b border-[#222] bg-[#141414] px-6 py-3 animate-in slide-in-from-top-2 duration-200">
+          <div className="border-b border bg-card px-4 md:px-6 py-3 animate-in slide-in-from-top-2 duration-200">
             <input
               type="text"
               placeholder="Поиск по сообщениям..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full px-4 py-2 bg-[#0a0a0a] border border-[#333] rounded-lg text-[13px] text-[#e5e5e5] outline-none placeholder:text-[#555] focus:border-emerald-500 transition-colors"
+              className="w-full px-4 py-2 bg-background border border rounded-lg text-[13px] text-foreground outline-none placeholder:text-muted-foreground focus:border-emerald-500 transition-colors"
               autoFocus
             />
             {searchResults.length > 0 && (
-              <div className="mt-2 max-h-[200px] overflow-y-auto space-y-px rounded-lg border border-[#222] bg-[#171717]">
+              <div className="mt-2 max-h-[200px] overflow-y-auto space-y-px rounded-lg border bg-muted">
                 {searchResults.slice(0, 10).map((m) => (
                   <button
                     key={m.id}
-                    className="w-full text-left px-3 py-2.5 hover:bg-[#1c1c1c] transition-colors"
+                    className="w-full text-left px-3 py-2.5 hover:bg-muted transition-colors"
                     onClick={() => {
                       setSearchOpen(false);
                       setSearchQuery("");
@@ -380,10 +404,10 @@ export function GlobalChatClient({
                       }
                     }}
                   >
-                    <div className="text-[11px] font-semibold text-[#aaa]">
+                    <div className="text-[11px] font-semibold text-muted-foreground">
                       {m.authorLogin} · {format(new Date(m.createdAt), "HH:mm")}
                     </div>
-                    <div className="text-[12px] text-[#777] mt-0.5 truncate">
+                    <div className="text-[12px] text-muted-foreground mt-0.5 truncate">
                       {m.content}
                     </div>
                   </button>
@@ -396,7 +420,7 @@ export function GlobalChatClient({
         {/* Messages */}
         <div
           ref={messagesRef}
-          className={`flex-1 overflow-y-auto px-6 py-5 min-h-0 flex flex-col justify-end relative bg-[#0d0d0d] ${dragOver ? "bg-emerald-900/10" : ""}`}
+          className={`flex-1 overflow-y-auto px-3 md:px-6 py-4 md:py-5 min-h-0 flex flex-col justify-end relative bg-background ${dragOver ? "bg-emerald-900/10" : ""}`}
           onDragOver={(e) => {
             e.preventDefault();
             setDragOver(true);
@@ -417,10 +441,10 @@ export function GlobalChatClient({
 
           {msgs.length === 0 && (
             <div className="flex flex-col items-center justify-center flex-1 text-center">
-              <div className="w-14 h-14 rounded-2xl bg-[#1c1c1c] flex items-center justify-center mb-3">
-                <MessageCircle className="h-7 w-7 text-[#444]" />
+              <div className="w-14 h-14 rounded-2xl bg-muted flex items-center justify-center mb-3">
+                <MessageCircle className="h-7 w-7 text-muted-foreground/60" />
               </div>
-              <p className="text-sm text-[#555]">
+              <p className="text-sm text-muted-foreground/60">
                 Нет сообщений. Начните диалог!
               </p>
             </div>
@@ -457,21 +481,21 @@ export function GlobalChatClient({
                 </div>
 
                 <div
-                  className={`max-w-[65%] flex flex-col ${isMe ? "items-end" : "items-start"}`}
+                  className={`max-w-[85%] md:max-w-[65%] flex flex-col ${isMe ? "items-end" : "items-start"}`}
                 >
                   {/* Author + time */}
                   {!isContinuation && (
                     <div
                       className={`flex items-center gap-2 mb-1 ${isMe ? "flex-row-reverse" : ""}`}
                     >
-                      <span className="text-[12px] font-semibold text-[#ccc]">
+                      <span className="text-[12px] font-semibold text-foreground">
                         {m.authorLogin}
                       </span>
-                      <span className="text-[10px] text-[#555]">
+                      <span className="text-[10px] text-muted-foreground/60">
                         {format(new Date(m.createdAt), "HH:mm", { locale: ru })}
                       </span>
                       {m.editedAt && (
-                        <span className="text-[10px] text-[#555] italic">
+                        <span className="text-[10px] text-muted-foreground/60 italic">
                           изм.
                         </span>
                       )}
@@ -483,7 +507,7 @@ export function GlobalChatClient({
                     className={`rounded-[18px] px-4 py-2.5 text-sm whitespace-pre-wrap break-words ${
                       isMe
                         ? "bg-emerald-500 text-white rounded-br-[6px]"
-                        : "bg-[#1c1c1c] border border-[#2a2a2a] text-[#e0e0e0] rounded-bl-[6px]"
+                        : "bg-muted border border text-foreground rounded-bl-[6px]"
                     }`}
                   >
                     {/* Reply */}
@@ -511,7 +535,7 @@ export function GlobalChatClient({
                           {m.replyTo.authorLogin}
                         </div>
                         <div
-                          className={`truncate ${isMe ? "text-white/60" : "text-[#888]"}`}
+                          className={`truncate ${isMe ? "text-white/60" : "text-muted-foreground"}`}
                         >
                           {m.replyTo.content}
                         </div>
@@ -537,7 +561,7 @@ export function GlobalChatClient({
                         <div className="flex gap-1.5 justify-end">
                           <button
                             onClick={() => setEditingMsgId(null)}
-                            className={`text-[10px] px-2.5 py-1 rounded-full ${isMe ? "text-white/70 hover:bg-white/10" : "text-[#888] hover:bg-[#2a2a2a]"}`}
+                            className={`text-[10px] px-2.5 py-1 rounded-full ${isMe ? "text-white/70 hover:bg-white/10" : "text-muted-foreground hover:bg-muted"}`}
                           >
                             Отмена
                           </button>
@@ -588,7 +612,7 @@ export function GlobalChatClient({
                             <a
                               key={att.id}
                               href={`/api/global-chat-attachments/${att.id}?download=1`}
-                              className={`flex items-center gap-2 px-3 py-2 rounded-[10px] text-xs ${isMe ? "bg-white/10 hover:bg-white/20 text-white" : "bg-[#222] hover:bg-[#2a2a2a] text-[#ccc]"}`}
+                              className={`flex items-center gap-2 px-3 py-2 rounded-[10px] text-xs ${isMe ? "bg-white/10 hover:bg-white/20 text-white" : "bg-muted/80 hover:bg-muted text-foreground"}`}
                             >
                               <FileText className="h-4 w-4 shrink-0" />
                               <span className="truncate flex-1">
@@ -620,10 +644,12 @@ export function GlobalChatClient({
                         <button
                           key={r.emoji}
                           onClick={() => void react(m.id, r.emoji)}
-                          className={`flex items-center gap-1 rounded-[10px] px-2 py-0.5 text-[11px] border cursor-pointer transition-colors ${r.myReaction ? "bg-emerald-500/10 border-emerald-500" : "bg-[#222] border-[#333] hover:bg-[#2a2a2a]"}`}
+                          className={`flex items-center gap-1 rounded-[10px] px-2 py-0.5 text-[11px] border cursor-pointer transition-colors ${r.myReaction ? "bg-emerald-500/10 border-emerald-500" : "bg-muted/80 border hover:bg-muted"}`}
                         >
                           {r.emoji}{" "}
-                          <span className="text-[#888]">{r.count}</span>
+                          <span className="text-muted-foreground">
+                            {r.count}
+                          </span>
                         </button>
                       ))}
                     </div>
@@ -635,7 +661,7 @@ export function GlobalChatClient({
                   >
                     <button
                       onClick={() => setReplyTo(m)}
-                      className="p-1.5 rounded-lg hover:bg-[#222] text-[#666] hover:text-white transition-colors"
+                      className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
                       title="Ответить"
                     >
                       <CornerDownRight className="h-3 w-3" />
@@ -647,7 +673,7 @@ export function GlobalChatClient({
                             setEditingMsgId(m.id);
                             setEditText(m.content);
                           }}
-                          className="p-1.5 rounded-lg hover:bg-[#222] text-[#666] hover:text-white transition-colors"
+                          className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
                           title="Редактировать"
                         >
                           <Pencil className="h-3 w-3" />
@@ -657,7 +683,7 @@ export function GlobalChatClient({
                             if (confirm("Удалить сообщение?"))
                               void deleteMsg(m.id);
                           }}
-                          className="p-1.5 rounded-lg hover:bg-red-900/30 text-[#666] hover:text-red-400 transition-colors"
+                          className="p-1.5 rounded-lg hover:bg-red-900/30 text-muted-foreground hover:text-red-400 transition-colors"
                           title="Удалить"
                         >
                           <Trash2 className="h-3 w-3" />
@@ -668,13 +694,13 @@ export function GlobalChatClient({
                       <button
                         key={e}
                         onClick={() => void react(m.id, e)}
-                        className="p-1.5 rounded-lg hover:bg-[#222] text-xs transition-all hover:scale-110"
+                        className="p-1.5 rounded-lg hover:bg-muted text-xs transition-all hover:scale-110"
                       >
                         {e}
                       </button>
                     ))}
                     {isContinuation && (
-                      <span className="text-[10px] text-[#555] self-center ml-1">
+                      <span className="text-[10px] text-muted-foreground/60 self-center ml-1">
                         {format(new Date(m.createdAt), "HH:mm", { locale: ru })}
                       </span>
                     )}
@@ -689,7 +715,7 @@ export function GlobalChatClient({
           {showScrollBtn && (
             <button
               onClick={scrollToBottom}
-              className="sticky bottom-4 self-end w-11 h-11 rounded-full bg-[#1c1c1c] border border-[#333] text-[#aaa] flex items-center justify-center shadow-lg hover:bg-[#222] hover:text-white hover:border-emerald-500 transition-all z-20"
+              className="sticky bottom-4 self-end w-11 h-11 rounded-full bg-muted border text-muted-foreground flex items-center justify-center shadow-lg hover:bg-muted/80 hover:text-foreground hover:border-emerald-500 transition-all z-20"
             >
               <ChevronDown className="h-5 w-5" />
             </button>
@@ -719,15 +745,15 @@ export function GlobalChatClient({
 
         {/* Reply indicator */}
         {replyTo && (
-          <div className="bg-[#1a1a1a] border-t border-[#222] px-6 py-2 flex items-center gap-2.5 text-xs text-[#888] shrink-0 animate-in slide-in-from-bottom-2 duration-200">
+          <div className="bg-muted border-t border px-3 md:px-6 py-2 flex items-center gap-2.5 text-xs text-muted-foreground shrink-0 animate-in slide-in-from-bottom-2 duration-200">
             <CornerDownRight className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
             <span className="truncate">
-              Ответ: <b className="text-[#ccc]">{replyTo.authorLogin}</b>:{" "}
+              Ответ: <b className="text-foreground">{replyTo.authorLogin}</b>:{" "}
               {replyTo.content.slice(0, 60)}
             </span>
             <button
               onClick={() => setReplyTo(null)}
-              className="ml-auto p-1 rounded hover:bg-[#222] shrink-0 text-[#555]"
+              className="ml-auto p-1 rounded hover:bg-muted shrink-0 text-muted-foreground/60"
             >
               <X className="h-3 w-3" />
             </button>
@@ -736,17 +762,17 @@ export function GlobalChatClient({
 
         {/* Pending files */}
         {pendingFiles.length > 0 && (
-          <div className="bg-[#111] border-t border-[#222] px-6 py-3 flex gap-2.5 flex-wrap shrink-0">
+          <div className="bg-card border-t border px-3 md:px-6 py-3 flex gap-2.5 flex-wrap shrink-0">
             {pendingFiles.map((f, i) => (
               <div key={i} className="relative group/file">
                 {f.type.startsWith("image/") ? (
                   <img
                     src={URL.createObjectURL(f)}
                     alt={f.name}
-                    className="w-16 h-16 rounded-xl object-cover border border-[#2a2a2a]"
+                    className="w-16 h-16 rounded-xl object-cover border"
                   />
                 ) : (
-                  <div className="w-16 h-16 rounded-xl border border-[#2a2a2a] bg-[#1a1a1a] flex flex-col items-center justify-center text-[9px] text-[#888] px-1">
+                  <div className="w-16 h-16 rounded-xl border bg-muted flex flex-col items-center justify-center text-[9px] text-muted-foreground px-1">
                     <FileText className="h-5 w-5 mb-0.5" />
                     <span className="truncate w-full text-center">
                       {f.name}
@@ -767,7 +793,7 @@ export function GlobalChatClient({
         )}
 
         {/* Input */}
-        <div className="border-t border-[#222] px-6 py-4 shrink-0 bg-[#111]">
+        <div className="border-t border px-3 md:px-6 py-3 md:py-4 shrink-0 bg-card">
           <input
             ref={fileInputRef}
             type="file"
@@ -784,12 +810,12 @@ export function GlobalChatClient({
           <div className="flex items-end gap-2.5">
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 text-[#666] hover:text-white transition-colors"
+              className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 text-muted-foreground hover:text-foreground transition-colors"
               title="Прикрепить файл"
             >
               <Paperclip className="w-5 h-5" />
             </button>
-            <div className="flex-1 bg-[#1c1c1c] border border-[#2a2a2a] rounded-[20px] px-[18px] py-2.5 focus-within:border-emerald-500 transition-colors">
+            <div className="flex-1 bg-muted border rounded-[20px] px-[18px] py-2.5 focus-within:border-emerald-500 transition-colors">
               <textarea
                 value={msgText}
                 onChange={(e) => setMsgText(e.target.value)}
@@ -801,7 +827,7 @@ export function GlobalChatClient({
                 }}
                 placeholder="Напишите сообщение..."
                 rows={1}
-                className="w-full bg-transparent text-sm outline-none resize-none min-h-[20px] max-h-[120px] text-[#e5e5e5] placeholder:text-[#555]"
+                className="w-full bg-transparent text-sm outline-none resize-none min-h-[20px] max-h-[120px] text-foreground placeholder:text-muted-foreground"
               />
             </div>
             {msgText.trim() || pendingFiles.length > 0 ? (
@@ -824,7 +850,7 @@ export function GlobalChatClient({
               />
             )}
           </div>
-          <div className="text-[10px] text-[#444] mt-1.5 pl-[52px]">
+          <div className="text-[10px] text-muted-foreground/60 mt-1.5 pl-[52px] hidden md:block">
             Enter — отправить · Shift+Enter — новая строка · 🎤 голосовое
           </div>
         </div>

@@ -191,14 +191,22 @@ export function DashboardClient() {
                   <div className="text-[10px] font-semibold text-muted-foreground">
                     {m.authorLogin}
                   </div>
-                  <div className="text-xs text-card-foreground bg-muted rounded-lg px-2.5 py-1.5 max-w-[260px]">
+                  <div className="text-xs text-card-foreground bg-muted rounded-lg px-2.5 py-1.5 max-w-[260px] break-words overflow-hidden">
                     {m.audioAttachmentId ? (
                       <VoicePlayer
                         src={`/api/global-chat-attachments/${m.audioAttachmentId}`}
                         isMe={false}
                       />
                     ) : (
-                      m.content
+                      <span
+                        dangerouslySetInnerHTML={{
+                          __html: (m.content || "").replace(
+                            /(https?:\/\/[^\s]+)/g,
+                            (url: string) =>
+                              `<a href="${url}" target="_blank" rel="noopener" class="text-emerald-500 hover:underline break-all" title="${url}">${url.length > 40 ? url.slice(0, 40) + "…" : url}</a>`,
+                          ),
+                        }}
+                      />
                     )}
                   </div>
                   <div className="text-[9px] text-muted-foreground mt-0.5">

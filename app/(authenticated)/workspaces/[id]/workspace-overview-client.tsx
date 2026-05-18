@@ -391,9 +391,9 @@ export function WorkspaceOverviewClient({
   );
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    <div className="p-4 md:p-6 max-w-7xl mx-auto">
       {/* ── Header ── */}
-      <div className="mb-8 flex flex-wrap items-start justify-between gap-3">
+      <div className="mb-6 md:mb-8 flex flex-wrap items-start justify-between gap-3">
         <div className="flex items-start gap-4">
           <WorkspaceLogoUpload
             workspaceId={workspace.id}
@@ -402,7 +402,7 @@ export function WorkspaceOverviewClient({
             isOwner={isOwner}
           />
           <div>
-            <h1 className="text-3xl font-bold">{workspace.name}</h1>
+            <h1 className="text-2xl md:text-3xl font-bold">{workspace.name}</h1>
             {workspace.description && (
               <p className="mt-1 text-muted-foreground">
                 {workspace.description}

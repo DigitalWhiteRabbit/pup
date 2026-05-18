@@ -169,9 +169,9 @@ export function WorkspacesClient({
   const workspaces = data?.data ?? [];
 
   return (
-    <div className="p-6">
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Проекты</h1>
+    <div className="p-4 md:p-6">
+      <div className="mb-4 md:mb-6 flex items-center justify-between">
+        <h1 className="text-xl md:text-2xl font-bold">Проекты</h1>
         <Button onClick={() => setDialogOpen(true)}>
           <Plus className="mr-2 h-4 w-4" />
           Создать проект

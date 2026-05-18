@@ -135,6 +135,7 @@ export function ChatClient({
   const [dragOver, setDragOver] = useState(false);
   const [bookmarksOpen, setBookmarksOpen] = useState(false);
   const [manageMembersOpen, setManageMembersOpen] = useState(false);
+  const [mobileShowChat, setMobileShowChat] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   /* thread panel removed — Telegram-style inline replies */
   const endRef = useRef<HTMLDivElement>(null);
@@ -616,9 +617,11 @@ export function ChatClient({
   /* ── render ────────────────────────────────────────────────────────────── */
 
   return (
-    <div className="flex" style={{ height: "100vh", marginTop: "-1px" }}>
+    <div className="flex h-[100dvh] md:h-screen" style={{ marginTop: "-1px" }}>
       {/* ═══ LEFT ═══ */}
-      <div className="w-[300px] bg-card border-r flex flex-col shrink-0 h-full">
+      <div
+        className={`w-full md:w-[300px] bg-card border-r flex flex-col shrink-0 h-full ${mobileShowChat ? "hidden md:flex" : "flex"}`}
+      >
         {/* header */}
         <div className="px-4 py-3 border-b flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2">
@@ -705,6 +708,7 @@ export function ChatClient({
               onClick={() => {
                 setActiveChannelId(ch.id);
                 setShowInfo(false);
+                setMobileShowChat(true);
               }}
             />
           ))}
@@ -800,12 +804,32 @@ export function ChatClient({
       </div>
 
       {/* ═══ CENTER ═══ */}
-      <div className="flex-1 flex flex-col min-w-0 bg-muted/30 h-full">
+      <div
+        className={`flex-1 flex flex-col min-w-0 bg-muted/30 h-full ${mobileShowChat ? "flex" : "hidden md:flex"}`}
+      >
         {aCh ? (
           <>
             {/* header */}
-            <div className="bg-card border-b px-5 py-3 flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-3">
+            <div className="bg-card border-b px-3 md:px-5 py-3 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2 md:gap-3">
+                <button
+                  onClick={() => setMobileShowChat(false)}
+                  className="md:hidden p-1 rounded-lg hover:bg-muted text-muted-foreground"
+                >
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M15 19l-7-7 7-7"
+                    />
+                  </svg>
+                </button>
                 <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-lg">
                   {aCh.type === "GENERAL"
                     ? "💬"
@@ -871,7 +895,7 @@ export function ChatClient({
 
             {/* pinned messages banner */}
             {pinnedMsgs.length > 0 && (
-              <div className="bg-amber-50 dark:bg-amber-900/20 border-b px-5 py-2 shrink-0 flex items-center gap-2">
+              <div className="bg-amber-50 dark:bg-amber-900/20 border-b px-3 md:px-5 py-2 shrink-0 flex items-center gap-2">
                 <Pin className="h-3.5 w-3.5 text-amber-500 shrink-0" />
                 <span className="text-xs text-amber-700 truncate flex-1">
                   <b>{pinnedMsgs[0]?.authorLogin}</b>:{" "}
@@ -884,7 +908,7 @@ export function ChatClient({
             {/* messages + drag & drop zone */}
             <div
               ref={messagesContainerRef}
-              className={`flex-1 overflow-y-auto px-5 py-4 min-h-0 relative ${dragOver ? "bg-emerald-50" : ""}`}
+              className={`flex-1 overflow-y-auto px-3 md:px-5 py-4 min-h-0 relative ${dragOver ? "bg-emerald-50" : ""}`}
               onDragOver={(e) => {
                 e.preventDefault();
                 setDragOver(true);
@@ -923,7 +947,7 @@ export function ChatClient({
                       </div>
                     )}
                     <div
-                      className={`max-w-[70%] flex flex-col ${isMe ? "items-end" : "items-start"}`}
+                      className={`max-w-[85%] md:max-w-[70%] flex flex-col ${isMe ? "items-end" : "items-start"}`}
                     >
                       <div
                         className={`flex items-center gap-2 mb-0.5 ${isMe ? "flex-row-reverse" : ""}`}
@@ -1233,7 +1257,7 @@ export function ChatClient({
 
             {/* typing indicator */}
             {typingUsers.length > 0 && (
-              <div className="bg-white border-t px-5 py-1 shrink-0">
+              <div className="bg-white border-t px-3 md:px-5 py-1 shrink-0">
                 <span className="text-xs text-gray-400 italic">
                   {typingUsers.map((u) => u.login).join(", ")} печатает...
                 </span>
@@ -1242,7 +1266,7 @@ export function ChatClient({
 
             {/* reply indicator */}
             {replyTo && (
-              <div className="bg-card border-t px-5 py-1.5 flex items-center gap-2 text-xs text-gray-500 shrink-0">
+              <div className="bg-card border-t px-3 md:px-5 py-1.5 flex items-center gap-2 text-xs text-gray-500 shrink-0">
                 <CornerDownRight className="h-3 w-3 text-emerald-500" />
                 Ответ: <b>{replyTo.authorLogin}</b>:{" "}
                 {replyTo.content.slice(0, 50)}
@@ -1254,7 +1278,7 @@ export function ChatClient({
 
             {/* pending files preview */}
             {pendingFiles.length > 0 && (
-              <div className="bg-card border-t px-5 py-2 flex gap-2 flex-wrap shrink-0">
+              <div className="bg-card border-t px-3 md:px-5 py-2 flex gap-2 flex-wrap shrink-0">
                 {pendingFiles.map((f, i) => {
                   const isImage = f.type.startsWith("image/");
                   return (
@@ -1287,7 +1311,7 @@ export function ChatClient({
 
             {/* linked item indicator */}
             {(linkedTicketId || linkedTaskId) && (
-              <div className="bg-card border-t px-5 py-1.5 flex items-center gap-2 text-xs text-gray-500 shrink-0">
+              <div className="bg-card border-t px-3 md:px-5 py-1.5 flex items-center gap-2 text-xs text-gray-500 shrink-0">
                 <Link2 className="h-3 w-3 text-blue-500" />
                 Привязано: {linkedTicketId ? "🎫 Тикет" : "📋 Задача"}
                 <button
@@ -1303,7 +1327,7 @@ export function ChatClient({
             )}
 
             {/* input */}
-            <div className="bg-card border-t px-5 py-3 shrink-0">
+            <div className="bg-card border-t px-3 md:px-5 py-3 shrink-0">
               <input
                 ref={fileInputRef}
                 type="file"
@@ -1429,7 +1453,7 @@ export function ChatClient({
                   />
                 )}
               </div>
-              <div className="text-[10px] text-gray-400 mt-1 pl-[88px]">
+              <div className="text-[10px] text-gray-400 mt-1 pl-[88px] hidden md:block">
                 @упоминание · Enter — отправить · Shift+Enter — новая строка ·
                 🎤 голосовое
               </div>
@@ -1444,7 +1468,7 @@ export function ChatClient({
 
       {/* ═══ RIGHT: Info ═══ */}
       {showInfo && aCh && (
-        <div className="w-[280px] bg-card border-l flex flex-col shrink-0 h-full">
+        <div className="fixed inset-0 z-40 bg-card md:static md:inset-auto md:z-auto md:w-[280px] md:border-l flex flex-col shrink-0 h-full">
           <div className="px-4 py-3 border-b flex items-center justify-between shrink-0">
             <span className="text-sm font-semibold">
               {aCh.type === "DM" ? "Личные сообщения" : aCh.name}

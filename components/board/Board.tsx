@@ -327,7 +327,7 @@ export function Board({ initialData, workspaceId }: Props) {
         strategy={horizontalListSortingStrategy}
       >
         <div
-          className="flex gap-4 overflow-x-auto pb-6"
+          className="flex gap-3 md:gap-4 overflow-x-auto pb-6 -mx-3 px-3 md:mx-0 md:px-0"
           style={{ touchAction: "none" }}
         >
           {sortedColumns.map((column) => (
@@ -340,7 +340,7 @@ export function Board({ initialData, workspaceId }: Props) {
           ))}
 
           {/* Add column */}
-          <div className="flex-shrink-0 w-72">
+          <div className="flex-shrink-0 w-[260px] md:w-72">
             {addingColumn ? (
               <div className="rounded-lg border bg-muted/20 p-3 space-y-2">
                 <input

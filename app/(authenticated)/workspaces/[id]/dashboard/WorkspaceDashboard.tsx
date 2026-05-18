@@ -85,17 +85,24 @@ export function WorkspaceDashboard({
   );
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center gap-4">
+    <div className="p-4 md:p-6 space-y-4 md:space-y-6">
+      <div className="flex items-center gap-3 md:gap-4">
         <WorkspaceLogo
           workspaceId={workspace.id}
           name={workspace.name}
           hasLogo={!!workspace.logoPath}
           size={48}
-          className="rounded-xl"
+          className="rounded-xl hidden md:block"
+        />
+        <WorkspaceLogo
+          workspaceId={workspace.id}
+          name={workspace.name}
+          hasLogo={!!workspace.logoPath}
+          size={36}
+          className="rounded-xl md:hidden"
         />
         <div>
-          <h1 className="text-2xl font-bold">{workspace.name}</h1>
+          <h1 className="text-xl md:text-2xl font-bold">{workspace.name}</h1>
           {workspace.description && (
             <p className="mt-1 text-sm text-muted-foreground">
               {workspace.description}

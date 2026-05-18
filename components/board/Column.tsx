@@ -165,7 +165,7 @@ export function Column({ column, workspaceId, members }: Props) {
       <div
         ref={setNodeRef}
         style={style}
-        className={`flex-shrink-0 w-72 flex flex-col rounded-lg border bg-muted/20 ${
+        className={`flex-shrink-0 w-[260px] md:w-72 flex flex-col rounded-lg border bg-muted/20 ${
           isDragging ? "opacity-40 ring-2 ring-primary" : ""
         }`}
       >
