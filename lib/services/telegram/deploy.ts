@@ -176,10 +176,20 @@ async function getDeployRecipients(): Promise<
     select: { id: true, telegramChatId: true },
   });
 
-  return users.filter(
+  const result = users.filter(
     (u): u is { id: string; telegramChatId: string } =>
       u.telegramChatId !== null,
   );
+
+  // Fallback: if no admins have TG connected, use DEPLOY_CHAT_ID from env
+  if (result.length === 0) {
+    const envChatId = process.env["DEPLOY_CHAT_ID"];
+    if (envChatId) {
+      result.push({ id: "env-fallback", telegramChatId: envChatId });
+    }
+  }
+
+  return result;
 }
 
 /**
