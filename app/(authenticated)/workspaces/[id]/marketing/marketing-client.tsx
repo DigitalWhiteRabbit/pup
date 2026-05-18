@@ -2,6 +2,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
@@ -477,6 +478,7 @@ const SOURCES = [
 ];
 
 function ParsersSection({ workspaceId }: Props) {
+  const router = useRouter();
   const queryClient = useQueryClient();
   const [showNewTask, setShowNewTask] = useState(false);
   const [newTaskForm, setNewTaskForm] = useState({
@@ -587,7 +589,15 @@ function ParsersSection({ workspaceId }: Props) {
               return (
                 <Card
                   key={s.key}
-                  className="hover:border-emerald-500/30 transition-colors"
+                  className={`hover:border-emerald-500/30 transition-colors ${s.key === "YOUTUBE" ? "cursor-pointer" : ""}`}
+                  onClick={
+                    s.key === "YOUTUBE"
+                      ? () =>
+                          router.push(
+                            `/workspaces/${workspaceId}/marketing/youtube`,
+                          )
+                      : undefined
+                  }
                 >
                   <CardContent className="pt-4 pb-4 flex items-center gap-3.5">
                     <div
