@@ -1,19 +1,15 @@
 "use client";
 
-import { useEffect } from "react";
-
 export function YouTubeParserClient({
   workspaceId: _workspaceId,
 }: {
   workspaceId: string;
 }) {
-  useEffect(() => {
-    window.location.href = "/yt-parser/";
-  }, []);
-
   return (
-    <div className="flex h-screen items-center justify-center">
-      <p className="text-muted-foreground">Загрузка парсера...</p>
-    </div>
+    <iframe
+      src="/yt-parser/"
+      className="h-[calc(100vh-4rem)] w-full border-0"
+      title="YouTube Parser"
+    />
   );
 }
