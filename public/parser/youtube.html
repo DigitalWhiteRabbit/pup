@@ -1285,9 +1285,10 @@ button:hover:not(:disabled) { transform: translateY(-1px); }
               clearInterval(_logPollInterval);
               _logPollInterval = null;
               // Trigger table refresh
-              if (typeof loadResults === 'function') loadResults();
+              if (typeof loadData === 'function') loadData();
               if (typeof updateStats === 'function') updateStats();
               if (typeof updateKpis === 'function') updateKpis();
+              if (typeof loadQuota === 'function') loadQuota();
               const btn = document.getElementById('btnStart');
               const btnStop = document.getElementById('btnStop');
               if (btn) btn.disabled = false;

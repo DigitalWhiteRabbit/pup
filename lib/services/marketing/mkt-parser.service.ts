@@ -894,14 +894,14 @@ export async function runYouTubeParser(
             }
           }
 
-          // 7. Calculate engagement rate
+          // 7. Calculate engagement rate (ER = avgViews / subscribers, like original parser)
           let avgViews = 0;
           let engagementRate = 0;
           const lastVideos: any[] = [];
+          const videoDescriptions: string[] = [];
 
           if (videoStats.length > 0) {
             let totalViews = 0;
-            let totalEngagement = 0;
 
             for (const v of videoStats) {
               const vs = v.statistics || {};
@@ -909,7 +909,6 @@ export async function runYouTubeParser(
               const likes = parseInt(vs.likeCount || "0", 10);
               const comments = parseInt(vs.commentCount || "0", 10);
               totalViews += views;
-              totalEngagement += likes + comments;
 
               lastVideos.push({
                 id: v.id,
@@ -919,13 +918,16 @@ export async function runYouTubeParser(
                 likes,
                 comments,
               });
+
+              // Collect video descriptions for contact extraction
+              if (v.snippet?.description) {
+                videoDescriptions.push(v.snippet.description);
+              }
             }
 
             avgViews = Math.round(totalViews / videoStats.length);
-            engagementRate =
-              totalViews > 0
-                ? Math.round((totalEngagement / totalViews) * 100 * 100) / 100
-                : 0;
+            // ER = avgViews / subscribers (same as original parser)
+            engagementRate = subs > 0 ? avgViews / subs : 0;
           }
 
           // Filter by minimum engagement
@@ -961,7 +963,7 @@ export async function runYouTubeParser(
           const brandingKeywords = branding.channel?.keywords || "";
 
           const contactSources: ContactSource[] = [
-            { text: aboutText, label: "description" },
+            { text: aboutText, label: "channel_about" },
             { text: brandingDesc, label: "branding" },
             { text: brandingKeywords, label: "keywords" },
           ];
@@ -971,6 +973,14 @@ export async function runYouTubeParser(
             contactSources.push({
               text: branding.channel.unsubscribedTrailer,
               label: "trailer",
+            });
+          }
+
+          // Extract contacts from video descriptions (critical — most bloggers put contacts there)
+          for (let vi = 0; vi < videoDescriptions.length; vi++) {
+            contactSources.push({
+              text: videoDescriptions[vi]!,
+              label: `video:${vi}`,
             });
           }
 
@@ -1022,7 +1032,7 @@ export async function runYouTubeParser(
             lastVideoDate,
             channelAboutText: aboutText.slice(0, 2000),
             channelTags: brandingKeywords
-              ? JSON.stringify(brandingKeywords.split(/\s+/))
+              ? brandingKeywords.replace(/"/g, "").slice(0, 500)
               : null,
             channelLanguage: snippet.defaultLanguage || null,
             mainCategory,
