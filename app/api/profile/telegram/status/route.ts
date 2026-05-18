@@ -21,6 +21,7 @@ export async function GET() {
         tgNotifyMemberRemoved: true,
         tgNotifyWorkspaceDeleted: true,
         tgNotifyRoleChanged: true,
+        tgNotifyDeploy: true,
       },
     });
 
@@ -34,6 +35,7 @@ export async function GET() {
       tgNotifyMemberRemoved: user?.tgNotifyMemberRemoved ?? false,
       tgNotifyWorkspaceDeleted: user?.tgNotifyWorkspaceDeleted ?? false,
       tgNotifyRoleChanged: user?.tgNotifyRoleChanged ?? false,
+      tgNotifyDeploy: user?.tgNotifyDeploy ?? true,
     });
   });
 }

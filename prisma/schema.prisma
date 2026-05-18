@@ -68,6 +68,9 @@ model User {
   tgNotifyTicketMessage     Boolean @default(true)
   tgNotifyTicketSlaBreached Boolean @default(true)
 
+  // Deploy notifications (admin only)
+  tgNotifyDeploy Boolean @default(true)
+
   // Chat
   tgNotifyChat           Boolean             @default(true)
   chatSoundEnabled       Boolean             @default(true)

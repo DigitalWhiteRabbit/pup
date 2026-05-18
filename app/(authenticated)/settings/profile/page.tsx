@@ -54,6 +54,7 @@ export default async function ProfileSettingsPage() {
       tgNotifyMemberRemoved: true,
       tgNotifyWorkspaceDeleted: true,
       tgNotifyRoleChanged: true,
+      tgNotifyDeploy: true,
       chatSoundEnabled: true,
       chatDesktopNotify: true,
     },
@@ -139,6 +140,7 @@ export default async function ProfileSettingsPage() {
         >
           <TelegramSettings
             connected={!!user.telegramChatId}
+            isAdmin={user.role === "ADMIN"}
             preferences={{
               tgNotifyAssign: user.tgNotifyAssign,
               tgNotifyComment: user.tgNotifyComment,
@@ -148,6 +150,7 @@ export default async function ProfileSettingsPage() {
               tgNotifyMemberRemoved: user.tgNotifyMemberRemoved,
               tgNotifyWorkspaceDeleted: user.tgNotifyWorkspaceDeleted,
               tgNotifyRoleChanged: user.tgNotifyRoleChanged,
+              tgNotifyDeploy: user.tgNotifyDeploy,
             }}
           />
         </SectionColumns>

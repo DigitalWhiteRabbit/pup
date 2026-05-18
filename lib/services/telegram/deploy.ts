@@ -22,14 +22,26 @@ function progressBar(done: number, total: number): string {
   return "▓".repeat(filled) + "░".repeat(empty);
 }
 
+function formatElapsed(ms: number): string {
+  const totalSec = Math.round(ms / 1000);
+  const min = Math.floor(totalSec / 60);
+  const sec = totalSec % 60;
+  if (min > 0) return `${min}м ${sec}с`;
+  return `${sec}с`;
+}
+
 function buildMessage(
   commitSha: string,
   commitMsg: string,
   author: string,
   stepIndex: StepIndex | "done" | "failed",
+  startedAt?: Date,
   failReason?: string,
 ): string {
   const shortSha = commitSha.slice(0, 7);
+  const elapsed = startedAt
+    ? formatElapsed(Date.now() - startedAt.getTime())
+    : null;
 
   if (stepIndex === "done") {
     const lines = [
@@ -40,8 +52,9 @@ function buildMessage(
       `Автор: ${escapeHtml(author)}`,
       ``,
       `${progressBar(5, 5)} 100%`,
-      ``,
     ];
+    if (elapsed) lines.push(`⏱ Время деплоя: <b>${elapsed}</b>`);
+    lines.push(``);
     for (const step of STEPS) {
       lines.push(`✅ ${step.label}`);
     }
@@ -57,6 +70,7 @@ function buildMessage(
       `Автор: ${escapeHtml(author)}`,
       ``,
     ];
+    if (elapsed) lines.push(`⏱ ${elapsed}`);
     if (failReason) {
       lines.push(`Ошибка: ${escapeHtml(failReason)}`);
     }
@@ -74,8 +88,9 @@ function buildMessage(
     `Автор: ${escapeHtml(author)}`,
     ``,
     `${progressBar(idx + 1, STEPS.length)} ${pct}%`,
-    ``,
   ];
+  if (elapsed) lines.push(`⏱ ${elapsed}`);
+  lines.push(``);
 
   for (let i = 0; i < STEPS.length; i++) {
     if (i < idx) {
@@ -140,7 +155,6 @@ async function tgEdit(
 
   if (!res.ok) {
     const body = await res.text();
-    // "message is not modified" is fine
     if (!body.includes("message is not modified")) {
       console.error("[Deploy TG] editMessageText failed:", body);
       return false;
@@ -149,18 +163,37 @@ async function tgEdit(
   return true;
 }
 
+/** Get all admin users who have Telegram connected and deploy notifications on */
+async function getDeployRecipients(): Promise<
+  Array<{ id: string; telegramChatId: string }>
+> {
+  const users = await db.user.findMany({
+    where: {
+      role: "ADMIN",
+      tgNotifyDeploy: true,
+      telegramChatId: { not: null },
+    },
+    select: { id: true, telegramChatId: true },
+  });
+
+  return users.filter(
+    (u): u is { id: string; telegramChatId: string } =>
+      u.telegramChatId !== null,
+  );
+}
+
 /**
  * Called when GitHub push webhook arrives.
- * Sends the initial deploy message and saves it for later updates.
+ * Sends the initial deploy message to all admins with deploy notifications enabled.
  */
 export async function onDeployStarted(
   commitSha: string,
   commitMsg: string,
   author: string,
 ): Promise<void> {
-  const chatId = process.env["DEPLOY_CHAT_ID"];
-  if (!chatId) {
-    console.warn("[Deploy] DEPLOY_CHAT_ID not set, skipping TG notification");
+  const recipients = await getDeployRecipients();
+  if (recipients.length === 0) {
+    console.warn("[Deploy] No admins with deploy notifications enabled");
     return;
   }
 
@@ -170,41 +203,47 @@ export async function onDeployStarted(
     data: { status: "failed" },
   });
 
-  // Step 0: clone
-  const text = buildMessage(commitSha, commitMsg, author, 0);
-  const sent = await tgSend(chatId, text);
-  if (!sent) return;
+  // Send to each recipient
+  const startedAt = new Date();
+  const text = buildMessage(commitSha, commitMsg, author, 0, startedAt);
 
-  await db.deployMessage.create({
-    data: {
-      commitSha,
-      chatId,
-      messageId: sent.message_id,
-      status: "building",
-    },
-  });
+  for (const recipient of recipients) {
+    const sent = await tgSend(recipient.telegramChatId, text);
+    if (!sent) continue;
+
+    await db.deployMessage.create({
+      data: {
+        commitSha,
+        chatId: recipient.telegramChatId,
+        messageId: sent.message_id,
+        status: "building",
+      },
+    });
+  }
 
   // Simulate progress steps with delays
-  // Steps 1-3 are timed estimates since we can't hook into Coolify internals
   const delays = [8_000, 25_000, 15_000]; // deps, build, container
 
   for (let step = 1; step <= 3; step++) {
     setTimeout(
       async () => {
         try {
-          // Check if deploy was already completed (new instance started)
-          const record = await db.deployMessage.findFirst({
+          const records = await db.deployMessage.findMany({
             where: { commitSha, status: "building" },
           });
-          if (!record) return;
+          if (records.length === 0) return;
 
           const msg = buildMessage(
             commitSha,
             commitMsg,
             author,
             step as StepIndex,
+            records[0]!.createdAt,
           );
-          await tgEdit(chatId, sent.message_id, msg);
+
+          for (const record of records) {
+            await tgEdit(record.chatId, record.messageId, msg);
+          }
         } catch (e) {
           console.error("[Deploy TG] progress update error:", e);
         }
@@ -216,19 +255,16 @@ export async function onDeployStarted(
 
 /**
  * Called when the new application instance starts up.
- * Edits the deploy message to show completion.
+ * Edits all deploy messages to show completion.
  */
 export async function onDeployCompleted(): Promise<void> {
   try {
-    const record = await db.deployMessage.findFirst({
+    const records = await db.deployMessage.findMany({
       where: { status: "building" },
-      orderBy: { createdAt: "desc" },
     });
 
-    if (!record) return;
+    if (records.length === 0) return;
 
-    // We need commit info to build the final message
-    // Try to get it from git
     let commitMsg = "";
     let author = "";
     try {
@@ -244,16 +280,25 @@ export async function onDeployCompleted(): Promise<void> {
       author = "—";
     }
 
-    const text = buildMessage(record.commitSha, commitMsg, author, "done");
-    await tgEdit(record.chatId, record.messageId, text);
+    for (const record of records) {
+      const text = buildMessage(
+        record.commitSha,
+        commitMsg,
+        author,
+        "done",
+        record.createdAt,
+      );
+      await tgEdit(record.chatId, record.messageId, text);
+    }
 
-    await db.deployMessage.update({
-      where: { id: record.id },
+    await db.deployMessage.updateMany({
+      where: { status: "building" },
       data: { status: "done" },
     });
 
+    const sha = records[0]?.commitSha.slice(0, 7) ?? "?";
     console.log(
-      `[Deploy] Marked deploy ${record.commitSha.slice(0, 7)} as done`,
+      `[Deploy] Marked deploy ${sha} as done for ${records.length} recipient(s)`,
     );
   } catch (e) {
     console.error("[Deploy] onDeployCompleted error:", e);
