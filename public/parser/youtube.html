@@ -1382,7 +1382,7 @@ button:hover:not(:disabled) { transform: translateY(-1px); }
             updated_at: l.updatedAt,
             _pup_id: l.id,
           }));
-          return new Response(JSON.stringify(leads), {headers:{'Content-Type':'application/json'}});
+          return new Response(JSON.stringify({data: leads}), {headers:{'Content-Type':'application/json'}});
         });
       }
       else if (url.startsWith('/api/presets')) newPath = base + '/parsers/tasks' + url.slice('/api/presets'.length);
