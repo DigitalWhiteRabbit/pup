@@ -231,36 +231,54 @@ export async function onDeployStarted(
     });
   }
 
-  // Simulate progress steps with delays
-  const delays = [8_000, 25_000, 15_000]; // deps, build, container
+  // Live progress: tick every 10s, advance steps at thresholds
+  // Step thresholds (cumulative seconds from start)
+  const stepAt = [0, 8, 33, 48]; // clone, deps, build, container
+  const MAX_TICK = 600; // stop after 10 min (failsafe)
 
-  for (let step = 1; step <= 3; step++) {
-    setTimeout(
-      async () => {
-        try {
-          const records = await db.deployMessage.findMany({
-            where: { commitSha, status: "building" },
-          });
-          if (records.length === 0) return;
+  const interval = setInterval(async () => {
+    try {
+      const records = await db.deployMessage.findMany({
+        where: { commitSha, status: "building" },
+      });
+      if (records.length === 0) {
+        clearInterval(interval);
+        return;
+      }
 
-          const msg = buildMessage(
-            commitSha,
-            commitMsg,
-            author,
-            step as StepIndex,
-            records[0]!.createdAt,
-          );
+      const elapsed = Math.round(
+        (Date.now() - records[0]!.createdAt.getTime()) / 1000,
+      );
 
-          for (const record of records) {
-            await tgEdit(record.chatId, record.messageId, msg);
-          }
-        } catch (e) {
-          console.error("[Deploy TG] progress update error:", e);
+      if (elapsed > MAX_TICK) {
+        clearInterval(interval);
+        return;
+      }
+
+      // Determine current step based on elapsed time
+      let currentStep = 0;
+      for (let i = stepAt.length - 1; i >= 0; i--) {
+        if (elapsed >= stepAt[i]!) {
+          currentStep = i;
+          break;
         }
-      },
-      delays.slice(0, step).reduce((a, b) => a + b, 0),
-    );
-  }
+      }
+
+      const msg = buildMessage(
+        commitSha,
+        commitMsg,
+        author,
+        currentStep as StepIndex,
+        records[0]!.createdAt,
+      );
+
+      for (const record of records) {
+        await tgEdit(record.chatId, record.messageId, msg);
+      }
+    } catch (e) {
+      console.error("[Deploy TG] progress tick error:", e);
+    }
+  }, 10_000);
 }
 
 /**
