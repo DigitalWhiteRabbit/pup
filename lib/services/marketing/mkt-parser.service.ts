@@ -25,6 +25,7 @@ export interface ParseOptions {
   sortBy?: string;
   language?: string;
   region?: string;
+  topicId?: string;
 }
 
 export interface ParsedChannel {
@@ -757,6 +758,7 @@ export async function runYouTubeParser(
     if (opts.language) searchParams.relevanceLanguage = opts.language;
     if (opts.region) searchParams.regionCode = opts.region;
     if (opts.category) searchParams.videoCategoryId = opts.category;
+    if (opts.topicId) searchParams.topicId = opts.topicId;
 
     let searchResults: any;
     try {

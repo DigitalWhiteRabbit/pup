@@ -1683,6 +1683,95 @@ button:hover:not(:disabled) { transform: translateY(-1px); }
                 </optgroup>
               </select>
             </div>
+            <div><label>Регион поиска <span class="help-icon" data-tip="regionCode в YouTube API. Показывает видео популярные в этой стране. В отличие от фильтра «Страна» (по профилю канала), regionCode даёт видео из местного топа — гораздо больше результатов. Рекомендуется для точечного поиска по странам.">?</span></label>
+              <select id="fRegion">
+                <option value="">Глобальный</option>
+                <optgroup label="СНГ">
+                <option value="RU">Россия</option><option value="UA">Украина</option>
+                <option value="KZ">Казахстан</option><option value="BY">Беларусь</option>
+                <option value="UZ">Узбекистан</option><option value="AZ">Азербайджан</option>
+                <option value="GE">Грузия</option><option value="AM">Армения</option>
+                <option value="MD">Молдова</option>
+                </optgroup>
+                <optgroup label="Европа">
+                <option value="GB">Великобритания</option><option value="DE">Германия</option>
+                <option value="FR">Франция</option><option value="ES">Испания</option>
+                <option value="IT">Италия</option><option value="PL">Польша</option>
+                <option value="NL">Нидерланды</option><option value="TR">Турция</option>
+                <option value="PT">Португалия</option><option value="SE">Швеция</option>
+                <option value="NO">Норвегия</option><option value="CZ">Чехия</option>
+                <option value="RO">Румыния</option><option value="GR">Греция</option>
+                <option value="CH">Швейцария</option><option value="AT">Австрия</option>
+                <option value="BE">Бельгия</option><option value="HU">Венгрия</option>
+                </optgroup>
+                <optgroup label="Америка">
+                <option value="US">США</option><option value="CA">Канада</option>
+                <option value="BR">Бразилия</option><option value="MX">Мексика</option>
+                <option value="AR">Аргентина</option><option value="CO">Колумбия</option>
+                <option value="CL">Чили</option><option value="PE">Перу</option>
+                </optgroup>
+                <optgroup label="Азия и Океания">
+                <option value="IN">Индия</option><option value="JP">Япония</option>
+                <option value="KR">Южная Корея</option><option value="ID">Индонезия</option>
+                <option value="TH">Таиланд</option><option value="VN">Вьетнам</option>
+                <option value="PH">Филиппины</option><option value="MY">Малайзия</option>
+                <option value="SG">Сингапур</option><option value="AU">Австралия</option>
+                <option value="TW">Тайвань</option><option value="HK">Гонконг</option>
+                <option value="PK">Пакистан</option>
+                </optgroup>
+                <optgroup label="Ближний Восток и Африка">
+                <option value="AE">ОАЭ</option><option value="SA">Саудовская Аравия</option>
+                <option value="IL">Израиль</option><option value="EG">Египет</option>
+                <option value="NG">Нигерия</option><option value="ZA">ЮАР</option>
+                <option value="KE">Кения</option>
+                </optgroup>
+              </select>
+            </div>
+            <div><label>Тематика (Topic) <span class="help-icon" data-tip="YouTube Topic ID — сужает поиск до конкретной тематики на уровне YouTube. Гораздо точнее чем ключевые слова. Можно комбинировать с keywords для максимальной точности.">?</span></label>
+              <select id="fTopicId">
+                <option value="">Любая</option>
+                <optgroup label="Бизнес и финансы">
+                <option value="/m/09s1f">Бизнес</option>
+                <option value="/m/0233bc">Финансы</option>
+                <option value="/m/0g3fl">Инвестиции</option>
+                <option value="/m/01y857">Cryptocurrency</option>
+                </optgroup>
+                <optgroup label="Технологии">
+                <option value="/m/07c1v">Технологии</option>
+                <option value="/m/01k8wb">Софт</option>
+                <option value="/m/0mkz">Программирование</option>
+                <option value="/m/0vjr">Artificial Intelligence</option>
+                </optgroup>
+                <optgroup label="Развлечения">
+                <option value="/m/02jjt">Развлечения</option>
+                <option value="/m/04rlf">Музыка</option>
+                <option value="/m/0bzvm2">Гейминг</option>
+                <option value="/m/02vx4">Кино</option>
+                <option value="/m/06by7">Юмор</option>
+                </optgroup>
+                <optgroup label="Образ жизни">
+                <option value="/m/019_rr">Lifestyle</option>
+                <option value="/m/032tl">Мода</option>
+                <option value="/m/027x7n">Фитнес</option>
+                <option value="/m/0kt51">Здоровье</option>
+                <option value="/m/02wbm">Еда и кулинария</option>
+                <option value="/m/01k6y3">Красота</option>
+                <option value="/m/06rvd">Путешествия</option>
+                </optgroup>
+                <optgroup label="Образование">
+                <option value="/m/01h6rj">Образование</option>
+                <option value="/m/04rjg">Наука</option>
+                <option value="/m/05qt0">Новости</option>
+                <option value="/m/098wr">Политика</option>
+                </optgroup>
+                <optgroup label="Другое">
+                <option value="/m/0410tth">Автомобили</option>
+                <option value="/m/068hy">Домашние животные</option>
+                <option value="/m/06ntj">Спорт</option>
+                <option value="/m/03glg">Хобби</option>
+                </optgroup>
+              </select>
+            </div>
             <div><label>Активность за N дней <span class="help-icon" data-tip="Канал должен опубликовать хотя бы одно видео за последние N дней. Например 90 = только каналы активные за последние 3 месяца. Иначе фильтруется как «мёртвый».">?</span></label><input type="number" id="fActiveDays" placeholder="90"></div>
             <div><label>Лимит каналов <span class="help-icon" data-tip="Максимальное число каналов в финальном CSV. Не влияет на сам поиск (он работает по полному набору), только обрезает результат.">?</span></label><input type="number" id="fLimit" placeholder="100" value="100"></div>
             <div><label>Категория YouTube <span class="help-icon" data-tip="Фильтр поиска по категории видео YouTube (Gaming, Music, Education и т.п.). Сужает поиск только до видео в указанной категории.">?</span></label>
@@ -3837,6 +3926,8 @@ async function startParser(){
   const actD=document.getElementById('fActiveDays').value,lim=document.getElementById('fLimit').value;
   const cat=document.getElementById('fCategory').value, sBy=document.getElementById('fSortBy').value;
   const lang=document.getElementById('fLanguage').value, pubAfter=document.getElementById('fPublishedAfter').value;
+  const region=document.getElementById('fRegion').value;
+  const topicId=document.getElementById('fTopicId').value;
   if(minS)body.minSubs=Number(minS);if(maxS)body.maxSubs=Number(maxS);
   if(minE)body.minEngagement=Number(minE)/100;if(ctry)body.country=ctry;
   if(actD)body.activeDays=Number(actD);if(lim)body.limit=Number(lim);
@@ -3844,6 +3935,8 @@ async function startParser(){
   if(sBy && sBy!=='relevance')body.sortBy=sBy;
   if(lang && lang!=='ru')body.language=lang;
   if(pubAfter)body.publishedAfter=pubAfter;
+  if(region)body.region=region;
+  if(topicId)body.topicId=topicId;
   if(!body.keywords&&!body.hashtags){toast('Укажите Keywords или Hashtags','warning');return;}
   document.getElementById('logArea').textContent='';
   try{const r=await fetch('/api/parse',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const j=await r.json();if(!j.success)toast(j.error,'error');}catch(e){toast('Ошибка: '+e.message,'error');}
@@ -3894,6 +3987,8 @@ async function savePreset(){
     sortBy:document.getElementById('fSortBy').value,
     language:document.getElementById('fLanguage').value,
     publishedAfter:document.getElementById('fPublishedAfter').value,
+    region:document.getElementById('fRegion').value,
+    topicId:document.getElementById('fTopicId').value,
   };
   await fetch('/api/presets',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,params})});
   loadPresets();
@@ -3911,6 +4006,8 @@ function applyPreset(p){
   if(p.sortBy)document.getElementById('fSortBy').value=p.sortBy;
   if(p.language)document.getElementById('fLanguage').value=p.language;
   if(p.publishedAfter)document.getElementById('fPublishedAfter').value=p.publishedAfter;
+  if(p.region)document.getElementById('fRegion').value=p.region;
+  if(p.topicId)document.getElementById('fTopicId').value=p.topicId;
 }
 
 // ─── Delete / Restore ─────────────────────────────────
