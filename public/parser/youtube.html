@@ -1312,7 +1312,11 @@ button:hover:not(:disabled) { transform: translateY(-1px); }
         });
       }
       else if (url === '/api/quota' || url.startsWith('/api/quota?')) {
-        return Promise.resolve(new Response(JSON.stringify({used:0,limit:10000,percent:0}), {headers:{'Content-Type':'application/json'}}));
+        // Get real quota from parser run state
+        return _originalFetch(base + '/parsers/run').then(r => r.json()).then(j => {
+          const used = j.quotaUsed || (j.result && j.result.quotaUsed) || 0;
+          return new Response(JSON.stringify({used: used, limit: 10000, percent: Math.round(used/100)}), {headers:{'Content-Type':'application/json'}});
+        }).catch(() => new Response(JSON.stringify({used:0,limit:10000,percent:0}), {headers:{'Content-Type':'application/json'}}));
       }
       else if (url === '/api/download') {
         return Promise.resolve(new Response('', {status: 404}));

@@ -64,6 +64,7 @@ export interface ParseResult {
   found: number;
   newLeads: number;
   channels: ParsedChannel[];
+  quotaUsed: number;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -733,10 +734,11 @@ export async function runYouTubeParser(
   const limit = opts.limit || 50;
   const allChannels: ParsedChannel[] = [];
   const seenChannelIds = new Set<string>();
+  const MAX_PAGES = 5; // max pagination pages per keyword to avoid burning quota
 
-  // 2. Search for videos by keywords
+  // 2. Search for videos by keywords with pagination until we hit limit
   for (const keyword of keywords) {
-    log(`Searching for "${keyword}"...`);
+    if (allChannels.length >= limit) break;
 
     let searchQuery = keyword;
     if (opts.hashtags) {
@@ -748,263 +750,300 @@ export async function runYouTubeParser(
           .join(" ");
     }
 
-    const searchParams: any = {
-      part: "snippet",
-      q: searchQuery,
-      type: "video",
-      maxResults: Math.min(limit, 50),
-      order: opts.sortBy || "relevance",
-    };
-    if (opts.language) searchParams.relevanceLanguage = opts.language;
-    if (opts.region) searchParams.regionCode = opts.region;
-    if (opts.category) searchParams.videoCategoryId = opts.category;
-    if (opts.topicId) searchParams.topicId = opts.topicId;
+    let pageToken: string | undefined;
+    let pageNum = 0;
 
-    let searchResults: any;
-    try {
-      searchResults = await withRetry(() => youtube.search.list(searchParams));
-      quotaUsed += API_COSTS["search.list"]!;
-    } catch (err: any) {
-      log(`Search failed for "${keyword}": ${err.message}`);
-      continue;
-    }
+    // Paginate through search results until we have enough channels
+    while (allChannels.length < limit && pageNum < MAX_PAGES) {
+      pageNum++;
+      log(
+        `Searching for "${keyword}"${pageNum > 1 ? ` (page ${pageNum})` : ""}...`,
+      );
 
-    const items = searchResults.data.items || [];
-    log(`Found ${items.length} videos for "${keyword}"`);
+      const searchParams: any = {
+        part: "snippet",
+        q: searchQuery,
+        type: "video",
+        maxResults: 50,
+        order: opts.sortBy || "relevance",
+      };
+      if (opts.language) searchParams.relevanceLanguage = opts.language;
+      if (opts.region) searchParams.regionCode = opts.region;
+      if (opts.category) searchParams.videoCategoryId = opts.category;
+      if (opts.topicId) searchParams.topicId = opts.topicId;
+      if (pageToken) searchParams.pageToken = pageToken;
 
-    // 3. Extract unique channel IDs
-    const channelIds: string[] = [];
-    for (const item of items) {
-      const cid = item.snippet?.channelId;
-      if (cid && !seenChannelIds.has(cid)) {
-        seenChannelIds.add(cid);
-        channelIds.push(cid);
-      }
-    }
-
-    if (!channelIds.length) continue;
-
-    // 4. Batch fetch channel details (max 50 per request)
-    log(`Fetching details for ${channelIds.length} channels...`);
-    const batches: string[][] = [];
-    for (let i = 0; i < channelIds.length; i += 50) {
-      batches.push(channelIds.slice(i, i + 50));
-    }
-
-    for (const batch of batches) {
-      let channelResponse: any;
+      let searchResults: any;
       try {
-        channelResponse = await withRetry(() =>
-          youtube.channels.list({
-            part: "snippet,statistics,contentDetails,brandingSettings,topicDetails",
-            id: batch.join(","),
-          }),
+        searchResults = await withRetry(() =>
+          youtube.search.list(searchParams),
         );
-        quotaUsed += API_COSTS["channels.list"]!;
+        quotaUsed += API_COSTS["search.list"]!;
       } catch (err: any) {
-        log(`Channel fetch failed: ${err.message}`);
+        log(`Search failed for "${keyword}": ${err.message}`);
+        break;
+      }
+
+      const items = searchResults.data.items || [];
+      log(`Found ${items.length} videos for "${keyword}"`);
+
+      if (items.length === 0) break;
+
+      // Get next page token for pagination
+      pageToken = searchResults.data.nextPageToken;
+
+      // 3. Extract unique channel IDs
+      const channelIds: string[] = [];
+      for (const item of items) {
+        const cid = item.snippet?.channelId;
+        if (cid && !seenChannelIds.has(cid)) {
+          seenChannelIds.add(cid);
+          channelIds.push(cid);
+        }
+      }
+
+      if (!channelIds.length) {
+        if (!pageToken) break;
         continue;
       }
 
-      const channels = channelResponse.data.items || [];
+      // 4. Batch fetch channel details (max 50 per request)
+      log(`Fetching details for ${channelIds.length} channels...`);
+      const batches: string[][] = [];
+      for (let i = 0; i < channelIds.length; i += 50) {
+        batches.push(channelIds.slice(i, i + 50));
+      }
 
-      for (const ch of channels) {
-        const stats = ch.statistics || {};
-        const snippet = ch.snippet || {};
-        const branding = ch.brandingSettings || {};
-        const subs = parseInt(stats.subscriberCount || "0", 10);
-        const _viewCount = parseInt(stats.viewCount || "0", 10);
-        const _videoCount = parseInt(stats.videoCount || "0", 10);
-
-        // 5. Filter by subscriber count
-        if (opts.minSubs && subs < opts.minSubs) continue;
-        if (opts.maxSubs && subs > opts.maxSubs) continue;
-
-        // Filter by country
-        if (opts.country && snippet.country && snippet.country !== opts.country)
+      for (const batch of batches) {
+        let channelResponse: any;
+        try {
+          channelResponse = await withRetry(() =>
+            youtube.channels.list({
+              part: "snippet,statistics,contentDetails,brandingSettings,topicDetails",
+              id: batch.join(","),
+            }),
+          );
+          quotaUsed += API_COSTS["channels.list"]!;
+        } catch (err: any) {
+          log(`Channel fetch failed: ${err.message}`);
           continue;
-
-        // 6. Fetch recent videos for engagement calculation
-        const uploadsPlaylistId = ch.contentDetails?.relatedPlaylists?.uploads;
-        let recentVideos: any[] = [];
-
-        if (uploadsPlaylistId) {
-          try {
-            const plRes: any = await withRetry(() =>
-              youtube.playlistItems.list({
-                part: "snippet,contentDetails",
-                playlistId: uploadsPlaylistId,
-                maxResults: 10,
-              }),
-            );
-            quotaUsed += API_COSTS["playlistItems.list"]!;
-            recentVideos = plRes.data.items || [];
-          } catch {
-            // non-fatal
-          }
         }
 
-        // Fetch video statistics for engagement rate
-        let videoStats: any[] = [];
-        if (recentVideos.length > 0) {
-          const videoIds = recentVideos
-            .map((v: any) => v.contentDetails?.videoId)
-            .filter(Boolean);
-          if (videoIds.length) {
+        const channels = channelResponse.data.items || [];
+
+        for (const ch of channels) {
+          const stats = ch.statistics || {};
+          const snippet = ch.snippet || {};
+          const branding = ch.brandingSettings || {};
+          const subs = parseInt(stats.subscriberCount || "0", 10);
+          const _viewCount = parseInt(stats.viewCount || "0", 10);
+          const _videoCount = parseInt(stats.videoCount || "0", 10);
+
+          // 5. Filter by subscriber count
+          if (opts.minSubs && subs < opts.minSubs) continue;
+          if (opts.maxSubs && subs > opts.maxSubs) continue;
+
+          // Filter by country
+          if (
+            opts.country &&
+            snippet.country &&
+            snippet.country !== opts.country
+          )
+            continue;
+
+          // 6. Fetch recent videos for engagement calculation
+          const uploadsPlaylistId =
+            ch.contentDetails?.relatedPlaylists?.uploads;
+          let recentVideos: any[] = [];
+
+          if (uploadsPlaylistId) {
             try {
-              const vRes: any = await withRetry(() =>
-                youtube.videos.list({
-                  part: "statistics,snippet",
-                  id: videoIds.join(","),
+              const plRes: any = await withRetry(() =>
+                youtube.playlistItems.list({
+                  part: "snippet,contentDetails",
+                  playlistId: uploadsPlaylistId,
+                  maxResults: 10,
                 }),
               );
-              quotaUsed += API_COSTS["videos.list"]!;
-              videoStats = vRes.data.items || [];
+              quotaUsed += API_COSTS["playlistItems.list"]!;
+              recentVideos = plRes.data.items || [];
             } catch {
               // non-fatal
             }
           }
-        }
 
-        // 7. Calculate engagement rate
-        let avgViews = 0;
-        let engagementRate = 0;
-        const lastVideos: any[] = [];
+          // Fetch video statistics for engagement rate
+          let videoStats: any[] = [];
+          if (recentVideos.length > 0) {
+            const videoIds = recentVideos
+              .map((v: any) => v.contentDetails?.videoId)
+              .filter(Boolean);
+            if (videoIds.length) {
+              try {
+                const vRes: any = await withRetry(() =>
+                  youtube.videos.list({
+                    part: "statistics,snippet",
+                    id: videoIds.join(","),
+                  }),
+                );
+                quotaUsed += API_COSTS["videos.list"]!;
+                videoStats = vRes.data.items || [];
+              } catch {
+                // non-fatal
+              }
+            }
+          }
 
-        if (videoStats.length > 0) {
-          let totalViews = 0;
-          let totalEngagement = 0;
+          // 7. Calculate engagement rate
+          let avgViews = 0;
+          let engagementRate = 0;
+          const lastVideos: any[] = [];
 
-          for (const v of videoStats) {
-            const vs = v.statistics || {};
-            const views = parseInt(vs.viewCount || "0", 10);
-            const likes = parseInt(vs.likeCount || "0", 10);
-            const comments = parseInt(vs.commentCount || "0", 10);
-            totalViews += views;
-            totalEngagement += likes + comments;
+          if (videoStats.length > 0) {
+            let totalViews = 0;
+            let totalEngagement = 0;
 
-            lastVideos.push({
-              id: v.id,
-              title: v.snippet?.title,
-              publishedAt: v.snippet?.publishedAt,
-              views,
-              likes,
-              comments,
+            for (const v of videoStats) {
+              const vs = v.statistics || {};
+              const views = parseInt(vs.viewCount || "0", 10);
+              const likes = parseInt(vs.likeCount || "0", 10);
+              const comments = parseInt(vs.commentCount || "0", 10);
+              totalViews += views;
+              totalEngagement += likes + comments;
+
+              lastVideos.push({
+                id: v.id,
+                title: v.snippet?.title,
+                publishedAt: v.snippet?.publishedAt,
+                views,
+                likes,
+                comments,
+              });
+            }
+
+            avgViews = Math.round(totalViews / videoStats.length);
+            engagementRate =
+              totalViews > 0
+                ? Math.round((totalEngagement / totalViews) * 100 * 100) / 100
+                : 0;
+          }
+
+          // Filter by minimum engagement
+          if (opts.minEngagement && engagementRate < opts.minEngagement)
+            continue;
+
+          // Filter by activity (days since last video)
+          let lastVideoDate: string | null = null;
+          if (recentVideos.length > 0) {
+            const publishedAt =
+              recentVideos[0]?.snippet?.publishedAt ||
+              recentVideos[0]?.contentDetails?.videoPublishedAt;
+            if (publishedAt) {
+              lastVideoDate = publishedAt;
+              if (opts.activeDays) {
+                const daysSince =
+                  (Date.now() - new Date(publishedAt).getTime()) /
+                  (1000 * 60 * 60 * 24);
+                if (daysSince > opts.activeDays) continue;
+              }
+            }
+          }
+
+          // 8. ER normalization
+          const { normalized: erNormalized, flags: erFlags } = normalizeER(
+            engagementRate,
+            subs,
+          );
+
+          // 9. Extract contacts from description/about/links
+          const aboutText = snippet.description || "";
+          const brandingDesc = branding.channel?.description || "";
+          const brandingKeywords = branding.channel?.keywords || "";
+
+          const contactSources: ContactSource[] = [
+            { text: aboutText, label: "description" },
+            { text: brandingDesc, label: "branding" },
+            { text: brandingKeywords, label: "keywords" },
+          ];
+
+          // Also check links from channel
+          if (branding.channel?.unsubscribedTrailer) {
+            contactSources.push({
+              text: branding.channel.unsubscribedTrailer,
+              label: "trailer",
             });
           }
 
-          avgViews = Math.round(totalViews / videoStats.length);
-          engagementRate =
-            totalViews > 0
-              ? Math.round((totalEngagement / totalViews) * 100 * 100) / 100
-              : 0;
-        }
+          const contacts = extractContacts(contactSources);
 
-        // Filter by minimum engagement
-        if (opts.minEngagement && engagementRate < opts.minEngagement) continue;
-
-        // Filter by activity (days since last video)
-        let lastVideoDate: string | null = null;
-        if (recentVideos.length > 0) {
-          const publishedAt =
-            recentVideos[0]?.snippet?.publishedAt ||
-            recentVideos[0]?.contentDetails?.videoPublishedAt;
-          if (publishedAt) {
-            lastVideoDate = publishedAt;
-            if (opts.activeDays) {
-              const daysSince =
-                (Date.now() - new Date(publishedAt).getTime()) /
-                (1000 * 60 * 60 * 24);
-              if (daysSince > opts.activeDays) continue;
-            }
+          // Channel age
+          let channelAgeDays: number | null = null;
+          if (snippet.publishedAt) {
+            channelAgeDays = Math.floor(
+              (Date.now() - new Date(snippet.publishedAt).getTime()) /
+                (1000 * 60 * 60 * 24),
+            );
           }
+
+          // Topic / category
+          const topicCategories = ch.topicDetails?.topicCategories || [];
+          const mainCategory =
+            topicCategories.length > 0
+              ? topicCategories[0]
+                  .replace("https://en.wikipedia.org/wiki/", "")
+                  .replace(/_/g, " ")
+              : null;
+
+          const parsed: ParsedChannel = {
+            channelId: ch.id,
+            channelName: snippet.title || "",
+            channelUrl: `https://www.youtube.com/channel/${ch.id}`,
+            thumbnail:
+              snippet.thumbnails?.medium?.url ||
+              snippet.thumbnails?.default?.url ||
+              "",
+            country: snippet.country || "",
+            subscribers: subs,
+            avgViews,
+            engagementRate,
+            erNormalized,
+            erFlags: JSON.stringify(erFlags),
+            email: contacts.email,
+            telegram: contacts.telegram,
+            instagram: contacts.instagram,
+            twitter: contacts.twitter,
+            tiktok: contacts.tiktok,
+            vk: contacts.vk,
+            discord: contacts.discord,
+            whatsapp: contacts.whatsapp,
+            website: contacts.website,
+            rawContacts: JSON.stringify(contacts),
+            keyword,
+            lastVideoDate,
+            channelAboutText: aboutText.slice(0, 2000),
+            channelTags: brandingKeywords
+              ? JSON.stringify(brandingKeywords.split(/\s+/))
+              : null,
+            channelLanguage: snippet.defaultLanguage || null,
+            mainCategory,
+            channelAgeDays,
+            lastVideosJson: lastVideos.length
+              ? JSON.stringify(lastVideos)
+              : null,
+            topPlaylistsJson: null,
+          };
+
+          allChannels.push(parsed);
+          if (allChannels.length >= limit) break;
         }
-
-        // 8. ER normalization
-        const { normalized: erNormalized, flags: erFlags } = normalizeER(
-          engagementRate,
-          subs,
-        );
-
-        // 9. Extract contacts from description/about/links
-        const aboutText = snippet.description || "";
-        const brandingDesc = branding.channel?.description || "";
-        const brandingKeywords = branding.channel?.keywords || "";
-
-        const contactSources: ContactSource[] = [
-          { text: aboutText, label: "description" },
-          { text: brandingDesc, label: "branding" },
-          { text: brandingKeywords, label: "keywords" },
-        ];
-
-        // Also check links from channel
-        if (branding.channel?.unsubscribedTrailer) {
-          contactSources.push({
-            text: branding.channel.unsubscribedTrailer,
-            label: "trailer",
-          });
-        }
-
-        const contacts = extractContacts(contactSources);
-
-        // Channel age
-        let channelAgeDays: number | null = null;
-        if (snippet.publishedAt) {
-          channelAgeDays = Math.floor(
-            (Date.now() - new Date(snippet.publishedAt).getTime()) /
-              (1000 * 60 * 60 * 24),
-          );
-        }
-
-        // Topic / category
-        const topicCategories = ch.topicDetails?.topicCategories || [];
-        const mainCategory =
-          topicCategories.length > 0
-            ? topicCategories[0]
-                .replace("https://en.wikipedia.org/wiki/", "")
-                .replace(/_/g, " ")
-            : null;
-
-        const parsed: ParsedChannel = {
-          channelId: ch.id,
-          channelName: snippet.title || "",
-          channelUrl: `https://www.youtube.com/channel/${ch.id}`,
-          thumbnail:
-            snippet.thumbnails?.medium?.url ||
-            snippet.thumbnails?.default?.url ||
-            "",
-          country: snippet.country || "",
-          subscribers: subs,
-          avgViews,
-          engagementRate,
-          erNormalized,
-          erFlags: JSON.stringify(erFlags),
-          email: contacts.email,
-          telegram: contacts.telegram,
-          instagram: contacts.instagram,
-          twitter: contacts.twitter,
-          tiktok: contacts.tiktok,
-          vk: contacts.vk,
-          discord: contacts.discord,
-          whatsapp: contacts.whatsapp,
-          website: contacts.website,
-          rawContacts: JSON.stringify(contacts),
-          keyword,
-          lastVideoDate,
-          channelAboutText: aboutText.slice(0, 2000),
-          channelTags: brandingKeywords
-            ? JSON.stringify(brandingKeywords.split(/\s+/))
-            : null,
-          channelLanguage: snippet.defaultLanguage || null,
-          mainCategory,
-          channelAgeDays,
-          lastVideosJson: lastVideos.length ? JSON.stringify(lastVideos) : null,
-          topPlaylistsJson: null,
-        };
-
-        allChannels.push(parsed);
       }
-    }
+
+      // No more pages or hit limit
+      if (!pageToken || allChannels.length >= limit) break;
+
+      // Rate limiting between pages
+      await sleep(300);
+    } // end while (pagination)
 
     // Rate limiting between keyword searches
     if (keywords.indexOf(keyword) < keywords.length - 1) {
@@ -1140,5 +1179,6 @@ export async function runYouTubeParser(
     found: allChannels.length,
     newLeads,
     channels: allChannels,
+    quotaUsed,
   };
 }

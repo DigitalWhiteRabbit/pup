@@ -9,9 +9,10 @@ type Params = { params: Promise<{ id: string }> };
 let parseState: {
   running: boolean;
   logs: string[];
-  result: { found: number; newLeads: number } | null;
+  result: { found: number; newLeads: number; quotaUsed?: number } | null;
   error: string | null;
-} = { running: false, logs: [], result: null, error: null };
+  quotaUsed: number;
+} = { running: false, logs: [], result: null, error: null, quotaUsed: 0 };
 
 export async function POST(req: NextRequest, { params }: Params) {
   return withErrorHandler(async () => {
@@ -30,7 +31,13 @@ export async function POST(req: NextRequest, { params }: Params) {
     const body = await req.json();
 
     // Reset state
-    parseState = { running: true, logs: [], result: null, error: null };
+    parseState = {
+      running: true,
+      logs: [],
+      result: null,
+      error: null,
+      quotaUsed: 0,
+    };
 
     // Start parsing in background (don't await)
     void (async () => {
@@ -41,7 +48,12 @@ export async function POST(req: NextRequest, { params }: Params) {
             parseState.logs.push(msg);
           },
         );
-        parseState.result = { found: result.found, newLeads: result.newLeads };
+        parseState.result = {
+          found: result.found,
+          newLeads: result.newLeads,
+          quotaUsed: result.quotaUsed,
+        };
+        parseState.quotaUsed += result.quotaUsed || 0;
       } catch (e: unknown) {
         parseState.error = e instanceof Error ? e.message : "Unknown error";
         parseState.logs.push(`ERROR: ${parseState.error}`);
