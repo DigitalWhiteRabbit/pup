@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Вход · AI Agent for Bruno</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  :root { --bg:#0f1115; --card:#171a21; --text:#e8ecf3; --dim:#8892a6; --border:#23283180; --accent:#ff7a00; --err:#ef4444; }
+  * { box-sizing: border-box; }
+  html,body { margin:0; padding:0; background:var(--bg); color:var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, system-ui, sans-serif; height:100%; }
+  .wrap { min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px; }
+  .card { width:100%; max-width:380px; background:var(--card); border:1px solid var(--border); border-radius:14px; padding:32px; box-shadow:0 10px 40px #0008; }
+  h1 { margin:0 0 6px; font-size:20px; font-weight:600; }
+  .sub { color:var(--dim); font-size:13px; margin-bottom:24px; }
+  label { display:block; font-size:12px; color:var(--dim); margin:14px 0 6px; text-transform:uppercase; letter-spacing:0.04em; }
+  input { width:100%; background:#0f1218; border:1px solid var(--border); color:var(--text); padding:11px 13px; border-radius:8px; font-size:15px; outline:none; font-family:inherit; }
+  input:focus { border-color:var(--accent); }
+  input[inputmode="numeric"] { letter-spacing:4px; text-align:center; font-size:18px; font-variant-numeric: tabular-nums; }
+  button { width:100%; background:var(--accent); border:none; color:#fff; font-weight:600; padding:12px; border-radius:8px; font-size:15px; margin-top:20px; cursor:pointer; transition:filter 0.15s; font-family:inherit; }
+  button:hover { filter:brightness(1.1); }
+  button:disabled { opacity:0.6; cursor:not-allowed; }
+  .err { color:var(--err); font-size:13px; margin-top:14px; min-height:18px; }
+  .hint { color:var(--dim); font-size:11px; margin-top:18px; text-align:center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <form class="card" id="loginForm" autocomplete="off">
+    <h1>AI Agent for Bruno</h1>
+    <div class="sub">Вход в личный кабинет</div>
+    <label for="login">Логин</label>
+    <input id="login" name="login" type="text" autocomplete="username" autofocus required>
+    <label for="code">Код доступа (6 цифр)</label>
+    <input id="code" name="code" type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required>
+    <button type="submit" id="submitBtn">Войти</button>
+    <div class="err" id="err"></div>
+    <div class="hint">Код можно получить у администратора проекта</div>
+  </form>
+</div>
+<script>
+const form = document.getElementById('loginForm');
+const err = document.getElementById('err');
+const btn = document.getElementById('submitBtn');
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  err.textContent = '';
+  btn.disabled = true; btn.textContent = 'Проверяю…';
+  try {
+    const r = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        login: document.getElementById('login').value.trim(),
+        code: document.getElementById('code').value.trim(),
+      }),
+    });
+    const j = await r.json();
+    if (!j.success) { err.textContent = j.error || 'Ошибка входа'; btn.disabled = false; btn.textContent = 'Войти'; return; }
+    location.href = '/';
+  } catch (ex) {
+    err.textContent = 'Сетевая ошибка: ' + ex.message;
+    btn.disabled = false; btn.textContent = 'Войти';
+  }
+});
+// Если уже залогинены — редирект на дашборд
+fetch('/api/auth/me').then(r=>r.json()).then(j => { if (j.authenticated) location.href='/'; }).catch(()=>{});
+</script>
+</body>
+</html>

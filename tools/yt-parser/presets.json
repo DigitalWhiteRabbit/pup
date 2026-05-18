@@ -1,0 +1,56 @@
+[
+  {
+    "name": "bitnest",
+    "params": {
+      "keywords": "web3, bitnest",
+      "hashtags": "web3, bitnest",
+      "minSubs": "5000",
+      "maxSubs": "500000",
+      "minEng": "1",
+      "country": "",
+      "activeDays": "90",
+      "limit": "50",
+      "category": "",
+      "sortBy": "relevance",
+      "language": "en",
+      "publishedAfter": ""
+    },
+    "createdAt": "2026-04-12T19:00:00.964Z"
+  },
+  {
+    "name": "bitnest ai claude",
+    "params": {
+      "keywords": "bitnest, bitnest loop, bitnest smart, bitnest обзор, bitnest review, bitnest savings, bitnest loop обзор, bitnest loop review, bitnest scam, bitnest passive income",
+      "hashtags": "web3, bitnest, defi, crypto, passiveincome",
+      "minSubs": "1000",
+      "maxSubs": "500000",
+      "minEng": "2",
+      "country": "",
+      "activeDays": "180",
+      "limit": "50",
+      "category": "",
+      "sortBy": "relevance",
+      "language": "ru",
+      "publishedAfter": "2024-01-01"
+    },
+    "createdAt": "2026-04-12T19:15:21.486Z"
+  },
+  {
+    "name": "cyrus",
+    "params": {
+      "keywords": "cyrus finance, cyrus finance обзор, cyrus finance review, cyrus finance staking, cyrus finance отзывы, cyrusfinance, cyrus defi, cyrus finance вывод, cyrus finance заработок, cyrus finance пассивный доход",
+      "hashtags": "cyrusfinance, defi, staking, web3, крипта, пассивныйдоход, bsc",
+      "minSubs": "1000",
+      "maxSubs": "500000",
+      "minEng": "2",
+      "country": "",
+      "activeDays": "180",
+      "limit": "50",
+      "category": "",
+      "sortBy": "relevance",
+      "language": "ru",
+      "publishedAfter": "2025-01-01"
+    },
+    "createdAt": "2026-04-12T19:21:20.892Z"
+  }
+]

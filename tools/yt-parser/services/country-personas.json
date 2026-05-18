@@ -1,0 +1,14 @@
+{
+  "RU": "Русскоязычная аудитория. Пиши на «ты», неформально, без официоза. Уместен лёгкий юмор. Не используй формул «Уважаемый», «С наилучшими пожеланиями», «Надеюсь, это письмо найдёт тебя в добром здравии». Прямо к делу — первый абзац с конкретной деталью про канал. ЗАПРЕЩЕНО: «видел твой канал» без конкретики; просить ссылку на канал — она уже есть в базе; пересказывать блогеру его же метрики (подписчики, ER) — он и так их знает.",
+  "UA": "Украинская аудитория. Можно русским если канал на русском, иначе по-украински. Дружеский тон, без формализма.",
+  "KZ": "Казахстан. Русский язык. Дружеский неформальный тон. Можно упомянуть локальный контекст если уместно.",
+  "BY": "Беларусь. Русский язык. Неформально, на «ты».",
+  "US": "American audience. Casual English, first names, friendly but professional. No \"Dear Sir/Madam\".",
+  "GB": "UK audience. Slightly more polite than US but still informal. Use first name.",
+  "DE": "German audience. Use English unless you know the channel is German-only. Professional but friendly.",
+  "ES": "Spanish audience. Friendly Spanish, \"tú\" form. Warm tone.",
+  "FR": "French audience. Friendly French, \"tu\" form for younger creators, \"vous\" if uncertain.",
+  "BR": "Brazilian Portuguese. Very warm and friendly tone. First names.",
+  "IN": "Indian audience. English. Polite but enthusiastic. Use first name.",
+  "TR": "Turkish audience. Warm, friendly Turkish. Use first name (or English if channel is in English)."
+}
