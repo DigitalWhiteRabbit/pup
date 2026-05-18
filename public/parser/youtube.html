@@ -1393,6 +1393,16 @@ button:hover:not(:disabled) { transform: translateY(-1px); }
       else if (url.startsWith('/api/settings')) newPath = base + '/config';
       else if (url.startsWith('/api/health')) newPath = base + '/worker';
       else if (url.startsWith('/api/knowledge')) newPath = base + '/knowledge' + url.slice('/api/knowledge'.length);
+      else if (url.startsWith('/api/results') && opts && (opts.method === 'DELETE' || opts.method === 'delete')) {
+        // DELETE all leads in workspace
+        return _originalFetch(base + '/leads?limit=500').then(r => r.json()).then(async data => {
+          const leads = data.leads || [];
+          for (const l of leads) {
+            await _originalFetch(base + '/leads/' + l.id, { method: 'DELETE' });
+          }
+          return new Response(JSON.stringify({success:true}), {headers:{'Content-Type':'application/json'}});
+        });
+      }
       else if (url.startsWith('/api/results')) {
         // Transform PUP leads API response to original parser format
         return _originalFetch(base + '/leads?limit=500').then(r => r.json()).then(data => {
