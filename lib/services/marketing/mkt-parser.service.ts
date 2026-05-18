@@ -734,7 +734,14 @@ export async function runYouTubeParser(
   const limit = opts.limit || 50;
   const allChannels: ParsedChannel[] = [];
   const seenChannelIds = new Set<string>();
-  const MAX_PAGES = 5; // max pagination pages per keyword to avoid burning quota
+  const MAX_PAGES = 5;
+  const filterStats = {
+    total: 0,
+    subs: 0,
+    country: 0,
+    engagement: 0,
+    activity: 0,
+  }; // max pagination pages per keyword to avoid burning quota
 
   // 2. Search for videos by keywords with pagination until we hit limit
   for (const keyword of keywords) {
@@ -838,18 +845,27 @@ export async function runYouTubeParser(
           const subs = parseInt(stats.subscriberCount || "0", 10);
           const _viewCount = parseInt(stats.viewCount || "0", 10);
           const _videoCount = parseInt(stats.videoCount || "0", 10);
+          filterStats.total++;
 
           // 5. Filter by subscriber count
-          if (opts.minSubs && subs < opts.minSubs) continue;
-          if (opts.maxSubs && subs > opts.maxSubs) continue;
+          if (opts.minSubs && subs < opts.minSubs) {
+            filterStats.subs++;
+            continue;
+          }
+          if (opts.maxSubs && subs > opts.maxSubs) {
+            filterStats.subs++;
+            continue;
+          }
 
-          // Filter by country
+          // Filter by country (only if channel has country set)
           if (
             opts.country &&
             snippet.country &&
-            snippet.country !== opts.country
-          )
+            snippet.country.toUpperCase() !== opts.country.toUpperCase()
+          ) {
+            filterStats.country++;
             continue;
+          }
 
           // 6. Fetch recent videos for engagement calculation
           const uploadsPlaylistId =
@@ -931,8 +947,10 @@ export async function runYouTubeParser(
           }
 
           // Filter by minimum engagement
-          if (opts.minEngagement && engagementRate < opts.minEngagement)
+          if (opts.minEngagement && engagementRate < opts.minEngagement) {
+            filterStats.engagement++;
             continue;
+          }
 
           // Filter by activity (days since last video)
           let lastVideoDate: string | null = null;
@@ -946,7 +964,10 @@ export async function runYouTubeParser(
                 const daysSince =
                   (Date.now() - new Date(publishedAt).getTime()) /
                   (1000 * 60 * 60 * 24);
-                if (daysSince > opts.activeDays) continue;
+                if (daysSince > opts.activeDays) {
+                  filterStats.activity++;
+                  continue;
+                }
               }
             }
           }
@@ -1059,6 +1080,21 @@ export async function runYouTubeParser(
     if (keywords.indexOf(keyword) < keywords.length - 1) {
       await sleep(500);
     }
+  }
+
+  // Log filter stats
+  if (filterStats.total > 0) {
+    const parts = [];
+    if (filterStats.subs > 0) parts.push(`subscribers: ${filterStats.subs}`);
+    if (filterStats.country > 0) parts.push(`country: ${filterStats.country}`);
+    if (filterStats.engagement > 0)
+      parts.push(`engagement: ${filterStats.engagement}`);
+    if (filterStats.activity > 0)
+      parts.push(`activity: ${filterStats.activity}`);
+    const passed = allChannels.length;
+    log(
+      `Filter stats: ${filterStats.total} channels checked, ${passed} passed${parts.length ? ". Filtered out by: " + parts.join(", ") : ""}`,
+    );
   }
 
   // 10. Save to MktLead (upsert by channelId)
