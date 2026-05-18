@@ -1336,7 +1336,55 @@ button:hover:not(:disabled) { transform: translateY(-1px); }
       else if (url.startsWith('/api/settings')) newPath = base + '/config';
       else if (url.startsWith('/api/health')) newPath = base + '/worker';
       else if (url.startsWith('/api/knowledge')) newPath = base + '/knowledge' + url.slice('/api/knowledge'.length);
-      else if (url.startsWith('/api/results')) newPath = base + '/leads';
+      else if (url.startsWith('/api/results')) {
+        // Transform PUP leads API response to original parser format
+        return _originalFetch(base + '/leads?limit=500').then(r => r.json()).then(data => {
+          const leads = (data.leads || []).map(l => ({
+            channel_id: l.channelId,
+            channel_name: l.channelName,
+            channel_url: l.channelUrl,
+            thumbnail: l.thumbnail,
+            country: l.country || '',
+            subscribers: l.subscribers || 0,
+            avg_views: l.avgViews || 0,
+            engagement_rate: l.engagementRate || 0,
+            er_normalized: l.erNormalized || 0,
+            er_flags: l.erFlags || '',
+            email: l.email || '',
+            telegram: l.telegram || '',
+            instagram: l.instagram || '',
+            twitter: l.twitter || '',
+            tiktok: l.tiktok || '',
+            vk: l.vk || '',
+            discord: l.discord || '',
+            whatsapp: l.whatsapp || '',
+            website: l.website || '',
+            keyword: l.channelTags || '',
+            last_video_date: l.lastVideoDate || '',
+            lead_status: (l.leadStatus || 'pending').toLowerCase(),
+            lead_score: l.leadScore || 0,
+            score_breakdown: l.scoreBreakdown || '',
+            content_summary: l.contentSummary || '',
+            channel_about_text: l.channelAboutText || '',
+            channel_tags: l.channelTags || '',
+            channel_language: l.channelLanguage || '',
+            main_category: l.mainCategory || '',
+            channel_age_days: l.channelAgeDays || 0,
+            last_videos_json: l.lastVideosJson || '[]',
+            top_playlists_json: l.topPlaylistsJson || '[]',
+            posting_frequency: l.postingFrequency || 0,
+            shorts_count: l.shortsCount || 0,
+            shorts_ratio: l.shortsRatio || 0,
+            shorts_avg_views: l.shortsAvgViews || 0,
+            long_avg_views: l.longAvgViews || 0,
+            notes: l.notes || '',
+            created_at: l.createdAt,
+            updated_at: l.updatedAt,
+            _pup_id: l.id,
+          }));
+          return new Response(JSON.stringify(leads), {headers:{'Content-Type':'application/json'}});
+        });
+      }
       else if (url.startsWith('/api/presets')) newPath = base + '/parsers/tasks' + url.slice('/api/presets'.length);
       else if (url.startsWith('/api/history')) newPath = base + '/parsers/runs';
       else if (url.startsWith('/api/deleted')) return Promise.resolve(new Response(JSON.stringify([]), {headers:{'Content-Type':'application/json'}}));
