@@ -909,4 +909,20 @@ app.listen(PORT, async () => {
   } catch (e) {
     console.warn("[knowledge warmup] skipped:", e.message);
   }
+  // Auto-start outreach worker (inbox polling, follow-ups, deal processing)
+  try {
+    const worker = require("./services/outreach-worker");
+    if (process.env.RESEND_API_KEY && process.env.IMAP_HOST) {
+      worker.start();
+      console.log(
+        "  [worker] Outreach worker started (inbox + follow-ups + deals)",
+      );
+    } else {
+      console.log(
+        "  [worker] Outreach worker skipped — RESEND_API_KEY or IMAP_HOST not set",
+      );
+    }
+  } catch (e) {
+    console.error("  [worker] start error:", e.message);
+  }
 });
