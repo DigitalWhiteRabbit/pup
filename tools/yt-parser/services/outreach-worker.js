@@ -277,6 +277,39 @@ async function _processPickedLead(lead, project, counts) {
   try {
     log("INFO", `Processing lead #${lead.id} ${lead.channel_name}`);
 
+    // Auto-enrich lead if missing videos/about
+    try {
+      const { enrichLead } = require("./enrichment");
+      await enrichLead(lead, db);
+    } catch (e) {
+      log("WARN", `Enrichment failed for lead #${lead.id}: ${e.message}`);
+    }
+
+    // Auto-score lead after enrichment
+    try {
+      const scoring = require("./lead-scoring");
+      const videoAnalysis = scoring.analyzeVideos
+        ? scoring.analyzeVideos(lead.last_videos_json)
+        : null;
+      const project2 = stmts.getActiveProject.get();
+      const { score, breakdown } = scoring.computeScore
+        ? scoring.computeScore(
+            lead,
+            videoAnalysis,
+            project2?.ideal_channel_profile,
+            project2?.bad_fit_examples,
+          )
+        : { score: 50, breakdown: {} };
+      lead.lead_score = score;
+      lead.score_breakdown = JSON.stringify(breakdown);
+      db.prepare(
+        "UPDATE leads SET lead_score = ?, score_breakdown = ?, scored_at = ? WHERE id = ?",
+      ).run(score, lead.score_breakdown, new Date().toISOString(), lead.id);
+      log("INFO", `Lead #${lead.id} scored: ${score}/100`);
+    } catch (e) {
+      log("WARN", `Scoring failed for lead #${lead.id}: ${e.message}`);
+    }
+
     // Opted-out check (GDPR)
     if (lead.opted_out) {
       log("INFO", `Lead #${lead.id} opted out — skipping`);
