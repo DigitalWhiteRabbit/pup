@@ -1,4 +1,5 @@
-const { stmts, db } = require("../db/database");
+const dbModule = require("../db/database");
+let { stmts, db } = dbModule;
 const ai = require("./ai");
 const email = require("./email");
 const tg = require("./telegram-outreach");
@@ -468,22 +469,36 @@ async function _processPickedLead(lead, project, counts) {
 }
 
 // Немедленная обработка конкретного лида (по кнопке «Запустить» в UI)
-async function runLeadNow(leadId) {
-  const project = stmts.getActiveProject.get();
-  if (!project) throw new Error("no active project");
-  const lead = stmts.getLead.get(leadId);
-  if (!lead) throw new Error("lead not found");
-  if (lead.lead_status !== "ready")
-    throw new Error(`lead_status is "${lead.lead_status}", expected "ready"`);
+async function runLeadNow(leadId, workspaceId) {
+  // Swap module-level stmts/db to workspace-specific ones
+  const savedStmts = stmts;
+  const savedDb = db;
 
-  // Лочим лид чтобы параллельный тик не взял его
-  stmts.lockLead.run(Date.now() + LOCK_DURATION_MS, lead.id);
-  const counts = getDailyCounts();
-  await _processPickedLead(
-    { ...lead, locked_until: Date.now() + LOCK_DURATION_MS },
-    project,
-    counts,
-  );
+  if (workspaceId) {
+    const ws = dbModule.getDb(workspaceId);
+    stmts = ws.stmts;
+    db = ws.db;
+  }
+
+  try {
+    const project = stmts.getActiveProject.get();
+    if (!project) throw new Error("no active project");
+    const lead = stmts.getLead.get(leadId);
+    if (!lead) throw new Error("lead not found");
+    if (lead.lead_status !== "ready")
+      throw new Error(`lead_status is "${lead.lead_status}", expected "ready"`);
+
+    stmts.lockLead.run(Date.now() + LOCK_DURATION_MS, lead.id);
+    const counts = getDailyCounts();
+    await _processPickedLead(
+      { ...lead, locked_until: Date.now() + LOCK_DURATION_MS },
+      project,
+      counts,
+    );
+  } finally {
+    stmts = savedStmts;
+    db = savedDb;
+  }
 }
 
 // ─── Inbox loop ─────────────────────────────────────────────────────

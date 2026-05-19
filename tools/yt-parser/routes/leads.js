@@ -333,7 +333,7 @@ router.post("/:id/run", (req, res) => {
         if (!worker) return;
         if (typeof worker.runLeadNow === "function") {
           worker
-            .runLeadNow(id)
+            .runLeadNow(id, req.workspaceId)
             .catch((err) =>
               console.error("[leads/run] runLeadNow error:", err.message),
             );
