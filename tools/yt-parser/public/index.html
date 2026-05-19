@@ -1979,6 +1979,7 @@ window.fetch = function(url, opts) {
             <button class="btn-danger btn-sm" onclick="purgeOldPendingReplies()" title="Удалить отправленные/отклонённые старше 7 дней">🗑 Purge</button>
           </div>
         </div>
+        <div id="pendingFilters" style="display:flex;gap:6px;margin-top:12px;flex-wrap:wrap"></div>
         <div id="pendingRepliesList" style="display:flex;flex-direction:column;gap:12px;margin-top:12px">
           <p style="color:var(--text-dim);font-size:12px">Загрузка...</p>
         </div>
@@ -5333,15 +5334,33 @@ async function answerConsultation(id) {
 
 // ─── Review mode: pending replies queue ────────────────
 
-async function loadPendingReplies() {
+let _pendingFilter = 'pending';
+async function loadPendingReplies(filterOverride) {
+  if (filterOverride) _pendingFilter = filterOverride;
   try {
-    const r = await fetch('/api/pending-replies?status=pending');
+    const r = await fetch('/api/pending-replies?status=' + _pendingFilter);
     const j = await r.json();
     const list = document.getElementById('pendingRepliesList');
     const items = j.items || [];
     const counts = j.counts || {};
     const summary = document.getElementById('reviewSummary');
     if (summary) summary.textContent = `⏳ ${counts.pending||0} ждут · ✅ ${counts.approved||0} одобрено · ❌ ${counts.rejected||0} отклонено · 📤 ${counts.sent||0} отправлено · ⚠️ ${counts.failed||0} ошибок`;
+    // Render filter buttons
+    const filtersEl = document.getElementById('pendingFilters');
+    if (filtersEl) {
+      const filters = [
+        { key: 'pending', label: '⏳ Ждут', count: counts.pending||0 },
+        { key: 'approved', label: '✅ Одобрены', count: counts.approved||0 },
+        { key: 'sent', label: '📤 Отправлены', count: counts.sent||0 },
+        { key: 'rejected', label: '❌ Отклонены', count: counts.rejected||0 },
+        { key: 'failed', label: '⚠️ Ошибки', count: counts.failed||0 },
+        { key: 'all', label: '📋 Все', count: '' },
+      ];
+      filtersEl.innerHTML = filters.map(f => {
+        const active = _pendingFilter === f.key;
+        return `<button onclick="loadPendingReplies('${f.key}')" style="padding:6px 14px;border-radius:8px;font-size:12px;border:1px solid ${active?'var(--accent)':'var(--border)'};background:${active?'var(--accent-dim)':'var(--bg)'};color:${active?'var(--accent)':'var(--text-mid)'};cursor:pointer;font-weight:${active?'600':'400'}">${f.label}${f.count !== '' ? ' '+f.count : ''}</button>`;
+      }).join('');
+    }
     // Синхронизируем toggle в шапке с настройкой
     try {
       const s = await fetch('/api/settings').then(r=>r.json());

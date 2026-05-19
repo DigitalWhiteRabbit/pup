@@ -1189,7 +1189,11 @@ async function processApprovedQueue(workspaceId) {
     // Sequential — чтобы daily cap не пробивался при параллельной отправке.
     for (const item of items) {
       // Клайм: только один процесс/тик получит эту запись.
-      const claim = _claimPendingReplyStmt.run(item.id);
+      const claim = db
+        .prepare(
+          `UPDATE pending_replies SET status = 'sending' WHERE id = ? AND status = 'approved'`,
+        )
+        .run(item.id);
       if (claim.changes !== 1) continue; // взял другой тик — пропускаем
       try {
         await sendApprovedPendingReply(item);
@@ -1199,7 +1203,9 @@ async function processApprovedQueue(workspaceId) {
         try {
           stmts.markPendingReplyFailed.run(e.message.slice(0, 500), item.id);
         } catch {
-          _unclaimPendingReplyStmt.run(item.id);
+          db.prepare(
+            `UPDATE pending_replies SET status = 'approved' WHERE id = ?`,
+          ).run(item.id);
         }
         workerState.lastError = e.message;
         workerState.stats.errors++;
