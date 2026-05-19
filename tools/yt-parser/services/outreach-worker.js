@@ -604,6 +604,9 @@ async function processInbox() {
     log("INFO", `Fetched ${messages.length} new emails`);
 
     for (const msg of messages) {
+      let match = null;
+      const savedStmts = stmts;
+      const savedDb = db;
       try {
         // Auto-reply detection
         if (email.isAutoReply(msg)) {
@@ -616,7 +619,7 @@ async function processInbox() {
         }
 
         // Search across ALL workspaces for matching lead
-        const match = findLeadAcrossWorkspaces(
+        match = findLeadAcrossWorkspaces(
           msg.from,
           msg.inReplyTo,
           msg.references,
@@ -625,8 +628,6 @@ async function processInbox() {
         let dialogue = match?.dialogue;
 
         // Swap to correct workspace DB for this lead
-        const savedStmts = stmts;
-        const savedDb = db;
         if (match?.ws) {
           stmts = match.ws.stmts;
           db = match.ws.db;
