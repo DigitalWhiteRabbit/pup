@@ -63,6 +63,14 @@ app.use("/api/knowledge", knowledgeRouter);
 app.use("/api/dev-tasks", devTasksRouter);
 
 const ARCHIVE_DIR = path.join(__dirname, "Архив парсинг");
+// Per-workspace CSV path
+function getOutputCsv(workspaceId) {
+  if (!workspaceId || workspaceId === "default")
+    return path.join(ARCHIVE_DIR, "output.csv");
+  const wsDir = path.join(__dirname, "data", "ws-" + workspaceId);
+  if (!fs.existsSync(wsDir)) fs.mkdirSync(wsDir, { recursive: true });
+  return path.join(wsDir, "output.csv");
+}
 if (!fs.existsSync(ARCHIVE_DIR)) fs.mkdirSync(ARCHIVE_DIR, { recursive: true });
 
 const OUTPUT_CSV = path.join(ARCHIVE_DIR, "output.csv");
@@ -124,18 +132,29 @@ function saveJson(file, data) {
   fs.writeFileSync(file, JSON.stringify(data, null, 2), "utf-8");
 }
 
-function loadDeleted() {
-  if (fs.existsSync(DELETED_FILE)) {
+function getDeletedFile(workspaceId) {
+  if (!workspaceId || workspaceId === "default") return DELETED_FILE;
+  const dataDir = path.join(__dirname, "data");
+  if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+  return path.join(dataDir, `deleted-${workspaceId}.json`);
+}
+function loadDeleted(workspaceId) {
+  const file = getDeletedFile(workspaceId);
+  if (fs.existsSync(file)) {
     try {
-      return JSON.parse(fs.readFileSync(DELETED_FILE, "utf-8"));
+      return JSON.parse(fs.readFileSync(file, "utf-8"));
     } catch {
       return [];
     }
   }
   return [];
 }
-function saveDeleted(ids) {
-  fs.writeFileSync(DELETED_FILE, JSON.stringify(ids, null, 2), "utf-8");
+function saveDeleted(workspaceId, ids) {
+  fs.writeFileSync(
+    getDeletedFile(workspaceId),
+    JSON.stringify(ids, null, 2),
+    "utf-8",
+  );
 }
 
 // ─── Состояние парсера ──────────────────────────────────────────────────────
@@ -277,7 +296,8 @@ function parseCSVLine(line) {
 // Получить результаты из CSV + обогащение lead_status из БД
 app.get("/api/results", (req, res) => {
   try {
-    const data = parseCsv(OUTPUT_CSV);
+    const wsCsv = getOutputCsv(req.workspaceId);
+    const data = fs.existsSync(wsCsv) ? parseCsv(wsCsv) : [];
     // Join с leads DB по channel_id
     try {
       const { db } = getDb(req.workspaceId);
@@ -380,7 +400,7 @@ app.post("/api/parse", adminAuth, (req, res) => {
   args.push("--append");
   // Пишем туда же, откуда читает /api/results (Архив парсинг/output.csv).
   // Без этого парсер писал в <root>/output.csv, а dashboard читал из архива → казалось что старые контакты пропали.
-  args.push("--output", OUTPUT_CSV);
+  args.push("--output", getOutputCsv(req.workspaceId));
   if (category) args.push("--category", String(category));
   if (sortBy) args.push("--sort-by", sortBy);
   if (language) args.push("--language", language);
@@ -392,14 +412,15 @@ app.post("/api/parse", adminAuth, (req, res) => {
   // Dynamic search pages: more pages for higher limits
   const searchPages = Math.max(10, Math.ceil((limit || 50) / 5));
   args.push("--max-search-pages", String(Math.min(searchPages, 50)));
-  // Передаём удалённые каналы
-  const deletedIds = loadDeleted();
+  // Передаём удалённые каналы (per workspace)
+  const deletedIds = loadDeleted(req.workspaceId);
   if (deletedIds.length > 0) args.push("--skip-channels", deletedIds.join(","));
 
   parserState.status = "running";
   parserState.log = [];
   parserState.error = null;
   parserState.startedAt = new Date().toISOString();
+  parserState.workspaceId = req.workspaceId;
   parserState.params = {
     keywords,
     hashtags,
@@ -460,8 +481,9 @@ app.post("/api/parse", adminAuth, (req, res) => {
     }
     // Save to history
     const history = loadJson(HISTORY_FILE, []);
-    const resultCount = fs.existsSync(OUTPUT_CSV)
-      ? parseCsv(OUTPUT_CSV).length
+    const wsCsvPath = getOutputCsv(parserState.workspaceId || "default");
+    const resultCount = fs.existsSync(wsCsvPath)
+      ? parseCsv(wsCsvPath).length
       : 0;
     history.unshift({
       id: Date.now(),
@@ -517,16 +539,17 @@ app.get("/api/logs", (req, res) => {
 // Очистить результаты
 app.delete("/api/results", adminAuth, (req, res) => {
   try {
-    if (fs.existsSync(OUTPUT_CSV)) fs.unlinkSync(OUTPUT_CSV);
+    const wsCsvDel = getOutputCsv(req.workspaceId);
+    if (fs.existsSync(wsCsvDel)) fs.unlinkSync(wsCsvDel);
     res.json({ success: true, message: "Данные очищены" });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// Удалённые каналы
+// Удалённые каналы (per workspace)
 app.get("/api/deleted", (req, res) => {
-  res.json({ success: true, ids: loadDeleted() });
+  res.json({ success: true, ids: loadDeleted(req.workspaceId) });
 });
 
 app.post("/api/deleted", adminAuth, (req, res) => {
@@ -535,26 +558,29 @@ app.post("/api/deleted", adminAuth, (req, res) => {
     return res
       .status(400)
       .json({ success: false, error: "channelId required" });
-  const ids = loadDeleted();
+  const ids = loadDeleted(req.workspaceId);
   if (!ids.includes(channelId)) {
     ids.push(channelId);
-    saveDeleted(ids);
+    saveDeleted(req.workspaceId, ids);
   }
   res.json({ success: true });
 });
 
 app.delete("/api/deleted/:channelId", adminAuth, (req, res) => {
-  const ids = loadDeleted().filter((id) => id !== req.params.channelId);
-  saveDeleted(ids);
+  const ids = loadDeleted(req.workspaceId).filter(
+    (id) => id !== req.params.channelId,
+  );
+  saveDeleted(req.workspaceId, ids);
   res.json({ success: true });
 });
 
 // Скачать CSV
 app.get("/api/download", (req, res) => {
-  if (!fs.existsSync(OUTPUT_CSV)) {
+  const dlCsv = getOutputCsv(req.workspaceId);
+  if (!fs.existsSync(dlCsv)) {
     return res.status(404).json({ success: false, error: "Файл не найден" });
   }
-  res.download(OUTPUT_CSV, "youtube_bloggers.csv");
+  res.download(dlCsv, "youtube_bloggers.csv");
 });
 
 // ─── Presets ────────────────────────────────────────────────────────────────
@@ -598,7 +624,8 @@ app.delete("/api/history", adminAuth, (req, res) => {
 // ─── Analytics ──────────────────────────────────────────────────────────────
 
 app.get("/api/analytics", (req, res) => {
-  const data = parseCsv(OUTPUT_CSV);
+  const anCsv = getOutputCsv(req.workspaceId);
+  const data = fs.existsSync(anCsv) ? parseCsv(anCsv) : [];
   if (data.length === 0) return res.json({ success: true, analytics: null });
 
   // Engagement benchmarks by subscriber tier
