@@ -141,6 +141,7 @@ router.patch("/:id", (req, res) => {
     tone_of_voice: req.body.tone_of_voice ?? existing.tone_of_voice,
     stop_words: req.body.stop_words ?? existing.stop_words,
     agent_persona: req.body.agent_persona ?? existing.agent_persona,
+    admin_directive: req.body.admin_directive ?? existing.admin_directive,
     updated_at: new Date().toISOString(),
   };
 

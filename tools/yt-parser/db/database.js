@@ -103,6 +103,8 @@ function getDb(workspaceId = "default") {
     safeExec(`ALTER TABLE projects ADD COLUMN sample_pitches TEXT`);
   if (!columnExists("projects", "content_red_flags"))
     safeExec(`ALTER TABLE projects ADD COLUMN content_red_flags TEXT`);
+  if (!columnExists("projects", "admin_directive"))
+    safeExec(`ALTER TABLE projects ADD COLUMN admin_directive TEXT`);
 
   // Seed: default red_flags for project CopyBanner (id=3) — only for default workspace
   if (workspaceId === "default") {
@@ -479,6 +481,7 @@ function buildStmts(db) {
         tone_of_voice = @tone_of_voice,
         stop_words = @stop_words,
         agent_persona = @agent_persona,
+        admin_directive = @admin_directive,
         updated_at = @updated_at
       WHERE id = @id
     `),

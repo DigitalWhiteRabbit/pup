@@ -1685,6 +1685,11 @@ window.fetch = function(url, opts) {
               <textarea id="cAgentPersona" rows="8" placeholder="Пример: Меня зовут Бруно, 15 лет в influencer-маркетинге. Работал с Netflix, Spotify, запустил 200+ интеграций. Пишу блогерам как живой человек, без канцелярита. Моё правило: если за 30 секунд чтения блогер не понял выгоду — письмо плохое. Никогда не льщу, не обещаю конкретных сумм. Эмодзи в деловых письмах не использую, но уместная шутка допустима."></textarea>
               <div style="font-size:11px;color:var(--text-dim);margin-top:4px">Это главный промпт агента — описывает его опыт, стиль, подход. Чем конкретнее и живее — тем лучше письма.</div>
             </div>
+            <div class="full">
+              <label>Дополнительные инструкции AI (admin directive)</label>
+              <textarea id="cAdminDirective" rows="6" placeholder="Любые дополнительные правила для AI агента. Например: &#10;- Всегда упоминай что мы работаем на BSC&#10;- Не предлагай оплату за интеграцию в первых 3 сообщениях&#10;- Если блогер спрашивает про риски — будь честным&#10;Этот текст добавляется к системному промпту как приоритетная инструкция."></textarea>
+              <div style="font-size:11px;color:var(--text-dim);margin-top:4px">Эти инструкции добавляются в системный промпт AI. Используй для тонкой настройки поведения агента.</div>
+            </div>
             <div class="full"><label>Идеальный профиль канала (кому шлём) *</label><textarea id="cIdealProfile" rows="3" placeholder="Нарезчики Shorts/Reels, ниши, подписчики, гео — чем детальнее, тем точнее фильтр"></textarea></div>
             <div class="full"><label>НЕ подходит (кого пропускаем) *</label><textarea id="cBadFit" rows="3" placeholder="Музыкальные каналы, детский контент, long-form влоги, образовательные лекции"></textarea></div>
             <input type="hidden" id="cDescription" value="">
@@ -5009,6 +5014,7 @@ function getCampaignFormData() {
     tone_of_voice: document.getElementById('cToneOfVoice').value.trim() || null,
     stop_words: document.getElementById('cStopWords').value.trim() || null,
     agent_persona: document.getElementById('cAgentPersona').value.trim() || null,
+    admin_directive: document.getElementById('cAdminDirective').value.trim() || null,
   };
 }
 
@@ -5052,6 +5058,7 @@ function editCampaign(id) {
     document.getElementById('cToneOfVoice').value = p.tone_of_voice || '';
     document.getElementById('cStopWords').value = p.stop_words || '';
     document.getElementById('cAgentPersona').value = p.agent_persona || '';
+    document.getElementById('cAdminDirective').value = p.admin_directive || '';
     document.getElementById('campaignFormTitle').textContent = 'Редактирование: ' + p.name;
     document.getElementById('campaignCancelBtn').style.display = '';
     document.getElementById('campaignResetBtn').style.display = '';

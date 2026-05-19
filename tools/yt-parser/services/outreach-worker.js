@@ -593,9 +593,12 @@ function findLeadAcrossWorkspaces(fromAddr, inReplyTo, references) {
 
 // ─── Inbox loop ─────────────────────────────────────────────────────
 
+const _repliedWorkspaces = new Set();
+
 async function processInbox() {
   if (!workerState.running) return;
   if (!process.env.RESEND_API_KEY || !process.env.IMAP_HOST) return;
+  _repliedWorkspaces.clear();
 
   try {
     const messages = await email.fetchInbox();
@@ -686,6 +689,7 @@ async function processInbox() {
         await email.markSeen(msg.uid);
 
         workerState.stats.replied++;
+        if (match?.wsId) _repliedWorkspaces.add(match.wsId);
         log(
           "INFO",
           `New reply from ${msg.from} (lead #${lead.id}, ws: ${match?.wsId || "default"})`,
@@ -707,6 +711,21 @@ async function processInbox() {
     workerState.stats.errors++;
   }
 
+  // Generate replies per workspace that had new messages
+  for (const wsId of _repliedWorkspaces) {
+    const ws = dbModule.getDb(wsId);
+    const savedS = stmts;
+    const savedD = db;
+    stmts = ws.stmts;
+    db = ws.db;
+    try {
+      await generatePendingReplies();
+    } finally {
+      stmts = savedS;
+      db = savedD;
+    }
+  }
+  // Also try default workspace
   await generatePendingReplies();
 }
 
