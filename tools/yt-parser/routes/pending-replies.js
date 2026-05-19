@@ -67,9 +67,10 @@ router.post("/:id/approve", (req, res) => {
   req.stmts.approvePendingReply.run(editedBody, editedSubject, notes, now, id);
 
   // Немедленно запустить processApprovedQueue (не ждать 20с тика)
+  const wsId = req.workspaceId;
   setImmediate(() => {
     worker
-      .processApprovedQueue()
+      .processApprovedQueue(wsId)
       .catch((err) => console.error("[approve] worker error:", err.message));
   });
 

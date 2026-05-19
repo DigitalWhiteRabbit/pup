@@ -1093,10 +1093,19 @@ const _unclaimPendingReplyStmt = db.prepare(
   `UPDATE pending_replies SET status = 'approved' WHERE id = ? AND status = 'sending'`,
 );
 
-async function processApprovedQueue() {
-  if (!workerState.running) return;
+async function processApprovedQueue(workspaceId) {
   if (isProcessingApproved) return;
   isProcessingApproved = true;
+
+  // Swap to workspace DB if provided
+  const savedStmts = stmts;
+  const savedDb = db;
+  if (workspaceId) {
+    const ws = dbModule.getDb(workspaceId);
+    stmts = ws.stmts;
+    db = ws.db;
+  }
+
   try {
     const items = stmts.pickApprovedPendingReplies.all(MAX_REPLIES_PER_TICK);
     if (items.length === 0) return;
@@ -1122,6 +1131,10 @@ async function processApprovedQueue() {
     }
   } finally {
     isProcessingApproved = false;
+    if (workspaceId) {
+      stmts = savedStmts;
+      db = savedDb;
+    }
   }
 }
 
