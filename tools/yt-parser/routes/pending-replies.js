@@ -131,12 +131,15 @@ router.post("/:id/regenerate", async (req, res) => {
   try {
     const ai = require("../services/ai");
     // Regenerate full pitch — retry up to 3 times if AI returns garbage
+    // Force a clear angle to prevent AI from requesting consultation
+    const angle = `Это перегенерация — ОБЯЗАТЕЛЬНО напиши полноценный первый питч для этого канала. НЕ запрашивай консультацию. Канал подходит — админ уже одобрил. Напиши реальное письмо.`;
     let result = null;
     for (let attempt = 0; attempt < 3; attempt++) {
       const r = await ai.generateInitialPitch(
         lead,
         project,
         pr.channel || "email",
+        angle,
       );
       // Reject consultation responses, empty bodies, and placeholder text
       const body = (r && r.body) || "";
@@ -152,13 +155,11 @@ router.post("/:id/regenerate", async (req, res) => {
     }
 
     if (!result || !result.body || result.body.length < 20) {
-      return res
-        .status(500)
-        .json({
-          success: false,
-          error:
-            "AI не смог сгенерировать нормальное письмо. Попробуйте ещё раз.",
-        });
+      return res.status(500).json({
+        success: false,
+        error:
+          "AI не смог сгенерировать нормальное письмо. Попробуйте ещё раз.",
+      });
     }
 
     const newSubject = result.subject || pr.subject;
