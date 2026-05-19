@@ -130,21 +130,9 @@ router.post("/:id/regenerate", async (req, res) => {
 
   try {
     const ai = require("../services/ai");
-    // Regenerate full pitch — retry up to 3 times if AI returns garbage
-    // Force a clear angle to prevent AI from requesting consultation
-    const angle = `Это перегенерация — ОБЯЗАТЕЛЬНО напиши полноценный первый питч. НЕ запрашивай консультацию — канал одобрен админом.
+    const angle = `Это перегенерация — напиши полноценный первый питч. Канал одобрен админом.`;
 
-ТРЕБОВАНИЯ К ТЕМЕ (subject):
-- 3-6 слов, lowercase, без заглавных
-- Конкретная отсылка к блогеру или его контенту
-- Звучит как личное сообщение, НЕ как рассылка
-- ЗАПРЕЩЕНО: "collab idea", "partnership opportunity", "business proposal", "for your channel"
-- Хорошие примеры: "saw your mod breakdown", "BlockerLocker — quick idea", "re: your last video"
-
-ТРЕБОВАНИЯ К ТЕКСТУ (body):
-- Персонализация: упомяни конкретное видео/тему канала
-- Без продажи в первом письме — только знакомство и зацеп
-- Коротко, 3-4 абзаца максимум`;
+    // Try up to 3 times
     let result = null;
     for (let attempt = 0; attempt < 3; attempt++) {
       const r = await ai.generateInitialPitch(
@@ -153,61 +141,136 @@ router.post("/:id/regenerate", async (req, res) => {
         pr.channel || "email",
         angle,
       );
-      // Reject empty or placeholder bodies (ignore consultation flag — body is still valid)
-      const body = (r && r.body) || "";
-      const isGarbage =
-        !body ||
+      if (!r) continue;
+
+      // For subject-only: we only need a good subject
+      if (field === "subject") {
+        if (r.subject && r.subject.length >= 5) {
+          result = r;
+          break;
+        }
+        continue;
+      }
+
+      // For body or both: validate body quality
+      const body = r.body || "";
+      const badBody =
         body.length < 50 ||
         !/\n/.test(body.trim()) ||
         /ожидаю|консультац|placeholder|решения команды|релевантност|уточнен|запрос.*админ/i.test(
           body,
         );
-      if (!isGarbage) {
+      if (!badBody) {
         result = r;
         break;
       }
     }
 
-    if (!result || !result.body || result.body.length < 20) {
+    if (!result) {
       return res.status(500).json({
         success: false,
-        error:
-          "AI не смог сгенерировать нормальное письмо. Попробуйте ещё раз.",
+        error: "AI не смог сгенерировать. Попробуйте ещё раз.",
       });
     }
-
-    const newSubject = result.subject || pr.subject;
-    const newBody = result.body;
 
     const response = { success: true };
 
     if (field === "subject") {
-      // Only update subject, keep existing body
+      const subj = result.subject || pr.subject;
       req.db
         .prepare("UPDATE pending_replies SET subject = ? WHERE id = ?")
-        .run(newSubject, id);
-      response.subject = newSubject;
+        .run(subj, id);
+      response.subject = subj;
     } else if (field === "body") {
-      // Only update body, keep existing subject
       req.db
         .prepare("UPDATE pending_replies SET body = ? WHERE id = ?")
-        .run(newBody, id);
-      response.body = newBody;
+        .run(result.body, id);
+      response.body = result.body;
     } else {
-      // "both" — update everything
+      const subj = result.subject || pr.subject;
       req.db
         .prepare(
           "UPDATE pending_replies SET subject = ?, body = ? WHERE id = ?",
         )
-        .run(newSubject, newBody, id);
-      response.subject = newSubject;
-      response.body = newBody;
+        .run(subj, result.body, id);
+      response.subject = subj;
+      response.body = result.body;
     }
 
     res.json(response);
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
   }
+});
+
+// GET /api/pending-replies/:id/lead-context — full AI context for this lead
+router.get("/:id/lead-context", (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const pr = req.db
+    .prepare("SELECT * FROM pending_replies WHERE id = ?")
+    .get(id);
+  if (!pr) return res.status(404).json({ success: false, error: "not found" });
+
+  const lead = req.stmts.getLead.get(pr.lead_id);
+  if (!lead)
+    return res.status(404).json({ success: false, error: "lead not found" });
+
+  // Parse content_summary
+  let summary = {};
+  try {
+    summary = JSON.parse(lead.content_summary || "{}");
+  } catch {}
+
+  // Parse videos
+  let videos = [];
+  try {
+    videos = JSON.parse(lead.last_videos_json || "[]");
+  } catch {}
+
+  // Parse contacts
+  let contacts = {};
+  try {
+    contacts = JSON.parse(lead.raw_contacts || "{}");
+  } catch {}
+
+  res.json({
+    success: true,
+    context: {
+      channel_name: lead.channel_name,
+      channel_url: lead.channel_url,
+      subscribers: lead.subscribers,
+      avg_views: lead.avg_views,
+      engagement_rate: lead.engagement_rate,
+      country: lead.country,
+      channel_language: lead.channel_language,
+      main_category: lead.main_category,
+      keyword: lead.keyword,
+      channel_about: lead.channel_about_text,
+      channel_tags: lead.channel_tags,
+      channel_age_days: lead.channel_age_days,
+      // Parsed summary
+      niche: summary.niche,
+      content_style: summary.content_style,
+      audience: summary.audience,
+      tone: summary.tone,
+      recent_topics: summary.recent_topics || [],
+      pitch_hooks: summary.pitch_hooks || [],
+      red_flags: summary.red_flags || [],
+      // Videos
+      recent_videos: (videos || []).slice(0, 5).map((v) => ({
+        title: v.title,
+        views: v.views,
+        published: v.publishedAt,
+      })),
+      // Contacts
+      email: lead.email,
+      telegram: lead.telegram,
+      contacts,
+      // Scores
+      lead_score: lead.lead_score,
+      score_breakdown: lead.score_breakdown,
+    },
+  });
 });
 
 module.exports = router;

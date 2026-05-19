@@ -5372,7 +5372,10 @@ function renderPendingReplyCard(it) {
         <div style="display:flex;align-items:center;gap:10px">
           <span style="font-size:20px">${chanIcon}</span>
           <div>
-            <div style="font-weight:700;font-size:15px;color:var(--text)">${escapeHtml(it.channel_name || 'Без лида')}</div>
+            <div style="display:flex;align-items:center;gap:10px">
+              <span style="font-weight:700;font-size:15px;color:var(--text)">${escapeHtml(it.channel_name || 'Без лида')}</span>
+              <button class="btn-secondary btn-sm" style="font-size:10px;padding:3px 10px;border-radius:6px" onclick="showLeadContext(${it.id})" title="Что AI знает о блогере">📋 Сводка</button>
+            </div>
             <div style="font-size:12px;color:var(--text-dim);margin-top:2px">
               → <span style="color:var(--accent);font-weight:500">${escapeHtml(it.recipient || '')}</span>
               ${typeLabel ? `<span style="margin-left:8px;background:rgba(255,255,255,0.06);padding:2px 8px;border-radius:4px;font-size:10px">${typeLabel}</span>` : ''}
@@ -5413,6 +5416,129 @@ function renderPendingReplyCard(it) {
       </div>
     </div>
   `;
+}
+
+async function showLeadContext(pendingId) {
+  try {
+    const r = await fetch('/api/pending-replies/'+pendingId+'/lead-context');
+    const j = await r.json();
+    if (!j.success) { toast(j.error || 'Ошибка', 'error'); return; }
+    const c = j.context;
+
+    let html = `<div style="max-width:640px;max-height:80vh;overflow-y:auto;padding:4px">`;
+
+    // Header
+    html += `<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border)">
+      <div>
+        <div style="font-size:18px;font-weight:700;color:var(--text)">${escapeHtml(c.channel_name||'')}</div>
+        <a href="${escapeHtml(c.channel_url||'')}" target="_blank" style="font-size:11px;color:var(--accent)">${escapeHtml(c.channel_url||'')}</a>
+      </div>
+    </div>`;
+
+    // Metrics
+    html += `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">`;
+    const metrics = [
+      ['Подписчики', c.subscribers ? Number(c.subscribers).toLocaleString('ru') : '—'],
+      ['Avg Views', c.avg_views ? Number(c.avg_views).toLocaleString('ru') : '—'],
+      ['ER', c.engagement_rate ? (c.engagement_rate > 1 ? c.engagement_rate.toFixed(1) : (c.engagement_rate*100).toFixed(1)+'%') : '—'],
+      ['Страна', c.country || '—'],
+    ];
+    for (const [label,val] of metrics) {
+      html += `<div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px;text-align:center">
+        <div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;margin-bottom:4px">${label}</div>
+        <div style="font-size:14px;font-weight:600;color:var(--text)">${val}</div>
+      </div>`;
+    }
+    html += `</div>`;
+
+    // Info rows
+    const rows = [];
+    if (c.channel_language) rows.push(['Язык канала', c.channel_language]);
+    if (c.main_category) rows.push(['Категория', c.main_category]);
+    if (c.keyword) rows.push(['Ниша (keyword)', c.keyword]);
+    if (c.niche) rows.push(['Ниша (AI)', c.niche]);
+    if (c.content_style) rows.push(['Формат контента', c.content_style]);
+    if (c.audience) rows.push(['Аудитория', c.audience]);
+    if (c.tone) rows.push(['Тон автора', c.tone]);
+    if (c.channel_age_days) rows.push(['Возраст канала', Math.round(c.channel_age_days/365)+' лет']);
+    if (c.lead_score) rows.push(['Lead Score', c.lead_score]);
+
+    if (rows.length) {
+      html += `<div style="margin-bottom:16px">
+        <div style="font-size:11px;font-weight:600;color:var(--text-dim);text-transform:uppercase;margin-bottom:8px">Профиль канала</div>`;
+      for (const [k,v] of rows) {
+        html += `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px">
+          <span style="color:var(--text-dim)">${escapeHtml(k)}</span>
+          <span style="color:var(--text);max-width:400px;text-align:right">${escapeHtml(String(v))}</span>
+        </div>`;
+      }
+      html += `</div>`;
+    }
+
+    // About
+    if (c.channel_about) {
+      html += `<div style="margin-bottom:16px">
+        <div style="font-size:11px;font-weight:600;color:var(--text-dim);text-transform:uppercase;margin-bottom:6px">Описание канала</div>
+        <div style="font-size:12px;color:var(--text);background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px;line-height:1.6;white-space:pre-wrap">${escapeHtml(c.channel_about)}</div>
+      </div>`;
+    }
+
+    // Recent videos
+    if (c.recent_videos && c.recent_videos.length) {
+      html += `<div style="margin-bottom:16px">
+        <div style="font-size:11px;font-weight:600;color:var(--text-dim);text-transform:uppercase;margin-bottom:6px">Последние видео</div>`;
+      for (const v of c.recent_videos) {
+        html += `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px">
+          <span style="color:var(--text)">${escapeHtml(v.title||'')}</span>
+          <span style="color:var(--text-dim);white-space:nowrap;margin-left:12px">${v.views ? Number(v.views).toLocaleString('ru')+' views' : ''}</span>
+        </div>`;
+      }
+      html += `</div>`;
+    }
+
+    // Pitch hooks
+    if (c.pitch_hooks && c.pitch_hooks.length) {
+      html += `<div style="margin-bottom:16px">
+        <div style="font-size:11px;font-weight:600;color:var(--green);text-transform:uppercase;margin-bottom:6px">🎯 Зацепки для pitch</div>`;
+      for (const h of c.pitch_hooks) {
+        html += `<div style="font-size:12px;color:var(--text);padding:4px 0">• ${escapeHtml(h)}</div>`;
+      }
+      html += `</div>`;
+    }
+
+    // Red flags
+    if (c.red_flags && c.red_flags.length) {
+      html += `<div style="margin-bottom:16px">
+        <div style="font-size:11px;font-weight:600;color:var(--red);text-transform:uppercase;margin-bottom:6px">⚠️ Риски</div>`;
+      for (const f of c.red_flags) {
+        html += `<div style="font-size:12px;color:var(--text);padding:4px 0">• ${escapeHtml(f)}</div>`;
+      }
+      html += `</div>`;
+    }
+
+    // Tags
+    if (c.channel_tags) {
+      html += `<div style="margin-bottom:12px">
+        <div style="font-size:11px;font-weight:600;color:var(--text-dim);text-transform:uppercase;margin-bottom:6px">Теги</div>
+        <div style="font-size:11px;color:var(--text-mid)">${escapeHtml(c.channel_tags)}</div>
+      </div>`;
+    }
+
+    html += `</div>`;
+
+    // Show in confirm dialog style modal
+    const bd = document.createElement('div');
+    bd.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)';
+    bd.onclick = (e) => { if(e.target===bd) bd.remove(); };
+    const box = document.createElement('div');
+    box.style.cssText = 'background:var(--bg-elev);border:1px solid var(--border);border-radius:14px;padding:24px;min-width:500px;max-width:700px;box-shadow:0 20px 60px rgba(0,0,0,0.4)';
+    box.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <div style="font-size:14px;font-weight:700;color:var(--text)">📋 Сводка по блогеру</div>
+      <button onclick="this.closest('div[style*=fixed]').remove()" style="background:none;border:none;color:var(--text-dim);font-size:18px;cursor:pointer">✕</button>
+    </div>${html}`;
+    bd.appendChild(box);
+    document.body.appendChild(bd);
+  } catch(e) { toast(e.message,'error'); }
 }
 
 async function regenField(id, field) {
