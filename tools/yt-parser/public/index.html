@@ -1248,10 +1248,17 @@ button:hover:not(:disabled) { transform: translateY(-1px); }
 </head>
 <body>
 <script>
-// Rewrite /api/* to /yt-parser/api/* for nginx proxy
+// Workspace isolation: read from URL ?workspace=xxx
+const _wsId = new URLSearchParams(window.location.search).get('workspace') || 'default';
+// Rewrite /api/* to /yt-parser/api/* for nginx proxy + append workspace param
 const _origFetch = window.fetch;
 window.fetch = function(url, opts) {
-  if (typeof url === "string" && url.startsWith("/api/")) url = "/yt-parser" + url;
+  if (typeof url === "string" && url.startsWith("/api/")) {
+    url = "/yt-parser" + url;
+    // Append workspace query param
+    const sep = url.includes('?') ? '&' : '?';
+    url = url + sep + 'workspace=' + encodeURIComponent(_wsId);
+  }
   if (typeof url === "string" && url.startsWith("/unsubscribe")) url = "/yt-parser" + url;
   return _origFetch.call(this, url, opts);
 };
@@ -3542,7 +3549,7 @@ window.addEventListener('hashchange', () => {
 function scheduleRefresh(){clearInterval(refreshTimer);refreshTimer=setInterval(()=>{loadData();loadQuota();},currentStatus==='running'?5000:30000);}
 
 function connectSSE(){
-  const es=new EventSource('/yt-parser/api/progress');
+  const es=new EventSource('/yt-parser/api/progress?workspace=' + encodeURIComponent(_wsId));
   es.addEventListener('log',e=>{appendLog(JSON.parse(e.data).message);});
   es.addEventListener('status',e=>{const{status}=JSON.parse(e.data);setStatus(status);if(status==='done'||status==='error'){loadData();loadQuota();}});
   es.onerror=()=>{es.close();setTimeout(connectSSE,3000);};

@@ -3,7 +3,7 @@ const express = require("express");
 const crypto = require("crypto");
 const multer = require("multer");
 const { adminAuth } = require("../utils/auth");
-const { stmts } = require("../db/database");
+const { getDb } = require("../db/database");
 const kn = require("../services/knowledge");
 const crawler = require("../services/crawler");
 
@@ -18,10 +18,16 @@ router.use((req, res, next) => {
   if (req.method === "GET") return next();
   return adminAuth(req, res, next);
 });
+router.use((req, res, next) => {
+  const ws = getDb(req.workspaceId);
+  req.stmts = ws.stmts;
+  req.db = ws.db;
+  next();
+});
 
 function activeProjectId() {
   try {
-    const p = stmts.getActiveProject.get();
+    const p = req.stmts.getActiveProject.get();
     return p ? p.id : null;
   } catch {
     return null;
@@ -48,7 +54,7 @@ function indexInBackground(docId) {
 router.get("/", (req, res) => {
   try {
     const pid = activeProjectId();
-    const docs = stmts.listKnowledgeDocs.all({ project_id: pid });
+    const docs = req.stmts.listKnowledgeDocs.all({ project_id: pid });
     res.json({ success: true, docs, project_id: pid });
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
@@ -59,7 +65,7 @@ router.get("/", (req, res) => {
 router.get("/status", (req, res) => {
   try {
     const pid = activeProjectId();
-    const s = stmts.knowledgeStats.get({ project_id: pid });
+    const s = req.stmts.knowledgeStats.get({ project_id: pid });
     res.json({
       success: true,
       stats: {
@@ -82,7 +88,7 @@ router.get("/status", (req, res) => {
 // GET /api/knowledge/:id — один документ с content
 router.get("/:id", (req, res, next) => {
   if (!/^\d+$/.test(req.params.id)) return next();
-  const doc = stmts.getKnowledgeDoc.get(req.params.id);
+  const doc = req.stmts.getKnowledgeDoc.get(req.params.id);
   if (!doc) return res.status(404).json({ success: false, error: "not found" });
   res.json({ success: true, doc });
 });
@@ -97,7 +103,7 @@ router.post("/text", express.json({ limit: "10mb" }), (req, res) => {
         .json({ success: false, error: "title и content обязательны" });
     const now = new Date().toISOString();
     const pid = activeProjectId();
-    const info = stmts.insertKnowledgeDoc.run({
+    const info = req.stmts.insertKnowledgeDoc.run({
       project_id: pid,
       kind: "text",
       title: String(title).slice(0, 300),
@@ -127,7 +133,7 @@ router.post("/url", express.json(), async (req, res) => {
     const pid = activeProjectId();
 
     // Сначала вставим placeholder, потом попытаемся загрузить
-    const info = stmts.insertKnowledgeDoc.run({
+    const info = req.stmts.insertKnowledgeDoc.run({
       project_id: pid,
       kind: "url",
       title: url.slice(0, 300),
@@ -146,7 +152,7 @@ router.post("/url", express.json(), async (req, res) => {
     setImmediate(async () => {
       try {
         const { title, text } = await kn.fetchUrlText(url);
-        stmts.updateKnowledgeDoc.run({
+        req.stmts.updateKnowledgeDoc.run({
           id: docId,
           title: (title || url).slice(0, 300),
           content: text,
@@ -160,7 +166,7 @@ router.post("/url", express.json(), async (req, res) => {
         await kn.indexDocument(docId);
       } catch (e) {
         console.error("[knowledge] url fetch/index fail:", e.message);
-        stmts.setKnowledgeDocStatus.run(
+        req.stmts.setKnowledgeDocStatus.run(
           "failed",
           String(e.message).slice(0, 500),
           new Date().toISOString(),
@@ -199,7 +205,7 @@ router.post("/upload", upload.single("file"), async (req, res) => {
 
     const now = new Date().toISOString();
     const pid = activeProjectId();
-    const info = stmts.insertKnowledgeDoc.run({
+    const info = req.stmts.insertKnowledgeDoc.run({
       project_id: pid,
       kind: "file",
       title: String(title).slice(0, 300),
@@ -227,7 +233,7 @@ router.post("/upload", upload.single("file"), async (req, res) => {
 router.post("/:id/reindex", express.json(), async (req, res, next) => {
   if (!/^\d+$/.test(req.params.id)) return next();
   const id = Number(req.params.id);
-  const doc = stmts.getKnowledgeDoc.get(id);
+  const doc = req.stmts.getKnowledgeDoc.get(id);
   if (!doc) return res.status(404).json({ success: false, error: "not found" });
 
   // Для URL — refetch
@@ -235,7 +241,7 @@ router.post("/:id/reindex", express.json(), async (req, res, next) => {
     setImmediate(async () => {
       try {
         const { title, text } = await kn.fetchUrlText(doc.source);
-        stmts.updateKnowledgeDoc.run({
+        req.stmts.updateKnowledgeDoc.run({
           id,
           title: (title || doc.source).slice(0, 300),
           content: text,
@@ -248,7 +254,7 @@ router.post("/:id/reindex", express.json(), async (req, res, next) => {
         });
         await kn.indexDocument(id);
       } catch (e) {
-        stmts.setKnowledgeDocStatus.run(
+        req.stmts.setKnowledgeDocStatus.run(
           "failed",
           String(e.message).slice(0, 500),
           new Date().toISOString(),
@@ -303,13 +309,11 @@ router.post("/crawl", express.json(), async (req, res) => {
     if (!url)
       return res.status(400).json({ success: false, error: "url обязателен" });
     if (crawlJob && crawlJob.running) {
-      return res
-        .status(409)
-        .json({
-          success: false,
-          error: "Crawl уже выполняется",
-          job_id: crawlJob.id,
-        });
+      return res.status(409).json({
+        success: false,
+        error: "Crawl уже выполняется",
+        job_id: crawlJob.id,
+      });
     }
 
     // Без UI-ограничений: дефолт 1000, жёсткий safeguard 5000 (чтобы не уехать в бесконечность)
@@ -362,7 +366,7 @@ router.post("/crawl", express.json(), async (req, res) => {
             const titlePref = hostname
               ? `[${hostname}] ${p.title || p.url}`
               : p.title || p.url;
-            const info = stmts.insertKnowledgeDoc.run({
+            const info = req.stmts.insertKnowledgeDoc.run({
               project_id: pid,
               kind: "url",
               title: String(titlePref).slice(0, 300),
@@ -420,8 +424,8 @@ router.delete("/:id", (req, res, next) => {
   if (!/^\d+$/.test(req.params.id)) return next();
   try {
     const id = Number(req.params.id);
-    stmts.deleteChunksByDoc.run(id); // на случай если FK CASCADE не сработал
-    stmts.deleteKnowledgeDoc.run(id);
+    req.stmts.deleteChunksByDoc.run(id); // на случай если FK CASCADE не сработал
+    req.stmts.deleteKnowledgeDoc.run(id);
     kn.invalidateCache();
     res.json({ success: true });
   } catch (e) {

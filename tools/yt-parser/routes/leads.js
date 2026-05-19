@@ -1,6 +1,6 @@
 const express = require("express");
 const path = require("path");
-const { stmts, db, syncLeadEmails } = require("../db/database");
+const { getDb, syncLeadEmails } = require("../db/database");
 const { importFromCsv } = require("../db/lead-importer");
 const { adminAuth } = require("../utils/auth");
 const scoring = require("../services/lead-scoring");
@@ -11,6 +11,14 @@ const router = express.Router();
 router.use((req, res, next) => {
   if (req.method === "GET" || req.method === "HEAD") return next();
   return adminAuth(req, res, next);
+});
+
+// Workspace isolation: resolve db + stmts per request
+router.use((req, res, next) => {
+  const ws = getDb(req.workspaceId);
+  req.stmts = ws.stmts;
+  req.db = ws.db;
+  next();
 });
 
 // Безопасный парсинг project_id: вернуть число > 0 или null
@@ -50,15 +58,15 @@ router.get("/", (req, res) => {
     return res.status(400).json({ success: false, error: "invalid stage" });
   }
 
-  const leads = stmts.listLeads.all({ status, stage, limit, offset });
-  const counts = stmts.countLeads.get();
+  const leads = req.stmts.listLeads.all({ status, stage, limit, offset });
+  const counts = req.stmts.countLeads.get();
 
   res.json({ success: true, leads, counts });
 });
 
 // GET /api/leads/:id
 router.get("/:id", (req, res) => {
-  const lead = stmts.getLead.get(req.params.id);
+  const lead = req.stmts.getLead.get(req.params.id);
   if (!lead)
     return res.status(404).json({ success: false, error: "not found" });
   res.json({ success: true, lead });
@@ -76,13 +84,13 @@ router.patch("/:id", (req, res) => {
         .status(400)
         .json({ success: false, error: "invalid lead_status" });
     }
-    stmts.updateLeadStatus.run(lead_status, now, id);
+    req.stmts.updateLeadStatus.run(lead_status, now, id);
   }
   if (notes !== undefined) {
-    stmts.updateLeadNotes.run(notes, now, id);
+    req.stmts.updateLeadNotes.run(notes, now, id);
   }
 
-  const lead = stmts.getLead.get(id);
+  const lead = req.stmts.getLead.get(id);
   res.json({ success: true, lead });
 });
 
@@ -99,8 +107,9 @@ router.post("/bulk-status", (req, res) => {
   }
 
   const now = new Date().toISOString();
-  const tx = db.transaction((idArr) => {
-    for (const id of idArr) stmts.updateLeadStatus.run(lead_status, now, id);
+  const tx = req.db.transaction((idArr) => {
+    for (const id of idArr)
+      req.stmts.updateLeadStatus.run(lead_status, now, id);
   });
   tx(ids);
 
@@ -118,13 +127,13 @@ router.post("/promote", (req, res) => {
   const now = new Date().toISOString();
   try {
     // Проверяем существует ли лид
-    const existing = db
+    const existing = req.db
       .prepare("SELECT id FROM leads WHERE channel_id = ?")
       .get(row.channel_id);
     if (existing) {
       // Обновляем статус
-      stmts.updateLeadStatus.run("ready", now, existing.id);
-      const lead = stmts.getLead.get(existing.id);
+      req.stmts.updateLeadStatus.run("ready", now, existing.id);
+      const lead = req.stmts.getLead.get(existing.id);
       return res.json({ success: true, lead, created: false });
     }
 
@@ -149,10 +158,10 @@ router.post("/promote", (req, res) => {
     // Определяем project_id: из тела запроса → активный проект
     const projectId =
       parseProjectId(row.project_id) ??
-      (stmts.getActiveProject.get() || {}).id ??
+      (req.stmts.getActiveProject.get() || {}).id ??
       null;
 
-    const result = stmts.insertLead.run({
+    const result = req.stmts.insertLead.run({
       channel_id: row.channel_id,
       channel_name: row.channel_name || "",
       channel_url: row.channel_url || "",
@@ -171,15 +180,15 @@ router.post("/promote", (req, res) => {
     });
     // Привязываем к проекту
     if (projectId)
-      stmts.updateLeadProject.run(projectId, now, result.lastInsertRowid);
+      req.stmts.updateLeadProject.run(projectId, now, result.lastInsertRowid);
     // Сразу ставим ready
-    stmts.updateLeadStatus.run("ready", now, result.lastInsertRowid);
+    req.stmts.updateLeadStatus.run("ready", now, result.lastInsertRowid);
     // Сохраняем snapshot контента (видео + about + новые поля enrichment) для качественной сводки
     try {
       const erFlagsStr = Array.isArray(row.er_flags)
         ? row.er_flags.join(",")
         : row.er_flags || null;
-      stmts.updateLeadEnrichment.run({
+      req.stmts.updateLeadEnrichment.run({
         id: result.lastInsertRowid,
         last_videos_json: row.last_videos_json || null,
         channel_about_text: row.channel_about_text || null,
@@ -200,7 +209,7 @@ router.post("/promote", (req, res) => {
       console.error("[promote] save content snapshot:", e.message);
     }
     try {
-      syncLeadEmails(result.lastInsertRowid, row.email || "");
+      syncLeadEmails(req.workspaceId, result.lastInsertRowid, row.email || "");
     } catch (e) {
       console.error("[promote] syncLeadEmails:", e.message);
     }
@@ -209,7 +218,7 @@ router.post("/promote", (req, res) => {
     } catch (e) {
       console.error("[promote] scoring:", e.message);
     }
-    const lead = stmts.getLead.get(result.lastInsertRowid);
+    const lead = req.stmts.getLead.get(result.lastInsertRowid);
     res.json({ success: true, lead, created: true });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -240,7 +249,7 @@ router.post("/create-manual", (req, res) => {
   const channelId = "MANUAL_" + Date.now();
 
   try {
-    const result = stmts.insertLead.run({
+    const result = req.stmts.insertLead.run({
       channel_id: channelId,
       channel_name,
       channel_url: channel_url || "",
@@ -263,16 +272,16 @@ router.post("/create-manual", (req, res) => {
     // Привязываем к проекту
     const projectId =
       parseProjectId(project_id) ??
-      (stmts.getActiveProject.get() || {}).id ??
+      (req.stmts.getActiveProject.get() || {}).id ??
       null;
     if (projectId)
-      stmts.updateLeadProject.run(projectId, now, result.lastInsertRowid);
+      req.stmts.updateLeadProject.run(projectId, now, result.lastInsertRowid);
     try {
-      syncLeadEmails(result.lastInsertRowid, email || "");
+      syncLeadEmails(req.workspaceId, result.lastInsertRowid, email || "");
     } catch (e) {
       console.error("[create-manual] syncLeadEmails:", e.message);
     }
-    const lead = stmts.getLead.get(result.lastInsertRowid);
+    const lead = req.stmts.getLead.get(result.lastInsertRowid);
     res.json({ success: true, lead });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -282,12 +291,12 @@ router.post("/create-manual", (req, res) => {
 // DELETE /api/leads/all  — удалить ВСЕХ лидов и связанные диалоги/сделки
 router.delete("/all", (req, res) => {
   try {
-    const tx = db.transaction(() => {
-      db.prepare("DELETE FROM messages").run();
-      db.prepare("DELETE FROM dialogues").run();
-      db.prepare("DELETE FROM deals").run();
-      db.prepare("DELETE FROM consultations").run();
-      db.prepare("DELETE FROM leads").run();
+    const tx = req.db.transaction(() => {
+      req.db.prepare("DELETE FROM messages").run();
+      req.db.prepare("DELETE FROM dialogues").run();
+      req.db.prepare("DELETE FROM deals").run();
+      req.db.prepare("DELETE FROM consultations").run();
+      req.db.prepare("DELETE FROM leads").run();
     });
     tx();
     res.json({ success: true });
@@ -301,7 +310,7 @@ router.post("/:id/run", (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!id) return res.status(400).json({ success: false, error: "invalid id" });
 
-  const lead = stmts.getLead.get(id);
+  const lead = req.stmts.getLead.get(id);
   if (!lead)
     return res.status(404).json({ success: false, error: "not found" });
   if (lead.lead_status !== "ready") {
@@ -312,9 +321,11 @@ router.post("/:id/run", (req, res) => {
 
   const now = new Date().toISOString();
   try {
-    db.prepare(
-      `UPDATE leads SET locked_until = NULL, dialogue_stage = 'not_contacted', updated_at = ? WHERE id = ?`,
-    ).run(now, id);
+    req.db
+      .prepare(
+        `UPDATE leads SET locked_until = NULL, dialogue_stage = 'not_contacted', updated_at = ? WHERE id = ?`,
+      )
+      .run(now, id);
     // Немедленно обрабатываем ИМЕННО этого лида (не ждём очередь воркера)
     setImmediate(() => {
       try {
@@ -342,19 +353,21 @@ router.delete("/:id", (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!id) return res.status(400).json({ success: false, error: "invalid id" });
 
-  const lead = stmts.getLead.get(id);
+  const lead = req.stmts.getLead.get(id);
   if (!lead)
     return res.status(404).json({ success: false, error: "not found" });
 
   try {
-    const tx = db.transaction((leadId) => {
-      db.prepare(
-        "DELETE FROM messages WHERE dialogue_id IN (SELECT id FROM dialogues WHERE lead_id = ?)",
-      ).run(leadId);
-      db.prepare("DELETE FROM deals WHERE lead_id = ?").run(leadId);
-      db.prepare("DELETE FROM consultations WHERE lead_id = ?").run(leadId);
-      db.prepare("DELETE FROM dialogues WHERE lead_id = ?").run(leadId);
-      db.prepare("DELETE FROM leads WHERE id = ?").run(leadId);
+    const tx = req.db.transaction((leadId) => {
+      req.db
+        .prepare(
+          "DELETE FROM messages WHERE dialogue_id IN (SELECT id FROM dialogues WHERE lead_id = ?)",
+        )
+        .run(leadId);
+      req.db.prepare("DELETE FROM deals WHERE lead_id = ?").run(leadId);
+      req.db.prepare("DELETE FROM consultations WHERE lead_id = ?").run(leadId);
+      req.db.prepare("DELETE FROM dialogues WHERE lead_id = ?").run(leadId);
+      req.db.prepare("DELETE FROM leads WHERE id = ?").run(leadId);
     });
     tx(id);
     res.json({ success: true });
@@ -368,20 +381,20 @@ router.post("/:id/summary", async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!id) return res.status(400).json({ success: false, error: "invalid id" });
 
-  const lead = stmts.getLead.get(id);
+  const lead = req.stmts.getLead.get(id);
   if (!lead)
     return res.status(404).json({ success: false, error: "not found" });
 
   try {
     const ai = require("../services/ai");
     const project =
-      (lead.project_id ? stmts.getProject.get(lead.project_id) : null) ||
-      stmts.getActiveProject.get() ||
+      (lead.project_id ? req.stmts.getProject.get(lead.project_id) : null) ||
+      req.stmts.getActiveProject.get() ||
       null;
     const summary = await ai.generateContentSummary(lead, project);
     const now = new Date().toISOString();
-    stmts.updateLeadSummary.run(summary, now, id);
-    const updated = stmts.getLead.get(id);
+    req.stmts.updateLeadSummary.run(summary, now, id);
+    const updated = req.stmts.getLead.get(id);
     res.json({ success: true, lead: updated });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -402,7 +415,7 @@ router.post("/bulk-summary", (req, res) => {
   }
   try {
     const ai = require("../services/ai");
-    const targets = stmts.listLeadsWithoutSummary.all(100);
+    const targets = req.stmts.listLeadsWithoutSummary.all(100);
     const job = {
       id: Date.now(),
       running: true,
@@ -415,17 +428,18 @@ router.post("/bulk-summary", (req, res) => {
       done: false,
     };
     bulkSummaryJob = job;
-    const bulkProject = stmts.getActiveProject.get() || null;
+    const bulkProject = req.stmts.getActiveProject.get() || null;
 
     setImmediate(async () => {
       for (const lead of targets) {
         try {
           const leadProject =
-            (lead.project_id ? stmts.getProject.get(lead.project_id) : null) ||
-            bulkProject;
+            (lead.project_id
+              ? req.stmts.getProject.get(lead.project_id)
+              : null) || bulkProject;
           const summary = await ai.generateContentSummary(lead, leadProject);
           const now = new Date().toISOString();
-          stmts.updateLeadSummary.run(summary, now, lead.id);
+          req.stmts.updateLeadSummary.run(summary, now, lead.id);
           job.processed++;
         } catch (err) {
           console.error("[bulk-summary] lead", lead.id, "failed:", err.message);
@@ -513,7 +527,7 @@ function buildEnrichmentFromCache(cached) {
 router.post("/:id/enrich", (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!id) return res.status(400).json({ success: false, error: "invalid id" });
-  const lead = stmts.getLead.get(id);
+  const lead = req.stmts.getLead.get(id);
   if (!lead)
     return res.status(404).json({ success: false, error: "not found" });
   if (!lead.channel_id)
@@ -541,8 +555,8 @@ router.post("/:id/enrich", (req, res) => {
   }
   try {
     const now = new Date().toISOString();
-    stmts.updateLeadEnrichment.run({ id, enriched_at: now, ...enrich });
-    res.json({ success: true, lead: stmts.getLead.get(id) });
+    req.stmts.updateLeadEnrichment.run({ id, enriched_at: now, ...enrich });
+    res.json({ success: true, lead: req.stmts.getLead.get(id) });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -552,13 +566,11 @@ router.post("/:id/enrich", (req, res) => {
 let bulkEnrichJob = null;
 router.post("/bulk-enrich", (req, res) => {
   if (bulkEnrichJob && bulkEnrichJob.running) {
-    return res
-      .status(409)
-      .json({
-        success: false,
-        error: "bulk-enrich уже выполняется",
-        job_id: bulkEnrichJob.id,
-      });
+    return res.status(409).json({
+      success: false,
+      error: "bulk-enrich уже выполняется",
+      job_id: bulkEnrichJob.id,
+    });
   }
   const cache = readCacheSafe();
   if (!cache || !cache.channels) {
@@ -567,7 +579,7 @@ router.post("/bulk-enrich", (req, res) => {
       .json({ success: false, error: "cache.json not available" });
   }
   const cutoff = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
-  const targets = stmts.listLeadsForEnrichment.all(cutoff, 1000);
+  const targets = req.stmts.listLeadsForEnrichment.all(cutoff, 1000);
   const job = {
     id: Date.now(),
     running: true,
@@ -594,7 +606,7 @@ router.post("/bulk-enrich", (req, res) => {
           continue;
         }
         const now = new Date().toISOString();
-        stmts.updateLeadEnrichment.run({
+        req.stmts.updateLeadEnrichment.run({
           id: t.id,
           enriched_at: now,
           ...enrich,
@@ -636,7 +648,7 @@ router.get("/bulk-enrich/status", (req, res) => {
 router.post("/:id/deep-summary", async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!id) return res.status(400).json({ success: false, error: "invalid id" });
-  const lead = stmts.getLead.get(id);
+  const lead = req.stmts.getLead.get(id);
   if (!lead)
     return res.status(404).json({ success: false, error: "not found" });
 
@@ -662,8 +674,8 @@ router.post("/:id/deep-summary", async (req, res) => {
     }
     const summary = await ai.generateDeepSummary(lead, comments);
     const now = new Date().toISOString();
-    stmts.updateLeadSummaryDeep.run(summary, now, id);
-    res.json({ success: true, lead: stmts.getLead.get(id) });
+    req.stmts.updateLeadSummaryDeep.run(summary, now, id);
+    res.json({ success: true, lead: req.stmts.getLead.get(id) });
   } catch (err) {
     console.error("[deep-summary]", err.message);
     res.status(500).json({ success: false, error: err.message });

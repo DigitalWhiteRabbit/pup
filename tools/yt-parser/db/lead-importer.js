@@ -1,5 +1,5 @@
 const { parseCsv } = require("../utils/csv");
-const { stmts, syncLeadEmails } = require("./database");
+const { getDb, syncLeadEmails } = require("./database");
 
 function extractChannelId(channelUrl) {
   if (!channelUrl) return null;
@@ -29,7 +29,8 @@ function hasAnyContact(row) {
  * Только лиды с хотя бы одним контактом.
  * INSERT OR IGNORE — дубликаты по channel_id пропускаются.
  */
-function importFromCsv(csvPath) {
+function importFromCsv(csvPath, workspaceId) {
+  const { db, stmts } = getDb(workspaceId);
   const rows = parseCsv(csvPath);
   if (rows.length === 0) return { imported: 0, skipped: 0, total: 0 };
 
@@ -37,7 +38,7 @@ function importFromCsv(csvPath) {
   let imported = 0;
   let skipped = 0;
 
-  const tx = require("./database").db.transaction((rowsArr) => {
+  const tx = db.transaction((rowsArr) => {
     for (const row of rowsArr) {
       const channelId = extractChannelId(row.channel_url) || row.channel_name;
       if (!channelId) {
@@ -83,7 +84,7 @@ function importFromCsv(csvPath) {
         imported++;
         if (row.email) {
           try {
-            syncLeadEmails(result.lastInsertRowid, row.email);
+            syncLeadEmails(workspaceId, result.lastInsertRowid, row.email);
           } catch (e) {
             /* non-fatal */
           }

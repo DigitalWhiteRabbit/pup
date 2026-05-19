@@ -4,11 +4,17 @@ const path = require("path");
 const multer = require("multer");
 const worker = require("../services/outreach-worker");
 const { adminAuth } = require("../utils/auth");
-const { stmts, db } = require("../db/database");
+const { getDb } = require("../db/database");
 const ai = require("../services/ai");
 const kn = require("../services/knowledge");
 const Anthropic = require("@anthropic-ai/sdk");
 const router = express.Router();
+router.use((req, res, next) => {
+  const ws = getDb(req.workspaceId);
+  req.stmts = ws.stmts;
+  req.db = ws.db;
+  next();
+});
 
 const AVATAR_DIR = path.join(__dirname, "..", "data");
 const AVATAR_PATH = path.join(AVATAR_DIR, "agent-avatar.png");
@@ -74,7 +80,7 @@ router.post("/chat", async (req, res) => {
     }
     const userMsg = String(message).slice(0, 4000);
 
-    const project = stmts.getActiveProject.get(); // может быть null — чат всё равно работает
+    const project = req.stmts.getActiveProject.get(); // может быть null — чат всё равно работает
     const pid = project ? project.id : null;
 
     // RAG: top-8 чанков под вопрос (если активной кампании нет — ищем по всей базе)
@@ -193,7 +199,7 @@ router.delete("/avatar", (req, res) => {
 router.get("/stats", (req, res) => {
   try {
     const row =
-      db
+      req.db
         .prepare(
           `
       SELECT

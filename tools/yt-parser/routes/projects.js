@@ -1,8 +1,14 @@
 const express = require("express");
-const { stmts, db } = require("../db/database");
+const { getDb } = require("../db/database");
 const { generateInitialPitch } = require("../services/ai");
 
 const router = express.Router();
+router.use((req, res, next) => {
+  const ws = getDb(req.workspaceId);
+  req.stmts = ws.stmts;
+  req.db = ws.db;
+  next();
+});
 
 const { adminAuth } = require("../utils/auth");
 router.use((req, res, next) => {
@@ -12,19 +18,19 @@ router.use((req, res, next) => {
 
 // GET /api/projects
 router.get("/", (req, res) => {
-  const projects = stmts.listProjects.all();
+  const projects = req.stmts.listProjects.all();
   res.json({ success: true, projects });
 });
 
 // GET /api/projects/active
 router.get("/active", (req, res) => {
-  const project = stmts.getActiveProject.get();
+  const project = req.stmts.getActiveProject.get();
   res.json({ success: true, project: project || null });
 });
 
 // GET /api/projects/:id
 router.get("/:id", (req, res) => {
-  const project = stmts.getProject.get(req.params.id);
+  const project = req.stmts.getProject.get(req.params.id);
   if (!project)
     return res.status(404).json({ success: false, error: "not found" });
   res.json({ success: true, project });
@@ -61,7 +67,7 @@ router.post("/", (req, res) => {
   const effectiveDescription = description || agent_persona || name;
 
   const now = new Date().toISOString();
-  const result = stmts.insertProject.run({
+  const result = req.stmts.insertProject.run({
     name,
     description: effectiveDescription,
     unique_selling_points: unique_selling_points || null,
@@ -88,14 +94,14 @@ router.post("/", (req, res) => {
     updated_at: now,
   });
 
-  const project = stmts.getProject.get(result.lastInsertRowid);
+  const project = req.stmts.getProject.get(result.lastInsertRowid);
   res.json({ success: true, project });
 });
 
 // PATCH /api/projects/:id
 router.patch("/:id", (req, res) => {
   const id = parseInt(req.params.id, 10);
-  const existing = stmts.getProject.get(id);
+  const existing = req.stmts.getProject.get(id);
   if (!existing)
     return res.status(404).json({ success: false, error: "not found" });
 
@@ -138,24 +144,24 @@ router.patch("/:id", (req, res) => {
     updated_at: new Date().toISOString(),
   };
 
-  stmts.updateProject.run(merged);
-  res.json({ success: true, project: stmts.getProject.get(id) });
+  req.stmts.updateProject.run(merged);
+  res.json({ success: true, project: req.stmts.getProject.get(id) });
 });
 
 // POST /api/projects/:id/activate
 router.post("/:id/activate", (req, res) => {
   const id = parseInt(req.params.id, 10);
-  const tx = db.transaction(() => {
-    stmts.deactivateAllProjects.run();
-    stmts.activateProject.run(new Date().toISOString(), id);
+  const tx = req.db.transaction(() => {
+    req.stmts.deactivateAllProjects.run();
+    req.stmts.activateProject.run(new Date().toISOString(), id);
   });
   tx();
-  res.json({ success: true, project: stmts.getProject.get(id) });
+  res.json({ success: true, project: req.stmts.getProject.get(id) });
 });
 
 // DELETE /api/projects/:id
 router.delete("/:id", (req, res) => {
-  stmts.deleteProject.run(req.params.id);
+  req.stmts.deleteProject.run(req.params.id);
   res.json({ success: true });
 });
 
@@ -163,7 +169,7 @@ router.delete("/:id", (req, res) => {
 // Генерирует тестовый pitch БЕЗ отправки.
 router.post("/:id/test-pitch", async (req, res) => {
   try {
-    const project = stmts.getProject.get(req.params.id);
+    const project = req.stmts.getProject.get(req.params.id);
     if (!project)
       return res
         .status(404)
@@ -175,7 +181,7 @@ router.post("/:id/test-pitch", async (req, res) => {
         .status(400)
         .json({ success: false, error: "lead_id required" });
 
-    const lead = stmts.getLead.get(lead_id);
+    const lead = req.stmts.getLead.get(lead_id);
     if (!lead)
       return res.status(404).json({ success: false, error: "lead not found" });
 

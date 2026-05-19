@@ -1,13 +1,19 @@
 const express = require("express");
-const { db, stmts } = require("../db/database");
+const { getDb } = require("../db/database");
 const { adminAuth } = require("../utils/auth");
 const router = express.Router();
+router.use((req, res, next) => {
+  const ws = getDb(req.workspaceId);
+  req.stmts = ws.stmts;
+  req.db = ws.db;
+  next();
+});
 
 router.get("/", (req, res) => {
   const status = req.query.status;
   let rows;
   if (status) {
-    rows = db
+    rows = req.db
       .prepare(
         `
       SELECT c.*, l.channel_name, l.channel_url
@@ -19,7 +25,7 @@ router.get("/", (req, res) => {
       )
       .all(status);
   } else {
-    rows = db
+    rows = req.db
       .prepare(
         `
       SELECT c.*, l.channel_name, l.channel_url
@@ -41,9 +47,11 @@ router.post("/:id/answer", adminAuth, (req, res) => {
       .status(400)
       .json({ success: false, error: "admin_response required" });
   const now = new Date().toISOString();
-  db.prepare(
-    `UPDATE consultations SET admin_response = ?, status = 'answered', answered_at = ? WHERE id = ?`,
-  ).run(admin_response, now, id);
+  req.db
+    .prepare(
+      `UPDATE consultations SET admin_response = ?, status = 'answered', answered_at = ? WHERE id = ?`,
+    )
+    .run(admin_response, now, id);
   res.json({ success: true });
 });
 

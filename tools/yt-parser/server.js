@@ -18,6 +18,7 @@ const knowledgeRouter = require("./routes/knowledge");
 const devTasksRouter = require("./routes/dev-tasks");
 const { adminAuth } = require("./utils/auth");
 const { authGate } = require("./utils/session");
+const { getDb } = require("./db/database");
 const authRouter = require("./routes/auth");
 const unsubscribeRouter = require("./routes/unsubscribe");
 const { importFromCsv } = require("./db/lead-importer");
@@ -39,6 +40,13 @@ app.use("/unsubscribe", unsubscribeRouter);
 // app.use(authGate); // disabled — PUP handles auth via nginx
 
 app.use(express.static(path.join(__dirname, "public")));
+
+// Workspace isolation: extract workspaceId from query or header
+app.use((req, res, next) => {
+  req.workspaceId =
+    req.query.workspace || req.headers["x-workspace-id"] || "default";
+  next();
+});
 
 // New API routers
 app.use("/api/leads", leadsRouter);
@@ -272,7 +280,7 @@ app.get("/api/results", (req, res) => {
     const data = parseCsv(OUTPUT_CSV);
     // Join с leads DB по channel_id
     try {
-      const { db } = require("./db/database");
+      const { db } = getDb(req.workspaceId);
       const leadRows = db
         .prepare(
           "SELECT id, channel_id, lead_status, dialogue_stage, lead_score, shorts_ratio, er_normalized, engagement_rate FROM leads",

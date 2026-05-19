@@ -1,5 +1,5 @@
 const express = require("express");
-const { stmts } = require("../db/database");
+const { getDb } = require("../db/database");
 const { adminAuth } = require("../utils/auth");
 
 const router = express.Router();
@@ -8,9 +8,15 @@ router.use((req, res, next) => {
   if (req.method === "GET" || req.method === "HEAD") return next();
   return adminAuth(req, res, next);
 });
+router.use((req, res, next) => {
+  const ws = getDb(req.workspaceId);
+  req.stmts = ws.stmts;
+  req.db = ws.db;
+  next();
+});
 
-function readFollowUp() {
-  const row = stmts.getSetting.get("followup");
+function readFollowUp(req) {
+  const row = req.stmts.getSetting.get("followup");
   let cfg = {};
   if (row && row.value) {
     try {
@@ -35,13 +41,13 @@ function readFollowUp() {
 
 // GET /api/settings — все известные настройки
 router.get("/", (req, res) => {
-  const reviewRow = stmts.getSetting.get("review_mode");
+  const reviewRow = req.stmts.getSetting.get("review_mode");
   const reviewMode = reviewRow
     ? reviewRow.value === "1" || reviewRow.value === "true"
     : process.env.REVIEW_MODE === "true" || process.env.REVIEW_MODE === "1";
   res.json({
     success: true,
-    settings: { review_mode: reviewMode, followup: readFollowUp() },
+    settings: { review_mode: reviewMode, followup: readFollowUp(req) },
   });
 });
 
@@ -49,13 +55,13 @@ router.get("/", (req, res) => {
 router.post("/review-mode", (req, res) => {
   const enabled = !!req.body.enabled;
   const now = new Date().toISOString();
-  stmts.upsertSetting.run("review_mode", enabled ? "1" : "0", now);
+  req.stmts.upsertSetting.run("review_mode", enabled ? "1" : "0", now);
   res.json({ success: true, review_mode: enabled });
 });
 
 // POST /api/settings/followup { enabled?, delay_days?, max_attempts? }
 router.post("/followup", (req, res) => {
-  const current = readFollowUp();
+  const current = readFollowUp(req);
   const next = {
     enabled:
       req.body.enabled !== undefined ? !!req.body.enabled : current.enabled,
@@ -69,7 +75,7 @@ router.post("/followup", (req, res) => {
     ),
   };
   const now = new Date().toISOString();
-  stmts.upsertSetting.run("followup", JSON.stringify(next), now);
+  req.stmts.upsertSetting.run("followup", JSON.stringify(next), now);
   res.json({ success: true, followup: next });
 });
 

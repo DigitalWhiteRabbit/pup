@@ -1,6 +1,12 @@
 const express = require("express");
 const router = express.Router();
-const { db } = require("../db/database");
+router.use((req, res, next) => {
+  const ws = getDb(req.workspaceId);
+  req.stmts = ws.stmts;
+  req.db = ws.db;
+  next();
+});
+const { getDb } = require("../db/database");
 const { verifyUnsubscribeToken } = require("../services/unsubscribe");
 
 router.get("/", (req, res) => {
@@ -16,7 +22,7 @@ router.get("/", (req, res) => {
     return res.status(400).send("Неверная или устаревшая ссылка.");
   }
   try {
-    const result = db
+    const result = req.db
       .prepare("UPDATE leads SET opted_out = 1, updated_at = ? WHERE id = ?")
       .run(new Date().toISOString(), leadId);
     if (result.changes === 0) {

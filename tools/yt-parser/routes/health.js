@@ -1,7 +1,13 @@
 const express = require("express");
-const { db, stmts } = require("../db/database");
+const { getDb } = require("../db/database");
 
 const router = express.Router();
+router.use((req, res, next) => {
+  const ws = getDb(req.workspaceId);
+  req.stmts = ws.stmts;
+  req.db = ws.db;
+  next();
+});
 
 // Цены за 1M токенов (USD). Можно переопределить через env.
 const PRICE = {
@@ -46,7 +52,7 @@ router.get("/", async (req, res) => {
 
   // DB
   try {
-    const r = db.prepare("SELECT COUNT(*) AS n FROM leads").get();
+    const r = req.db.prepare("SELECT COUNT(*) AS n FROM leads").get();
     out.db = { ok: true, leads: r.n };
   } catch (e) {
     out.db = { ok: false, error: e.message };
@@ -98,12 +104,12 @@ router.get("/", async (req, res) => {
 
   // Queues
   try {
-    const leadsCounts = stmts.countLeads.get();
-    const pendingReview = stmts.countPendingReplies.get("pending")?.n || 0;
-    const pendingDeals = db
+    const leadsCounts = req.stmts.countLeads.get();
+    const pendingReview = req.stmts.countPendingReplies.get("pending")?.n || 0;
+    const pendingDeals = req.db
       .prepare(`SELECT COUNT(*) AS n FROM deals WHERE admin_decision IS NULL`)
       .get().n;
-    const pendingConsult = db
+    const pendingConsult = req.db
       .prepare(
         `SELECT COUNT(*) AS n FROM consultations WHERE status = 'pending'`,
       )
@@ -133,7 +139,7 @@ router.get("/", async (req, res) => {
 // GET /api/cost?days=30 — агрегат трат по дням
 router.get("/cost", (req, res) => {
   const days = Math.min(Math.max(parseInt(req.query.days, 10) || 30, 1), 365);
-  const rows = db
+  const rows = req.db
     .prepare(`SELECT * FROM daily_counters ORDER BY date DESC LIMIT ?`)
     .all(days);
   const mainModel = process.env.CLAUDE_MODEL || "claude-sonnet-4-6";

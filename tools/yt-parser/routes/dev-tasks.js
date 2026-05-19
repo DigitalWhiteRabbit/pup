@@ -1,11 +1,17 @@
 const express = require("express");
-const { db } = require("../db/database");
+const { getDb } = require("../db/database");
 const { adminAuth } = require("../utils/auth");
 
 const router = express.Router();
 router.use((req, res, next) => {
   if (req.method === "GET" || req.method === "HEAD") return next();
   return adminAuth(req, res, next);
+});
+router.use((req, res, next) => {
+  const ws = getDb(req.workspaceId);
+  req.stmts = ws.stmts;
+  req.db = ws.db;
+  next();
 });
 
 const VALID_STATUS = ["todo", "in_progress", "done", "blocked"];
@@ -15,8 +21,8 @@ function now() {
   return new Date().toISOString();
 }
 
-function aggregateProgress(stageId) {
-  const row = db
+function aggregateProgress(req, stageId) {
+  const row = req.db
     .prepare(
       `
     SELECT
@@ -41,12 +47,12 @@ function aggregateProgress(stageId) {
 router.get("/stages", (req, res) => {
   const includeArchived = req.query.archived === "1";
   const where = includeArchived ? "" : `WHERE status = 'active'`;
-  const stages = db
+  const stages = req.db
     .prepare(`SELECT * FROM dev_stages ${where} ORDER BY position ASC, id ASC`)
     .all();
   const enriched = stages.map((s) => ({
     ...s,
-    progress: aggregateProgress(s.id),
+    progress: aggregateProgress(req, s.id),
   }));
   res.json({ success: true, stages: enriched });
 });
@@ -56,10 +62,10 @@ router.post("/stages", (req, res) => {
   if (!name || !String(name).trim())
     return res.status(400).json({ success: false, error: "name required" });
   const t = now();
-  const maxPos = db
+  const maxPos = req.db
     .prepare(`SELECT COALESCE(MAX(position), 0) AS m FROM dev_stages`)
     .get().m;
-  const r = db
+  const r = req.db
     .prepare(
       `
     INSERT INTO dev_stages (name, description, position, status, created_at, updated_at)
@@ -67,57 +73,61 @@ router.post("/stages", (req, res) => {
   `,
     )
     .run(String(name).trim(), description, maxPos + 1, t, t);
-  const stage = db
+  const stage = req.db
     .prepare("SELECT * FROM dev_stages WHERE id = ?")
     .get(r.lastInsertRowid);
   res.json({
     success: true,
-    stage: { ...stage, progress: aggregateProgress(stage.id) },
+    stage: { ...stage, progress: aggregateProgress(req, stage.id) },
   });
 });
 
 router.patch("/stages/:id", (req, res) => {
   const id = parseInt(req.params.id, 10);
-  const stage = db.prepare("SELECT * FROM dev_stages WHERE id = ?").get(id);
+  const stage = req.db.prepare("SELECT * FROM dev_stages WHERE id = ?").get(id);
   if (!stage)
     return res.status(404).json({ success: false, error: "not found" });
   const { name, description, status, position } = req.body || {};
   if (status && !["active", "archived"].includes(status)) {
     return res.status(400).json({ success: false, error: "bad status" });
   }
-  db.prepare(
-    `UPDATE dev_stages SET
+  req.db
+    .prepare(
+      `UPDATE dev_stages SET
     name = COALESCE(?, name),
     description = COALESCE(?, description),
     status = COALESCE(?, status),
     position = COALESCE(?, position),
     updated_at = ?
     WHERE id = ?`,
-  ).run(
-    name ?? null,
-    description ?? null,
-    status ?? null,
-    position ?? null,
-    now(),
-    id,
-  );
-  const updated = db.prepare("SELECT * FROM dev_stages WHERE id = ?").get(id);
+    )
+    .run(
+      name ?? null,
+      description ?? null,
+      status ?? null,
+      position ?? null,
+      now(),
+      id,
+    );
+  const updated = req.db
+    .prepare("SELECT * FROM dev_stages WHERE id = ?")
+    .get(id);
   res.json({
     success: true,
-    stage: { ...updated, progress: aggregateProgress(id) },
+    stage: { ...updated, progress: aggregateProgress(req, id) },
   });
 });
 
 router.delete("/stages/:id", (req, res) => {
   const id = parseInt(req.params.id, 10);
-  const r = db.prepare("DELETE FROM dev_stages WHERE id = ?").run(id);
+  const r = req.db.prepare("DELETE FROM dev_stages WHERE id = ?").run(id);
   res.json({ success: true, deleted: r.changes });
 });
 
 // ─── Tasks ──────────────────────────────────────────────────────────
 router.get("/stages/:id/tasks", (req, res) => {
   const stageId = parseInt(req.params.id, 10);
-  const tasks = db
+  const tasks = req.db
     .prepare(
       `
     SELECT * FROM dev_tasks WHERE stage_id = ?
@@ -163,20 +173,20 @@ router.post("/tasks", (req, res) => {
   if (!VALID_PRIORITY.includes(priority))
     return res.status(400).json({ success: false, error: "bad priority" });
 
-  const stage = db
+  const stage = req.db
     .prepare("SELECT id FROM dev_stages WHERE id = ?")
     .get(stage_id);
   if (!stage)
     return res.status(400).json({ success: false, error: "stage not found" });
 
   const t = now();
-  const maxPos = db
+  const maxPos = req.db
     .prepare(
       `SELECT COALESCE(MAX(position), 0) AS m FROM dev_tasks WHERE stage_id = ? AND COALESCE(parent_task_id, 0) = ?`,
     )
     .get(stage_id, parent_task_id || 0).m;
 
-  const r = db
+  const r = req.db
     .prepare(
       `
     INSERT INTO dev_tasks (stage_id, parent_task_id, title, description, status, priority, due_date, position, created_at, updated_at, completed_at)
@@ -197,7 +207,7 @@ router.post("/tasks", (req, res) => {
       status === "done" ? t : null,
     );
 
-  const task = db
+  const task = req.db
     .prepare("SELECT * FROM dev_tasks WHERE id = ?")
     .get(r.lastInsertRowid);
   res.json({ success: true, task });
@@ -205,7 +215,7 @@ router.post("/tasks", (req, res) => {
 
 router.patch("/tasks/:id", (req, res) => {
   const id = parseInt(req.params.id, 10);
-  const task = db.prepare("SELECT * FROM dev_tasks WHERE id = ?").get(id);
+  const task = req.db.prepare("SELECT * FROM dev_tasks WHERE id = ?").get(id);
   if (!task)
     return res.status(404).json({ success: false, error: "not found" });
   const {
@@ -229,8 +239,9 @@ router.patch("/tasks/:id", (req, res) => {
         ? null
         : task.completed_at;
 
-  db.prepare(
-    `UPDATE dev_tasks SET
+  req.db
+    .prepare(
+      `UPDATE dev_tasks SET
     title = COALESCE(?, title),
     description = COALESCE(?, description),
     status = COALESCE(?, status),
@@ -242,27 +253,28 @@ router.patch("/tasks/:id", (req, res) => {
     updated_at = ?
     WHERE id = ?
   `,
-  ).run(
-    title ?? null,
-    description ?? null,
-    status ?? null,
-    priority ?? null,
-    due_date === undefined ? task.due_date : due_date,
-    position ?? null,
-    parent_task_id === undefined ? task.parent_task_id : parent_task_id,
-    completed_at,
-    now(),
-    id,
-  );
+    )
+    .run(
+      title ?? null,
+      description ?? null,
+      status ?? null,
+      priority ?? null,
+      due_date === undefined ? task.due_date : due_date,
+      position ?? null,
+      parent_task_id === undefined ? task.parent_task_id : parent_task_id,
+      completed_at,
+      now(),
+      id,
+    );
   res.json({
     success: true,
-    task: db.prepare("SELECT * FROM dev_tasks WHERE id = ?").get(id),
+    task: req.db.prepare("SELECT * FROM dev_tasks WHERE id = ?").get(id),
   });
 });
 
 router.delete("/tasks/:id", (req, res) => {
   const id = parseInt(req.params.id, 10);
-  const r = db.prepare("DELETE FROM dev_tasks WHERE id = ?").run(id);
+  const r = req.db.prepare("DELETE FROM dev_tasks WHERE id = ?").run(id);
   res.json({ success: true, deleted: r.changes });
 });
 
