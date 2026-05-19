@@ -166,6 +166,35 @@ function buildSummaryContextForPrompt(lead) {
         .join(" | ")}`,
     );
   }
+  // Enrich with additional lead fields
+  if (lead.channel_language)
+    parts.push(`Язык канала: ${sanitize(lead.channel_language, 30)}`);
+  if (lead.channel_about_text)
+    parts.push(
+      `О канале (описание автора): ${sanitize(lead.channel_about_text, 400)}`,
+    );
+  if (lead.channel_tags)
+    parts.push(`Теги канала: ${sanitize(lead.channel_tags, 300)}`);
+  if (lead.main_category)
+    parts.push(`Категория: ${sanitize(lead.main_category, 100)}`);
+
+  // Recent videos
+  if (lead.last_videos_json) {
+    try {
+      const videos = JSON.parse(lead.last_videos_json);
+      if (Array.isArray(videos) && videos.length > 0) {
+        const videoLines = videos
+          .slice(0, 5)
+          .map(
+            (v) =>
+              `  • "${sanitize(v.title, 100)}" — ${v.views ? Number(v.views).toLocaleString("ru") + " views" : ""}`,
+          )
+          .join("\n");
+        parts.push(`Последние видео:\n${videoLines}`);
+      }
+    } catch {}
+  }
+
   return (
     "\n═══ ПОРТРЕТ КАНАЛА (используй при pitch) ═══\n" + parts.join("\n") + "\n"
   );
@@ -318,6 +347,29 @@ const SEND_REPLY_TOOL = {
       },
     },
     required: ["body"],
+  },
+};
+
+// Stripped-down tool for cold pitches — NO consultation option
+const COLD_PITCH_TOOL = {
+  name: "send_reply",
+  description:
+    "Написать первое письмо блогеру. Ты ОБЯЗАН написать реальное сообщение. Consultation_needed НЕ доступен.",
+  input_schema: {
+    type: "object",
+    properties: {
+      subject: {
+        type: "string",
+        description:
+          "Тема email: 3-6 слов, lowercase, персонально под блогера. Пример: 'saw your bsc tutorial', '[Name] — quick idea'. ЗАПРЕЩЕНО: 'collab idea', 'partnership opportunity', 'for your channel', generic фразы.",
+      },
+      body: {
+        type: "string",
+        description:
+          "Текст первого письма блогеру. Персонализированный, 50-100 слов.",
+      },
+    },
+    required: ["subject", "body"],
   },
 };
 
@@ -483,19 +535,39 @@ async function generateInitialPitch(
     knowledgeContext,
   );
 
+  // Determine language for the email
+  const lang = lead.channel_language || "";
+  const country = (lead.country || "").toUpperCase();
+  const ruCountries = ["RU", "UA", "BY", "KZ"];
+  const writeLang =
+    ruCountries.includes(country) || /рус|russian/i.test(lang)
+      ? "на русском языке"
+      : "in English";
+
   const angleHint = angle
     ? `\n\nГЛАВНЫЙ КРЮК (используй в первом абзаце): ${sanitizeLong(angle, 500)}`
     : "";
-  const userMsg = `Сгенерируй ПЕРВОЕ сообщение для канала "${sanitize(lead.channel_name, 100)}". Это первый контакт, блогер тебя не знает. Цель — заинтересовать и получить ответ. Вызови инструмент send_reply с полями subject (только для email) и body.${angleHint}`;
+  const userMsg = `Сгенерируй ПЕРВОЕ сообщение ${writeLang} для канала "${sanitize(lead.channel_name, 100)}".
+
+КОНТЕКСТ: Это первый холодный контакт. Блогер тебя не знает. Внимательно изучи портрет канала выше — ниша, аудитория, последние видео, тон автора. Письмо ДОЛЖНО быть уникальным под этого конкретного блогера.
+
+ЦЕЛЬ: Заинтересовать и получить ответ. НЕ продавать.
+
+ОБЯЗАТЕЛЬНО:
+- subject: 3-6 слов, lowercase, конкретно про этого блогера (НЕ generic)
+- body: упомяни конкретную деталь его контента, коротко представь проект, мягкий CTA на ответ
+- Подпись в конце
+
+Вызови инструмент send_reply.${angleHint}`;
 
   const response = await withBackoff(
     () =>
       c.messages.create({
-        model: MODEL_COMPLEX, // первый pitch = качественный
+        model: MODEL_COMPLEX,
         max_tokens: 1024,
-        temperature: 0.55,
+        temperature: 0.6,
         system,
-        tools: [SEND_REPLY_TOOL],
+        tools: [COLD_PITCH_TOOL],
         tool_choice: { type: "tool", name: "send_reply" },
         messages: [{ role: "user", content: userMsg }],
       }),
