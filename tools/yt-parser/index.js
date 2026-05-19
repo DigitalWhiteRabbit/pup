@@ -418,6 +418,8 @@ async function searchChannelsByQuery(
     if (searchOpts.publishedAfter)
       params.publishedAfter = searchOpts.publishedAfter;
     if (searchOpts.regionCode) params.regionCode = searchOpts.regionCode;
+    if (searchOpts.videoDuration)
+      params.videoDuration = searchOpts.videoDuration;
 
     const res = await withRetry(
       () => youtube.search.list(params),
@@ -898,6 +900,10 @@ async function main() {
       "Видео опубликованные после даты (YYYY-MM-DD)",
     )
     .option(
+      "--video-duration <type>",
+      "Тип контента: short (до 4 мин), medium (4-20 мин), long (20+ мин)",
+    )
+    .option(
       "--no-require-contacts",
       "Не требовать наличия контактов (по умолчанию: только с контактами)",
     )
@@ -934,6 +940,7 @@ async function main() {
       ? new Date(raw.publishedAfter).toISOString()
       : undefined,
     requireContacts: raw.requireContacts !== false,
+    videoDuration: raw.videoDuration,
     maxSearchPages: parseInt(raw.maxSearchPages, 10) || 10,
   };
 
@@ -981,6 +988,7 @@ async function main() {
     categoryId: opts.category,
     regionCode: opts.region,
     publishedAfter: opts.publishedAfter,
+    videoDuration: opts.videoDuration,
   };
 
   console.log("\n📡 Поиск и обработка каналов...");

@@ -1506,7 +1506,19 @@ window.fetch = function(url, opts) {
               </select>
             </div>
             <div><label>Активность за N дней <span class="help-icon" data-tip="Канал должен опубликовать хотя бы одно видео за последние N дней. Например 90 = только каналы активные за последние 3 месяца. Иначе фильтруется как «мёртвый».">?</span></label><input type="number" id="fActiveDays" placeholder="90"></div>
-            <div><label>Лимит каналов <span class="help-icon" data-tip="Максимальное число каналов в финальном CSV. Не влияет на сам поиск (он работает по полному набору), только обрезает результат.">?</span></label><input type="number" id="fLimit" placeholder="100" value="100"></div>
+            <div><label>Лимит каналов <span class="help-icon" data-tip="Максимальное число каналов в финальном результате. Парсер будет искать пока не наберёт столько каналов.">?</span></label><input type="number" id="fLimit" placeholder="100" value="100"></div>
+            <div><label>Тип контента <span class="help-icon" data-tip="Фильтр по длительности видео. Shorts — до 4 мин, Обычные — 4-20 мин, Длинные — от 20 мин. Помогает найти каналы с нужным форматом.">?</span></label>
+              <select id="fVideoDuration">
+                <option value="">Любой</option>
+                <option value="short">Shorts (до 4 мин)</option>
+                <option value="medium">Обычные (4-20 мин)</option>
+                <option value="long">Длинные (20+ мин)</option>
+              </select>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;padding-top:18px;">
+              <input type="checkbox" id="fRequireContacts" checked style="width:16px;height:16px;accent-color:var(--accent);">
+              <label for="fRequireContacts" style="margin:0;text-transform:none;letter-spacing:0;font-size:13px;color:var(--text);cursor:pointer;">Только с контактами <span class="help-icon" data-tip="Если включено — в результат попадут только каналы у которых есть хотя бы один контакт (email, Telegram, Instagram и т.д.). Рекомендуется оставить включённым.">?</span></label>
+            </div>
             <div style="display:none"><label>Категория YouTube <span class="help-icon" data-tip="Фильтр поиска по категории видео YouTube (Gaming, Music, Education и т.п.). Сужает поиск только до видео в указанной категории.">?</span></label>
               <select id="fCategory">
                 <option value="">Любая</option>
@@ -3666,6 +3678,10 @@ async function startParser(){
   if(sBy && sBy!=='relevance')body.sortBy=sBy;
   if(lang && lang!=='ru')body.language=lang;
   if(pubAfter)body.publishedAfter=pubAfter;
+  const vidDur=document.getElementById('fVideoDuration').value;
+  if(vidDur)body.videoDuration=vidDur;
+  const reqContacts=document.getElementById('fRequireContacts').checked;
+  if(!reqContacts)body.requireContacts=false;
   if(!body.keywords&&!body.hashtags){toast('Укажите Keywords или Hashtags','warning');return;}
   document.getElementById('logArea').textContent='';
   try{const r=await fetch('/api/parse',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const j=await r.json();if(!j.success)toast(j.error,'error');}catch(e){toast('Ошибка: '+e.message,'error');}
@@ -3716,6 +3732,8 @@ async function savePreset(){
     sortBy:document.getElementById('fSortBy').value,
     language:document.getElementById('fLanguage').value,
     publishedAfter:document.getElementById('fPublishedAfter').value,
+    videoDuration:document.getElementById('fVideoDuration').value,
+    requireContacts:document.getElementById('fRequireContacts').checked,
   };
   await fetch('/api/presets',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,params})});
   loadPresets();
@@ -3733,6 +3751,8 @@ function applyPreset(p){
   if(p.sortBy)document.getElementById('fSortBy').value=p.sortBy;
   if(p.language)document.getElementById('fLanguage').value=p.language;
   if(p.publishedAfter)document.getElementById('fPublishedAfter').value=p.publishedAfter;
+  if(p.videoDuration)document.getElementById('fVideoDuration').value=p.videoDuration;
+  if(p.requireContacts!==undefined)document.getElementById('fRequireContacts').checked=p.requireContacts;
 }
 
 // ─── Delete / Restore ─────────────────────────────────

@@ -348,6 +348,8 @@ app.post("/api/parse", adminAuth, (req, res) => {
     language,
     region,
     publishedAfter,
+    videoDuration,
+    requireContacts,
   } = req.body;
 
   if (!keywords && !hashtags) {
@@ -376,6 +378,8 @@ app.post("/api/parse", adminAuth, (req, res) => {
   if (language) args.push("--language", language);
   if (region) args.push("--region", region);
   if (publishedAfter) args.push("--published-after", publishedAfter);
+  if (videoDuration) args.push("--video-duration", videoDuration);
+  if (requireContacts === false) args.push("--no-require-contacts");
 
   // Dynamic search pages: more pages for higher limits
   const searchPages = Math.max(10, Math.ceil((limit || 50) / 5));
