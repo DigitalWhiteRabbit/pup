@@ -534,6 +534,63 @@ async function runLeadNow(leadId, workspaceId) {
   }
 }
 
+// ─── Cross-workspace lead lookup ────────────────────────────────────
+
+function findLeadAcrossWorkspaces(fromAddr, inReplyTo, references) {
+  const fs = require("fs");
+  const path = require("path");
+  const dataDir = path.join(__dirname, "..", "data");
+  const files = fs
+    .readdirSync(dataDir)
+    .filter((f) => f.startsWith("ws-") && f.endsWith(".db"));
+
+  for (const file of files) {
+    const wsId = file.replace("ws-", "").replace(".db", "");
+    const ws = dbModule.getDb(wsId);
+
+    // Try reply headers first
+    if (inReplyTo || references) {
+      const ids = new Set();
+      const extract = (s) => {
+        if (s) for (const m of String(s).matchAll(/<([^>]+)>/g)) ids.add(m[1]);
+      };
+      extract(inReplyTo);
+      extract(references);
+      for (const id of ids) {
+        const row = ws.db
+          .prepare(
+            `SELECT d.* FROM messages m JOIN dialogues d ON d.id = m.dialogue_id WHERE m.resend_id = ? LIMIT 1`,
+          )
+          .get(id);
+        if (row) {
+          const lead = ws.stmts.getLead.get(row.lead_id);
+          if (lead) return { lead, dialogue: row, wsId, ws };
+        }
+      }
+    }
+
+    // Fallback: email match
+    if (fromAddr) {
+      const needle = String(fromAddr).toLowerCase().trim();
+      const candidates = ws.db
+        .prepare("SELECT * FROM leads WHERE email IS NOT NULL AND email != ''")
+        .all();
+      for (const l of candidates) {
+        const list = parseEmailList(l.email);
+        if (list.some((e) => e.toLowerCase() === needle)) {
+          const dialogue = ws.db
+            .prepare(
+              "SELECT * FROM dialogues WHERE lead_id = ? AND channel = ? ORDER BY created_at DESC LIMIT 1",
+            )
+            .get(l.id, "email");
+          return { lead: l, dialogue, wsId, ws };
+        }
+      }
+    }
+  }
+  return null;
+}
+
 // ─── Inbox loop ─────────────────────────────────────────────────────
 
 async function processInbox() {
@@ -558,23 +615,32 @@ async function processInbox() {
           continue;
         }
 
-        // 1) Попытка матча по In-Reply-To / References
-        let dialogue = findDialogueByReplyHeaders(
+        // Search across ALL workspaces for matching lead
+        const match = findLeadAcrossWorkspaces(
+          msg.from,
           msg.inReplyTo,
           msg.references,
         );
-        let lead = dialogue ? stmts.getLead.get(dialogue.lead_id) : null;
+        let lead = match?.lead;
+        let dialogue = match?.dialogue;
 
-        // 2) Fallback — точный матч по email-адресу (lowercase)
-        if (!lead) {
-          lead = findLeadByEmail(msg.from);
+        // Swap to correct workspace DB for this lead
+        const savedStmts = stmts;
+        const savedDb = db;
+        if (match?.ws) {
+          stmts = match.ws.stmts;
+          db = match.ws.db;
         }
+
         if (!lead) {
           log(
             "WARN",
             `No matching lead for email from ${msg.from}, leaving unseen`,
           );
-          // Не помечаем seen — пусть админ разберётся
+          if (match?.ws) {
+            stmts = savedStmts;
+            db = savedDb;
+          }
           continue;
         }
 
@@ -619,10 +685,19 @@ async function processInbox() {
         await email.markSeen(msg.uid);
 
         workerState.stats.replied++;
-        log("INFO", `New reply from ${msg.from} (lead #${lead.id})`);
+        log(
+          "INFO",
+          `New reply from ${msg.from} (lead #${lead.id}, ws: ${match?.wsId || "default"})`,
+        );
       } catch (e) {
         log("ERR", `Inbox message processing failed: ${e.message}`);
         workerState.stats.errors++;
+      } finally {
+        // Restore original DB context
+        if (match?.ws) {
+          stmts = savedStmts;
+          db = savedDb;
+        }
       }
     }
   } catch (e) {
