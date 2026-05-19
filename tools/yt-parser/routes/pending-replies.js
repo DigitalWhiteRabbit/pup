@@ -130,21 +130,39 @@ router.post("/:id/regenerate", async (req, res) => {
 
   try {
     const ai = require("../services/ai");
-    // Always regenerate full pitch (AI needs body context for good subject)
-    const result = await ai.generateInitialPitch(
-      lead,
-      project,
-      pr.channel || "email",
-    );
+    // Regenerate full pitch — retry up to 3 times if AI returns garbage
+    let result = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const r = await ai.generateInitialPitch(
+        lead,
+        project,
+        pr.channel || "email",
+      );
+      // Reject consultation responses, empty bodies, and placeholder text
+      const body = (r && r.body) || "";
+      const isGarbage =
+        !body ||
+        body.length < 20 ||
+        r.flag === "consultation_needed" ||
+        /консультац|placeholder|ожидаю уточнен|запрос.*админ/i.test(body);
+      if (!isGarbage) {
+        result = r;
+        break;
+      }
+    }
 
-    if (!result || (!result.subject && !result.body)) {
+    if (!result || !result.body || result.body.length < 20) {
       return res
         .status(500)
-        .json({ success: false, error: "AI returned empty result" });
+        .json({
+          success: false,
+          error:
+            "AI не смог сгенерировать нормальное письмо. Попробуйте ещё раз.",
+        });
     }
 
     const newSubject = result.subject || pr.subject;
-    const newBody = result.body || pr.body;
+    const newBody = result.body;
 
     // Always update both in DB to keep them in sync
     req.db
