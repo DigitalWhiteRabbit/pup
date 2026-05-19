@@ -153,13 +153,14 @@ router.post("/:id/regenerate", async (req, res) => {
         pr.channel || "email",
         angle,
       );
-      // Reject consultation responses, empty bodies, and placeholder text
+      // Reject empty or placeholder bodies (ignore consultation flag — body is still valid)
       const body = (r && r.body) || "";
       const isGarbage =
         !body ||
-        body.length < 20 ||
-        r.flag === "consultation_needed" ||
-        /консультац|placeholder|ожидаю уточнен|запрос.*админ/i.test(body);
+        body.length < 30 ||
+        /^placeholder$/i.test(body.trim()) ||
+        /^ожидаю уточнен/i.test(body.trim()) ||
+        /^запрос на консультацию/i.test(body.trim());
       if (!isGarbage) {
         result = r;
         break;

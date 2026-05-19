@@ -6049,7 +6049,8 @@ async function runTestPitch() {
       setTimeout(()=>el.remove(), 300);
     };
     el.addEventListener('click', remove);
-    setTimeout(remove, 4000);
+    const duration = type === 'error' ? 20000 : 4000;
+    setTimeout(remove, duration);
     return el;
   };
 
