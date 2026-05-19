@@ -157,10 +157,11 @@ router.post("/:id/regenerate", async (req, res) => {
       const body = (r && r.body) || "";
       const isGarbage =
         !body ||
-        body.length < 30 ||
-        /^placeholder$/i.test(body.trim()) ||
-        /^ожидаю уточнен/i.test(body.trim()) ||
-        /^запрос на консультацию/i.test(body.trim());
+        body.length < 50 ||
+        !/\n/.test(body.trim()) ||
+        /ожидаю|консультац|placeholder|решения команды|релевантност|уточнен|запрос.*админ/i.test(
+          body,
+        );
       if (!isGarbage) {
         result = r;
         break;
@@ -178,17 +179,30 @@ router.post("/:id/regenerate", async (req, res) => {
     const newSubject = result.subject || pr.subject;
     const newBody = result.body;
 
-    // Always update both in DB to keep them in sync
-    req.db
-      .prepare("UPDATE pending_replies SET subject = ?, body = ? WHERE id = ?")
-      .run(newSubject, newBody, id);
-
-    // Return what the frontend asked for
     const response = { success: true };
-    if (field === "subject" || field === "both") response.subject = newSubject;
-    if (field === "body" || field === "both") response.body = newBody;
-    // For subject-only: also return body so frontend can update if it wants
-    if (field === "subject") response.body = newBody;
+
+    if (field === "subject") {
+      // Only update subject, keep existing body
+      req.db
+        .prepare("UPDATE pending_replies SET subject = ? WHERE id = ?")
+        .run(newSubject, id);
+      response.subject = newSubject;
+    } else if (field === "body") {
+      // Only update body, keep existing subject
+      req.db
+        .prepare("UPDATE pending_replies SET body = ? WHERE id = ?")
+        .run(newBody, id);
+      response.body = newBody;
+    } else {
+      // "both" — update everything
+      req.db
+        .prepare(
+          "UPDATE pending_replies SET subject = ?, body = ? WHERE id = ?",
+        )
+        .run(newSubject, newBody, id);
+      response.subject = newSubject;
+      response.body = newBody;
+    }
 
     res.json(response);
   } catch (e) {
