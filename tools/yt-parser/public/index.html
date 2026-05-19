@@ -2167,8 +2167,9 @@ window.fetch = function(url, opts) {
             </div>
           </div>
 
-          <div style="display:flex;gap:8px;margin-top:14px">
+          <div style="display:flex;gap:8px;margin-top:14px;align-items:center">
             <button class="btn-primary btn-sm" onclick="saveEmailConfig()">Сохранить</button>
+            <input type="email" id="emailTestTo" placeholder="test@gmail.com" style="width:220px;font-size:12px">
             <button class="btn-blue btn-sm" onclick="testEmailSend()">Отправить тест</button>
           </div>
           <div id="emailConfigStatus" style="margin-top:10px;font-size:11px;color:var(--text-dim)"></div>
@@ -5780,12 +5781,14 @@ async function saveEmailConfig() {
 }
 
 async function testEmailSend() {
+  const testTo = document.getElementById('emailTestTo').value.trim();
+  if (!testTo) return toast('Введи email для теста', 'error');
   const st = document.getElementById('emailConfigStatus');
-  st.innerHTML = '<span style="color:var(--blue)">⏳ Отправка тестового письма...</span>';
+  st.innerHTML = '<span style="color:var(--blue)">⏳ Отправка тестового письма на ' + escapeHtml(testTo) + '...</span>';
   try {
     const r = await fetch('/api/settings/email/test', {
       method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({}),
+      body: JSON.stringify({ to: testTo }),
     });
     const j = await r.json();
     if (j.success) {
