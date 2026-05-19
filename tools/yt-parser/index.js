@@ -403,7 +403,7 @@ async function withRetry(fn, label, maxRetries = 3) {
 
 // TTL для кэша
 const CHANNEL_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 дней
-const SEARCH_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 часа
+const SEARCH_CACHE_TTL_MS = 5 * 24 * 60 * 60 * 1000; // 5 дней
 
 function loadCache() {
   if (fs.existsSync(CACHE_FILE)) {
@@ -750,16 +750,8 @@ async function processChannel(channelData, options = {}) {
     snippet.defaultLanguage || branding.channel?.defaultLanguage || "";
   const channelTags = branding.channel?.keywords || "";
 
-  // Top playlists (best-effort, +1 unit)
+  // Top playlists — отключено (экономия 1 unit на канал, данные не используются в UI/CSV)
   let topPlaylists = [];
-  if (options.fetchPlaylists !== false) {
-    try {
-      topPlaylists = await getChannelPlaylists(channelData.id, 5);
-      await sleep(100);
-    } catch {
-      /* ignore */
-    }
-  }
 
   // Сбор контактов с сохранением источника (priority: about → keywords → видео).
   const prioritizedSources = [
