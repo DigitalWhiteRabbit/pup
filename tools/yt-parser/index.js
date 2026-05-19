@@ -23,6 +23,72 @@ const API_COSTS = {
 let apiUnitsUsed = 0;
 const DAILY_QUOTA = 10000;
 
+// ─── API Key Pool & Rotation ────────────────────────────────────────────────
+let keyPool = []; // [{id, key, quota, used}]
+let currentKeyIndex = 0;
+
+function initKeyPool() {
+  const poolJson = process.env.YT_API_KEY_POOL;
+  if (poolJson) {
+    try {
+      keyPool = JSON.parse(poolJson).filter(
+        (k) => k.used < k.quota, // only keys with remaining quota
+      );
+      if (keyPool.length > 0) {
+        console.log(`  🔑 API key pool: ${keyPool.length} ключей`);
+        for (const k of keyPool) {
+          const remaining = k.quota - k.used;
+          console.log(
+            `     • ${k.key.slice(0, 8)}... — ${remaining}/${k.quota} осталось`,
+          );
+        }
+        return;
+      }
+    } catch {}
+  }
+  // Fallback to single env key
+  const singleKey = process.env.YOUTUBE_API_KEY;
+  if (singleKey && singleKey !== "your_key_here") {
+    keyPool = [{ id: 0, key: singleKey, quota: 10000, used: 0 }];
+    console.log("  🔑 API key: одиночный ключ из .env");
+  }
+}
+
+function getCurrentKey() {
+  if (keyPool.length === 0) return null;
+  return keyPool[currentKeyIndex % keyPool.length];
+}
+
+function switchToNextKey() {
+  if (keyPool.length <= 1) return false;
+  const exhaustedId = keyPool[currentKeyIndex % keyPool.length]?.id;
+  // Remove exhausted key from pool
+  keyPool = keyPool.filter((k) => k.id !== exhaustedId);
+  if (keyPool.length === 0) return false;
+  currentKeyIndex = 0;
+  const next = keyPool[0];
+  console.log(
+    `  🔄 Переключение на ключ ${next.key.slice(0, 8)}... (осталось ${next.quota - next.used})`,
+  );
+  youtube = google.youtube({ version: "v3", auth: next.key });
+  return true;
+}
+
+/** Report usage back to server via stdout (server.js parses these lines) */
+function reportKeyUsage(keyId, units) {
+  console.log(`__KEY_USAGE__:${keyId}:${units}`);
+}
+
+function trackApiCost(costKey) {
+  const units = API_COSTS[costKey] || 0;
+  apiUnitsUsed += units;
+  const cur = getCurrentKey();
+  if (cur) {
+    cur.used += units;
+    reportKeyUsage(cur.id, units);
+  }
+}
+
 // ─── Утилиты ────────────────────────────────────────────────────────────────
 
 function sleep(ms) {
@@ -299,7 +365,21 @@ async function withRetry(fn, label, maxRetries = 3) {
       return await fn();
     } catch (err) {
       const status = err?.response?.status || err?.code;
+      const isQuota =
+        status === 403 &&
+        (err.message?.includes("quota") || err.message?.includes("exceeded"));
       const retryable = status === 429 || (status >= 500 && status < 600);
+
+      // Quota exceeded — try next key from pool
+      if (isQuota && keyPool.length > 1) {
+        const curKey = getCurrentKey();
+        if (curKey) reportKeyUsage(curKey.id, curKey.quota - curKey.used); // mark as fully used
+        if (switchToNextKey()) {
+          console.log(`  ⚠ ${label}: квота исчерпана, пробуем следующий ключ`);
+          attempt--; // don't count key switch as an attempt
+          continue;
+        }
+      }
 
       if (retryable && attempt < maxRetries) {
         const delay = 2000 * attempt;
@@ -425,7 +505,7 @@ async function searchChannelsByQuery(
       () => youtube.search.list(params),
       `search "${query}"`,
     );
-    apiUnitsUsed += API_COSTS["search.list"];
+    trackApiCost("search.list");
 
     const items = res.data.items || [];
     for (const item of items) {
@@ -462,7 +542,7 @@ async function getChannelDetails(channelIds) {
         }),
       `channels.list batch ${i / 50 + 1}`,
     );
-    apiUnitsUsed += API_COSTS["channels.list"];
+    trackApiCost("channels.list");
     results.push(...(res.data.items || []));
     await sleep(150);
   }
@@ -480,7 +560,7 @@ async function getRecentVideos(uploadsPlaylistId, count = 10) {
       }),
     `playlistItems "${uploadsPlaylistId}"`,
   );
-  apiUnitsUsed += API_COSTS["playlistItems.list"];
+  trackApiCost("playlistItems.list");
 
   return res.data.items || [];
 }
@@ -496,7 +576,7 @@ async function getChannelPlaylists(channelId, maxResults = 5) {
         }),
       `playlists.list "${channelId}"`,
     );
-    apiUnitsUsed += API_COSTS["channels.list"]; // 1 unit
+    trackApiCost("channels.list"); // 1 unit
     return (res.data.items || []).map((p) => ({
       id: p.id,
       title: (p.snippet?.title || "").slice(0, 200),
@@ -519,7 +599,7 @@ async function getVideoDetails(videoIds, parts = "statistics") {
       }),
     `videos.list (${videoIds.length} videos)`,
   );
-  apiUnitsUsed += API_COSTS["channels.list"]; // videos.list = 1 unit
+  trackApiCost("channels.list"); // videos.list = 1 unit
 
   return res.data.items || [];
 }
@@ -944,12 +1024,15 @@ async function main() {
     maxSearchPages: parseInt(raw.maxSearchPages, 10) || 10,
   };
 
-  const API_KEY = process.env.YOUTUBE_API_KEY;
-  if (!API_KEY || API_KEY === "your_key_here") {
-    console.error("Ошибка: укажите YOUTUBE_API_KEY в файле .env");
+  initKeyPool();
+  const firstKey = getCurrentKey();
+  if (!firstKey) {
+    console.error(
+      "Ошибка: нет доступных API ключей (добавьте в пул или укажите YOUTUBE_API_KEY в .env)",
+    );
     process.exit(1);
   }
-  youtube = google.youtube({ version: "v3", auth: API_KEY });
+  youtube = google.youtube({ version: "v3", auth: firstKey.key });
 
   if (!opts.keywords && !opts.hashtags) {
     console.error("Ошибка: укажите --keywords и/или --hashtags");
@@ -1213,7 +1296,7 @@ async function main() {
           }
           break;
         }
-        apiUnitsUsed += API_COSTS["search.list"];
+        trackApiCost("search.list");
 
         const items = res.data.items || [];
         if (items.length === 0) break;

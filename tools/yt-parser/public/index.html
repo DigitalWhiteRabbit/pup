@@ -2143,6 +2143,24 @@ window.fetch = function(url, opts) {
 
           <div id="emailStatusBox" style="font-size:12px"></div>
         </div>
+
+        <!-- API Key Pool -->
+        <div class="card">
+          <div class="card-title">YouTube API Key Pool</div>
+          <div style="font-size:12px;color:var(--text-dim);margin-bottom:14px;line-height:1.6">
+            Добавляй несколько Google API ключей — парсер будет автоматически ротировать их при исчерпании квоты.
+            Каждый ключ = 10,000 units/день. Ключи можно привязать к конкретному workspace или оставить в общем пуле.
+          </div>
+
+          <div style="display:flex;gap:8px;margin-bottom:14px">
+            <input type="text" id="newApiKeyInput" placeholder="AIzaSy..." style="flex:1;font-family:monospace;font-size:12px">
+            <input type="text" id="newApiKeyLabel" placeholder="Метка (опционально)" style="width:160px;font-size:12px">
+            <button class="btn-primary btn-sm" onclick="addApiKey()">Добавить</button>
+          </div>
+
+          <div id="apiKeyPoolList" style="font-size:12px"></div>
+          <div id="apiKeyPoolStatus" style="margin-top:8px;font-size:11px;color:var(--text-dim)"></div>
+        </div>
       </div>
 
       <div class="card" style="margin-top:16px">
@@ -3083,7 +3101,7 @@ function switchNav(section) {
   if (section === 'stats') { updateStats(); updateCharts(); loadAnalytics(); }
   if (section === 'history') { loadHistory(); loadErrors(); }
   if (section === 'tasks') { loadDevTasks(); }
-  if (section === 'settings') { loadTgStatus(); loadWorkerLogs(); initAdminTokenUI(); loadReviewModeSetting(); }
+  if (section === 'settings') { loadTgStatus(); loadWorkerLogs(); initAdminTokenUI(); loadReviewModeSetting(); loadApiKeyPool(); }
 }
 
 // ─── Dev Tasks Tracker ────────────────────────────────
@@ -3573,7 +3591,7 @@ async function loadPromotedChannelIds(){
   } catch { promotedChannelIds = new Set(); }
 }
 async function loadData(){try{const r=await fetch('/api/results');const j=await r.json();allData=j.data||[];await loadPromotedChannelIds();updateStats();updateKpis();updateCharts();populateFilters();renderTable();}catch{}}
-async function loadQuota(){try{const r=await fetch('/api/quota');const j=await r.json();updateQuota(j.used,j.total);}catch{}}
+async function loadQuota(){try{const r=await fetch('/api/quota');const j=await r.json();updateQuota(j.used,j.total,j.keys||0,j.perKey);}catch{}}
 async function loadErrors(){try{const r=await fetch('/api/logs');const j=await r.json();const el=document.getElementById('errorLog');if(el){el.textContent=j.lines.length===0?'Нет ошибок':j.lines.join('\n');el.scrollTop=el.scrollHeight;}}catch{}}
 async function loadDeletedIds(){try{const r=await fetch('/api/deleted');const j=await r.json();deletedIds=new Set(j.ids||[]);updateTabCounts();}catch{}}
 
@@ -4021,19 +4039,25 @@ function updateStats(){
   updateTabCounts();
 }
 
-function updateQuota(used,total){
+function updateQuota(used,total,keyCount,perKey){
   const pct=total>0?(used/total)*100:0;
-  document.getElementById('sbQuotaText').textContent=used.toLocaleString('ru')+' / '+total.toLocaleString('ru');
+  const keysLabel = keyCount > 0 ? ` (${keyCount} 🔑)` : '';
+  document.getElementById('sbQuotaText').textContent=used.toLocaleString('ru')+' / '+total.toLocaleString('ru') + keysLabel;
   const sbBar=document.getElementById('sbQuotaBar');sbBar.style.width=Math.min(pct,100)+'%';
   sbBar.style.background=pct<50?'var(--accent)':pct<80?'var(--yellow)':'var(--red)';
   // KPI quota
   document.getElementById('kpiQuotaUsed').textContent=used.toLocaleString('ru');
-  document.getElementById('kpiQuotaTrend').textContent='/ '+total.toLocaleString('ru')+' used';
+  document.getElementById('kpiQuotaTrend').textContent='/ '+total.toLocaleString('ru')+' used' + keysLabel;
   const ring=document.getElementById('kpiQuotaRing');
   const circ=157;
   ring.setAttribute('stroke-dashoffset',circ - circ * (pct/100));
   ring.style.stroke = pct<50?'var(--accent)':pct<80?'var(--yellow)':'var(--red)';
   document.getElementById('kpiQuotaPct').textContent=Math.round(pct)+'%';
+  // Per-key tooltip
+  if(perKey && perKey.length > 0){
+    const tip = perKey.map(k=>`${k.label||'Key #'+k.id}: ${k.used.toLocaleString('ru')}/${k.quota.toLocaleString('ru')}`).join('\n');
+    document.getElementById('sbQuotaText').title = tip;
+  }
 }
 function computeQuotaReset(){
   function u(){const now=new Date(),r=new Date(now);r.setUTCHours(7,0,0,0);if(r<=now)r.setUTCDate(r.getUTCDate()+1);const d=r-now;
@@ -5580,6 +5604,94 @@ async function saveFollowUpConfig() {
     if (j.success) toast('Follow-up сохранён', 'success');
     loadReviewModeSetting();
   } catch(e) { toast('Ошибка: '+e.message, 'error'); }
+}
+
+// ─── Settings: API Key Pool ──────────────────────────────
+
+async function loadApiKeyPool() {
+  try {
+    const r = await fetch('/api/api-keys');
+    const j = await r.json();
+    renderApiKeyPool(j.keys || []);
+  } catch {}
+}
+
+function renderApiKeyPool(keys) {
+  const el = document.getElementById('apiKeyPoolList');
+  if (!keys.length) {
+    el.innerHTML = '<div style="color:var(--text-dim);padding:8px 0">Нет ключей. Добавьте YouTube API ключ выше.</div>';
+    return;
+  }
+  let html = '<table style="width:100%;border-collapse:collapse;font-size:12px">';
+  html += '<tr style="color:var(--text-dim);font-size:10px;text-transform:uppercase;letter-spacing:0.5px"><th style="text-align:left;padding:6px 8px">Ключ</th><th>Метка</th><th>Квота сегодня</th><th>Workspace</th><th>Статус</th><th></th></tr>';
+  for (const k of keys) {
+    const pct = k.daily_quota > 0 ? (k.used_today / k.daily_quota) * 100 : 0;
+    const color = pct < 50 ? 'var(--green)' : pct < 80 ? 'var(--yellow)' : 'var(--red)';
+    const wsNames = k.workspaces.length ? k.workspaces.map(w => `<span style="background:var(--bg-alt);border:1px solid var(--border);border-radius:4px;padding:1px 6px;font-size:10px">${escapeHtml(w)}</span>`).join(' ') : '<span style="color:var(--text-dim)">общий пул</span>';
+    html += `<tr style="border-top:1px solid var(--border)">
+      <td style="padding:8px;font-family:monospace">${escapeHtml(k.api_key)}</td>
+      <td style="padding:8px;text-align:center">${escapeHtml(k.label || '—')}</td>
+      <td style="padding:8px;text-align:center">
+        <span style="color:${color}">${k.used_today.toLocaleString('ru')}</span> / ${k.daily_quota.toLocaleString('ru')}
+        <div style="height:3px;background:var(--border);border-radius:2px;margin-top:4px"><div style="height:100%;width:${Math.min(pct,100)}%;background:${color};border-radius:2px"></div></div>
+      </td>
+      <td style="padding:8px;text-align:center">${wsNames}</td>
+      <td style="padding:8px;text-align:center">
+        <span style="color:${k.is_active?'var(--green)':'var(--red)'};cursor:pointer" onclick="toggleApiKey(${k.id},${k.is_active?0:1})">${k.is_active?'● Активен':'○ Выкл'}</span>
+      </td>
+      <td style="padding:8px;text-align:center">
+        <button class="btn-danger btn-sm" style="padding:2px 8px;font-size:10px" onclick="deleteApiKey(${k.id})">✕</button>
+      </td>
+    </tr>`;
+  }
+  html += '</table>';
+  el.innerHTML = html;
+}
+
+async function addApiKey() {
+  const input = document.getElementById('newApiKeyInput');
+  const labelInput = document.getElementById('newApiKeyLabel');
+  const apiKey = input.value.trim();
+  if (!apiKey) return toast('Введите API ключ', 'error');
+  try {
+    const r = await fetch('/api/api-keys', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ apiKey, label: labelInput.value.trim() }),
+    });
+    const j = await r.json();
+    if (j.success) {
+      input.value = ''; labelInput.value = '';
+      // Auto-assign to current workspace
+      if (_wsId !== 'default') {
+        await fetch(`/api/api-keys/${j.id}/assign`, {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ workspaceId: _wsId }),
+        });
+      }
+      toast('Ключ добавлен', 'success');
+      loadApiKeyPool(); loadQuota();
+    } else {
+      toast(j.error || 'Ошибка', 'error');
+    }
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function deleteApiKey(id) {
+  if (!confirm('Удалить ключ?')) return;
+  try {
+    await fetch(`/api/api-keys/${id}`, { method: 'DELETE' });
+    loadApiKeyPool(); loadQuota();
+  } catch {}
+}
+
+async function toggleApiKey(id, isActive) {
+  try {
+    await fetch(`/api/api-keys/${id}/toggle`, {
+      method: 'PATCH', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ isActive: !!isActive }),
+    });
+    loadApiKeyPool(); loadQuota();
+  } catch {}
 }
 
 // ─── Settings: Telegram login (Phase D) ───────────────

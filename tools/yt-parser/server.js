@@ -24,6 +24,8 @@ const unsubscribeRouter = require("./routes/unsubscribe");
 const { importFromCsv } = require("./db/lead-importer");
 const tgOutreach = require("./services/telegram-outreach");
 const adminBot = require("./services/admin-bot");
+const apiKeysRouter = require("./routes/api-keys");
+const apiKeysDb = require("./db/api-keys");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -61,6 +63,7 @@ app.use("/api/settings", settingsRouter);
 app.use("/api/health", healthRouter);
 app.use("/api/knowledge", knowledgeRouter);
 app.use("/api/dev-tasks", devTasksRouter);
+app.use("/api/api-keys", apiKeysRouter);
 
 const ARCHIVE_DIR = path.join(__dirname, "Архив парсинг");
 // Per-workspace CSV path
@@ -343,9 +346,21 @@ app.get("/api/results", (req, res) => {
   }
 });
 
-// Квота
+// Квота (per-workspace, from API key pool)
 app.get("/api/quota", (req, res) => {
   try {
+    const quota = apiKeysDb.getWorkspaceQuota(req.workspaceId);
+    if (quota.keys > 0) {
+      return res.json({
+        success: true,
+        used: quota.totalUsed,
+        total: quota.totalQuota,
+        remaining: quota.remaining,
+        keys: quota.keys,
+        perKey: quota.perKey,
+      });
+    }
+    // Fallback: legacy single key from cache.json
     let used = 0;
     if (fs.existsSync(CACHE_FILE)) {
       const cache = JSON.parse(fs.readFileSync(CACHE_FILE, "utf-8"));
@@ -356,9 +371,16 @@ app.get("/api/quota", (req, res) => {
       used,
       total: 10000,
       remaining: Math.max(0, 10000 - used),
+      keys: 0,
     });
   } catch {
-    res.json({ success: true, used: 0, total: 10000, remaining: 10000 });
+    res.json({
+      success: true,
+      used: 0,
+      total: 10000,
+      remaining: 10000,
+      keys: 0,
+    });
   }
 });
 
@@ -460,12 +482,27 @@ app.post("/api/parse", adminAuth, (req, res) => {
 
   broadcast("status", { status: "running" }, req.workspaceId);
 
+  // Build API key pool for this workspace
+  const poolKeys = apiKeysDb.getKeysForWorkspace(req.workspaceId);
+  const childEnv = { ...process.env, PARSER_WORKSPACE_ID: req.workspaceId };
+  if (poolKeys.length > 0) {
+    // Pass pool keys as JSON — index.js will rotate through them
+    childEnv.YT_API_KEY_POOL = JSON.stringify(
+      poolKeys.map((k) => ({
+        id: k.id,
+        key: k.api_key,
+        quota: k.daily_quota,
+        used: k.used_today,
+      })),
+    );
+  }
+
   const child = spawn(
     process.execPath,
     [path.join(__dirname, "index.js"), ...args],
     {
       cwd: __dirname,
-      env: { ...process.env },
+      env: childEnv,
     },
   );
 
@@ -475,6 +512,14 @@ app.post("/api/parse", adminAuth, (req, res) => {
   child.stdout.on("data", (data) => {
     const lines = data.toString().split("\n").filter(Boolean);
     for (const line of lines) {
+      // Parse key usage reports from parser child
+      const usageMatch = line.match(/^__KEY_USAGE__:(\d+):(\d+)$/);
+      if (usageMatch) {
+        try {
+          apiKeysDb.addUsage(parseInt(usageMatch[1]), parseInt(usageMatch[2]));
+        } catch {}
+        continue; // don't show internal messages in log
+      }
       ps.log.push(line);
       broadcast("log", { message: line }, wsId);
     }
