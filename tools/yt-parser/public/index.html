@@ -2126,22 +2126,52 @@ window.fetch = function(url, opts) {
           </div>
         </div>
 
-        <!-- Email status -->
+        <!-- Email config (per-workspace) -->
         <div class="card">
           <div class="card-title">Email Setup (Resend)</div>
           <div style="font-size:12px;color:var(--text-dim);margin-bottom:14px;line-height:1.6">
-            Email отправляется через <a href="https://resend.com" target="_blank" style="color:var(--accent)">Resend.com</a> с твоего домена. Приём через IMAP.
+            Настройки email индивидуальны для каждого проекта. Отправка через <a href="https://resend.com" target="_blank" style="color:var(--accent)">Resend.com</a>, приём через IMAP (опционально).
           </div>
 
-          <div style="background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:8px;padding:12px;font-size:11px;line-height:1.7;margin-bottom:14px">
-            <strong style="color:var(--text)">Переменные .env:</strong><br>
-            <code style="color:var(--accent)">RESEND_API_KEY</code> — ключ из Resend dashboard<br>
-            <code style="color:var(--accent)">EMAIL_FROM</code> — email-адрес отправки<br>
-            <code style="color:var(--accent)">IMAP_HOST</code> — сервер для приёма (например imap.gmail.com)<br>
-            <code style="color:var(--accent)">IMAP_USER</code>, <code style="color:var(--accent)">IMAP_PASS</code> — креды
+          <div class="form-grid" style="gap:12px">
+            <div>
+              <label>Resend API Key <span style="color:var(--red)">*</span></label>
+              <input type="password" id="emailResendKey" placeholder="re_..." autocomplete="off">
+            </div>
+            <div>
+              <label>Email FROM <span style="color:var(--red)">*</span></label>
+              <input type="text" id="emailFrom" placeholder="partnerships@yourdomain.com">
+            </div>
+            <div>
+              <label>Имя отправителя</label>
+              <input type="text" id="emailSenderName" placeholder="Atlas System">
+            </div>
+            <div style="grid-column:1/-1;border-top:1px solid var(--border);padding-top:12px;margin-top:4px">
+              <div style="font-size:11px;color:var(--text-dim);margin-bottom:8px">IMAP (для приёма ответов, опционально)</div>
+            </div>
+            <div>
+              <label>IMAP Host</label>
+              <input type="text" id="emailImapHost" placeholder="imap.gmail.com">
+            </div>
+            <div>
+              <label>IMAP Port</label>
+              <input type="number" id="emailImapPort" placeholder="993">
+            </div>
+            <div>
+              <label>IMAP User</label>
+              <input type="text" id="emailImapUser" placeholder="email@domain.com">
+            </div>
+            <div>
+              <label>IMAP Password</label>
+              <input type="password" id="emailImapPass" placeholder="••••••••" autocomplete="off">
+            </div>
           </div>
 
-          <div id="emailStatusBox" style="font-size:12px"></div>
+          <div style="display:flex;gap:8px;margin-top:14px">
+            <button class="btn-primary btn-sm" onclick="saveEmailConfig()">Сохранить</button>
+            <button class="btn-blue btn-sm" onclick="testEmailSend()">Отправить тест</button>
+          </div>
+          <div id="emailConfigStatus" style="margin-top:10px;font-size:11px;color:var(--text-dim)"></div>
         </div>
 
         <!-- API Key Pool -->
@@ -3101,7 +3131,7 @@ function switchNav(section) {
   if (section === 'stats') { updateStats(); updateCharts(); loadAnalytics(); }
   if (section === 'history') { loadHistory(); loadErrors(); }
   if (section === 'tasks') { loadDevTasks(); }
-  if (section === 'settings') { loadTgStatus(); loadWorkerLogs(); initAdminTokenUI(); loadReviewModeSetting(); loadApiKeyPool(); }
+  if (section === 'settings') { loadTgStatus(); loadWorkerLogs(); initAdminTokenUI(); loadReviewModeSetting(); loadApiKeyPool(); loadEmailConfig(); }
 }
 
 // ─── Dev Tasks Tracker ────────────────────────────────
@@ -5692,6 +5722,79 @@ async function toggleApiKey(id, isActive) {
     });
     loadApiKeyPool(); loadQuota();
   } catch {}
+}
+
+// ─── Settings: Email config (per-workspace) ────────────
+
+async function loadEmailConfig() {
+  try {
+    const r = await fetch('/api/settings/email');
+    const j = await r.json();
+    if (!j.success) return;
+    const e = j.email;
+    document.getElementById('emailResendKey').value = '';
+    document.getElementById('emailResendKey').placeholder = e.resend_api_key_masked || 're_...';
+    document.getElementById('emailFrom').value = e.email_from || '';
+    document.getElementById('emailSenderName').value = e.sender_name || '';
+    document.getElementById('emailImapHost').value = e.imap_host || '';
+    document.getElementById('emailImapPort').value = e.imap_port || '';
+    document.getElementById('emailImapUser').value = e.imap_user || '';
+    document.getElementById('emailImapPass').value = '';
+    document.getElementById('emailImapPass').placeholder = e.imap_pass_masked || '';
+    // Status indicator
+    const st = document.getElementById('emailConfigStatus');
+    if (e.resend_api_key_masked && e.email_from) {
+      st.innerHTML = '<span style="color:var(--green)">● Resend подключен</span> — ' + escapeHtml(e.email_from);
+    } else {
+      st.innerHTML = '<span style="color:var(--text-dim)">Не настроено</span>';
+    }
+  } catch {}
+}
+
+async function saveEmailConfig() {
+  const payload = {};
+  const key = document.getElementById('emailResendKey').value.trim();
+  if (key) payload.resend_api_key = key;
+  const from = document.getElementById('emailFrom').value.trim();
+  if (from) payload.email_from = from;
+  const name = document.getElementById('emailSenderName').value.trim();
+  payload.sender_name = name;
+  const imapHost = document.getElementById('emailImapHost').value.trim();
+  if (imapHost) payload.imap_host = imapHost;
+  const imapPort = document.getElementById('emailImapPort').value.trim();
+  if (imapPort) payload.imap_port = imapPort;
+  const imapUser = document.getElementById('emailImapUser').value.trim();
+  if (imapUser) payload.imap_user = imapUser;
+  const imapPass = document.getElementById('emailImapPass').value.trim();
+  if (imapPass) payload.imap_pass = imapPass;
+
+  try {
+    const r = await fetch('/api/settings/email', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload),
+    });
+    const j = await r.json();
+    if (j.success) { toast('Email настройки сохранены', 'success'); loadEmailConfig(); }
+    else toast(j.error || 'Ошибка', 'error');
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function testEmailSend() {
+  const st = document.getElementById('emailConfigStatus');
+  st.innerHTML = '<span style="color:var(--blue)">⏳ Отправка тестового письма...</span>';
+  try {
+    const r = await fetch('/api/settings/email/test', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({}),
+    });
+    const j = await r.json();
+    if (j.success) {
+      st.innerHTML = '<span style="color:var(--green)">✅ Тестовое письмо отправлено! ID: ' + escapeHtml(j.id || '') + '</span>';
+      toast('Тестовое письмо отправлено!', 'success');
+    } else {
+      st.innerHTML = '<span style="color:var(--red)">❌ ' + escapeHtml(j.error) + '</span>';
+    }
+  } catch(e) { st.innerHTML = '<span style="color:var(--red)">❌ ' + escapeHtml(e.message) + '</span>'; }
 }
 
 // ─── Settings: Telegram login (Phase D) ───────────────

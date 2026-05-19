@@ -79,4 +79,83 @@ router.post("/followup", (req, res) => {
   res.json({ success: true, followup: next });
 });
 
+// ─── Email config (per-workspace) ───────────────────────
+
+const EMAIL_FIELDS = [
+  "resend_api_key",
+  "email_from",
+  "sender_name",
+  "imap_host",
+  "imap_port",
+  "imap_user",
+  "imap_pass",
+];
+
+function readEmailConfig(req) {
+  const cfg = {};
+  for (const field of EMAIL_FIELDS) {
+    const row = req.stmts.getSetting.get(`email_${field}`);
+    cfg[field] = row ? row.value : "";
+  }
+  // Fallback to env vars if workspace has no config
+  if (!cfg.resend_api_key)
+    cfg.resend_api_key = process.env.RESEND_API_KEY || "";
+  if (!cfg.email_from) cfg.email_from = process.env.EMAIL_FROM || "";
+  if (!cfg.sender_name) cfg.sender_name = process.env.RESEND_SENDER_NAME || "";
+  return cfg;
+}
+
+router.get("/email", (req, res) => {
+  const cfg = readEmailConfig(req);
+  // Mask the API key for display
+  const masked = { ...cfg };
+  if (masked.resend_api_key) {
+    masked.resend_api_key_masked =
+      masked.resend_api_key.slice(0, 8) +
+      "..." +
+      masked.resend_api_key.slice(-4);
+  }
+  if (masked.imap_pass) {
+    masked.imap_pass_masked = "••••••••";
+  }
+  res.json({ success: true, email: masked });
+});
+
+router.post("/email", (req, res) => {
+  const now = new Date().toISOString();
+  for (const field of EMAIL_FIELDS) {
+    if (req.body[field] !== undefined) {
+      req.stmts.upsertSetting.run(`email_${field}`, req.body[field], now);
+    }
+  }
+  res.json({ success: true });
+});
+
+// Test send
+router.post("/email/test", async (req, res) => {
+  const cfg = readEmailConfig(req);
+  if (!cfg.resend_api_key || !cfg.email_from) {
+    return res
+      .status(400)
+      .json({
+        success: false,
+        error: "Resend API key и Email FROM обязательны",
+      });
+  }
+  try {
+    const { Resend } = require("resend");
+    const resend = new Resend(cfg.resend_api_key);
+    const testTo = req.body.to || cfg.email_from; // send to self
+    const result = await resend.emails.send({
+      from: `${cfg.sender_name || "Test"} <${cfg.email_from}>`,
+      to: [testTo],
+      subject: "Test email from ПУП",
+      html: "<p>Email работает! Это тестовое сообщение из парсера.</p>",
+    });
+    res.json({ success: true, id: result.data?.id });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
 module.exports = router;
