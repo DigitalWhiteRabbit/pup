@@ -1144,8 +1144,9 @@ async function main() {
   }
 
   // Главный цикл по источникам
+  let quotaExhausted = false;
   for (const source of sources) {
-    if (filtered.length >= opts.limit) break;
+    if (filtered.length >= opts.limit || quotaExhausted) break;
     console.log(`\n  → ${source.type}: "${source.query}"`);
 
     // Проверка search cache
@@ -1203,6 +1204,13 @@ async function main() {
         } catch (e) {
           console.error(`    ✗ search page ${pageNum}: ${e.message}`);
           logError(`search "${source.query}" p${pageNum}: ${e.message}`);
+          // Quota exceeded — stop all parsing, don't waste time on remaining keywords
+          if (e.message?.includes("quota") || e?.response?.status === 403) {
+            console.error(
+              `\n  ⛔ YouTube API квота исчерпана — останавливаем парсинг`,
+            );
+            quotaExhausted = true;
+          }
           break;
         }
         apiUnitsUsed += API_COSTS["search.list"];

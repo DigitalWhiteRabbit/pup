@@ -157,29 +157,48 @@ function saveDeleted(workspaceId, ids) {
   );
 }
 
-// ─── Состояние парсера ──────────────────────────────────────────────────────
+// ─── Состояние парсера (per-workspace) ──────────────────────────────────────
 
-let parserState = {
-  status: "idle", // idle | running | done | error
-  process: null,
-  log: [],
-  error: null,
-};
+const parserStates = new Map(); // workspaceId → state
+const sseClientsByWs = new Map(); // workspaceId → res[]
 
-// SSE клиенты
-let sseClients = [];
+function getParserState(wsId) {
+  if (!parserStates.has(wsId)) {
+    parserStates.set(wsId, {
+      status: "idle",
+      process: null,
+      log: [],
+      error: null,
+    });
+  }
+  return parserStates.get(wsId);
+}
 
-function broadcast(event, data) {
+function getSseClients(wsId) {
+  if (!sseClientsByWs.has(wsId)) sseClientsByWs.set(wsId, []);
+  return sseClientsByWs.get(wsId);
+}
+
+function broadcast(event, data, wsId) {
   const msg = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-  sseClients = sseClients.filter((res) => {
+  const clients = getSseClients(wsId || "default");
+  const alive = [];
+  for (const res of clients) {
     try {
       res.write(msg);
-      return true;
-    } catch {
-      return false;
-    }
-  });
+      alive.push(res);
+    } catch {}
+  }
+  sseClientsByWs.set(wsId || "default", alive);
 }
+
+// ─── Graceful error handling ────────────────────────────────────────────────
+process.on("uncaughtException", (err) => {
+  console.error("[FATAL] uncaughtException:", err);
+});
+process.on("unhandledRejection", (reason) => {
+  console.error("[FATAL] unhandledRejection:", reason);
+});
 
 // ─── Парсинг CSV ────────────────────────────────────────────────────────────
 
@@ -345,17 +364,18 @@ app.get("/api/quota", (req, res) => {
 
 // Статус парсера
 app.get("/api/status", (req, res) => {
+  const ps = getParserState(req.workspaceId);
   res.json({
     success: true,
-    status: parserState.status,
-    error: parserState.error,
-    logLength: parserState.log.length,
+    status: ps.status,
+    error: ps.error,
+    logLength: ps.log.length,
   });
 });
 
 // Запустить парсер
 app.post("/api/parse", adminAuth, (req, res) => {
-  if (parserState.status === "running") {
+  if (getParserState(req.workspaceId).status === "running") {
     return res
       .status(409)
       .json({ success: false, error: "Парсер уже запущен" });
@@ -416,12 +436,13 @@ app.post("/api/parse", adminAuth, (req, res) => {
   const deletedIds = loadDeleted(req.workspaceId);
   if (deletedIds.length > 0) args.push("--skip-channels", deletedIds.join(","));
 
-  parserState.status = "running";
-  parserState.log = [];
-  parserState.error = null;
-  parserState.startedAt = new Date().toISOString();
-  parserState.workspaceId = req.workspaceId;
-  parserState.params = {
+  const ps = getParserState(req.workspaceId);
+  ps.status = "running";
+  ps.log = [];
+  ps.error = null;
+  ps.startedAt = new Date().toISOString();
+  ps.workspaceId = req.workspaceId;
+  ps.params = {
     keywords,
     hashtags,
     minSubs,
@@ -437,7 +458,7 @@ app.post("/api/parse", adminAuth, (req, res) => {
     publishedAfter,
   };
 
-  broadcast("status", { status: "running" });
+  broadcast("status", { status: "running" }, req.workspaceId);
 
   const child = spawn(
     process.execPath,
@@ -448,61 +469,60 @@ app.post("/api/parse", adminAuth, (req, res) => {
     },
   );
 
-  parserState.process = child;
+  ps.process = child;
+  const wsId = req.workspaceId;
 
   child.stdout.on("data", (data) => {
     const lines = data.toString().split("\n").filter(Boolean);
     for (const line of lines) {
-      parserState.log.push(line);
-      broadcast("log", { message: line });
+      ps.log.push(line);
+      broadcast("log", { message: line }, wsId);
     }
   });
 
   child.stderr.on("data", (data) => {
     const lines = data.toString().split("\n").filter(Boolean);
     for (const line of lines) {
-      parserState.log.push(`[ERR] ${line}`);
-      broadcast("log", { message: `[ERR] ${line}` });
+      ps.log.push(`[ERR] ${line}`);
+      broadcast("log", { message: `[ERR] ${line}` }, wsId);
     }
   });
 
   child.on("close", (code) => {
-    parserState.process = null;
+    ps.process = null;
     const finishedAt = new Date().toISOString();
-    let importResult = null;
     if (code === 0) {
-      parserState.status = "done";
-      // Лиды НЕ импортируются автоматически — только при клике «→ В работу» на Dashboard
-      broadcast("status", { status: "done" });
+      ps.status = "done";
+      broadcast("status", { status: "done" }, wsId);
     } else {
-      parserState.status = "error";
-      parserState.error = `Процесс завершился с кодом ${code}`;
-      broadcast("status", { status: "error", error: parserState.error });
+      ps.status = "error";
+      ps.error = `Процесс завершился с кодом ${code}`;
+      broadcast("status", { status: "error", error: ps.error }, wsId);
     }
     // Save to history
     const history = loadJson(HISTORY_FILE, []);
-    const wsCsvPath = getOutputCsv(parserState.workspaceId || "default");
+    const wsCsvPath = getOutputCsv(ps.workspaceId || "default");
     const resultCount = fs.existsSync(wsCsvPath)
       ? parseCsv(wsCsvPath).length
       : 0;
     history.unshift({
       id: Date.now(),
-      startedAt: parserState.startedAt,
+      startedAt: ps.startedAt,
       finishedAt,
-      status: parserState.status,
-      error: parserState.error,
-      params: parserState.params,
+      status: ps.status,
+      error: ps.error,
+      params: ps.params,
       resultCount,
     });
-    if (history.length > 50) history.length = 50; // keep last 50
+    if (history.length > 50) history.length = 50;
     saveJson(HISTORY_FILE, history);
   });
 
   child.on("error", (err) => {
-    parserState.process = null;
-    parserState.status = "error";
-    parserState.error = err.message;
-    broadcast("status", { status: "error", error: err.message });
+    ps.process = null;
+    ps.status = "error";
+    ps.error = err.message;
+    broadcast("status", { status: "error", error: err.message }, wsId);
   });
 
   res.json({ success: true, message: "Парсер запущен" });
@@ -510,14 +530,15 @@ app.post("/api/parse", adminAuth, (req, res) => {
 
 // Остановить парсер
 app.post("/api/stop", adminAuth, (req, res) => {
-  if (parserState.status !== "running" || !parserState.process) {
+  const ps = getParserState(req.workspaceId);
+  if (ps.status !== "running" || !ps.process) {
     return res.status(400).json({ success: false, error: "Парсер не запущен" });
   }
 
-  parserState.process.kill("SIGTERM");
-  parserState.status = "idle";
-  parserState.process = null;
-  broadcast("status", { status: "idle" });
+  ps.process.kill("SIGTERM");
+  ps.status = "idle";
+  ps.process = null;
+  broadcast("status", { status: "idle" }, req.workspaceId);
 
   res.json({ success: true, message: "Парсер остановлен" });
 });
@@ -784,8 +805,11 @@ app.get("/api/analytics", (req, res) => {
   });
 });
 
-// SSE прогресс
+// SSE прогресс (per-workspace)
 app.get("/api/progress", (req, res) => {
+  const wsId = req.workspaceId;
+  const ps = getParserState(wsId);
+
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache",
@@ -794,18 +818,22 @@ app.get("/api/progress", (req, res) => {
 
   // Отправляем текущий статус
   res.write(
-    `event: status\ndata: ${JSON.stringify({ status: parserState.status })}\n\n`,
+    `event: status\ndata: ${JSON.stringify({ status: ps.status })}\n\n`,
   );
 
   // Отправляем существующие логи
-  for (const line of parserState.log) {
+  for (const line of ps.log) {
     res.write(`event: log\ndata: ${JSON.stringify({ message: line })}\n\n`);
   }
 
-  sseClients.push(res);
+  getSseClients(wsId).push(res);
 
   req.on("close", () => {
-    sseClients = sseClients.filter((c) => c !== res);
+    const clients = getSseClients(wsId);
+    sseClientsByWs.set(
+      wsId,
+      clients.filter((c) => c !== res),
+    );
   });
 });
 
