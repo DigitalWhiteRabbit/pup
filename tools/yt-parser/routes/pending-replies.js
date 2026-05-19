@@ -112,4 +112,59 @@ router.post("/purge-old", (req, res) => {
   res.json({ success: true, removed: r.changes });
 });
 
+// POST /api/pending-replies/:id/regenerate { field: "subject"|"body"|"both" }
+router.post("/:id/regenerate", async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const { field } = req.body; // "subject", "body", "both"
+  const pr = req.db
+    .prepare("SELECT * FROM pending_replies WHERE id = ?")
+    .get(id);
+  if (!pr) return res.status(404).json({ success: false, error: "not found" });
+
+  const lead = req.stmts.getLead.get(pr.lead_id);
+  const project = req.stmts.getActiveProject.get();
+  if (!lead || !project)
+    return res
+      .status(400)
+      .json({ success: false, error: "lead or project not found" });
+
+  try {
+    const ai = require("../services/ai");
+    const result = await ai.generateInitialPitch(
+      lead,
+      project,
+      pr.channel || "email",
+    );
+
+    const updates = {};
+    if (field === "subject" || field === "both") {
+      updates.subject = result.subject || pr.subject;
+    }
+    if (field === "body" || field === "both") {
+      updates.body = result.body || pr.body;
+    }
+
+    // Update in DB
+    if (updates.subject && updates.body) {
+      req.db
+        .prepare(
+          "UPDATE pending_replies SET subject = ?, body = ? WHERE id = ?",
+        )
+        .run(updates.subject, updates.body, id);
+    } else if (updates.subject) {
+      req.db
+        .prepare("UPDATE pending_replies SET subject = ? WHERE id = ?")
+        .run(updates.subject, id);
+    } else if (updates.body) {
+      req.db
+        .prepare("UPDATE pending_replies SET body = ? WHERE id = ?")
+        .run(updates.body, id);
+    }
+
+    res.json({ success: true, ...updates });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
 module.exports = router;

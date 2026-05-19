@@ -5326,18 +5326,46 @@ function renderPendingReplyCard(it) {
       </div>
       <div style="font-size:11px;color:var(--text-dim);margin-bottom:6px">→ ${escapeHtml(it.recipient || '')}</div>
       ${it.channel === 'email' ? `
-        <label style="font-size:10px;color:var(--text-dim);text-transform:uppercase">Subject</label>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+          <label style="font-size:10px;color:var(--text-dim);text-transform:uppercase;flex-shrink:0">Subject</label>
+          <button class="btn-secondary btn-sm" style="font-size:10px;padding:2px 8px" onclick="regenField(${it.id},'subject')">🔄 Перегенерировать</button>
+        </div>
         <input id="prSubj_${it.id}" value="${escapeHtml(it.subject || '')}" style="margin-bottom:8px">
       ` : ''}
-      <label style="font-size:10px;color:var(--text-dim);text-transform:uppercase">Body</label>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+        <label style="font-size:10px;color:var(--text-dim);text-transform:uppercase;flex-shrink:0">Body</label>
+        <button class="btn-secondary btn-sm" style="font-size:10px;padding:2px 8px" onclick="regenField(${it.id},'body')">🔄 Перегенерировать</button>
+      </div>
       <textarea id="prBody_${it.id}" style="min-height:140px;margin-bottom:8px;font-family:'Inter',sans-serif">${escapeHtml(it.body)}</textarea>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn-primary btn-sm" onclick="approvePendingReply(${it.id})">✅ Одобрить и отправить</button>
         <button class="btn-danger btn-sm" onclick="rejectPendingReply(${it.id})">❌ Отклонить</button>
+        <button class="btn-secondary btn-sm" onclick="regenField(${it.id},'both')" title="Перегенерировать всё">🔄 Перегенерировать всё</button>
         <button class="btn-secondary btn-sm" onclick="deletePendingReply(${it.id})" title="Удалить из очереди">🗑</button>
       </div>
     </div>
   `;
+}
+
+async function regenField(id, field) {
+  const btn = event.target;
+  const origText = btn.textContent;
+  btn.textContent = '⏳...';
+  btn.disabled = true;
+  try {
+    const r = await fetch('/api/pending-replies/'+id+'/regenerate', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ field })
+    });
+    const j = await r.json();
+    if (j.success) {
+      if (j.subject) { const el = document.getElementById('prSubj_'+id); if (el) el.value = j.subject; }
+      if (j.body) { const el = document.getElementById('prBody_'+id); if (el) el.value = j.body; }
+      toast('Перегенерировано!', 'success');
+    } else toast(j.error || 'Ошибка', 'error');
+  } catch(e) { toast(e.message, 'error'); }
+  btn.textContent = origText;
+  btn.disabled = false;
 }
 
 async function approvePendingReply(id) {
