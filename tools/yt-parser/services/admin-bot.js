@@ -21,9 +21,12 @@ function init() {
   if (bot) return true;
 
   try {
-    bot = new TelegramBot(token, { polling: true });
-    setupHandlers();
-    console.log("[admin-bot] Started, admin chat: " + adminChatId);
+    // No polling — PUP main bot already uses polling on this token.
+    // We only use sendMessage for outbound notifications.
+    bot = new TelegramBot(token, { polling: false });
+    console.log(
+      "[admin-bot] Ready (send-only, no polling), admin chat: " + adminChatId,
+    );
     return true;
   } catch (e) {
     console.error("[admin-bot] Failed to start:", e.message);
