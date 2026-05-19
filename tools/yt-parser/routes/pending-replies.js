@@ -132,7 +132,19 @@ router.post("/:id/regenerate", async (req, res) => {
     const ai = require("../services/ai");
     // Regenerate full pitch — retry up to 3 times if AI returns garbage
     // Force a clear angle to prevent AI from requesting consultation
-    const angle = `Это перегенерация — ОБЯЗАТЕЛЬНО напиши полноценный первый питч для этого канала. НЕ запрашивай консультацию. Канал подходит — админ уже одобрил. Напиши реальное письмо.`;
+    const angle = `Это перегенерация — ОБЯЗАТЕЛЬНО напиши полноценный первый питч. НЕ запрашивай консультацию — канал одобрен админом.
+
+ТРЕБОВАНИЯ К ТЕМЕ (subject):
+- 3-6 слов, lowercase, без заглавных
+- Конкретная отсылка к блогеру или его контенту
+- Звучит как личное сообщение, НЕ как рассылка
+- ЗАПРЕЩЕНО: "collab idea", "partnership opportunity", "business proposal", "for your channel"
+- Хорошие примеры: "saw your mod breakdown", "BlockerLocker — quick idea", "re: your last video"
+
+ТРЕБОВАНИЯ К ТЕКСТУ (body):
+- Персонализация: упомяни конкретное видео/тему канала
+- Без продажи в первом письме — только знакомство и зацеп
+- Коротко, 3-4 абзаца максимум`;
     let result = null;
     for (let attempt = 0; attempt < 3; attempt++) {
       const r = await ai.generateInitialPitch(
