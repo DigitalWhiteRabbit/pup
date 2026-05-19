@@ -5313,35 +5313,55 @@ async function loadPendingReplies() {
 function renderPendingReplyCard(it) {
   let ctx = {};
   try { ctx = JSON.parse(it.context || '{}'); } catch {}
-  const typeLabel = { initial: '🎯 Первое сообщение', reply: '💬 Ответ', deal_accept: '🤝 Подтверждение сделки', consultation_answer: '🧠 После консультации' }[ctx.type] || ctx.type || '—';
+  const typeMap = { initial: 'Первое сообщение', reply: 'Ответ', deal_accept: 'Подтверждение сделки', consultation_answer: 'После консультации' };
+  const typeLabel = typeMap[ctx.type] || ctx.type || '';
   const chanIcon = it.channel === 'email' ? '📧' : '💬';
+  const statusColor = it.status === 'sent' ? 'var(--green)' : it.status === 'rejected' ? 'var(--red)' : 'var(--accent)';
   return `
-    <div class="history-item" id="pending-${it.id}">
-      <div style="display:flex;justify-content:space-between;margin-bottom:8px;gap:12px;flex-wrap:wrap">
-        <div>
-          <strong>${chanIcon} ${escapeHtml(it.channel_name || 'Без лида')}</strong>
-          <span style="color:var(--text-dim);font-size:11px;margin-left:8px">${typeLabel}</span>
+    <div id="pending-${it.id}" style="background:var(--bg-alt);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px">
+      <!-- Header -->
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="font-size:20px">${chanIcon}</span>
+          <div>
+            <div style="font-weight:700;font-size:15px;color:var(--text)">${escapeHtml(it.channel_name || 'Без лида')}</div>
+            <div style="font-size:12px;color:var(--text-dim);margin-top:2px">
+              → <span style="color:var(--accent);font-weight:500">${escapeHtml(it.recipient || '')}</span>
+              ${typeLabel ? `<span style="margin-left:8px;background:rgba(255,255,255,0.06);padding:2px 8px;border-radius:4px;font-size:10px">${typeLabel}</span>` : ''}
+            </div>
+          </div>
         </div>
-        <span style="color:var(--text-dim);font-size:11px">${new Date(it.created_at).toLocaleString('ru')}</span>
+        <div style="text-align:right">
+          <div style="font-size:11px;color:var(--text-dim)">${new Date(it.created_at).toLocaleString('ru')}</div>
+        </div>
       </div>
-      <div style="font-size:11px;color:var(--text-dim);margin-bottom:6px">→ ${escapeHtml(it.recipient || '')}</div>
+
       ${it.channel === 'email' ? `
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-          <label style="font-size:10px;color:var(--text-dim);text-transform:uppercase;flex-shrink:0">Subject</label>
-          <button class="btn-secondary btn-sm" style="font-size:10px;padding:2px 8px" onclick="regenField(${it.id},'subject')">🔄 Перегенерировать</button>
+      <!-- Subject -->
+      <div style="margin-bottom:14px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <label style="font-size:11px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px">Тема письма</label>
+          <button class="btn-secondary btn-sm" style="font-size:10px;padding:3px 10px;border-radius:6px" onclick="regenField(${it.id},'subject')">🔄 Перегенерировать тему</button>
         </div>
-        <input id="prSubj_${it.id}" value="${escapeHtml(it.subject || '')}" style="margin-bottom:8px">
-      ` : ''}
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-        <label style="font-size:10px;color:var(--text-dim);text-transform:uppercase;flex-shrink:0">Body</label>
-        <button class="btn-secondary btn-sm" style="font-size:10px;padding:2px 8px" onclick="regenField(${it.id},'body')">🔄 Перегенерировать</button>
+        <input id="prSubj_${it.id}" value="${escapeHtml(it.subject || '')}" style="font-size:14px;font-weight:500;padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg);width:100%;box-sizing:border-box">
       </div>
-      <textarea id="prBody_${it.id}" style="min-height:140px;margin-bottom:8px;font-family:'Inter',sans-serif">${escapeHtml(it.body)}</textarea>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn-primary btn-sm" onclick="approvePendingReply(${it.id})">✅ Одобрить и отправить</button>
-        <button class="btn-danger btn-sm" onclick="rejectPendingReply(${it.id})">❌ Отклонить</button>
-        <button class="btn-secondary btn-sm" onclick="regenField(${it.id},'both')" title="Перегенерировать всё">🔄 Перегенерировать всё</button>
-        <button class="btn-secondary btn-sm" onclick="deletePendingReply(${it.id})" title="Удалить из очереди">🗑</button>
+      ` : ''}
+
+      <!-- Body -->
+      <div style="margin-bottom:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <label style="font-size:11px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px">Сообщение</label>
+          <button class="btn-secondary btn-sm" style="font-size:10px;padding:3px 10px;border-radius:6px" onclick="regenField(${it.id},'body')">🔄 Перегенерировать текст</button>
+        </div>
+        <textarea id="prBody_${it.id}" style="min-height:180px;padding:12px;border-radius:8px;border:1px solid var(--border);background:var(--bg);font-family:'Inter',sans-serif;font-size:13px;line-height:1.6;width:100%;box-sizing:border-box;resize:vertical">${escapeHtml(it.body)}</textarea>
+      </div>
+
+      <!-- Actions -->
+      <div style="display:flex;gap:10px;flex-wrap:wrap;padding-top:14px;border-top:1px solid var(--border)">
+        <button class="btn-primary btn-sm" style="padding:8px 20px;font-size:13px;border-radius:8px" onclick="approvePendingReply(${it.id})">✅ Одобрить и отправить</button>
+        <button class="btn-danger btn-sm" style="padding:8px 16px;font-size:13px;border-radius:8px" onclick="rejectPendingReply(${it.id})">✕ Отклонить</button>
+        <button class="btn-secondary btn-sm" style="padding:8px 16px;font-size:13px;border-radius:8px" onclick="regenField(${it.id},'both')">🔄 Перегенерировать всё</button>
+        <button class="btn-secondary btn-sm" style="padding:8px 12px;font-size:13px;border-radius:8px;margin-left:auto" onclick="deletePendingReply(${it.id})" title="Удалить">🗑</button>
       </div>
     </div>
   `;
@@ -5350,8 +5370,9 @@ function renderPendingReplyCard(it) {
 async function regenField(id, field) {
   const btn = event.target;
   const origText = btn.textContent;
-  btn.textContent = '⏳...';
+  btn.textContent = '⏳ Генерирую...';
   btn.disabled = true;
+  btn.style.opacity = '0.6';
   try {
     const r = await fetch('/api/pending-replies/'+id+'/regenerate', {
       method:'POST', headers:{'Content-Type':'application/json'},
@@ -5359,13 +5380,16 @@ async function regenField(id, field) {
     });
     const j = await r.json();
     if (j.success) {
-      if (j.subject) { const el = document.getElementById('prSubj_'+id); if (el) el.value = j.subject; }
-      if (j.body) { const el = document.getElementById('prBody_'+id); if (el) el.value = j.body; }
-      toast('Перегенерировано!', 'success');
-    } else toast(j.error || 'Ошибка', 'error');
+      // Always update both fields if returned
+      if (j.subject != null) { const el = document.getElementById('prSubj_'+id); if (el) el.value = j.subject; }
+      if (j.body != null) { const el = document.getElementById('prBody_'+id); if (el) el.value = j.body; }
+      const label = field === 'subject' ? 'Тема перегенерирована' : field === 'body' ? 'Текст перегенерирован' : 'Полностью перегенерировано';
+      toast(label, 'success');
+    } else toast(j.error || 'Ошибка генерации', 'error');
   } catch(e) { toast(e.message, 'error'); }
   btn.textContent = origText;
   btn.disabled = false;
+  btn.style.opacity = '';
 }
 
 async function approvePendingReply(id) {

@@ -115,7 +115,7 @@ router.post("/purge-old", (req, res) => {
 // POST /api/pending-replies/:id/regenerate { field: "subject"|"body"|"both" }
 router.post("/:id/regenerate", async (req, res) => {
   const id = parseInt(req.params.id, 10);
-  const { field } = req.body; // "subject", "body", "both"
+  const field = req.body.field || "both";
   const pr = req.db
     .prepare("SELECT * FROM pending_replies WHERE id = ?")
     .get(id);
@@ -130,38 +130,35 @@ router.post("/:id/regenerate", async (req, res) => {
 
   try {
     const ai = require("../services/ai");
+    // Always regenerate full pitch (AI needs body context for good subject)
     const result = await ai.generateInitialPitch(
       lead,
       project,
       pr.channel || "email",
     );
 
-    const updates = {};
-    if (field === "subject" || field === "both") {
-      updates.subject = result.subject || pr.subject;
-    }
-    if (field === "body" || field === "both") {
-      updates.body = result.body || pr.body;
+    if (!result || (!result.subject && !result.body)) {
+      return res
+        .status(500)
+        .json({ success: false, error: "AI returned empty result" });
     }
 
-    // Update in DB
-    if (updates.subject && updates.body) {
-      req.db
-        .prepare(
-          "UPDATE pending_replies SET subject = ?, body = ? WHERE id = ?",
-        )
-        .run(updates.subject, updates.body, id);
-    } else if (updates.subject) {
-      req.db
-        .prepare("UPDATE pending_replies SET subject = ? WHERE id = ?")
-        .run(updates.subject, id);
-    } else if (updates.body) {
-      req.db
-        .prepare("UPDATE pending_replies SET body = ? WHERE id = ?")
-        .run(updates.body, id);
-    }
+    const newSubject = result.subject || pr.subject;
+    const newBody = result.body || pr.body;
 
-    res.json({ success: true, ...updates });
+    // Always update both in DB to keep them in sync
+    req.db
+      .prepare("UPDATE pending_replies SET subject = ?, body = ? WHERE id = ?")
+      .run(newSubject, newBody, id);
+
+    // Return what the frontend asked for
+    const response = { success: true };
+    if (field === "subject" || field === "both") response.subject = newSubject;
+    if (field === "body" || field === "both") response.body = newBody;
+    // For subject-only: also return body so frontend can update if it wants
+    if (field === "subject") response.body = newBody;
+
+    res.json(response);
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
   }
