@@ -212,7 +212,9 @@ export function DashboardClient() {
                       />
                     )}
                   </div>
-                  {(m.content || "").length > 200 && (
+                  {("fullLength" in m
+                    ? (m as { fullLength: number }).fullLength
+                    : (m.content || "").length) > 150 && (
                     <a
                       href={`/global-chat#msg-${m.id}`}
                       className="text-[10px] text-emerald-500 hover:underline mt-0.5 inline-block"

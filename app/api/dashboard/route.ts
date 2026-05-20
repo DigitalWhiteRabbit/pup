@@ -167,7 +167,8 @@ export async function GET() {
           authorId: m.author.id,
           authorLogin: m.author.login,
           authorHasAvatar: !!m.author.avatarPath,
-          content: m.content.slice(0, 100),
+          content: m.content.slice(0, 150),
+          fullLength: m.content.length,
           createdAt: m.createdAt,
           audioAttachmentId:
             m.attachments.find((a) => a.mimeType.startsWith("audio/"))?.id ??
