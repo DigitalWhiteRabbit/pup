@@ -126,6 +126,17 @@ export function GlobalChatClient({
     : [];
 
   useEffect(() => {
+    // If URL has hash (e.g. #gmsg-xxx), scroll to that message instead of bottom
+    const hash = window.location.hash;
+    if (hash && hash.startsWith("#gmsg-")) {
+      const el = document.getElementById(hash.slice(1));
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
+        el.classList.add("bg-emerald-900/20");
+        setTimeout(() => el.classList.remove("bg-emerald-900/20"), 3000);
+        return;
+      }
+    }
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [msgs.length]);
 

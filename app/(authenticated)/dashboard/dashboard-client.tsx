@@ -216,7 +216,7 @@ export function DashboardClient() {
                     ? (m as { fullLength: number }).fullLength
                     : (m.content || "").length) > 150 && (
                     <a
-                      href={`/global-chat#msg-${m.id}`}
+                      href={`/global-chat#gmsg-${m.id}`}
                       className="text-[10px] text-emerald-500 hover:underline mt-0.5 inline-block"
                     >
                       Читать в чате →
