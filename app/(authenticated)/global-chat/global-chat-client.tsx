@@ -420,7 +420,7 @@ export function GlobalChatClient({
         {/* Messages */}
         <div
           ref={messagesRef}
-          className={`flex-1 overflow-y-auto overflow-x-hidden px-3 md:px-6 py-4 md:py-5 min-h-0 flex flex-col justify-end relative bg-background ${dragOver ? "bg-emerald-900/10" : ""}`}
+          className={`flex-1 overflow-y-auto overflow-x-hidden px-3 md:px-6 py-4 md:py-5 min-h-0 flex flex-col relative bg-background ${dragOver ? "bg-emerald-900/10" : ""}`}
           onDragOver={(e) => {
             e.preventDefault();
             setDragOver(true);
@@ -450,6 +450,7 @@ export function GlobalChatClient({
             </div>
           )}
 
+          <div className="flex-1" />
           {msgs.map((m, idx) => {
             const isMe = m.authorId === currentUserId;
             const prevMsg = msgs[idx - 1];
