@@ -5394,6 +5394,7 @@ async function loadPendingReplies(filterOverride) {
       return;
     }
     list.innerHTML = items.map(renderPendingReplyCard).join('');
+    setTimeout(autoTranslateAll, 100);
     updateSidebarReviewCount(counts.pending || 0);
   } catch(e) { console.error(e); }
 }
@@ -5427,40 +5428,59 @@ function renderPendingReplyCard(it) {
         </div>
       </div>
 
-      ${it.channel === 'email' ? `
-      <!-- Subject -->
-      <div style="margin-bottom:14px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-          <label style="font-size:11px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px">Тема письма</label>
-          <button class="btn-secondary btn-sm" style="font-size:10px;padding:3px 10px;border-radius:6px" onclick="regenField(${it.id},'subject')">🔄 Перегенерировать тему</button>
+      <!-- Side-by-side: Original + Russian translation -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <!-- LEFT: Original (editable) -->
+        <div>
+          <div style="font-size:10px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">Оригинал (отправляется)</div>
+          ${it.channel === 'email' ? `
+          <div style="margin-bottom:10px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+              <label style="font-size:10px;font-weight:600;color:var(--text-dim);text-transform:uppercase">Тема</label>
+              <button class="btn-secondary btn-sm" style="font-size:9px;padding:2px 8px;border-radius:5px" onclick="regenField(${it.id},'subject')">🔄 Тему</button>
+            </div>
+            <input id="prSubj_${it.id}" value="${escapeHtml(it.subject || '')}" style="font-size:13px;font-weight:500;padding:8px 10px;border-radius:7px;border:1px solid var(--border);background:var(--bg-elev);color:var(--text);width:100%;box-sizing:border-box">
+          </div>
+          ` : ''}
+          <div>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+              <label style="font-size:10px;font-weight:600;color:var(--text-dim);text-transform:uppercase">Сообщение</label>
+              <button class="btn-secondary btn-sm" style="font-size:9px;padding:2px 8px;border-radius:5px" onclick="regenField(${it.id},'body')">🔄 Текст</button>
+            </div>
+            <textarea id="prBody_${it.id}" style="min-height:200px;padding:10px;border-radius:7px;border:1px solid var(--border);background:var(--bg-elev);color:var(--text);font-family:'Inter',sans-serif;font-size:12px;line-height:1.6;width:100%;box-sizing:border-box;resize:vertical" oninput="translatePending(${it.id})">${escapeHtml(it.body)}</textarea>
+          </div>
         </div>
-        <input id="prSubj_${it.id}" value="${escapeHtml(it.subject || '')}" style="font-size:14px;font-weight:500;padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg-elev);color:var(--text);width:100%;box-sizing:border-box">
-      </div>
-      ` : ''}
-
-      <!-- Body -->
-      <div style="margin-bottom:16px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-          <label style="font-size:11px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px">Сообщение</label>
-          <button class="btn-secondary btn-sm" style="font-size:10px;padding:3px 10px;border-radius:6px" onclick="regenField(${it.id},'body')">🔄 Перегенерировать текст</button>
+        <!-- RIGHT: Russian translation (read-only) -->
+        <div>
+          <div style="font-size:10px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">Перевод на русский</div>
+          ${it.channel === 'email' ? `
+          <div style="margin-bottom:10px">
+            <label style="font-size:10px;font-weight:600;color:var(--text-dim);text-transform:uppercase;display:block;margin-bottom:4px">Тема</label>
+            <div id="prSubjRu_${it.id}" style="font-size:13px;font-weight:500;padding:8px 10px;border-radius:7px;border:1px solid var(--border);background:var(--bg);color:var(--text-mid);min-height:38px">⏳ Перевод...</div>
+          </div>
+          ` : ''}
+          <div>
+            <label style="font-size:10px;font-weight:600;color:var(--text-dim);text-transform:uppercase;display:block;margin-bottom:4px">Сообщение</label>
+            <div id="prBodyRu_${it.id}" style="min-height:200px;padding:10px;border-radius:7px;border:1px solid var(--border);background:var(--bg);color:var(--text-mid);font-size:12px;line-height:1.6;white-space:pre-wrap">⏳ Перевод...</div>
+          </div>
         </div>
-        <textarea id="prBody_${it.id}" style="min-height:180px;padding:12px;border-radius:8px;border:1px solid var(--border);background:var(--bg-elev);color:var(--text);font-family:'Inter',sans-serif;font-size:13px;line-height:1.6;width:100%;box-sizing:border-box;resize:vertical">${escapeHtml(it.body)}</textarea>
       </div>
 
       <!-- Actions -->
-      <div style="display:flex;gap:10px;flex-wrap:wrap;padding-top:14px;border-top:1px solid var(--border)">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;padding-top:14px;border-top:1px solid var(--border);margin-top:14px;align-items:center">
         ${it.send_after && it.status === 'approved' && new Date(it.send_after) > new Date()
-          ? `<div style="font-size:12px;color:var(--yellow);margin-bottom:8px">⏱ Отправится через ${Math.round((new Date(it.send_after) - new Date()) / 60000)} мин (${new Date(it.send_after).toLocaleTimeString('ru', {hour:'2-digit',minute:'2-digit'})})</div>`
+          ? `<div style="font-size:12px;color:var(--yellow)">⏱ Через ${Math.round((new Date(it.send_after) - new Date()) / 60000)} мин</div>
+             <button class="btn-primary btn-sm" style="padding:6px 14px;font-size:12px;border-radius:7px" onclick="forceSendNow(${it.id})">⚡ Отправить сейчас</button>`
           : it.send_after && it.status === 'approved'
-            ? `<div style="font-size:12px;color:var(--green);margin-bottom:8px">✅ Таймер истёк — отправится при следующем тике</div>`
+            ? `<div style="font-size:12px;color:var(--green)">✅ Таймер истёк</div>`
             : ''}
         ${it.status === 'sent'
-          ? `<div style="font-size:12px;color:var(--green);margin-bottom:8px">📤 Отправлено ${it.sent_at ? new Date(it.sent_at).toLocaleString('ru') : ''}</div>`
+          ? `<div style="font-size:12px;color:var(--green)">📤 Отправлено ${it.sent_at ? new Date(it.sent_at).toLocaleString('ru') : ''}</div>`
           : ''}
-        <button class="btn-primary btn-sm" style="padding:8px 20px;font-size:13px;border-radius:8px" onclick="approvePendingReply(${it.id})">✅ Одобрить и отправить</button>
-        <button class="btn-danger btn-sm" style="padding:8px 16px;font-size:13px;border-radius:8px" onclick="rejectPendingReply(${it.id})">✕ Отклонить</button>
-        <button class="btn-secondary btn-sm" style="padding:8px 16px;font-size:13px;border-radius:8px" onclick="regenField(${it.id},'both')">🔄 Перегенерировать всё</button>
-        <button class="btn-secondary btn-sm" style="padding:8px 12px;font-size:13px;border-radius:8px;margin-left:auto" onclick="deletePendingReply(${it.id})" title="Удалить">🗑</button>
+        ${it.status === 'pending' ? `<button class="btn-primary btn-sm" style="padding:8px 20px;font-size:13px;border-radius:8px" onclick="approvePendingReply(${it.id})">✅ Одобрить и отправить</button>` : ''}
+        ${it.status === 'pending' ? `<button class="btn-danger btn-sm" style="padding:8px 14px;font-size:13px;border-radius:8px" onclick="rejectPendingReply(${it.id})">✕ Отклонить</button>` : ''}
+        <button class="btn-secondary btn-sm" style="padding:8px 14px;font-size:12px;border-radius:7px" onclick="regenField(${it.id},'both')">🔄 Перегенерировать всё</button>
+        <button class="btn-secondary btn-sm" style="padding:8px 10px;font-size:12px;border-radius:7px;margin-left:auto" onclick="deletePendingReply(${it.id})" title="Удалить">🗑</button>
       </div>
     </div>
   `;
@@ -5589,6 +5609,52 @@ async function showLeadContext(pendingId) {
   } catch(e) { toast(e.message,'error'); }
 }
 
+// ─── Translation (auto-translate to Russian) ────────────
+
+let _translateTimers = {};
+function translatePending(id) {
+  clearTimeout(_translateTimers[id]);
+  _translateTimers[id] = setTimeout(() => _doTranslate(id), 800);
+}
+
+async function _doTranslate(id) {
+  const subj = document.getElementById('prSubj_'+id)?.value || '';
+  const body = document.getElementById('prBody_'+id)?.value || '';
+  if (!body) return;
+  try {
+    const r = await fetch('/api/pending-replies/'+id+'/translate', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ subject: subj, body }),
+    });
+    const j = await r.json();
+    if (j.success) {
+      const subjRu = document.getElementById('prSubjRu_'+id);
+      const bodyRu = document.getElementById('prBodyRu_'+id);
+      if (subjRu && j.subject_ru) subjRu.textContent = j.subject_ru;
+      if (bodyRu && j.body_ru) bodyRu.textContent = j.body_ru;
+    }
+  } catch {}
+}
+
+// Auto-translate on page load for all pending cards
+function autoTranslateAll() {
+  document.querySelectorAll('[id^="prBody_"]').forEach(el => {
+    const id = el.id.replace('prBody_', '');
+    _doTranslate(id);
+  });
+}
+
+async function forceSendNow(id) {
+  try {
+    const r = await fetch('/api/pending-replies/'+id+'/force-send', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+    });
+    const j = await r.json();
+    if (j.success) { toast('Отправлено!', 'success'); loadPendingReplies(); }
+    else toast(j.error || 'Ошибка', 'error');
+  } catch(e) { toast(e.message, 'error'); }
+}
+
 async function regenField(id, field) {
   const btn = event.target;
   const origText = btn.textContent;
@@ -5606,6 +5672,7 @@ async function regenField(id, field) {
       if (j.subject != null) { const el = document.getElementById('prSubj_'+id); if (el) el.value = j.subject; }
       if (j.body != null) { const el = document.getElementById('prBody_'+id); if (el) el.value = j.body; }
       const label = field === 'subject' ? 'Тема перегенерирована' : field === 'body' ? 'Текст перегенерирован' : 'Полностью перегенерировано';
+      _doTranslate(id); // sync translation
       toast(label, 'success');
     } else toast(j.error || 'Ошибка генерации', 'error');
   } catch(e) { toast(e.message, 'error'); }

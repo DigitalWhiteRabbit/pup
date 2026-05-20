@@ -299,4 +299,73 @@ router.get("/:id/lead-context", (req, res) => {
   });
 });
 
+// POST /api/pending-replies/:id/translate { subject, body }
+router.post("/:id/translate", async (req, res) => {
+  const { subject, body } = req.body;
+  if (!body) return res.json({ success: true, body_ru: "", subject_ru: "" });
+
+  try {
+    const Anthropic = require("@anthropic-ai/sdk");
+    const client = new Anthropic();
+    const text = (subject ? `Subject: ${subject}\n\n` : "") + body;
+    const r = await client.messages.create({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 1024,
+      messages: [
+        {
+          role: "user",
+          content: `Переведи на русский язык. Верни ТОЛЬКО перевод, без пояснений. Если текст уже на русском — верни как есть.\n\n${text}`,
+        },
+      ],
+    });
+    const translated = r.content?.[0]?.text || "";
+    // Split back subject and body if subject was included
+    let subject_ru = "";
+    let body_ru = translated;
+    if (subject && translated.startsWith("Тема:")) {
+      const parts = translated.split("\n\n");
+      subject_ru = parts[0].replace(/^Тема:\s*/, "");
+      body_ru = parts.slice(1).join("\n\n");
+    } else if (subject && translated.includes("\n\n")) {
+      const idx = translated.indexOf("\n\n");
+      subject_ru = translated.slice(0, idx).replace(/^Subject:\s*/i, "");
+      body_ru = translated.slice(idx + 2);
+    }
+    res.json({ success: true, subject_ru, body_ru });
+  } catch (e) {
+    res.json({
+      success: true,
+      subject_ru: "",
+      body_ru: "(ошибка перевода: " + e.message + ")",
+    });
+  }
+});
+
+// POST /api/pending-replies/:id/force-send — skip timer, send immediately
+router.post("/:id/force-send", async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const item = req.db
+    .prepare("SELECT * FROM pending_replies WHERE id = ?")
+    .get(id);
+  if (!item)
+    return res.status(404).json({ success: false, error: "not found" });
+  if (item.status !== "approved")
+    return res.status(400).json({ success: false, error: "not approved" });
+
+  // Clear send_after to allow immediate processing
+  req.db
+    .prepare("UPDATE pending_replies SET send_after = NULL WHERE id = ?")
+    .run(id);
+
+  // Trigger processApprovedQueue
+  const wsId = req.workspaceId;
+  setImmediate(() => {
+    worker
+      .processApprovedQueue(wsId)
+      .catch((err) => console.error("[force-send] error:", err.message));
+  });
+
+  res.json({ success: true });
+});
+
 module.exports = router;
