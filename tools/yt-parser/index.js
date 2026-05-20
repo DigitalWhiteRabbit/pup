@@ -1155,6 +1155,29 @@ async function main() {
       .map((s) => s.trim())
       .filter(Boolean),
   );
+
+  // Skip channels already in CSV — saves API quota on re-runs
+  if (opts.append && opts.output && fs.existsSync(opts.output)) {
+    try {
+      const { parseCsv } = require("./utils/csv");
+      const existingRows = parseCsv(opts.output);
+      let skippedExisting = 0;
+      for (const row of existingRows) {
+        if (row.channel_id && !skipSet.has(row.channel_id)) {
+          skipSet.add(row.channel_id);
+          skippedExisting++;
+        }
+      }
+      if (skippedExisting > 0) {
+        console.log(
+          `  ⚡ Пропуск ${skippedExisting} каналов уже в CSV (экономия квоты)`,
+        );
+      }
+    } catch (e) {
+      console.error("  ⚠ Не удалось загрузить CSV для skip:", e.message);
+    }
+  }
+
   const channelKeywords = {};
   const allProcessedIds = new Set();
   const filtered = []; // финальный список каналов прошедших все фильтры
