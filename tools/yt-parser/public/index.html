@@ -1570,9 +1570,16 @@ window.fetch = function(url, opts) {
                 <option value="long">Длинные (20+ мин)</option>
               </select>
             </div>
-            <div style="display:flex;align-items:center;gap:8px;padding-top:18px;">
-              <input type="checkbox" id="fRequireContacts" checked style="width:16px;height:16px;accent-color:var(--accent);">
-              <label for="fRequireContacts" style="margin:0;text-transform:none;letter-spacing:0;font-size:13px;color:var(--text);cursor:pointer;">Только с контактами <span class="help-icon" data-tip="Если включено — в результат попадут только каналы у которых есть хотя бы один контакт (email, Telegram, Instagram и т.д.). Рекомендуется оставить включённым.">?</span></label>
+            <div style="padding-top:4px;">
+              <label>Контакты <span class="help-icon" data-tip="Фильтр по типу контакта. 'Любой' — хотя бы один контакт. 'Email' — обязательно email. Можно комбинировать.">?</span></label>
+              <select id="fRequireContactType" style="width:100%">
+                <option value="any" selected>Любой контакт</option>
+                <option value="email">Только с Email</option>
+                <option value="telegram">Только с Telegram</option>
+                <option value="email+telegram">Email + Telegram</option>
+                <option value="none">Без фильтра (все каналы)</option>
+              </select>
+              <input type="hidden" id="fRequireContacts" value="true">
             </div>
             <div style="display:none"><label>Категория YouTube <span class="help-icon" data-tip="Фильтр поиска по категории видео YouTube (Gaming, Music, Education и т.п.). Сужает поиск только до видео в указанной категории.">?</span></label>
               <select id="fCategory">
@@ -2520,7 +2527,6 @@ const columns=[
   {key:'_activity',label:'Активность',sortable:true},
   {key:'last_video_date',label:'Посл. видео',sortable:true},
   {key:'lead_score',label:'Скор',sortable:true},
-  {key:'_lead_status',label:'Статус',sortable:false},
   {key:'_actions',label:'Действия',sortable:false},
 ];
 
@@ -3699,7 +3705,48 @@ async function loadPromotedChannelIds(){
     promotedChannelIds = new Set((j.leads||[]).map(l => l.channel_id).filter(Boolean));
   } catch { promotedChannelIds = new Set(); }
 }
-async function loadData(){try{const r=await fetch('/api/results');const j=await r.json();allData=j.data||[];await loadPromotedChannelIds();updateStats();updateKpis();updateCharts();populateFilters();renderTable();}catch{}}
+function calcDashboardScore(row) {
+  let score = 0;
+  // Engagement (0-25)
+  const er = parseFloat(row.engagement_rate || 0);
+  if (er >= 10) score += 25;
+  else if (er >= 5) score += 20;
+  else if (er >= 2) score += 16;
+  else if (er >= 1) score += 12;
+  else if (er >= 0.5) score += 8;
+  else if (er > 0) score += 4;
+  // Size (0-20) — sweet spot 5K-200K
+  const subs = parseInt(row.subscribers || 0);
+  if (subs >= 5000 && subs <= 200000) score += 20;
+  else if (subs >= 1000 && subs < 5000) score += 14;
+  else if (subs > 200000 && subs <= 500000) score += 12;
+  else if (subs > 500000) score += 6;
+  else score += 4;
+  // Contacts (0-25)
+  const c = row.raw_contacts || row.email || '';
+  if (c.includes('@') || row.email) score += 15;
+  if (c.includes('telegram') || c.includes('t.me') || row.telegram) score += 5;
+  if (c.includes('instagram') || c.includes('twitter') || c.includes('tiktok')) score += 5;
+  // Activity (0-15)
+  if (row.last_video_date) {
+    const days = Math.floor((Date.now() - new Date(row.last_video_date).getTime()) / 86400000);
+    if (days <= 7) score += 15;
+    else if (days <= 30) score += 12;
+    else if (days <= 60) score += 8;
+    else if (days <= 90) score += 4;
+  }
+  // Views (0-15)
+  const views = parseInt(row.avg_views || 0);
+  if (views >= 10000) score += 15;
+  else if (views >= 5000) score += 12;
+  else if (views >= 1000) score += 8;
+  else if (views >= 100) score += 4;
+  return Math.min(100, score);
+}
+async function loadData(){try{const r=await fetch('/api/results');const j=await r.json();allData=j.data||[];
+  // Auto-score all rows on Dashboard
+  for (const row of allData) { if (!row.lead_score) row.lead_score = calcDashboardScore(row); }
+  await loadPromotedChannelIds();updateStats();updateKpis();updateCharts();populateFilters();renderTable();}catch{}}
 async function loadQuota(){try{const r=await fetch('/api/quota');const j=await r.json();updateQuota(j.used,j.total,j.keys||0,j.perKey);}catch{}}
 async function loadErrors(){try{const r=await fetch('/api/logs');const j=await r.json();const el=document.getElementById('errorLog');if(el){el.textContent=j.lines.length===0?'Нет ошибок':j.lines.join('\n');el.scrollTop=el.scrollHeight;}}catch{}}
 async function loadDeletedIds(){try{const r=await fetch('/api/deleted');const j=await r.json();deletedIds=new Set(j.ids||[]);updateTabCounts();}catch{}}
@@ -3814,8 +3861,10 @@ async function startParser(){
   if(pubAfter)body.publishedAfter=pubAfter;
   const vidDur=document.getElementById('fVideoDuration').value;
   if(vidDur)body.videoDuration=vidDur;
-  const reqContacts=document.getElementById('fRequireContacts').checked;
-  if(!reqContacts)body.requireContacts=false;
+  const contactType=document.getElementById('fRequireContactType').value;
+  if(contactType==='none')body.requireContacts=false;
+  else body.requireContacts=true;
+  if(contactType && contactType!=='any' && contactType!=='none') body.contactFilter=contactType;
   if(!body.keywords&&!body.hashtags){toast('Укажите Keywords или Hashtags','warning');return;}
   document.getElementById('logArea').textContent='';
   try{const r=await fetch('/api/parse',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const j=await r.json();if(!j.success)toast(j.error,'error');}catch(e){toast('Ошибка: '+e.message,'error');}
@@ -3867,7 +3916,8 @@ async function savePreset(){
     language:document.getElementById('fLanguage').value,
     publishedAfter:document.getElementById('fPublishedAfter').value,
     videoDuration:document.getElementById('fVideoDuration').value,
-    requireContacts:document.getElementById('fRequireContacts').checked,
+    requireContacts:document.getElementById('fRequireContactType').value !== 'none',
+    contactFilter:document.getElementById('fRequireContactType').value,
   };
   await fetch('/api/presets',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,params})});
   loadPresets();
@@ -3886,7 +3936,9 @@ function applyPreset(p){
   if(p.language)document.getElementById('fLanguage').value=p.language;
   if(p.publishedAfter)document.getElementById('fPublishedAfter').value=p.publishedAfter;
   if(p.videoDuration)document.getElementById('fVideoDuration').value=p.videoDuration;
-  if(p.requireContacts!==undefined)document.getElementById('fRequireContacts').checked=p.requireContacts;
+  if(p.contactFilter) document.getElementById('fRequireContactType').value=p.contactFilter;
+  else if(p.requireContacts===false) document.getElementById('fRequireContactType').value='none';
+  else document.getElementById('fRequireContactType').value='any';
 }
 
 // ─── Delete / Restore ─────────────────────────────────
