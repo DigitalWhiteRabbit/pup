@@ -1690,6 +1690,16 @@ window.fetch = function(url, opts) {
               <textarea id="cAdminDirective" rows="6" placeholder="Любые дополнительные правила для AI агента. Например: &#10;- Всегда упоминай что мы работаем на BSC&#10;- Не предлагай оплату за интеграцию в первых 3 сообщениях&#10;- Если блогер спрашивает про риски — будь честным&#10;Этот текст добавляется к системному промпту как приоритетная инструкция."></textarea>
               <div style="font-size:11px;color:var(--text-dim);margin-top:4px">Эти инструкции добавляются в системный промпт AI. Используй для тонкой настройки поведения агента.</div>
             </div>
+            <div>
+              <label>Задержка ответа от (мин)</label>
+              <input type="number" id="cReplyDelayMin" value="30" min="0" max="1440" placeholder="30">
+              <div style="font-size:10px;color:var(--text-dim);margin-top:3px">Минимальная пауза перед отправкой ответа после approve</div>
+            </div>
+            <div>
+              <label>Задержка ответа до (мин)</label>
+              <input type="number" id="cReplyDelayMax" value="90" min="0" max="1440" placeholder="90">
+              <div style="font-size:10px;color:var(--text-dim);margin-top:3px">Максимальная пауза. Реальная = рандом между мин и макс</div>
+            </div>
             <div class="full"><label>Идеальный профиль канала (кому шлём) *</label><textarea id="cIdealProfile" rows="3" placeholder="Нарезчики Shorts/Reels, ниши, подписчики, гео — чем детальнее, тем точнее фильтр"></textarea></div>
             <div class="full"><label>НЕ подходит (кого пропускаем) *</label><textarea id="cBadFit" rows="3" placeholder="Музыкальные каналы, детский контент, long-form влоги, образовательные лекции"></textarea></div>
             <input type="hidden" id="cDescription" value="">
@@ -5015,6 +5025,8 @@ function getCampaignFormData() {
     stop_words: document.getElementById('cStopWords').value.trim() || null,
     agent_persona: document.getElementById('cAgentPersona').value.trim() || null,
     admin_directive: document.getElementById('cAdminDirective').value.trim() || null,
+    reply_delay_min: parseInt(document.getElementById('cReplyDelayMin')?.value) || 30,
+    reply_delay_max: parseInt(document.getElementById('cReplyDelayMax')?.value) || 90,
   };
 }
 
@@ -5059,6 +5071,8 @@ function editCampaign(id) {
     document.getElementById('cStopWords').value = p.stop_words || '';
     document.getElementById('cAgentPersona').value = p.agent_persona || '';
     document.getElementById('cAdminDirective').value = p.admin_directive || '';
+    if (document.getElementById('cReplyDelayMin')) document.getElementById('cReplyDelayMin').value = p.reply_delay_min ?? 30;
+    if (document.getElementById('cReplyDelayMax')) document.getElementById('cReplyDelayMax').value = p.reply_delay_max ?? 90;
     document.getElementById('campaignFormTitle').textContent = 'Редактирование: ' + p.name;
     document.getElementById('campaignCancelBtn').style.display = '';
     document.getElementById('campaignResetBtn').style.display = '';
@@ -5435,6 +5449,14 @@ function renderPendingReplyCard(it) {
 
       <!-- Actions -->
       <div style="display:flex;gap:10px;flex-wrap:wrap;padding-top:14px;border-top:1px solid var(--border)">
+        ${it.send_after && it.status === 'approved' && new Date(it.send_after) > new Date()
+          ? `<div style="font-size:12px;color:var(--yellow);margin-bottom:8px">⏱ Отправится через ${Math.round((new Date(it.send_after) - new Date()) / 60000)} мин (${new Date(it.send_after).toLocaleTimeString('ru', {hour:'2-digit',minute:'2-digit'})})</div>`
+          : it.send_after && it.status === 'approved'
+            ? `<div style="font-size:12px;color:var(--green);margin-bottom:8px">✅ Таймер истёк — отправится при следующем тике</div>`
+            : ''}
+        ${it.status === 'sent'
+          ? `<div style="font-size:12px;color:var(--green);margin-bottom:8px">📤 Отправлено ${it.sent_at ? new Date(it.sent_at).toLocaleString('ru') : ''}</div>`
+          : ''}
         <button class="btn-primary btn-sm" style="padding:8px 20px;font-size:13px;border-radius:8px" onclick="approvePendingReply(${it.id})">✅ Одобрить и отправить</button>
         <button class="btn-danger btn-sm" style="padding:8px 16px;font-size:13px;border-radius:8px" onclick="rejectPendingReply(${it.id})">✕ Отклонить</button>
         <button class="btn-secondary btn-sm" style="padding:8px 16px;font-size:13px;border-radius:8px" onclick="regenField(${it.id},'both')">🔄 Перегенерировать всё</button>
@@ -5605,7 +5627,11 @@ async function approvePendingReply(id) {
       body: JSON.stringify(payload)
     });
     const j = await r.json();
-    if (j.success) { toast('Одобрено — отправляется','success'); loadPendingReplies(); }
+    if (j.success) {
+      const msg = j.delay_minutes ? `Одобрено — отправится через ~${j.delay_minutes} мин` : 'Одобрено — отправляется';
+      toast(msg, 'success');
+      loadPendingReplies();
+    }
     else toast('Ошибка: '+(j.error||'unknown'),'error');
   } catch(e) { toast('Ошибка: '+e.message,'error'); }
 }

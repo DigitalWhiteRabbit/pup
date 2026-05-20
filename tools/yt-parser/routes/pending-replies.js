@@ -66,15 +66,40 @@ router.post("/:id/approve", (req, res) => {
   const now = new Date().toISOString();
   req.stmts.approvePendingReply.run(editedBody, editedSubject, notes, now, id);
 
-  // Немедленно запустить processApprovedQueue (не ждать 20с тика)
-  const wsId = req.workspaceId;
-  setImmediate(() => {
-    worker
-      .processApprovedQueue(wsId)
-      .catch((err) => console.error("[approve] worker error:", err.message));
-  });
+  // Calculate send_after delay from project settings (random between min-max minutes)
+  let ctx = {};
+  try {
+    ctx = JSON.parse(item.context || "{}");
+  } catch {}
+  const isInitial = ctx.type === "initial";
+  const project = req.stmts.getActiveProject.get();
+  const delayMin = project?.reply_delay_min ?? 30;
+  const delayMax = project?.reply_delay_max ?? 90;
 
-  res.json({ success: true });
+  if (!isInitial && delayMin > 0) {
+    // Random delay between min and max minutes
+    const delayMs =
+      (delayMin + Math.random() * (delayMax - delayMin)) * 60 * 1000;
+    const sendAfter = new Date(Date.now() + delayMs).toISOString();
+    req.db
+      .prepare("UPDATE pending_replies SET send_after = ? WHERE id = ?")
+      .run(sendAfter, id);
+    const delayMins = Math.round(delayMs / 60000);
+    res.json({
+      success: true,
+      send_after: sendAfter,
+      delay_minutes: delayMins,
+    });
+  } else {
+    // Initial pitch — send immediately
+    const wsId = req.workspaceId;
+    setImmediate(() => {
+      worker
+        .processApprovedQueue(wsId)
+        .catch((err) => console.error("[approve] worker error:", err.message));
+    });
+    res.json({ success: true, send_after: null });
+  }
 });
 
 // POST /api/pending-replies/:id/reject { admin_notes? }

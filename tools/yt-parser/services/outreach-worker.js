@@ -1207,6 +1207,10 @@ async function processApprovedQueue(workspaceId) {
 
     // Sequential — чтобы daily cap не пробивался при параллельной отправке.
     for (const item of items) {
+      // Timer check: if send_after is set and not yet reached — skip
+      if (item.send_after && new Date(item.send_after) > new Date()) {
+        continue;
+      }
       // Клайм: только один процесс/тик получит эту запись.
       const claim = db
         .prepare(

@@ -105,6 +105,16 @@ function getDb(workspaceId = "default") {
     safeExec(`ALTER TABLE projects ADD COLUMN content_red_flags TEXT`);
   if (!columnExists("projects", "admin_directive"))
     safeExec(`ALTER TABLE projects ADD COLUMN admin_directive TEXT`);
+  if (!columnExists("projects", "reply_delay_min"))
+    safeExec(
+      `ALTER TABLE projects ADD COLUMN reply_delay_min INTEGER DEFAULT 30`,
+    );
+  if (!columnExists("projects", "reply_delay_max"))
+    safeExec(
+      `ALTER TABLE projects ADD COLUMN reply_delay_max INTEGER DEFAULT 90`,
+    );
+  if (!columnExists("pending_replies", "send_after"))
+    safeExec(`ALTER TABLE pending_replies ADD COLUMN send_after TEXT`);
 
   // Seed: default red_flags for project CopyBanner (id=3) — only for default workspace
   if (workspaceId === "default") {
@@ -482,6 +492,8 @@ function buildStmts(db) {
         stop_words = @stop_words,
         agent_persona = @agent_persona,
         admin_directive = @admin_directive,
+        reply_delay_min = @reply_delay_min,
+        reply_delay_max = @reply_delay_max,
         updated_at = @updated_at
       WHERE id = @id
     `),

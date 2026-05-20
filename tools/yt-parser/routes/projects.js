@@ -142,6 +142,14 @@ router.patch("/:id", (req, res) => {
     stop_words: req.body.stop_words ?? existing.stop_words,
     agent_persona: req.body.agent_persona ?? existing.agent_persona,
     admin_directive: req.body.admin_directive ?? existing.admin_directive,
+    reply_delay_min:
+      req.body.reply_delay_min !== undefined
+        ? parseInt(req.body.reply_delay_min, 10)
+        : existing.reply_delay_min,
+    reply_delay_max:
+      req.body.reply_delay_max !== undefined
+        ? parseInt(req.body.reply_delay_max, 10)
+        : existing.reply_delay_max,
     updated_at: new Date().toISOString(),
   };
 
