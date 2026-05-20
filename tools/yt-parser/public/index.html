@@ -2290,11 +2290,16 @@ window.fetch = function(url, opts) {
             Каждый ключ = 10,000 units/день. Ключи можно привязать к конкретному workspace или оставить в общем пуле.
           </div>
 
-          <div style="display:flex;gap:8px;margin-bottom:14px">
+          <div style="display:flex;gap:8px;margin-bottom:8px">
             <input type="text" id="newApiKeyInput" placeholder="AIzaSy..." style="flex:1;font-family:monospace;font-size:12px">
             <input type="text" id="newApiKeyLabel" placeholder="Метка (опционально)" style="width:160px;font-size:12px">
             <button class="btn-primary btn-sm" onclick="addApiKey()">Добавить</button>
           </div>
+          <details style="margin-bottom:14px">
+            <summary style="font-size:11px;color:var(--accent);cursor:pointer;margin-bottom:6px">📦 Массовый импорт (вставь несколько ключей)</summary>
+            <textarea id="bulkApiKeys" rows="5" placeholder="Вставь ключи по одному на строку:&#10;AIzaSyA...&#10;AIzaSyB...&#10;AIzaSyC..." style="font-family:monospace;font-size:11px;margin-bottom:6px"></textarea>
+            <button class="btn-primary btn-sm" onclick="bulkAddApiKeys()">Импортировать все</button>
+          </details>
 
           <div id="apiKeyPoolList" style="font-size:12px"></div>
           <div id="apiKeyPoolStatus" style="margin-top:8px;font-size:11px;color:var(--text-dim)"></div>
@@ -6201,6 +6206,34 @@ async function addApiKey() {
       toast(j.error || 'Ошибка', 'error');
     }
   } catch(e) { toast(e.message, 'error'); }
+}
+
+async function bulkAddApiKeys() {
+  const textarea = document.getElementById('bulkApiKeys');
+  const keys = textarea.value.trim().split('\n').map(k => k.trim()).filter(k => k.startsWith('AIza'));
+  if (keys.length === 0) return toast('Не найдено ключей (должны начинаться с AIza)', 'error');
+  let added = 0, errors = 0;
+  for (const apiKey of keys) {
+    try {
+      const r = await fetch('/api/api-keys', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ apiKey, label: 'Bulk #' + (added + errors + 1) }),
+      });
+      const j = await r.json();
+      if (j.success) {
+        if (_wsId !== 'default') {
+          await fetch('/api/api-keys/' + j.id + '/assign', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ workspaceId: _wsId }),
+          });
+        }
+        added++;
+      } else errors++;
+    } catch { errors++; }
+  }
+  textarea.value = '';
+  toast(`Импортировано: ${added} ключей` + (errors ? `, ошибок: ${errors}` : ''), added > 0 ? 'success' : 'error');
+  loadApiKeyPool(); loadQuota();
 }
 
 async function deleteApiKey(id) {
