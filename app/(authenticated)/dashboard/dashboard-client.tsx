@@ -191,7 +191,10 @@ export function DashboardClient() {
                   <div className="text-[10px] font-semibold text-muted-foreground">
                     {m.authorLogin}
                   </div>
-                  <div className="text-xs text-card-foreground bg-muted rounded-lg px-2.5 py-1.5 max-w-[260px] break-words overflow-hidden">
+                  <div
+                    className="text-xs text-card-foreground bg-muted rounded-lg px-2.5 py-1.5 max-w-[260px] break-words overflow-hidden relative"
+                    style={{ maxHeight: 120 }}
+                  >
                     {m.audioAttachmentId ? (
                       <VoicePlayer
                         src={`/api/global-chat-attachments/${m.audioAttachmentId}`}
@@ -209,6 +212,14 @@ export function DashboardClient() {
                       />
                     )}
                   </div>
+                  {(m.content || "").length > 200 && (
+                    <a
+                      href={`/global-chat#msg-${m.id}`}
+                      className="text-[10px] text-emerald-500 hover:underline mt-0.5 inline-block"
+                    >
+                      Читать в чате →
+                    </a>
+                  )}
                   <div className="text-[9px] text-muted-foreground mt-0.5">
                     {format(new Date(m.createdAt), "HH:mm", { locale: ru })}
                   </div>
