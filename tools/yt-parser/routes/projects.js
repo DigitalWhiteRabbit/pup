@@ -142,6 +142,7 @@ router.patch("/:id", (req, res) => {
     stop_words: req.body.stop_words ?? existing.stop_words,
     agent_persona: req.body.agent_persona ?? existing.agent_persona,
     admin_directive: req.body.admin_directive ?? existing.admin_directive,
+    system_prompt: req.body.system_prompt ?? existing.system_prompt,
     reply_delay_min:
       req.body.reply_delay_min !== undefined
         ? parseInt(req.body.reply_delay_min, 10)
@@ -155,6 +156,12 @@ router.patch("/:id", (req, res) => {
 
   req.stmts.updateProject.run(merged);
   res.json({ success: true, project: req.stmts.getProject.get(id) });
+});
+
+// GET /api/projects/default-prompt — дефолтный системный промпт
+router.get("/default-prompt", (req, res) => {
+  const ai = require("../services/ai");
+  res.json({ success: true, prompt: ai.DEFAULT_SYSTEM_PROMPT });
 });
 
 // POST /api/projects/:id/activate

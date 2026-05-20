@@ -105,6 +105,8 @@ function getDb(workspaceId = "default") {
     safeExec(`ALTER TABLE projects ADD COLUMN content_red_flags TEXT`);
   if (!columnExists("projects", "admin_directive"))
     safeExec(`ALTER TABLE projects ADD COLUMN admin_directive TEXT`);
+  if (!columnExists("projects", "system_prompt"))
+    safeExec(`ALTER TABLE projects ADD COLUMN system_prompt TEXT`);
   if (!columnExists("projects", "reply_delay_min"))
     safeExec(
       `ALTER TABLE projects ADD COLUMN reply_delay_min INTEGER DEFAULT 30`,
@@ -492,6 +494,7 @@ function buildStmts(db) {
         stop_words = @stop_words,
         agent_persona = @agent_persona,
         admin_directive = @admin_directive,
+        system_prompt = @system_prompt,
         reply_delay_min = @reply_delay_min,
         reply_delay_max = @reply_delay_max,
         updated_at = @updated_at

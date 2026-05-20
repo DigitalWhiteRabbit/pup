@@ -1690,6 +1690,14 @@ window.fetch = function(url, opts) {
               <textarea id="cAdminDirective" rows="6" placeholder="Любые дополнительные правила для AI агента. Например: &#10;- Всегда упоминай что мы работаем на BSC&#10;- Не предлагай оплату за интеграцию в первых 3 сообщениях&#10;- Если блогер спрашивает про риски — будь честным&#10;Этот текст добавляется к системному промпту как приоритетная инструкция."></textarea>
               <div style="font-size:11px;color:var(--text-dim);margin-top:4px">Эти инструкции добавляются в системный промпт AI. Используй для тонкой настройки поведения агента.</div>
             </div>
+            <div class="full">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+                <label>Системный промпт AI (все правила поведения)</label>
+                <button type="button" class="btn-secondary btn-sm" style="font-size:10px;padding:3px 10px" onclick="resetSystemPrompt()">Сбросить на дефолтный</button>
+              </div>
+              <textarea id="cSystemPrompt" rows="18" style="font-family:monospace;font-size:11px;line-height:1.5" placeholder="Загрузка..."></textarea>
+              <div style="font-size:11px;color:var(--yellow);margin-top:4px">⚠️ Это основной промпт AI агента. Изменения применяются мгновенно — при следующей генерации письма AI будет использовать новые правила. Будьте осторожны с удалением правил безопасности (п.8).</div>
+            </div>
             <div>
               <label>Задержка ответа от (мин)</label>
               <input type="number" id="cReplyDelayMin" value="30" min="0" max="1440" placeholder="30">
@@ -5025,6 +5033,7 @@ function getCampaignFormData() {
     stop_words: document.getElementById('cStopWords').value.trim() || null,
     agent_persona: document.getElementById('cAgentPersona').value.trim() || null,
     admin_directive: document.getElementById('cAdminDirective').value.trim() || null,
+    system_prompt: document.getElementById('cSystemPrompt').value.trim() || null,
     reply_delay_min: parseInt(document.getElementById('cReplyDelayMin')?.value) || 30,
     reply_delay_max: parseInt(document.getElementById('cReplyDelayMax')?.value) || 90,
   };
@@ -5073,11 +5082,38 @@ function editCampaign(id) {
     document.getElementById('cAdminDirective').value = p.admin_directive || '';
     if (document.getElementById('cReplyDelayMin')) document.getElementById('cReplyDelayMin').value = p.reply_delay_min ?? 30;
     if (document.getElementById('cReplyDelayMax')) document.getElementById('cReplyDelayMax').value = p.reply_delay_max ?? 90;
+    // Load system prompt — use project's custom or fetch default
+    loadSystemPromptForProject(p);
     document.getElementById('campaignFormTitle').textContent = 'Редактирование: ' + p.name;
     document.getElementById('campaignCancelBtn').style.display = '';
     document.getElementById('campaignResetBtn').style.display = '';
     window.scrollTo({top:0, behavior:'smooth'});
   });
+}
+
+async function loadSystemPromptForProject(p) {
+  const el = document.getElementById('cSystemPrompt');
+  if (!el) return;
+  if (p.system_prompt) {
+    el.value = p.system_prompt;
+  } else {
+    // Fetch default
+    try {
+      const r = await fetch('/api/projects/default-prompt');
+      const j = await r.json();
+      el.value = j.prompt || '';
+      el.placeholder = 'Дефолтный промпт (отредактируйте и сохраните для кастомизации)';
+    } catch { el.value = ''; }
+  }
+}
+
+async function resetSystemPrompt() {
+  try {
+    const r = await fetch('/api/projects/default-prompt');
+    const j = await r.json();
+    document.getElementById('cSystemPrompt').value = j.prompt || '';
+    toast('Промпт сброшен на дефолтный. Нажмите "Сохранить" для применения.', 'info');
+  } catch(e) { toast(e.message, 'error'); }
 }
 
 function resetCampaignForm() {
