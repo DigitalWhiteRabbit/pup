@@ -1661,6 +1661,15 @@ window.fetch = function(url, opts) {
               <option value="whatsapp">WhatsApp</option>
             </select>
           </div>
+          <div class="tc-group">
+            <span class="tc-icon">🎬</span>
+            <select id="tFormatFilter" onchange="renderTable()">
+              <option value="">Формат</option>
+              <option value="longform">Только long-form</option>
+              <option value="shorts">Только shorts</option>
+              <option value="mixed">Смешанный</option>
+            </select>
+          </div>
           <label class="tc-fav"><input type="checkbox" id="tFavOnly" onchange="renderTable()"><span>⭐</span></label>
           <!-- hidden (not used) -->
           <input type="number" id="tMinEng" style="display:none">
@@ -2526,6 +2535,8 @@ const columns=[
   {key:'keyword',label:'Ключевое',sortable:true},
   {key:'_activity',label:'Активность',sortable:true},
   {key:'last_video_date',label:'Посл. видео',sortable:true},
+  {key:'last_longform_date',label:'Посл. long',sortable:true},
+  {key:'shorts_ratio',label:'% Shorts',sortable:true},
   {key:'lead_score',label:'Скор',sortable:true},
   {key:'_actions',label:'Действия',sortable:false},
 ];
@@ -4297,6 +4308,10 @@ function getFilteredData(){
   if(crmFilter)data=data.filter(d=>crms[getChannelId(d)]===crmFilter);
   if(contactFilter==='any') data=data.filter(d=>hasAnyContact(d));
   else if(contactFilter) data=data.filter(d=>d[contactFilter]&&d[contactFilter].trim());
+  const formatFilter=document.getElementById('tFormatFilter')?.value||'';
+  if(formatFilter==='longform') data=data.filter(d=>parseFloat(d.shorts_ratio||0)<0.5);
+  else if(formatFilter==='shorts') data=data.filter(d=>parseFloat(d.shorts_ratio||0)>=0.8);
+  else if(formatFilter==='mixed') data=data.filter(d=>{const r=parseFloat(d.shorts_ratio||0); return r>=0.2&&r<0.8;});
 
   data=[...data].sort((a,b)=>{
     let va,vb;if(sortCol==='_activity'){va=a.last_video_date||'';vb=b.last_video_date||'';}else{va=a[sortCol];vb=b[sortCol];}
@@ -4336,6 +4351,17 @@ function renderTable(){
         const btn=document.createElement('button');btn.className='fav-btn'+(favs[chId]?' active':'');btn.textContent='\u2605';
         btn.onclick=()=>{setFavorite(chId,!favs[chId]);favs[chId]=!favs[chId];btn.classList.toggle('active');};td.appendChild(btn);
 
+      }else if(col.key==='shorts_ratio'){
+        const ratio = parseFloat(row.shorts_ratio || 0);
+        if (ratio > 0) {
+          const pct = Math.round(ratio * 100);
+          const color = pct >= 80 ? 'var(--red,#ef4444)' : pct >= 50 ? 'var(--yellow,#f59e0b)' : 'var(--green,#10b981)';
+          td.innerHTML = `<span style="color:${color};font-size:12px;font-weight:600">${pct}%</span>`;
+        } else { td.innerHTML = '<span style="color:var(--text-dim);font-size:11px">—</span>'; }
+      }else if(col.key==='last_longform_date'){
+        const d = row.last_longform_date;
+        if (d) { td.textContent = d; td.style.fontSize = '11px'; }
+        else { td.innerHTML = '<span style="color:var(--text-dim);font-size:11px">—</span>'; }
       }else if(col.key==='lead_score'){
         const score = row.lead_score;
         if (score != null && score > 0) {

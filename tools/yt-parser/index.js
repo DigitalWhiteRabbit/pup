@@ -79,6 +79,16 @@ function reportKeyUsage(keyId, units) {
   console.log(`__KEY_USAGE__:${keyId}:${units}`);
 }
 
+// Parse ISO 8601 duration (PT1H2M30S → seconds)
+function parseDuration(iso) {
+  if (!iso) return 0;
+  const m = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+  if (!m) return 0;
+  return (
+    parseInt(m[1] || 0) * 3600 + parseInt(m[2] || 0) * 60 + parseInt(m[3] || 0)
+  );
+}
+
 function trackApiCost(costKey) {
   const units = API_COSTS[costKey] || 0;
   apiUnitsUsed += units;
@@ -691,7 +701,10 @@ async function processChannel(channelData, options = {}) {
 
       if (videoIds.length > 0 && !skipVideos) {
         // Один объединённый вызов videos.list — statistics + snippet за 1 unit
-        const videoData = await getVideoDetails(videoIds, "statistics,snippet");
+        const videoData = await getVideoDetails(
+          videoIds,
+          "statistics,snippet,contentDetails",
+        );
 
         // Avg views по последним 10 (для engagement_rate)
         const top10ForViews = videoData.slice(0, 10);
@@ -715,11 +728,30 @@ async function processChannel(channelData, options = {}) {
           description: (v.snippet?.description || "").slice(0, 400),
           views: parseInt(v.statistics?.viewCount || "0", 10),
           publishedAt: v.snippet?.publishedAt || null,
+          duration: v.contentDetails?.duration || "",
           tags: Array.isArray(v.snippet?.tags)
             ? v.snippet.tags.slice(0, 15)
             : [],
           categoryId: v.snippet?.categoryId || null,
         }));
+
+        // Shorts vs long-form analysis
+        var shortsCount = 0,
+          longFormCount = 0;
+        var lastLongFormDate = null,
+          lastShortsDate = null;
+        for (const v of videoData) {
+          const dur = v.contentDetails?.duration || "";
+          const seconds = parseDuration(dur);
+          const isShort = seconds > 0 && seconds <= 60;
+          if (isShort) {
+            shortsCount++;
+            if (!lastShortsDate) lastShortsDate = v.snippet?.publishedAt;
+          } else {
+            longFormCount++;
+            if (!lastLongFormDate) lastLongFormDate = v.snippet?.publishedAt;
+          }
+        }
         // Главная категория = mode по categoryId последних роликов
         var firstVideoCategoryId = videoData[0]?.snippet?.categoryId || null;
 
@@ -731,6 +763,10 @@ async function processChannel(channelData, options = {}) {
     var lastVideosForSummary = [];
   if (typeof firstVideoCategoryId === "undefined")
     var firstVideoCategoryId = null;
+  if (typeof shortsCount === "undefined") var shortsCount = 0;
+  if (typeof longFormCount === "undefined") var longFormCount = 0;
+  if (typeof lastLongFormDate === "undefined") var lastLongFormDate = null;
+  if (typeof lastShortsDate === "undefined") var lastShortsDate = null;
 
   const engagementRate = subscriberCount > 0 ? avgViews / subscriberCount : 0;
   const erNorm = normalizeER(engagementRate);
@@ -823,6 +859,13 @@ async function processChannel(channelData, options = {}) {
     category: branding.channel?.keywords || "",
     description_snippet: (snippet.description || "").slice(0, 200),
     last_video_date: lastVideoDate ? lastVideoDate.split("T")[0] : "",
+    last_longform_date: lastLongFormDate ? lastLongFormDate.split("T")[0] : "",
+    last_shorts_date: lastShortsDate ? lastShortsDate.split("T")[0] : "",
+    shorts_ratio:
+      typeof shortsCount !== "undefined" &&
+      shortsCount + (longFormCount || 0) > 0
+        ? (shortsCount / (shortsCount + longFormCount)).toFixed(2)
+        : "",
     thumbnail,
     keyword: "",
   };
@@ -900,6 +943,9 @@ async function exportToCsv(channels, outputFile, append) {
     { id: "category", title: "category" },
     { id: "description_snippet", title: "description_snippet" },
     { id: "last_video_date", title: "last_video_date" },
+    { id: "last_longform_date", title: "last_longform_date" },
+    { id: "last_shorts_date", title: "last_shorts_date" },
+    { id: "shorts_ratio", title: "shorts_ratio" },
     { id: "thumbnail", title: "thumbnail" },
     { id: "keyword", title: "keyword" },
   ];
