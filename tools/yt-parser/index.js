@@ -413,7 +413,7 @@ async function withRetry(fn, label, maxRetries = 3) {
 
 // TTL для кэша
 const CHANNEL_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 дней
-const SEARCH_CACHE_TTL_MS = 5 * 24 * 60 * 60 * 1000; // 5 дней
+const SEARCH_CACHE_TTL_MS = 14 * 24 * 60 * 60 * 1000; // 14 дней
 
 function loadCache() {
   if (fs.existsSync(CACHE_FILE)) {
@@ -1364,9 +1364,21 @@ async function main() {
 
         const pageIds = [...new Set(items.map((i) => i.snippet.channelId))];
         collectedIds.push(...pageIds);
-        console.log(`    Стр.${pageNum}: ${pageIds.length} каналов`);
 
-        await processChannelBatch(pageIds, source.query);
+        // Skip page if all channels already known (saves channels.list + videos.list)
+        const newOnPage = pageIds.filter(
+          (id) => !skipSet.has(id) && !allProcessedIds.has(id),
+        );
+        if (newOnPage.length === 0) {
+          console.log(
+            `    Стр.${pageNum}: ${pageIds.length} каналов (все уже известны — пропуск)`,
+          );
+        } else {
+          console.log(
+            `    Стр.${pageNum}: ${pageIds.length} каналов (${newOnPage.length} новых)`,
+          );
+          await processChannelBatch(pageIds, source.query);
+        }
 
         pageToken = res.data.nextPageToken;
         if (!pageToken) break;
