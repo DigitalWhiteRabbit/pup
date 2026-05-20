@@ -960,12 +960,16 @@ async function exportToCsv(channels, outputFile, append) {
       return;
     }
 
+    // Re-read existing rows + merge with new, rewrite full CSV with correct header
+    // This prevents column shift when header changes between versions
+    const { parseCsv } = require("./utils/csv");
+    const existingRows = parseCsv(outputFile);
+    const allRows = [...existingRows, ...newChannels];
     const csvWriter = createObjectCsvWriter({
       path: outputFile,
       header,
-      append: true,
     });
-    await csvWriter.writeRecords(newChannels);
+    await csvWriter.writeRecords(allRows);
     console.log(
       `Добавлено ${newChannels.length} новых каналов в ${outputFile}`,
     );
