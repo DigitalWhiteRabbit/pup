@@ -78,6 +78,11 @@ export async function GET() {
     const myTasks = await db.task.findMany({
       where: {
         assignees: { some: { userId } },
+        column: {
+          name: {
+            notIn: ["Готово", "Done", "Завершено", "Готовые", "Выполнено"],
+          },
+        },
       },
       orderBy: [{ priority: "desc" }, { createdAt: "desc" }],
       take: 10,
