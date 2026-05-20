@@ -1323,6 +1323,9 @@ async function main() {
       let pageNum = 0;
       const collectedIds = usedCache ? [...cachedSearch.ids] : [];
 
+      let kwNewCount = 0; // new channels found for this keyword
+      let kwDryPages = 0; // consecutive pages with 0 new channels
+
       while (pageNum < opts.maxSearchPages && filtered.length < opts.limit) {
         pageNum++;
         const params = {
@@ -1373,11 +1376,29 @@ async function main() {
           console.log(
             `    Стр.${pageNum}: ${pageIds.length} каналов (все уже известны — пропуск)`,
           );
+          kwDryPages++;
         } else {
           console.log(
             `    Стр.${pageNum}: ${pageIds.length} каналов (${newOnPage.length} новых)`,
           );
+          const beforeCount = filtered.length;
           await processChannelBatch(pageIds, source.query);
+          kwNewCount += filtered.length - beforeCount;
+          kwDryPages = 0;
+        }
+
+        // Early exit: if 3+ consecutive dry pages or after page 3 with <3 new → keyword exhausted
+        if (kwDryPages >= 3) {
+          console.log(
+            `    ⚡ ${kwDryPages} пустых страниц подряд — keyword исчерпан`,
+          );
+          break;
+        }
+        if (pageNum >= 3 && kwNewCount < 3) {
+          console.log(
+            `    ⚡ Только ${kwNewCount} новых за ${pageNum} страниц — пропускаем keyword`,
+          );
+          break;
         }
 
         pageToken = res.data.nextPageToken;
