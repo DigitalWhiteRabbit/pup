@@ -42,3 +42,10 @@ dev.db.bak
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# yt-parser runtime data (not code)
+tools/yt-parser/presets.json
+tools/yt-parser/history.json
+tools/yt-parser/cache.json
+tools/yt-parser/errors.log
+tools/yt-parser/data/
