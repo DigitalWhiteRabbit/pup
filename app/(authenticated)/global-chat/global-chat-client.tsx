@@ -420,7 +420,7 @@ export function GlobalChatClient({
         {/* Messages */}
         <div
           ref={messagesRef}
-          className={`flex-1 overflow-y-auto px-3 md:px-6 py-4 md:py-5 min-h-0 flex flex-col justify-end relative bg-background ${dragOver ? "bg-emerald-900/10" : ""}`}
+          className={`flex-1 overflow-y-auto overflow-x-hidden px-3 md:px-6 py-4 md:py-5 min-h-0 flex flex-col justify-end relative bg-background ${dragOver ? "bg-emerald-900/10" : ""}`}
           onDragOver={(e) => {
             e.preventDefault();
             setDragOver(true);
@@ -504,7 +504,7 @@ export function GlobalChatClient({
 
                   {/* Bubble */}
                   <div
-                    className={`rounded-[18px] px-4 py-2.5 text-sm whitespace-pre-wrap break-words ${
+                    className={`rounded-[18px] px-4 py-2.5 text-sm whitespace-pre-wrap break-words max-w-[min(85%,700px)] ${
                       isMe
                         ? "bg-emerald-500 text-white rounded-br-[6px]"
                         : "bg-muted border border text-foreground rounded-bl-[6px]"
