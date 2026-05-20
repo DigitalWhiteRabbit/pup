@@ -407,7 +407,11 @@ async function _processPickedLead(lead, project, counts) {
         recipient,
         subject: pitch.subject,
         body: pitch.body,
-        context: { type: "initial", project_id: project.id },
+        context: {
+          type: "initial",
+          project_id: project.id,
+          conversation_stage: pitch.conversation_stage || "introduction",
+        },
       });
       stmts.updateLeadStage.run("awaiting_review", now, lead.id);
       stmts.updateLeadStatus.run("in_work", now, lead.id);
@@ -895,8 +899,31 @@ async function processOneLeadReply(lead, project) {
         recipient,
         subject: reply.subject || "Re: " + (firstMeta.subject || ""),
         body: reply.body,
-        context: { type: "reply", next_stage: "negotiating" },
+        context: {
+          type: "reply",
+          conversation_stage: reply.conversation_stage || "negotiating",
+        },
       });
+      // Update lead dialogue_stage based on AI-detected stage
+      if (reply.conversation_stage) {
+        const stageMap = {
+          introduction: "contacted",
+          qualification: "contacted",
+          value_proposition: "negotiating",
+          needs_analysis: "negotiating",
+          solution_presentation: "negotiating",
+          objection_handling: "negotiating",
+          negotiation: "negotiating",
+          close: "deal_pending",
+          end_conversation: "lost",
+        };
+        const newStage = stageMap[reply.conversation_stage] || "negotiating";
+        stmts.updateLeadStage.run(newStage, new Date().toISOString(), lead.id);
+        log(
+          "INFO",
+          `Lead #${lead.id} stage: ${reply.conversation_stage} → ${newStage}`,
+        );
+      }
       return;
     }
 

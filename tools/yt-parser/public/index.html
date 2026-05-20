@@ -5559,6 +5559,8 @@ function renderPendingReplyCard(it) {
   let ctx = {};
   try { ctx = JSON.parse(it.context || '{}'); } catch {}
   const typeMap = { initial: 'Первое сообщение', reply: 'Ответ', deal_accept: 'Подтверждение сделки', consultation_answer: 'После консультации' };
+  const stageMap = { introduction: '👋 Знакомство', qualification: '🔍 Квалификация', value_proposition: '💡 Ценность', needs_analysis: '🎯 Потребности', solution_presentation: '📋 Решение', objection_handling: '🛡 Возражения', negotiation: '🤝 Переговоры', close: '✅ Закрытие', end_conversation: '🏁 Завершение' };
+  const stageLabel = stageMap[ctx.conversation_stage] || '';
   const typeLabel = typeMap[ctx.type] || ctx.type || '';
   const chanIcon = it.channel === 'email' ? '📧' : '💬';
   const statusColor = it.status === 'sent' ? 'var(--green)' : it.status === 'rejected' ? 'var(--red)' : 'var(--accent)';
@@ -5576,6 +5578,7 @@ function renderPendingReplyCard(it) {
             <div style="font-size:12px;color:var(--text-dim);margin-top:2px">
               → <span style="color:var(--accent);font-weight:500">${escapeHtml(it.recipient || '')}</span>
               ${typeLabel ? `<span style="margin-left:8px;background:rgba(255,255,255,0.06);padding:2px 8px;border-radius:4px;font-size:10px">${typeLabel}</span>` : ''}
+              ${stageLabel ? `<span style="margin-left:4px;background:rgba(59,130,246,0.1);color:var(--blue);padding:2px 8px;border-radius:4px;font-size:10px;border:1px solid rgba(59,130,246,0.2)">${stageLabel}</span>` : ''}
             </div>
           </div>
         </div>

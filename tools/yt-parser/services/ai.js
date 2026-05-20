@@ -352,8 +352,24 @@ const SEND_REPLY_TOOL = {
         type: "number",
         description: "Числовое значение цены если price_mentioned=true.",
       },
+      conversation_stage: {
+        type: "string",
+        enum: [
+          "introduction",
+          "qualification",
+          "value_proposition",
+          "needs_analysis",
+          "solution_presentation",
+          "objection_handling",
+          "negotiation",
+          "close",
+          "end_conversation",
+        ],
+        description:
+          "Текущая стадия диалога ПОСЛЕ отправки этого сообщения. introduction=первый контакт, qualification=оценка подходит ли блогер, value_proposition=объясняем ценность, needs_analysis=выявляем потребности, solution_presentation=предлагаем формат, objection_handling=работаем с возражениями, negotiation=обсуждаем условия, close=закрытие сделки, end_conversation=завершение.",
+      },
     },
-    required: ["body"],
+    required: ["body", "conversation_stage"],
   },
 };
 
@@ -375,8 +391,13 @@ const COLD_PITCH_TOOL = {
         description:
           "Текст первого письма блогеру. Персонализированный, 50-100 слов.",
       },
+      conversation_stage: {
+        type: "string",
+        enum: ["introduction"],
+        description: "Всегда 'introduction' для первого контакта.",
+      },
     },
-    required: ["subject", "body"],
+    required: ["subject", "body", "conversation_stage"],
   },
 };
 
@@ -457,6 +478,7 @@ function parseToolResponse(response) {
       flag,
       extracted_price: input.extracted_price || null,
       consultation_question: input.consultation_question || null,
+      conversation_stage: input.conversation_stage || null,
     };
   }
   // Fallback: старый JSON в text (если модель проигнорировала tool)
