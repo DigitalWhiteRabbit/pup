@@ -1673,10 +1673,13 @@ window.fetch = function(url, opts) {
     <!-- ─── CAMPAIGNS ─── -->
     <div id="navCampaigns" class="nav-section">
       <div class="dashboard-grid">
-        <div class="card">
+        <div class="card" id="campaignFormCard" style="display:none">
           <div class="card-header">
             <div class="card-title" id="campaignFormTitle">Новая кампания</div>
-            <button class="btn-secondary btn-sm" onclick="resetCampaignForm()" id="campaignResetBtn" style="display:none">+ Новая</button>
+            <div style="display:flex;gap:8px">
+              <button class="btn-secondary btn-sm" onclick="resetCampaignForm()" id="campaignResetBtn" style="display:none">+ Новая</button>
+              <button class="btn-secondary btn-sm" onclick="hideCampaignForm()">✕ Закрыть</button>
+            </div>
           </div>
           <div class="form-grid">
             <div class="full"><label>Название проекта *</label><input type="text" id="cName" placeholder="CopyBanner"></div>
@@ -1758,7 +1761,10 @@ window.fetch = function(url, opts) {
       </div>
 
       <div class="card" style="margin-top:16px">
-        <div class="card-title">Сохранённые кампании</div>
+        <div class="card-header">
+          <div class="card-title">Сохранённые кампании</div>
+          <button class="btn-primary btn-sm" onclick="showCampaignForm()">+ Добавить кампанию</button>
+        </div>
         <div id="campaignsList"><p style="color:var(--text-dim);font-size:12px">Загрузка...</p></div>
       </div>
 
@@ -5054,6 +5060,7 @@ async function saveCampaign() {
 }
 
 function editCampaign(id) {
+  showCampaignForm();
   fetch('/api/projects/' + id).then(r=>r.json()).then(j => {
     if (!j.success) return;
     const p = j.project;
@@ -5123,6 +5130,16 @@ function resetSystemPrompt() {
   toast('Промпт сброшен на дефолтный. Нажмите "Сохранить" для применения.', 'info');
 }
 
+function showCampaignForm() {
+  document.getElementById('campaignFormCard').style.display = '';
+  document.getElementById('campaignFormCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function hideCampaignForm() {
+  document.getElementById('campaignFormCard').style.display = 'none';
+  resetCampaignForm();
+}
+
 function resetCampaignForm() {
   editingCampaignId = null;
   ['cName','cDescription','cUtp','cAudience','cBudgetMin','cBudgetMax','cAdFormats','cValueProp','cIdealProfile','cBadFit','cProofPoints','cSignature','cCtaText','cCtaLink','cCreatorEconomics','cToneOfVoice','cStopWords','cAgentPersona'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
@@ -5131,7 +5148,7 @@ function resetCampaignForm() {
   document.getElementById('campaignCancelBtn').style.display = 'none';
   document.getElementById('campaignResetBtn').style.display = 'none';
 }
-function cancelCampaignEdit() { resetCampaignForm(); }
+function cancelCampaignEdit() { hideCampaignForm(); }
 
 async function activateCampaign(id) {
   await fetch('/api/projects/' + id + '/activate', { method:'POST' });
