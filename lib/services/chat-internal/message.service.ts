@@ -2,6 +2,7 @@ import "server-only";
 import { db } from "@/lib/db";
 import { ApiError } from "@/lib/api-error";
 import { sendTelegramNotification } from "../telegram/sender";
+import { broadcastToWorkspace } from "./sse.service";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -314,7 +315,7 @@ export async function sendMessage(
   // @mentions → Telegram notifications
   void notifyMentions(channelId, userId, msg.author.login, input.content);
 
-  return {
+  const result: ChatMsgView = {
     id: msg.id,
     authorId: msg.author.id,
     authorLogin: msg.author.login,
@@ -332,6 +333,11 @@ export async function sendMessage(
     readByCount: 0,
     pinnedAt: null,
   };
+
+  // SSE broadcast — fire and forget
+  void sseNotifyNewMessage(channelId, result);
+
+  return result;
 }
 
 // ─── Edit message ───────────────────────────────────────────────────────────
@@ -343,7 +349,7 @@ export async function editMessage(
 ): Promise<void> {
   const msg = await db.chatMsg.findUnique({
     where: { id: messageId },
-    select: { authorId: true },
+    select: { authorId: true, channelId: true },
   });
   if (!msg) throw new ApiError("Не найдено", "NOT_FOUND", 404);
   if (msg.authorId !== userId)
@@ -353,9 +359,17 @@ export async function editMessage(
       403,
     );
 
-  await db.chatMsg.update({
+  const updated = await db.chatMsg.update({
     where: { id: messageId },
     data: { content, editedAt: new Date() },
+  });
+
+  // SSE broadcast
+  void sseNotifyMessageEdited(msg.channelId, {
+    messageId,
+    channelId: msg.channelId,
+    content,
+    editedAt: updated.editedAt!.toISOString(),
   });
 }
 
@@ -368,7 +382,7 @@ export async function deleteMessage(
 ): Promise<void> {
   const msg = await db.chatMsg.findUnique({
     where: { id: messageId },
-    select: { authorId: true },
+    select: { authorId: true, channelId: true },
   });
   if (!msg) throw new ApiError("Не найдено", "NOT_FOUND", 404);
   if (msg.authorId !== userId && userRole !== "ADMIN")
@@ -378,6 +392,9 @@ export async function deleteMessage(
     where: { id: messageId },
     data: { deletedAt: new Date() },
   });
+
+  // SSE broadcast
+  void sseNotifyMessageDeleted(msg.channelId, messageId);
 }
 
 // ─── Toggle reaction ────────────────────────────────────────────────────────
@@ -387,18 +404,46 @@ export async function toggleReaction(
   userId: string,
   emoji: string,
 ): Promise<{ added: boolean }> {
+  // Look up channelId for SSE broadcast
+  const msg = await db.chatMsg.findUnique({
+    where: { id: messageId },
+    select: { channelId: true },
+  });
+
   const existing = await db.chatMsgReaction.findUnique({
     where: { messageId_userId_emoji: { messageId, userId, emoji } },
   });
 
   if (existing) {
     await db.chatMsgReaction.delete({ where: { id: existing.id } });
+    // SSE broadcast
+    if (msg) {
+      void sseNotifyReaction(msg.channelId, {
+        messageId,
+        channelId: msg.channelId,
+        emoji,
+        added: false,
+        userId,
+      });
+    }
     return { added: false };
   }
 
   await db.chatMsgReaction.create({
     data: { messageId, userId, emoji },
   });
+
+  // SSE broadcast
+  if (msg) {
+    void sseNotifyReaction(msg.channelId, {
+      messageId,
+      channelId: msg.channelId,
+      emoji,
+      added: true,
+      userId,
+    });
+  }
+
   return { added: true };
 }
 
@@ -498,6 +543,98 @@ async function notifyMentions(
         void sendTelegramNotification(user.telegramChatId, msg);
       }
     }
+  } catch {
+    /* fire-and-forget */
+  }
+}
+
+// ─── SSE broadcast helpers ─────────────────────────────────────────────────
+// These resolve the workspaceId from the channel and broadcast the event.
+// All are fire-and-forget — errors are swallowed to avoid impacting the
+// primary write path.
+
+async function resolveWorkspaceId(channelId: string): Promise<string | null> {
+  try {
+    const ch = await db.chatChannel.findUnique({
+      where: { id: channelId },
+      select: { workspaceId: true },
+    });
+    return ch?.workspaceId ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function sseNotifyNewMessage(
+  channelId: string,
+  message: ChatMsgView,
+): Promise<void> {
+  try {
+    const wsId = await resolveWorkspaceId(channelId);
+    if (!wsId) return;
+    broadcastToWorkspace(wsId, {
+      type: "new_message",
+      data: { channelId, message },
+    });
+  } catch {
+    /* fire-and-forget */
+  }
+}
+
+async function sseNotifyMessageEdited(
+  channelId: string,
+  payload: {
+    messageId: string;
+    channelId: string;
+    content: string;
+    editedAt: string;
+  },
+): Promise<void> {
+  try {
+    const wsId = await resolveWorkspaceId(channelId);
+    if (!wsId) return;
+    broadcastToWorkspace(wsId, {
+      type: "message_edited",
+      data: payload,
+    });
+  } catch {
+    /* fire-and-forget */
+  }
+}
+
+async function sseNotifyMessageDeleted(
+  channelId: string,
+  messageId: string,
+): Promise<void> {
+  try {
+    const wsId = await resolveWorkspaceId(channelId);
+    if (!wsId) return;
+    broadcastToWorkspace(wsId, {
+      type: "message_deleted",
+      data: { channelId, messageId },
+    });
+  } catch {
+    /* fire-and-forget */
+  }
+}
+
+async function sseNotifyReaction(
+  channelId: string,
+  payload: {
+    messageId: string;
+    channelId: string;
+    emoji: string;
+    added: boolean;
+    userId: string;
+  },
+): Promise<void> {
+  try {
+    const wsId = await resolveWorkspaceId(channelId);
+    if (!wsId) return;
+    broadcastToWorkspace(wsId, {
+      type: "reaction_toggled",
+      data: payload,
+    });
   } catch {
     /* fire-and-forget */
   }

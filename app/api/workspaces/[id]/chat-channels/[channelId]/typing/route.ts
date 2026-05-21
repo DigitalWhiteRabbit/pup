@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { broadcastToOthers } from "@/lib/services/chat-internal/sse.service";
 
 type RouteParams = {
   params: Promise<{ id: string; channelId: string }>;
@@ -12,11 +13,22 @@ export async function POST(_req: Request, { params }: RouteParams) {
     const session = await auth();
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const { channelId } = await params;
+    const { id: workspaceId, channelId } = await params;
 
-    await db.chatChannelMember.update({
+    const membership = await db.chatChannelMember.update({
       where: { channelId_userId: { channelId, userId: session.user.id } },
       data: { typingAt: new Date() },
+      include: { user: { select: { login: true } } },
+    });
+
+    // SSE broadcast to everyone except the typer
+    broadcastToOthers(workspaceId, session.user.id, {
+      type: "typing",
+      data: {
+        channelId,
+        userId: session.user.id,
+        login: membership.user.login,
+      },
     });
 
     return NextResponse.json({ ok: true });

@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { broadcastToWorkspace } from "@/lib/services/chat-internal/sse.service";
 
 type RouteParams = {
   params: Promise<{ id: string; channelId: string; messageId: string }>;
@@ -12,7 +13,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
     const session = await auth();
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const { channelId, messageId } = await params;
+    const { id: workspaceId, channelId, messageId } = await params;
 
     const msg = await db.chatMsg.findUnique({
       where: { id: messageId },
@@ -35,6 +36,12 @@ export async function POST(_req: Request, { params }: RouteParams) {
       data: isPinned
         ? { pinnedAt: null, pinnedById: null }
         : { pinnedAt: new Date(), pinnedById: session.user.id },
+    });
+
+    // SSE broadcast
+    broadcastToWorkspace(workspaceId, {
+      type: "message_pinned",
+      data: { channelId, messageId, pinned: !isPinned },
     });
 
     return NextResponse.json({ pinned: !isPinned });

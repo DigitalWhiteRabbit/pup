@@ -2,6 +2,7 @@ import "server-only";
 import { db } from "@/lib/db";
 import { ApiError } from "@/lib/api-error";
 import { checkMembership } from "../workspace.service";
+import { broadcastToWorkspace } from "./sse.service";
 import type { ChatChannelType } from "@prisma/client";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -246,6 +247,12 @@ export async function createChannel(
         create: Array.from(memberIds).map((uid) => ({ userId: uid })),
       },
     },
+  });
+
+  // SSE broadcast — notify all workspace clients about the new channel
+  broadcastToWorkspace(workspaceId, {
+    type: "channel_created",
+    data: { channelId: channel.id, name: input.name, type },
   });
 
   return { id: channel.id };

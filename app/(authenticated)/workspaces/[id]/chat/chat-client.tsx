@@ -149,7 +149,216 @@ export function ChatClient({
     }),
   );
 
-  /* ── data ──────────────────────────────────────────────────────────────── */
+  /* ── SSE connection ──────────────────────────────────────────────────────
+   * Single persistent EventSource replaces 4 polling loops.
+   * Polling remains as FALLBACK at greatly reduced intervals (30-60s)
+   * in case SSE disconnects or the browser does not support it.
+   * ─────────────────────────────────────────────────────────────────────── */
+
+  const sseConnectedRef = useRef(false);
+  const activeChannelRef = useRef(activeChannelId);
+  activeChannelRef.current = activeChannelId;
+
+  // Track typing users received via SSE (per-channel, with auto-expiry)
+  const [sseTypingUsers, setSSETypingUsers] = useState<
+    Record<string, Array<{ login: string; expiresAt: number }>>
+  >({});
+
+  useEffect(() => {
+    let es: EventSource | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let typingCleanupTimer: ReturnType<typeof setInterval> | null = null;
+    let closed = false;
+
+    function connect() {
+      if (closed) return;
+      es = new EventSource(
+        `/api/workspaces/${workspaceId}/chat-channels/events`,
+      );
+
+      es.onopen = () => {
+        sseConnectedRef.current = true;
+      };
+
+      es.onmessage = (e) => {
+        try {
+          const event = JSON.parse(e.data) as {
+            type: string;
+            data: Record<string, unknown>;
+          };
+
+          switch (event.type) {
+            case "connected":
+              break;
+
+            case "new_message": {
+              const { channelId, message } = event.data as {
+                channelId: string;
+                message: Msg;
+              };
+              // Append the message into the active channel's query cache
+              if (channelId === activeChannelRef.current) {
+                qc.setQueryData<{ data: Msg[] }>(
+                  ["chat-messages", channelId],
+                  (old) => {
+                    if (!old) return { data: [message] };
+                    // Deduplicate by id
+                    if (old.data.some((m) => m.id === message.id)) return old;
+                    return { data: [...old.data, message] };
+                  },
+                );
+              }
+              // Refresh channel list (unread counts, last message preview)
+              void qc.invalidateQueries({
+                queryKey: ["chat-channels", workspaceId],
+              });
+              break;
+            }
+
+            case "message_edited": {
+              const { channelId, messageId, content, editedAt } =
+                event.data as {
+                  channelId: string;
+                  messageId: string;
+                  content: string;
+                  editedAt: string;
+                };
+              if (channelId === activeChannelRef.current) {
+                qc.setQueryData<{ data: Msg[] }>(
+                  ["chat-messages", channelId],
+                  (old) => {
+                    if (!old) return old;
+                    return {
+                      data: old.data.map((m) =>
+                        m.id === messageId ? { ...m, content, editedAt } : m,
+                      ),
+                    };
+                  },
+                );
+              }
+              break;
+            }
+
+            case "message_deleted": {
+              const { channelId, messageId } = event.data as {
+                channelId: string;
+                messageId: string;
+              };
+              if (channelId === activeChannelRef.current) {
+                qc.setQueryData<{ data: Msg[] }>(
+                  ["chat-messages", channelId],
+                  (old) => {
+                    if (!old) return old;
+                    return {
+                      data: old.data.filter((m) => m.id !== messageId),
+                    };
+                  },
+                );
+              }
+              break;
+            }
+
+            case "typing": {
+              const { channelId, login } = event.data as {
+                channelId: string;
+                login: string;
+              };
+              setSSETypingUsers((prev) => {
+                const channelTyping = (prev[channelId] ?? []).filter(
+                  (t) => t.login !== login && t.expiresAt > Date.now(),
+                );
+                channelTyping.push({
+                  login,
+                  expiresAt: Date.now() + 5000,
+                });
+                return { ...prev, [channelId]: channelTyping };
+              });
+              break;
+            }
+
+            case "channel_created":
+            case "channel_updated":
+            case "channel_deleted": {
+              void qc.invalidateQueries({
+                queryKey: ["chat-channels", workspaceId],
+              });
+              if (
+                event.type === "channel_deleted" &&
+                (event.data as { channelId: string }).channelId ===
+                  activeChannelRef.current
+              ) {
+                setActiveChannelId(null);
+              }
+              break;
+            }
+
+            case "reaction_toggled": {
+              const { channelId } = event.data as { channelId: string };
+              if (channelId === activeChannelRef.current) {
+                void qc.invalidateQueries({
+                  queryKey: ["chat-messages", channelId],
+                });
+              }
+              break;
+            }
+
+            case "message_pinned": {
+              const { channelId } = event.data as { channelId: string };
+              if (channelId === activeChannelRef.current) {
+                void qc.invalidateQueries({
+                  queryKey: ["chat-pinned", channelId],
+                });
+                void qc.invalidateQueries({
+                  queryKey: ["chat-messages", channelId],
+                });
+              }
+              break;
+            }
+          }
+        } catch {
+          // Malformed SSE data — ignore
+        }
+      };
+
+      es.onerror = () => {
+        sseConnectedRef.current = false;
+        es?.close();
+        es = null;
+        // Reconnect after 3 seconds with jitter
+        if (!closed) {
+          const jitter = Math.random() * 2000;
+          reconnectTimer = setTimeout(connect, 3000 + jitter);
+        }
+      };
+    }
+
+    connect();
+
+    // Periodically clean expired typing indicators
+    typingCleanupTimer = setInterval(() => {
+      setSSETypingUsers((prev) => {
+        const now = Date.now();
+        const next: typeof prev = {};
+        let changed = false;
+        for (const [chId, entries] of Object.entries(prev)) {
+          const alive = entries.filter((t) => t.expiresAt > now);
+          if (alive.length !== entries.length) changed = true;
+          if (alive.length > 0) next[chId] = alive;
+        }
+        return changed ? next : prev;
+      });
+    }, 2000);
+
+    return () => {
+      closed = true;
+      sseConnectedRef.current = false;
+      es?.close();
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (typingCleanupTimer) clearInterval(typingCleanupTimer);
+    };
+  }, [workspaceId, qc]);
+
+  /* ── data (polling = FALLBACK only, SSE is primary) ─────────────────── */
 
   const { data: chD } = useQuery<{ data: Channel[] }>({
     queryKey: ["chat-channels", workspaceId],
@@ -157,7 +366,7 @@ export function ChatClient({
       fetch(`/api/workspaces/${workspaceId}/chat-channels`).then((r) =>
         r.json(),
       ),
-    refetchInterval: 10000,
+    refetchInterval: 30_000, // fallback: 30s (was 10s)
   });
   const channels = chD?.data ?? [];
 
@@ -251,7 +460,7 @@ export function ChatClient({
         `/api/workspaces/${workspaceId}/chat-channels/${activeChannelId}/messages`,
       ).then((r) => r.json()),
     enabled: !!activeChannelId,
-    refetchInterval: 3000,
+    refetchInterval: 30_000, // fallback: 30s (SSE pushes new messages)
   });
   const msgs = mD?.data ?? [];
   const prevMsgCountRef = useRef(0);
@@ -360,9 +569,23 @@ export function ChatClient({
         `/api/workspaces/${workspaceId}/chat-channels/${activeChannelId}/typing`,
       ).then((r) => r.json()),
     enabled: !!activeChannelId,
-    refetchInterval: 3000,
+    refetchInterval: 30_000, // fallback: 30s (SSE pushes typing events)
   });
-  const typingUsers = typingD?.data ?? [];
+  // Merge SSE typing data with polled typing data
+  const typingUsers = useMemo(() => {
+    const polled = typingD?.data ?? [];
+    if (!activeChannelId) return polled;
+    const sseEntries = (sseTypingUsers[activeChannelId] ?? []).filter(
+      (t) => t.expiresAt > Date.now(),
+    );
+    if (sseEntries.length === 0) return polled;
+    // Deduplicate: SSE data takes priority
+    const logins = new Set(sseEntries.map((t) => t.login));
+    for (const p of polled) {
+      logins.add(p.login);
+    }
+    return Array.from(logins).map((login) => ({ login }));
+  }, [activeChannelId, sseTypingUsers, typingD?.data]);
 
   // Pinned messages
   const { data: pinnedD } = useQuery<{ data: Msg[] }>({
@@ -403,8 +626,8 @@ export function ChatClient({
         .then((d) => ({
           data: d.users?.map((u: { login: string }) => u.login) ?? [],
         })),
-    staleTime: 10_000,
-    refetchInterval: 15_000,
+    staleTime: 30_000,
+    refetchInterval: 60_000, // fallback: 60s (was 15s)
   });
   const onlineLogins = useMemo(
     () => new Set(onlineD?.data ?? []),

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { ApiError } from "@/lib/api-error";
 import { getChannelDetail } from "@/lib/services/chat-internal/channel.service";
+import { broadcastToWorkspace } from "@/lib/services/chat-internal/sse.service";
 
 type RouteParams = {
   params: Promise<{ id: string; channelId: string }>;
@@ -36,7 +37,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     const session = await auth();
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const { channelId } = await params;
+    const { id: workspaceId, channelId } = await params;
 
     const channel = await db.chatChannel.findUnique({
       where: { id: channelId },
@@ -63,6 +64,12 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       where: { id: channelId },
       data,
       select: { id: true, name: true, description: true },
+    });
+
+    // SSE broadcast
+    broadcastToWorkspace(workspaceId, {
+      type: "channel_updated",
+      data: { channelId, name: updated.name, description: updated.description },
     });
 
     return NextResponse.json({ data: updated });
@@ -101,6 +108,12 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Нет доступа" }, { status: 403 });
 
     await db.chatChannel.delete({ where: { id: channelId } });
+
+    // SSE broadcast
+    broadcastToWorkspace(workspaceId, {
+      type: "channel_deleted",
+      data: { channelId },
+    });
 
     return NextResponse.json({ ok: true });
   } catch {
