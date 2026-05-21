@@ -388,11 +388,19 @@ export async function updateTask(
       (uid) => !newIds.has(uid),
     );
 
+    // Batch-load all affected assignee logins in one query
+    const allAffectedIds = [...addedIds, ...removedIds];
+    const assigneeUsers =
+      allAffectedIds.length > 0
+        ? await db.user.findMany({
+            where: { id: { in: allAffectedIds } },
+            select: { id: true, login: true },
+          })
+        : [];
+    const assigneeLoginMap = new Map(assigneeUsers.map((u) => [u.id, u.login]));
+
     for (const uid of addedIds) {
-      const assigneeUser = await db.user.findUnique({
-        where: { id: uid },
-        select: { login: true },
-      });
+      const assigneeLogin = assigneeLoginMap.get(uid);
       await logActivity({
         workspaceId: task.workspaceId,
         actorId: userId,
@@ -403,17 +411,14 @@ export async function updateTask(
         summary: generateSummary("TASK_ASSIGNEE_ADDED", {
           actorLogin,
           taskTitle: updated.title,
-          targetLogin: assigneeUser?.login,
+          targetLogin: assigneeLogin,
         }),
-        metadata: { assigneeId: uid, assigneeLogin: assigneeUser?.login },
+        metadata: { assigneeId: uid, assigneeLogin },
       });
     }
 
     for (const uid of removedIds) {
-      const assigneeUser = await db.user.findUnique({
-        where: { id: uid },
-        select: { login: true },
-      });
+      const assigneeLogin = assigneeLoginMap.get(uid);
       await logActivity({
         workspaceId: task.workspaceId,
         actorId: userId,
@@ -424,9 +429,9 @@ export async function updateTask(
         summary: generateSummary("TASK_ASSIGNEE_REMOVED", {
           actorLogin,
           taskTitle: updated.title,
-          targetLogin: assigneeUser?.login,
+          targetLogin: assigneeLogin,
         }),
-        metadata: { assigneeId: uid, assigneeLogin: assigneeUser?.login },
+        metadata: { assigneeId: uid, assigneeLogin },
       });
     }
   }

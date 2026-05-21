@@ -28,7 +28,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     return new NextResponse(stream, {
       headers: {
         "Content-Type": mime,
-        "Cache-Control": "public, max-age=3600",
+        "Cache-Control": "public, max-age=3600, immutable",
         "X-Content-Type-Options": "nosniff",
       },
     });

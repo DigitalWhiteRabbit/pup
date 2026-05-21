@@ -30,23 +30,13 @@ export function OnlineUsers() {
 
   return (
     <div className="mx-3 mb-2 rounded-lg border px-3 py-2">
-      <p
-        className="text-[10px] uppercase tracking-wider mb-1.5"
-        style={{ color: "#22c55e" }}
-      >
+      <p className="text-xs uppercase tracking-wider mb-1.5 text-emerald-500">
         Онлайн
       </p>
       <div className="flex flex-col gap-1">
         {users.map((u) => (
           <div key={u.id} className="flex items-center gap-2">
-            <svg
-              width="8"
-              height="8"
-              viewBox="0 0 8 8"
-              style={{ flexShrink: 0 }}
-            >
-              <circle cx="4" cy="4" r="4" fill="#22c55e" />
-            </svg>
+            <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
             <span className="text-xs text-muted-foreground truncate">
               {u.login}
             </span>

@@ -10,23 +10,25 @@ import crypto from "crypto";
 export async function POST(req: NextRequest) {
   const body = await req.text();
 
-  // Verify GitHub signature
+  // Verify GitHub signature (REQUIRED)
   const secret = process.env["GITHUB_WEBHOOK_SECRET"];
-  if (secret) {
-    const signature = req.headers.get("x-hub-signature-256");
-    if (!signature) {
-      return NextResponse.json({ error: "Missing signature" }, { status: 401 });
-    }
+  if (!secret) {
+    return NextResponse.json(
+      { error: "GITHUB_WEBHOOK_SECRET not configured" },
+      { status: 503 },
+    );
+  }
 
-    const expected =
-      "sha256=" +
-      crypto.createHmac("sha256", secret).update(body).digest("hex");
+  const signature = req.headers.get("x-hub-signature-256");
+  if (!signature) {
+    return NextResponse.json({ error: "Missing signature" }, { status: 401 });
+  }
 
-    if (
-      !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))
-    ) {
-      return NextResponse.json({ error: "Bad signature" }, { status: 401 });
-    }
+  const expected =
+    "sha256=" + crypto.createHmac("sha256", secret).update(body).digest("hex");
+
+  if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+    return NextResponse.json({ error: "Bad signature" }, { status: 401 });
   }
 
   const event = req.headers.get("x-github-event");

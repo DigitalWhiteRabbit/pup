@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { withErrorHandler, ApiError } from "@/lib/api-error";
 import { db } from "@/lib/db";
 import { onPendingReplyRejected } from "@/lib/services/marketing/mkt-worker.service";
+import { checkMembership } from "@/lib/services/workspace.service";
 
 type Params = { params: Promise<{ id: string; replyId: string }> };
 
@@ -12,14 +13,28 @@ export async function POST(req: NextRequest, { params }: Params) {
     const session = await auth();
     if (!session?.user?.id)
       throw new ApiError("Не авторизован", "UNAUTHORIZED", 401);
-    const { replyId } = await params;
+    const { id: workspaceId, replyId } = await params;
 
-    const existing = await db.mktPendingReply.findUnique({
-      where: { id: replyId },
+    const membership = await checkMembership(workspaceId, session.user.id);
+    if (!membership && session.user.role !== "ADMIN")
+      throw new ApiError("Forbidden", "FORBIDDEN", 403);
+
+    const existing = await db.mktPendingReply.findFirst({
+      where: { id: replyId, lead: { workspaceId } },
     });
     if (!existing) throw new ApiError("Ответ не найден", "NOT_FOUND", 404);
 
     const { action, editedBody, editedSubject, notes } = await req.json();
+
+    // Idempotency guard: only PENDING replies can be approved/rejected/deleted.
+    // Prevents duplicate email sends from double-click or concurrent requests.
+    if (existing.status !== "PENDING") {
+      throw new ApiError(
+        `Ответ уже обработан (статус: ${existing.status})`,
+        "CONFLICT",
+        409,
+      );
+    }
 
     if (action === "approve") {
       const reply = await db.mktPendingReply.update({

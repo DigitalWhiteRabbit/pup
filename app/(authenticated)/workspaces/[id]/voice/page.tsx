@@ -2,6 +2,8 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { VoiceChannelClient } from "./voice-channel-client";
 
+export const metadata = { title: "Голос | ПУП" };
+
 type Props = { params: { id: string } };
 
 export default async function VoicePage({ params }: Props) {

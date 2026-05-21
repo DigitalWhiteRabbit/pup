@@ -49,11 +49,11 @@ export function UsersModuleClient({ workspaceId }: Props) {
             <CheckCircle className="h-3.5 w-3.5" />
             API подключён
           </div>
-          <span className="text-[10px] text-muted-foreground truncate">
+          <span className="text-xs text-muted-foreground truncate">
             {config?.apiEndpoint}
           </span>
           {config?.lastSyncAt && (
-            <span className="text-[10px] text-muted-foreground ml-auto shrink-0">
+            <span className="text-xs text-muted-foreground ml-auto shrink-0">
               Синхр.: {new Date(config.lastSyncAt).toLocaleTimeString("ru-RU")}
             </span>
           )}
@@ -289,7 +289,7 @@ function WelcomeScreen({
                 <Shield className="h-3.5 w-3.5" />
                 Авторизация
               </div>
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 Каждый запрос будет содержать ваш API ключ в выбранном формате
                 (Bearer token, X-API-Key header, или query parameter). Убедитесь
                 что ваш API валидирует ключ.
@@ -325,13 +325,11 @@ function DocSection({
             {title}
           </code>
           {params && (
-            <code className="text-[10px] font-mono text-muted-foreground ml-2">
+            <code className="text-xs font-mono text-muted-foreground ml-2">
               {params}
             </code>
           )}
-          <p className="text-[10px] text-muted-foreground mt-0.5">
-            {description}
-          </p>
+          <p className="text-xs text-muted-foreground mt-0.5">{description}</p>
         </div>
         <button
           onClick={() => {
@@ -349,7 +347,7 @@ function DocSection({
           )}
         </button>
       </div>
-      <pre className="px-3 py-2 text-[11px] font-mono text-muted-foreground overflow-auto max-h-[200px] bg-background">
+      <pre className="px-3 py-2 text-xs font-mono text-muted-foreground overflow-auto max-h-[200px] bg-background">
         {response}
       </pre>
     </div>

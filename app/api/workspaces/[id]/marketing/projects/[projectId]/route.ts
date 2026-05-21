@@ -6,6 +6,7 @@ import {
   updateProject,
   deleteProject,
 } from "@/lib/services/marketing/mkt-project.service";
+import { checkMembership } from "@/lib/services/workspace.service";
 
 type Params = { params: Promise<{ id: string; projectId: string }> };
 
@@ -15,6 +16,10 @@ export async function GET(req: NextRequest, { params }: Params) {
     if (!session?.user?.id)
       throw new ApiError("Не авторизован", "UNAUTHORIZED", 401);
     const { id: workspaceId, projectId } = await params;
+
+    const membership = await checkMembership(workspaceId, session.user.id);
+    if (!membership && session.user.role !== "ADMIN")
+      throw new ApiError("Forbidden", "FORBIDDEN", 403);
 
     const project = await getProject(workspaceId, projectId);
     return NextResponse.json(project);
@@ -28,6 +33,10 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       throw new ApiError("Не авторизован", "UNAUTHORIZED", 401);
     const { id: workspaceId, projectId } = await params;
 
+    const membership = await checkMembership(workspaceId, session.user.id);
+    if (!membership && session.user.role !== "ADMIN")
+      throw new ApiError("Forbidden", "FORBIDDEN", 403);
+
     const body = await req.json();
     const project = await updateProject(workspaceId, projectId, body);
     return NextResponse.json(project);
@@ -40,6 +49,10 @@ export async function DELETE(req: NextRequest, { params }: Params) {
     if (!session?.user?.id)
       throw new ApiError("Не авторизован", "UNAUTHORIZED", 401);
     const { id: workspaceId, projectId } = await params;
+
+    const membership = await checkMembership(workspaceId, session.user.id);
+    if (!membership && session.user.role !== "ADMIN")
+      throw new ApiError("Forbidden", "FORBIDDEN", 403);
 
     await deleteProject(workspaceId, projectId);
     return NextResponse.json({ ok: true });

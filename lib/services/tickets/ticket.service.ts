@@ -420,10 +420,11 @@ export async function updateTicket(
   if (!m2 && userRole !== "ADMIN")
     throw new ApiError("Нет доступа", "FORBIDDEN", 403);
 
-  // Recalculate SLA if priority changed
+  // Recalculate SLA from now when priority changes (not from createdAt,
+  // otherwise old tickets switched to URGENT get an already-past deadline)
   const newSla =
     data.priority && data.priority !== ticket.priority
-      ? calcSlaDeadline(data.priority, ticket.createdAt)
+      ? calcSlaDeadline(data.priority, new Date())
       : undefined;
 
   const updated = await db.ticket.update({
@@ -461,7 +462,7 @@ const VALID_TRANSITIONS: Record<TicketStatus, TicketStatus[]> = {
   IN_PROGRESS: ["WAITING_CUSTOMER", "RESOLVED", "CLOSED"],
   WAITING_CUSTOMER: ["IN_PROGRESS", "RESOLVED", "CLOSED"],
   RESOLVED: ["CLOSED", "IN_PROGRESS"],
-  CLOSED: [],
+  CLOSED: ["OPEN"],
 };
 
 export async function changeTicketStatus(
@@ -504,6 +505,12 @@ export async function changeTicketStatus(
   }
   if (newStatus === "CLOSED") {
     statusData.closedAt = now;
+  }
+  // Reopening: clear resolution/close timestamps
+  if (newStatus === "OPEN" && ticket.status === "CLOSED") {
+    statusData.closedAt = null;
+    statusData.resolvedAt = null;
+    statusData.resolvedById = null;
   }
 
   const msgContent = note
@@ -753,25 +760,29 @@ export async function addMessage(
   if (!m5 && userRole !== "ADMIN")
     throw new ApiError("Нет доступа", "FORBIDDEN", 403);
 
-  const message = await db.ticketMessage.create({
-    data: {
-      ticketId,
-      authorType: "MANAGER",
-      managerAuthorId: userId,
-      content,
-    },
-    include: {
-      managerAuthor: { select: { id: true, login: true } },
-    },
-  });
-
-  // Auto-transition from WAITING_CUSTOMER to IN_PROGRESS
-  if (ticket.status === "WAITING_CUSTOMER") {
-    await db.ticket.update({
-      where: { id: ticketId },
-      data: { status: "IN_PROGRESS" },
+  const message = await db.$transaction(async (tx) => {
+    const msg = await tx.ticketMessage.create({
+      data: {
+        ticketId,
+        authorType: "MANAGER",
+        managerAuthorId: userId,
+        content,
+      },
+      include: {
+        managerAuthor: { select: { id: true, login: true } },
+      },
     });
-  }
+
+    // Auto-transition from WAITING_CUSTOMER to IN_PROGRESS
+    if (ticket.status === "WAITING_CUSTOMER") {
+      await tx.ticket.update({
+        where: { id: ticketId },
+        data: { status: "IN_PROGRESS" },
+      });
+    }
+
+    return msg;
+  });
 
   void logActivity({
     workspaceId: ticket.workspaceId,
@@ -1139,25 +1150,29 @@ export async function addMessageAsCustomer(
     );
   }
 
-  const message = await db.ticketMessage.create({
-    data: {
-      ticketId,
-      authorType: "CUSTOMER",
-      customerAuthorId: customerId,
-      content,
-    },
-    include: {
-      customerAuthor: { select: { id: true, email: true, name: true } },
-    },
-  });
-
-  // Auto-transition from WAITING_CUSTOMER to IN_PROGRESS
-  if (ticket.status === "WAITING_CUSTOMER") {
-    await db.ticket.update({
-      where: { id: ticketId },
-      data: { status: "IN_PROGRESS" },
+  const message = await db.$transaction(async (tx) => {
+    const msg = await tx.ticketMessage.create({
+      data: {
+        ticketId,
+        authorType: "CUSTOMER",
+        customerAuthorId: customerId,
+        content,
+      },
+      include: {
+        customerAuthor: { select: { id: true, email: true, name: true } },
+      },
     });
-  }
+
+    // Auto-transition from WAITING_CUSTOMER to IN_PROGRESS
+    if (ticket.status === "WAITING_CUSTOMER") {
+      await tx.ticket.update({
+        where: { id: ticketId },
+        data: { status: "IN_PROGRESS" },
+      });
+    }
+
+    return msg;
+  });
 
   void logActivity({
     workspaceId: ticket.workspaceId,

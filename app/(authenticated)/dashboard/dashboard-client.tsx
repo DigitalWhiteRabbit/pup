@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import DOMPurify from "dompurify";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
@@ -102,7 +103,7 @@ export function DashboardClient() {
       <div className="grid grid-cols-3 gap-5">
         {/* ═══ PROJECTS ═══ */}
         <div className="rounded-xl border bg-card p-5">
-          <h2 className="text-[15px] font-semibold text-foreground mb-3">
+          <h2 className="text-base font-semibold text-foreground mb-3">
             Мои проекты
           </h2>
           <div className="space-y-3">
@@ -125,7 +126,7 @@ export function DashboardClient() {
                     <div className="text-sm font-semibold text-foreground truncate">
                       {ws.name}
                     </div>
-                    <div className="text-[10px] text-muted-foreground">
+                    <div className="text-xs text-muted-foreground">
                       {ws.role}
                     </div>
                   </div>
@@ -160,7 +161,7 @@ export function DashboardClient() {
           </div>
           <Link
             href="/workspaces"
-            className="inline-flex items-center gap-1 text-[11px] text-emerald-500 mt-3 hover:underline"
+            className="inline-flex items-center gap-1 text-xs text-emerald-500 mt-3 hover:underline"
           >
             Все проекты <ArrowRight className="h-3 w-3" />
           </Link>
@@ -169,12 +170,12 @@ export function DashboardClient() {
         {/* ═══ GUEST CHAT ═══ */}
         <div className="rounded-xl border bg-card p-5">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-[15px] font-semibold text-foreground">
+            <h2 className="text-base font-semibold text-foreground">
               Гостевой чат
             </h2>
             <Link
               href="/global-chat"
-              className="text-[10px] text-emerald-500 hover:underline flex items-center gap-1"
+              className="text-xs text-emerald-500 hover:underline flex items-center gap-1"
             >
               Перейти <ArrowRight className="h-3 w-3" />
             </Link>
@@ -188,7 +189,7 @@ export function DashboardClient() {
                   size={28}
                 />
                 <div className="min-w-0">
-                  <div className="text-[10px] font-semibold text-muted-foreground">
+                  <div className="text-xs font-semibold text-muted-foreground">
                     {m.authorLogin}
                   </div>
                   <div
@@ -203,10 +204,32 @@ export function DashboardClient() {
                     ) : (
                       <span
                         dangerouslySetInnerHTML={{
-                          __html: (m.content || "").replace(
-                            /(https?:\/\/[^\s]+)/g,
-                            (url: string) =>
-                              `<a href="${url}" target="_blank" rel="noopener" class="text-emerald-500 hover:underline break-all" title="${url}">${url.length > 40 ? url.slice(0, 40) + "…" : url}</a>`,
+                          __html: DOMPurify.sanitize(
+                            (m.content || "").replace(
+                              /(https?:\/\/[^\s]+)/g,
+                              (url: string) => {
+                                const safe = url.replace(
+                                  /[&"'<>]/g,
+                                  (c) =>
+                                    ({
+                                      "&": "&amp;",
+                                      '"': "&quot;",
+                                      "'": "&#39;",
+                                      "<": "&lt;",
+                                      ">": "&gt;",
+                                    })[c] || c,
+                                );
+                                const display =
+                                  safe.length > 40
+                                    ? safe.slice(0, 40) + "…"
+                                    : safe;
+                                return `<a href="${safe}" target="_blank" rel="noopener" class="text-emerald-500 hover:underline break-all">${display}</a>`;
+                              },
+                            ),
+                            {
+                              ALLOWED_TAGS: ["a"],
+                              ALLOWED_ATTR: ["href", "target", "rel", "class"],
+                            },
                           ),
                         }}
                       />
@@ -217,12 +240,12 @@ export function DashboardClient() {
                     : (m.content || "").length) > 150 && (
                     <a
                       href={`/global-chat#gmsg-${m.id}`}
-                      className="text-[10px] text-emerald-500 hover:underline mt-0.5 inline-block"
+                      className="text-xs text-emerald-500 hover:underline mt-0.5 inline-block"
                     >
                       Читать в чате →
                     </a>
                   )}
-                  <div className="text-[9px] text-muted-foreground mt-0.5">
+                  <div className="text-xs text-muted-foreground mt-0.5">
                     {format(new Date(m.createdAt), "HH:mm", { locale: ru })}
                   </div>
                 </div>
@@ -244,11 +267,11 @@ export function DashboardClient() {
         {/* ═══ MY TASKS ═══ */}
         <div className="rounded-xl border bg-card p-5">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-[15px] font-semibold text-foreground">
+            <h2 className="text-base font-semibold text-foreground">
               Мои задачи
             </h2>
             {myTasks.length > 0 && (
-              <span className="bg-amber-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 min-w-[18px] text-center">
+              <span className="bg-amber-500 text-white text-xs font-bold rounded-full px-1.5 py-0.5 min-w-[18px] text-center">
                 {myTasks.length}
               </span>
             )}
@@ -266,7 +289,7 @@ export function DashboardClient() {
                 <span className="text-xs text-card-foreground flex-1 truncate">
                   {t.title}
                 </span>
-                <span className="text-[10px] text-muted-foreground shrink-0">
+                <span className="text-xs text-muted-foreground shrink-0">
                   {t.workspaceName}
                 </span>
               </Link>
@@ -279,7 +302,7 @@ export function DashboardClient() {
           </div>
           <Link
             href="/workspaces"
-            className="inline-flex items-center gap-1 text-[11px] text-emerald-500 mt-3 hover:underline"
+            className="inline-flex items-center gap-1 text-xs text-emerald-500 mt-3 hover:underline"
           >
             Все задачи <ArrowRight className="h-3 w-3" />
           </Link>
@@ -287,14 +310,14 @@ export function DashboardClient() {
 
         {/* ═══ RECENT LOGS ═══ */}
         <div className="rounded-xl border bg-card p-5">
-          <h2 className="text-[15px] font-semibold text-foreground mb-3">
+          <h2 className="text-base font-semibold text-foreground mb-3">
             Последние события
           </h2>
           <div className="space-y-0.5">
             {recentLogs.map((l) => (
               <div
                 key={l.id}
-                className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted/50 text-[11px] text-muted-foreground"
+                className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted/50 text-xs text-muted-foreground"
               >
                 <div
                   className={`w-1.5 h-1.5 rounded-full shrink-0 ${logDot(l.action)}`}
@@ -303,7 +326,7 @@ export function DashboardClient() {
                   <b className="text-card-foreground">{l.userLogin}</b>{" "}
                   {logText(l)}
                 </span>
-                <span className="text-[10px] shrink-0">
+                <span className="text-xs shrink-0">
                   {l.workspaceName && <>{l.workspaceName} &middot; </>}
                   {format(new Date(l.createdAt), "HH:mm", { locale: ru })}
                 </span>
@@ -317,7 +340,7 @@ export function DashboardClient() {
           </div>
           <Link
             href="/logs"
-            className="inline-flex items-center gap-1 text-[11px] text-emerald-500 mt-3 hover:underline"
+            className="inline-flex items-center gap-1 text-xs text-emerald-500 mt-3 hover:underline"
           >
             Все логи <ArrowRight className="h-3 w-3" />
           </Link>

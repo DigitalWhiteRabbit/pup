@@ -46,19 +46,15 @@ describe("parseMarkdown", () => {
 
 describe("parseXlsx", () => {
   it("creates Markdown table from single sheet", async () => {
-    const XLSX = await import("xlsx");
+    const ExcelJS = await import("exceljs");
     const { parseXlsx } = await import("@/lib/services/kb/parsers/xlsx.parser");
 
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet([
-      ["Name", "Age"],
-      ["Alice", "30"],
-      ["Bob", "25"],
-    ]);
-    XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
-    const buf = Buffer.from(
-      XLSX.write(wb, { type: "buffer", bookType: "xlsx" }),
-    );
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("Sheet1");
+    ws.addRow(["Name", "Age"]);
+    ws.addRow(["Alice", "30"]);
+    ws.addRow(["Bob", "25"]);
+    const buf = Buffer.from(await wb.xlsx.writeBuffer());
 
     const result = await parseXlsx(buf, "data.xlsx");
     expect(result.title).toBe("data");
@@ -69,15 +65,15 @@ describe("parseXlsx", () => {
   });
 
   it("handles multiple sheets", async () => {
-    const XLSX = await import("xlsx");
+    const ExcelJS = await import("exceljs");
     const { parseXlsx } = await import("@/lib/services/kb/parsers/xlsx.parser");
 
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["A"]]), "Alpha");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["B"]]), "Beta");
-    const buf = Buffer.from(
-      XLSX.write(wb, { type: "buffer", bookType: "xlsx" }),
-    );
+    const wb = new ExcelJS.Workbook();
+    const ws1 = wb.addWorksheet("Alpha");
+    ws1.addRow(["A"]);
+    const ws2 = wb.addWorksheet("Beta");
+    ws2.addRow(["B"]);
+    const buf = Buffer.from(await wb.xlsx.writeBuffer());
 
     const result = await parseXlsx(buf, "multi.xlsx");
     expect(result.content).toContain("Alpha");

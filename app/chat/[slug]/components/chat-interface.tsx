@@ -18,6 +18,12 @@ import {
 import { format, formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { MessageInput } from "./message-input";
+import {
+  priorityColorClass,
+  PRIORITY_LABELS,
+  STATUS_DOT_COLORS,
+  STATUS_LABELS,
+} from "@/lib/constants/ui";
 import type {
   ChatConfig,
   ChatCustomer,
@@ -54,59 +60,29 @@ const CATEGORY_OPTIONS = [
   {
     value: "GENERAL",
     label: "Общий вопрос",
-    icon: "💬",
+    icon: "\u{1F4AC}",
     hint: "Любые вопросы",
   },
   {
     value: "TECHNICAL",
     label: "Техническое",
-    icon: "🔧",
+    icon: "\u{1F527}",
     hint: "Проблемы с работой",
   },
   {
     value: "FINANCIAL",
     label: "Финансы",
-    icon: "💰",
+    icon: "\u{1F4B0}",
     hint: "Оплата и возвраты",
   },
-  { value: "BUG", label: "Баг", icon: "🐛", hint: "Что-то сломалось" },
+  { value: "BUG", label: "Баг", icon: "\u{1F41B}", hint: "Что-то сломалось" },
   {
     value: "FEATURE_REQUEST",
     label: "Предложение",
-    icon: "💡",
+    icon: "\u{1F4A1}",
     hint: "Новая функция",
   },
 ];
-
-const STATUS_LABELS: Record<string, string> = {
-  OPEN: "Открыт",
-  IN_PROGRESS: "В работе",
-  WAITING_CUSTOMER: "Ждёт ответа",
-  RESOLVED: "Решён",
-  CLOSED: "Закрыт",
-};
-
-const STATUS_COLORS: Record<string, string> = {
-  OPEN: "bg-emerald-500",
-  IN_PROGRESS: "bg-blue-500",
-  WAITING_CUSTOMER: "bg-amber-500",
-  RESOLVED: "bg-gray-400",
-  CLOSED: "bg-gray-400",
-};
-
-const PRIORITY_LABELS: Record<string, string> = {
-  LOW: "Низкий",
-  MEDIUM: "Средний",
-  HIGH: "Высокий",
-  URGENT: "Срочный",
-};
-
-const PRIORITY_COLORS: Record<string, string> = {
-  LOW: "bg-gray-100 text-gray-600",
-  MEDIUM: "bg-amber-100 text-amber-700",
-  HIGH: "bg-orange-100 text-orange-700",
-  URGENT: "bg-red-100 text-red-700",
-};
 
 export function ChatInterface({
   slug,
@@ -282,7 +258,9 @@ export function ChatInterface({
   // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <div className={`flex ${embedMode ? "h-screen" : "min-h-screen"} bg-white`}>
+    <div
+      className={`flex ${embedMode ? "h-screen" : "min-h-screen"} bg-background`}
+    >
       {/* Mobile sidebar backdrop */}
       {mobileSidebar && (
         <div
@@ -296,11 +274,11 @@ export function ChatInterface({
         className={`
           ${mobileSidebar ? "translate-x-0" : "-translate-x-full"}
           md:translate-x-0 fixed md:static inset-y-0 left-0 z-50 md:z-auto
-          w-[280px] bg-gray-50/80 backdrop-blur-xl border-r border-gray-200/60 flex flex-col shrink-0 transition-transform md:transition-none
+          w-[280px] bg-muted/80 backdrop-blur-xl border-r border-border flex flex-col shrink-0 transition-transform md:transition-none
         `}
       >
         {/* Logo + title */}
-        <div className="flex items-center gap-3 px-4 py-4 border-b border-gray-200/60">
+        <div className="flex items-center gap-3 px-4 py-4 border-b border-border">
           <div
             className="w-8 h-8 rounded-lg flex items-center justify-center text-white text-sm font-bold shadow-sm"
             style={{
@@ -310,7 +288,7 @@ export function ChatInterface({
           >
             {config.workspaceName[0]}
           </div>
-          <span className="font-semibold text-gray-800 text-sm truncate">
+          <span className="font-semibold text-foreground text-sm truncate">
             {config.chatTitle}
           </span>
         </div>
@@ -332,11 +310,11 @@ export function ChatInterface({
 
         {/* Nav */}
         <nav className="px-3 pt-3 space-y-1">
-          <div className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm text-gray-700 bg-white shadow-sm border border-gray-100">
-            <MessageSquare className="h-4 w-4 text-gray-400" />
+          <div className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm text-foreground bg-card shadow-sm border border-border">
+            <MessageSquare className="h-4 w-4 text-muted-foreground" />
             <span className="font-medium">Все диалоги</span>
             {tickets.length > 0 && (
-              <span className="ml-auto text-[10px] font-semibold bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full">
+              <span className="ml-auto text-xs font-semibold bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full">
                 {tickets.length}
               </span>
             )}
@@ -345,12 +323,14 @@ export function ChatInterface({
 
         {/* Recent dialogs */}
         <div className="px-3 pt-5 flex-1 min-h-0">
-          <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider px-3 mb-2">
+          <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-3 mb-2">
             Недавние
           </div>
           <div className="space-y-0.5 max-h-[calc(100vh-320px)] overflow-y-auto">
             {tickets.length === 0 ? (
-              <p className="text-xs text-gray-400 px-3 py-3">Нет диалогов</p>
+              <p className="text-xs text-muted-foreground px-3 py-3">
+                Нет диалогов
+              </p>
             ) : (
               tickets.map((t) => (
                 <button
@@ -358,18 +338,18 @@ export function ChatInterface({
                   onClick={() => selectTicket(t.id)}
                   className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left transition-all duration-150 ${
                     t.id === activeTicketId
-                      ? "bg-white shadow-sm border border-gray-100"
-                      : "hover:bg-white/60"
+                      ? "bg-card shadow-sm border border-border"
+                      : "hover:bg-card/60"
                   }`}
                 >
                   <div
-                    className={`w-2 h-2 rounded-full shrink-0 ${STATUS_COLORS[t.status] ?? "bg-gray-300"}`}
+                    className={`w-2 h-2 rounded-full shrink-0 ${STATUS_DOT_COLORS[t.status] ?? "bg-muted"}`}
                   />
                   <div className="flex-1 min-w-0">
-                    <div className="text-xs font-medium text-gray-700 truncate">
+                    <div className="text-xs font-medium text-foreground truncate">
                       {t.title}
                     </div>
-                    <div className="text-[10px] text-gray-400 mt-0.5">
+                    <div className="text-xs text-muted-foreground mt-0.5">
                       #{t.number} ·{" "}
                       {formatDistanceToNow(new Date(t.lastMessageAt), {
                         addSuffix: true,
@@ -384,37 +364,37 @@ export function ChatInterface({
         </div>
 
         {/* Bottom: user + logout */}
-        <div className="border-t border-gray-200/60 px-3 py-3">
+        <div className="border-t border-border px-3 py-3">
           <div className="flex items-center gap-2.5 px-3 py-2">
-            <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-xs font-bold text-gray-500">
+            <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-xs font-bold text-muted-foreground">
               {(customer.name ?? customer.email)[0]?.toUpperCase()}
             </div>
             <div className="flex-1 min-w-0">
-              <div className="text-xs font-medium text-gray-700 truncate">
+              <div className="text-xs font-medium text-foreground truncate">
                 {customer.name ?? customer.email}
               </div>
             </div>
             <button
               onClick={onLogout}
-              className="p-1.5 rounded-lg hover:bg-gray-200/80 transition-colors"
+              className="p-1.5 rounded-lg hover:bg-muted/80 transition-colors"
               title="Выйти"
             >
-              <LogOut className="h-3.5 w-3.5 text-gray-400" />
+              <LogOut className="h-3.5 w-3.5 text-muted-foreground" />
             </button>
           </div>
         </div>
       </aside>
 
       {/* ═══ CENTER: CHAT ═══ */}
-      <main className="flex-1 flex flex-col min-w-0 bg-white">
+      <main className="flex-1 flex flex-col min-w-0 bg-background">
         {/* Chat header */}
-        <div className="flex items-center gap-3 px-4 md:px-5 py-3 border-b border-gray-100 shrink-0 bg-white/80 backdrop-blur-lg sticky top-0 z-10">
+        <div className="flex items-center gap-3 px-4 md:px-5 py-3 border-b border-border shrink-0 bg-background/80 backdrop-blur-lg sticky top-0 z-10">
           <button
             onClick={() => setMobileSidebar(true)}
-            className="md:hidden p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+            className="md:hidden p-1.5 rounded-lg hover:bg-muted transition-colors"
             aria-label="Меню"
           >
-            <Menu className="h-5 w-5 text-gray-400" />
+            <Menu className="h-5 w-5 text-muted-foreground" />
           </button>
 
           {persona && (
@@ -426,7 +406,7 @@ export function ChatInterface({
                     alt={persona.displayName}
                     width={36}
                     height={36}
-                    className="w-9 h-9 rounded-full object-cover ring-2 ring-white"
+                    className="w-9 h-9 rounded-full object-cover ring-2 ring-background"
                     unoptimized
                   />
                 ) : (
@@ -438,25 +418,27 @@ export function ChatInterface({
                   </div>
                 )}
                 {/* Online badge */}
-                <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-400 border-2 border-white" />
+                <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-400 border-2 border-background" />
               </div>
               <div>
-                <div className="text-sm font-semibold text-gray-800">
+                <div className="text-sm font-semibold text-foreground">
                   {persona.displayName}
                 </div>
-                <div className="text-[11px] text-gray-400">{persona.role}</div>
+                <div className="text-xs text-muted-foreground">
+                  {persona.role}
+                </div>
               </div>
             </>
           )}
           {!persona && (
-            <div className="text-sm font-semibold text-gray-800">
+            <div className="text-sm font-semibold text-foreground">
               {config.chatTitle}
             </div>
           )}
 
           <div className="ml-auto flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="text-[11px] text-gray-400 font-medium">
+            <span className="text-xs text-muted-foreground font-medium">
               онлайн
             </span>
           </div>
@@ -469,13 +451,13 @@ export function ChatInterface({
               {!selectedCategory ? (
                 <div className="w-full max-w-sm">
                   <div className="text-center mb-6">
-                    <div className="w-12 h-12 rounded-2xl bg-gray-100 flex items-center justify-center mx-auto mb-3">
-                      <MessageCircle className="h-6 w-6 text-gray-300" />
+                    <div className="w-12 h-12 rounded-2xl bg-muted flex items-center justify-center mx-auto mb-3">
+                      <MessageCircle className="h-6 w-6 text-muted-foreground" />
                     </div>
-                    <h3 className="text-sm font-semibold text-gray-700 mb-1">
+                    <h3 className="text-sm font-semibold text-foreground mb-1">
                       Тема обращения
                     </h3>
-                    <p className="text-xs text-gray-400">
+                    <p className="text-xs text-muted-foreground">
                       Выберите категорию, чтобы мы быстрее помогли
                     </p>
                   </div>
@@ -484,16 +466,16 @@ export function ChatInterface({
                       <button
                         key={cat.value}
                         onClick={() => setSelectedCategory(cat.value)}
-                        className="flex items-center gap-2.5 p-3.5 border border-gray-200 rounded-xl text-left hover:border-gray-300 hover:bg-gray-50/50 hover:shadow-sm transition-all duration-200 group"
+                        className="flex items-center gap-2.5 p-3.5 border border-border rounded-xl text-left hover:border-border hover:bg-muted/50 hover:shadow-sm transition-all duration-200 group"
                       >
                         <span className="text-lg group-hover:scale-110 transition-transform">
                           {cat.icon}
                         </span>
                         <div>
-                          <div className="text-xs font-medium text-gray-700">
+                          <div className="text-xs font-medium text-foreground">
                             {cat.label}
                           </div>
-                          <div className="text-[10px] text-gray-400">
+                          <div className="text-xs text-muted-foreground">
                             {cat.hint}
                           </div>
                         </div>
@@ -526,10 +508,10 @@ export function ChatInterface({
                       <X className="h-3 w-3" />
                     </button>
                   </div>
-                  <h3 className="text-sm font-semibold text-gray-600 mb-1">
+                  <h3 className="text-sm font-semibold text-muted-foreground mb-1">
                     Опишите ваш вопрос
                   </h3>
-                  <p className="text-xs text-gray-400 max-w-xs">
+                  <p className="text-xs text-muted-foreground max-w-xs">
                     Приоритет определится автоматически
                   </p>
                 </div>
@@ -559,7 +541,7 @@ export function ChatInterface({
             </>
           ) : (
             <div className="flex justify-center py-12">
-              <Loader2 className="h-5 w-5 animate-spin text-gray-300" />
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             </div>
           )}
         </div>
@@ -576,7 +558,7 @@ export function ChatInterface({
 
         {/* Input */}
         {!isClosed && (
-          <div className="border-t border-gray-100 px-4 md:px-6 py-3 bg-white shrink-0">
+          <div className="border-t border-border px-4 md:px-6 py-3 bg-background shrink-0">
             <MessageInput
               onSend={(text) => {
                 if (showNewTicketMode) {
@@ -603,12 +585,12 @@ export function ChatInterface({
 
       {/* ═══ RIGHT SIDEBAR: Ticket details ═══ */}
       {activeTicket && (
-        <aside className="hidden lg:flex w-[280px] border-l border-gray-100 flex-col shrink-0 bg-gray-50/50">
-          <div className="px-5 py-4 border-b border-gray-100">
-            <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">
+        <aside className="hidden lg:flex w-[280px] border-l border-border flex-col shrink-0 bg-muted/50">
+          <div className="px-5 py-4 border-b border-border">
+            <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
               Тикет
             </div>
-            <div className="text-sm font-bold text-gray-800">
+            <div className="text-sm font-bold text-foreground">
               #{activeTicket.number}
             </div>
           </div>
@@ -616,12 +598,12 @@ export function ChatInterface({
           <div className="px-5 py-4 space-y-4">
             {/* Status */}
             <div>
-              <div className="text-[11px] text-gray-400 mb-1.5">Статус</div>
+              <div className="text-xs text-muted-foreground mb-1.5">Статус</div>
               <div className="flex items-center gap-2">
                 <span
-                  className={`w-2 h-2 rounded-full ${STATUS_COLORS[activeTicket.status] ?? "bg-gray-300"}`}
+                  className={`w-2 h-2 rounded-full ${STATUS_DOT_COLORS[activeTicket.status] ?? "bg-muted"}`}
                 />
-                <span className="text-xs font-medium text-gray-700">
+                <span className="text-xs font-medium text-foreground">
                   {STATUS_LABELS[activeTicket.status] ?? activeTicket.status}
                 </span>
               </div>
@@ -630,11 +612,11 @@ export function ChatInterface({
             {/* Priority */}
             {"priority" in activeTicket && (
               <div>
-                <div className="text-[11px] text-gray-400 mb-1.5">
+                <div className="text-xs text-muted-foreground mb-1.5">
                   Приоритет
                 </div>
                 <span
-                  className={`text-[11px] font-medium px-2.5 py-1 rounded-full ${PRIORITY_COLORS[(activeTicket as unknown as { priority: string }).priority] ?? "bg-gray-100 text-gray-600"}`}
+                  className={`text-xs font-medium px-2.5 py-1 rounded-full ${priorityColorClass((activeTicket as unknown as { priority: string }).priority) || "bg-muted text-muted-foreground"}`}
                 >
                   {PRIORITY_LABELS[
                     (activeTicket as unknown as { priority: string }).priority
@@ -645,9 +627,9 @@ export function ChatInterface({
 
             {/* Created */}
             <div>
-              <div className="text-[11px] text-gray-400 mb-1.5">Создан</div>
-              <div className="flex items-center gap-1.5 text-xs text-gray-600">
-                <Clock className="h-3 w-3 text-gray-400" />
+              <div className="text-xs text-muted-foreground mb-1.5">Создан</div>
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Clock className="h-3 w-3 text-muted-foreground" />
                 {activeTicket.messages[0]
                   ? format(
                       new Date(activeTicket.messages[0].createdAt),
@@ -660,16 +642,18 @@ export function ChatInterface({
 
             {/* Title */}
             <div>
-              <div className="text-[11px] text-gray-400 mb-1.5">Тема</div>
-              <div className="text-xs text-gray-700 leading-relaxed">
+              <div className="text-xs text-muted-foreground mb-1.5">Тема</div>
+              <div className="text-xs text-foreground leading-relaxed">
                 {activeTicket.title}
               </div>
             </div>
 
             {/* Messages count */}
             <div>
-              <div className="text-[11px] text-gray-400 mb-1.5">Сообщений</div>
-              <div className="text-xs font-medium text-gray-600">
+              <div className="text-xs text-muted-foreground mb-1.5">
+                Сообщений
+              </div>
+              <div className="text-xs font-medium text-muted-foreground">
                 {activeTicket.messages.length}
               </div>
             </div>
@@ -677,10 +661,10 @@ export function ChatInterface({
 
           {/* New ticket button */}
           {!isClosed && (
-            <div className="mt-auto px-5 py-4 border-t border-gray-100">
+            <div className="mt-auto px-5 py-4 border-t border-border">
               <button
                 onClick={handleNewDialog}
-                className="w-full flex items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-xs font-medium border border-gray-200 text-gray-600 hover:bg-white hover:shadow-sm transition-all duration-200"
+                className="w-full flex items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-xs font-medium border border-border text-muted-foreground hover:bg-card hover:shadow-sm transition-all duration-200"
               >
                 <ChevronRight className="h-3.5 w-3.5" />
                 Новый тикет
@@ -711,10 +695,10 @@ function MessageBubble({
     return (
       <div className="flex justify-center my-3">
         <span
-          className={`text-[11px] px-3 py-1.5 rounded-full flex items-center gap-2 ${
+          className={`text-xs px-3 py-1.5 rounded-full flex items-center gap-2 ${
             isTyping
               ? "text-emerald-600 bg-emerald-50 border border-emerald-200"
-              : "text-gray-400 bg-gray-50 border border-gray-100"
+              : "text-muted-foreground bg-muted border border-border"
           }`}
         >
           {isTyping && (
@@ -751,7 +735,7 @@ function MessageBubble({
               {msg.content}
             </p>
           </div>
-          <div className="text-[10px] text-gray-400 text-right mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+          <div className="text-xs text-muted-foreground text-right mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
             {timeStr}
           </div>
         </div>
@@ -768,24 +752,24 @@ function MessageBubble({
           alt=""
           width={32}
           height={32}
-          className="w-8 h-8 rounded-full object-cover shrink-0 mt-0.5 ring-2 ring-white shadow-sm"
+          className="w-8 h-8 rounded-full object-cover shrink-0 mt-0.5 ring-2 ring-background shadow-sm"
           unoptimized
         />
       ) : (
         <div
-          className="w-8 h-8 rounded-full flex items-center justify-center text-white text-[11px] font-bold shrink-0 mt-0.5"
+          className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0 mt-0.5"
           style={{ backgroundColor: accent }}
         >
           {(personaName ?? msg.authorName)[0]}
         </div>
       )}
       <div className="max-w-[75%]">
-        <div className="bg-gray-100 rounded-2xl rounded-tl-md px-4 py-2.5 text-sm text-gray-800">
+        <div className="bg-muted rounded-2xl rounded-tl-md px-4 py-2.5 text-sm text-foreground">
           <p className="whitespace-pre-wrap break-words leading-relaxed">
             {msg.content}
           </p>
         </div>
-        <div className="text-[10px] text-gray-400 mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="text-xs text-muted-foreground mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
           {timeStr}
         </div>
       </div>
@@ -846,17 +830,17 @@ function CsatBlock({
 
   return (
     <div className="my-6 flex flex-col items-center animate-in fade-in duration-500">
-      <div className="bg-gray-50 rounded-2xl px-6 py-5 max-w-sm w-full text-center border border-gray-100">
-        <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center mx-auto mb-3">
-          <Lock className="h-4 w-4 text-gray-400" />
+      <div className="bg-muted rounded-2xl px-6 py-5 max-w-sm w-full text-center border border-border">
+        <div className="w-10 h-10 rounded-xl bg-muted flex items-center justify-center mx-auto mb-3">
+          <Lock className="h-4 w-4 text-muted-foreground" />
         </div>
-        <div className="text-xs text-gray-500 mb-3 font-medium">
+        <div className="text-xs text-muted-foreground mb-3 font-medium">
           Диалог завершён
         </div>
 
         {!submitted ? (
           <>
-            <div className="text-sm font-medium text-gray-700 mb-3">
+            <div className="text-sm font-medium text-foreground mb-3">
               Оцените качество поддержки
             </div>
             <div className="flex justify-center gap-1.5 mb-3">
@@ -870,7 +854,7 @@ function CsatBlock({
                     className={`h-7 w-7 transition-colors ${
                       score && n <= score
                         ? "fill-amber-400 text-amber-400"
-                        : "text-gray-200 hover:text-gray-300"
+                        : "text-muted-foreground/50 hover:text-muted-foreground"
                     }`}
                   />
                 </button>
@@ -879,7 +863,7 @@ function CsatBlock({
             {score && (
               <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
                 <textarea
-                  className="w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs resize-none mb-3 focus:outline-none focus:ring-2 focus:border-transparent"
+                  className="w-full rounded-xl border border-border bg-card px-4 py-2.5 text-xs text-foreground resize-none mb-3 focus:outline-none focus:ring-2 focus:border-transparent"
                   style={
                     { "--tw-ring-color": `${accent}30` } as React.CSSProperties
                   }
@@ -903,12 +887,14 @@ function CsatBlock({
             )}
           </>
         ) : (
-          <div className="text-xs text-gray-500">Спасибо за вашу оценку!</div>
+          <div className="text-xs text-muted-foreground">
+            Спасибо за вашу оценку!
+          </div>
         )}
 
         <button
           onClick={onNewDialog}
-          className="mt-4 text-xs text-gray-400 hover:text-gray-600 transition-colors font-medium"
+          className="mt-4 text-xs text-muted-foreground hover:text-muted-foreground transition-colors font-medium"
         >
           Создать новый диалог
         </button>

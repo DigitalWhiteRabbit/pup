@@ -1,7 +1,7 @@
 import "server-only";
 import { db } from "@/lib/db";
 import { ApiError } from "@/lib/api-error";
-import { handleColumnRename, calcTimeFields } from "./timer.service";
+import { handleColumnRename } from "./timer.service";
 import { notify } from "./notification.service";
 import {
   logActivity,
@@ -242,6 +242,7 @@ export async function getWorkspaceById(
         include: {
           tasks: {
             orderBy: { position: "asc" },
+            take: 100,
             include: {
               assignees: {
                 include: {
@@ -250,7 +251,6 @@ export async function getWorkspaceById(
               },
               labels: { include: { label: true } },
               checklistItems: { select: { checked: true } },
-              timeIntervals: { select: { startedAt: true, endedAt: true } },
             },
           },
         },
@@ -286,8 +286,11 @@ export async function getWorkspaceById(
       name: col.name,
       position: col.position,
       tasks: col.tasks.map((task) => {
-        const { totalTimeMs, isInProgress, lastIntervalStartedAt } =
-          calcTimeFields(task.timeIntervals);
+        // timeIntervals excluded from board query for performance;
+        // detailed time data loads on-demand when TaskModal opens
+        const totalTimeMs = 0;
+        const isInProgress = false;
+        const lastIntervalStartedAt = null;
         return {
           id: task.id,
           columnId: col.id,
@@ -371,6 +374,14 @@ export async function deleteWorkspace(
 
   const workspaceName = workspace?.name ?? "?";
   const memberIds = workspace?.members.map((m) => m.userId) ?? [];
+
+  // Stop marketing worker before deletion so it doesn't keep running against a deleted workspace
+  try {
+    const { stop: stopWorker } = await import("./marketing/mkt-worker.service");
+    await stopWorker();
+  } catch {
+    // Worker may not be running or module may not be loaded — safe to ignore
+  }
 
   await db.workspace.delete({ where: { id } });
 
@@ -503,6 +514,14 @@ export async function removeMember(
       400,
     );
   }
+
+  // Clean up task assignments for this user in this workspace before removing membership
+  await db.taskAssignee.deleteMany({
+    where: {
+      userId: targetUserId,
+      task: { workspaceId },
+    },
+  });
 
   await db.workspaceMember.delete({
     where: { workspaceId_userId: { workspaceId, userId: targetUserId } },

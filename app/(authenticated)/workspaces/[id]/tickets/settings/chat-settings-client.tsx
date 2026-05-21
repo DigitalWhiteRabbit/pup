@@ -514,7 +514,7 @@ export function ChatSettingsClient({ workspaceId }: { workspaceId: string }) {
                                 unoptimized
                               />
                             ) : (
-                              <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center text-[10px] font-bold">
+                              <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center text-xs font-bold">
                                 {p.displayName[0]}
                               </div>
                             )}
@@ -599,7 +599,7 @@ export function ChatSettingsClient({ workspaceId }: { workspaceId: string }) {
                         <div className="text-xs font-medium">
                           {p.displayName}
                         </div>
-                        <div className="text-[10px] text-muted-foreground">
+                        <div className="text-xs text-muted-foreground">
                           {p.role}
                         </div>
                       </div>
@@ -919,7 +919,7 @@ function PersonaCard({
                 {persona.role}
               </div>
             </div>
-            <Badge variant="outline" className="text-[10px]">
+            <Badge variant="outline" className="text-xs">
               #{persona.position + 1}
             </Badge>
             <Button

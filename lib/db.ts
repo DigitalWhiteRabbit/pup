@@ -1,6 +1,9 @@
 import "server-only";
 import { PrismaClient } from "@prisma/client";
 
+// Production: set connection pool params in DATABASE_URL, e.g.:
+//   DATABASE_URL="postgresql://...?connection_limit=10&pool_timeout=30"
+
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
 };

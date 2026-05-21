@@ -80,7 +80,7 @@ function MessageBubble({ msg }: { msg: TicketMessageView }) {
         </div>
         <p className="text-sm whitespace-pre-wrap break-words">{msg.content}</p>
         <div
-          className={`text-[10px] mt-1 ${isManager ? "text-primary-foreground/50" : "text-muted-foreground"}`}
+          className={`text-xs mt-1 ${isManager ? "text-primary-foreground/50" : "text-muted-foreground"}`}
         >
           {format(new Date(msg.createdAt), "dd MMM HH:mm", { locale: ru })}
         </div>
@@ -476,7 +476,7 @@ export function TicketDetailClient({
                           });
                         }}
                       >
-                        <span className="text-[10px] text-destructive">✕</span>
+                        <span className="text-xs text-destructive">✕</span>
                       </Button>
                     </div>
                   ),
@@ -562,12 +562,12 @@ export function TicketDetailClient({
                       }}
                     >
                       <div className="flex items-center gap-2">
-                        <code className="text-[10px] bg-muted px-1 py-0.5 rounded font-mono">
+                        <code className="text-xs bg-muted px-1 py-0.5 rounded font-mono">
                           /{c.shortCode}
                         </code>
                         <span className="text-xs font-medium">{c.title}</span>
                       </div>
-                      <p className="text-[11px] text-muted-foreground truncate mt-0.5">
+                      <p className="text-xs text-muted-foreground truncate mt-0.5">
                         {c.content}
                       </p>
                     </button>
@@ -618,7 +618,7 @@ export function TicketDetailClient({
                 <Button
                   variant="outline"
                   size="sm"
-                  className="text-[10px] h-7"
+                  className="text-xs h-7"
                   disabled={!replyText.trim() || replyMut.isPending}
                   onClick={() => {
                     replyMut.mutate(replyText.trim());
@@ -630,7 +630,7 @@ export function TicketDetailClient({
                 <Button
                   variant="outline"
                   size="sm"
-                  className="text-[10px] h-7"
+                  className="text-xs h-7"
                   disabled={!replyText.trim() || replyMut.isPending}
                   onClick={() => {
                     replyMut.mutate(replyText.trim());
@@ -648,7 +648,7 @@ export function TicketDetailClient({
               <Button
                 variant="outline"
                 size="sm"
-                className="text-[10px] h-7 gap-1"
+                className="text-xs h-7 gap-1"
                 onClick={async () => {
                   try {
                     const r = await fetch(
@@ -678,7 +678,7 @@ export function TicketDetailClient({
               <Button
                 variant="outline"
                 size="sm"
-                className="text-[10px] h-7 gap-1"
+                className="text-xs h-7 gap-1"
                 onClick={async () => {
                   try {
                     const r = await fetch(

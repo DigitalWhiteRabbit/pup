@@ -191,7 +191,7 @@ export function WorkspaceDashboard({
                 >
                   <span className="text-sm truncate">{t.title}</span>
                   <span
-                    className={`text-[10px] shrink-0 px-1.5 py-0.5 rounded font-medium ${columnStatusClass(t.columnName)}`}
+                    className={`text-xs shrink-0 px-1.5 py-0.5 rounded font-medium ${columnStatusClass(t.columnName)}`}
                   >
                     {t.columnName}
                   </span>

@@ -4,20 +4,31 @@ import type { NextRequest } from "next/server";
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Handle CORS preflight for public chat API
+  // Handle CORS for public chat API — dynamic origin instead of wildcard
   if (pathname.startsWith("/api/chat/")) {
+    const origin = request.headers.get("origin");
+
     if (request.method === "OPTIONS") {
-      return new NextResponse(null, {
-        status: 204,
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-          "Access-Control-Allow-Headers":
-            "Content-Type, Authorization, X-CSRF-Token",
-          "Access-Control-Max-Age": "86400",
-        },
-      });
+      const headers: Record<string, string> = {
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "Access-Control-Allow-Headers":
+          "Content-Type, Authorization, X-CSRF-Token",
+        "Access-Control-Max-Age": "86400",
+      };
+      if (origin) {
+        headers["Access-Control-Allow-Origin"] = origin;
+        headers["Vary"] = "Origin";
+      }
+      return new NextResponse(null, { status: 204, headers });
     }
+
+    // Non-preflight: attach CORS headers to the response
+    const response = NextResponse.next();
+    if (origin) {
+      response.headers.set("Access-Control-Allow-Origin", origin);
+      response.headers.set("Vary", "Origin");
+    }
+    return response;
   }
 
   // For embed pages: set CSP frame-ancestors

@@ -296,7 +296,7 @@ export function AgentSettingsClient({ workspaceId }: { workspaceId: string }) {
               onChange={(e) => setTemperature(e.target.value)}
               className="w-full"
             />
-            <div className="flex justify-between text-[10px] text-muted-foreground">
+            <div className="flex justify-between text-xs text-muted-foreground">
               <span>Точный</span>
               <span>Креативный</span>
             </div>
@@ -327,7 +327,7 @@ export function AgentSettingsClient({ workspaceId }: { workspaceId: string }) {
               onChange={(e) => setHandoffThreshold(e.target.value)}
               className="w-full"
             />
-            <p className="text-[10px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Ниже этого порога — передаёт менеджеру
             </p>
           </div>
@@ -405,14 +405,14 @@ export function AgentSettingsClient({ workspaceId }: { workspaceId: string }) {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium">{s.title}</span>
-                      <Badge variant="outline" className="text-[10px]">
+                      <Badge variant="outline" className="text-xs">
                         #{s.position + 1}
                       </Badge>
                     </div>
                     <p className="text-xs text-muted-foreground mt-0.5">
                       {s.description}
                     </p>
-                    <p className="text-[10px] text-muted-foreground mt-1 line-clamp-2 font-mono">
+                    <p className="text-xs text-muted-foreground mt-1 line-clamp-2 font-mono">
                       {s.instruction}
                     </p>
                   </div>

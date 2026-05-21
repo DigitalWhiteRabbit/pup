@@ -7,8 +7,8 @@ import { ThemeProvider } from "@/components/ThemeProvider";
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
 export const metadata: Metadata = {
-  title: "CRM",
-  description: "CRM Kanban system",
+  title: "ПУП",
+  description: "Пульт Управления Проектами",
 };
 
 export default function RootLayout({

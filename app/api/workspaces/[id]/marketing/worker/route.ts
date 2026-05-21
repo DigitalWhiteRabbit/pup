@@ -6,6 +6,7 @@ import {
   start,
   stop,
 } from "@/lib/services/marketing/mkt-worker.service";
+import { checkMembership } from "@/lib/services/workspace.service";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -15,6 +16,10 @@ export async function GET(req: NextRequest, { params }: Params) {
     if (!session?.user?.id)
       throw new ApiError("Не авторизован", "UNAUTHORIZED", 401);
     const { id: workspaceId } = await params;
+
+    const membership = await checkMembership(workspaceId, session.user.id);
+    if (!membership && session.user.role !== "ADMIN")
+      throw new ApiError("Forbidden", "FORBIDDEN", 403);
 
     const status = await getStatus(workspaceId);
     return NextResponse.json(status);
@@ -28,11 +33,15 @@ export async function POST(req: NextRequest, { params }: Params) {
       throw new ApiError("Не авторизован", "UNAUTHORIZED", 401);
     const { id: workspaceId } = await params;
 
+    const membership = await checkMembership(workspaceId, session.user.id);
+    if (!membership && session.user.role !== "ADMIN")
+      throw new ApiError("Forbidden", "FORBIDDEN", 403);
+
     const { action } = await req.json();
     if (action === "start") {
-      start(workspaceId);
+      await start(workspaceId);
     } else if (action === "stop") {
-      stop();
+      await stop();
     } else {
       throw new ApiError("Неверное действие", "BAD_REQUEST", 400);
     }

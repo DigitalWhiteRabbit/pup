@@ -460,20 +460,36 @@ async function notifyMentions(
       return;
     }
 
-    // Individual mentions
-    for (const login of Array.from(mentions)) {
-      const user = await db.user.findFirst({
-        where: { login },
-        select: { id: true, telegramChatId: true, tgNotifyChat: true },
-      });
-      if (!user || user.id === senderId) continue;
+    // Individual mentions — batch-load all users + membership in two queries
+    const mentionLogins = Array.from(mentions);
+    const mentionedUsers = await db.user.findMany({
+      where: { login: { in: mentionLogins } },
+      select: {
+        id: true,
+        login: true,
+        telegramChatId: true,
+        tgNotifyChat: true,
+      },
+    });
 
-      // Skip if user has muted this channel
-      const memberRecord = await db.chatChannelMember.findUnique({
-        where: { channelId_userId: { channelId, userId: user.id } },
-        select: { muted: true },
-      });
-      if (memberRecord?.muted) continue;
+    // Filter out sender
+    const eligibleUsers = mentionedUsers.filter((u) => u.id !== senderId);
+    if (eligibleUsers.length === 0) return;
+
+    // Batch-load mute status for all eligible users in this channel
+    const memberRecords = await db.chatChannelMember.findMany({
+      where: {
+        channelId,
+        userId: { in: eligibleUsers.map((u) => u.id) },
+      },
+      select: { userId: true, muted: true },
+    });
+    const mutedSet = new Set(
+      memberRecords.filter((m) => m.muted).map((m) => m.userId),
+    );
+
+    for (const user of eligibleUsers) {
+      if (mutedSet.has(user.id)) continue;
 
       if (user.telegramChatId && user.tgNotifyChat) {
         const short =

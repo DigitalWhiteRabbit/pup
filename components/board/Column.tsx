@@ -176,6 +176,7 @@ export function Column({ column, workspaceId, members }: Props) {
             {...listeners}
             className="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground shrink-0"
             title="Переместить колонку"
+            aria-label={`Перетащить колонку: ${column.name}`}
           >
             <GripVertical className="h-4 w-4" />
           </button>
@@ -197,6 +198,7 @@ export function Column({ column, workspaceId, members }: Props) {
                 variant="ghost"
                 size="icon"
                 className="h-6 w-6 shrink-0"
+                aria-label="Подтвердить переименование"
                 onMouseDown={(e) => {
                   e.preventDefault(); // prevent onBlur firing before click
                   commitRename();
@@ -208,6 +210,7 @@ export function Column({ column, workspaceId, members }: Props) {
                 variant="ghost"
                 size="icon"
                 className="h-6 w-6 shrink-0"
+                aria-label="Отменить переименование"
                 onMouseDown={(e) => {
                   e.preventDefault();
                   setIsRenaming(false);
@@ -230,6 +233,7 @@ export function Column({ column, workspaceId, members }: Props) {
                 className="h-6 w-6 shrink-0"
                 onClick={startRename}
                 title="Переименовать"
+                aria-label="Переименовать колонку"
               >
                 <Pencil className="h-3 w-3" />
               </Button>
@@ -240,6 +244,11 @@ export function Column({ column, workspaceId, members }: Props) {
                 disabled={hasTasks || deleteMutation.isPending}
                 onClick={() => deleteMutation.mutate()}
                 title={
+                  hasTasks
+                    ? "Сначала переместите все задачи из колонки"
+                    : "Удалить колонку"
+                }
+                aria-label={
                   hasTasks
                     ? "Сначала переместите все задачи из колонки"
                     : "Удалить колонку"

@@ -19,6 +19,12 @@ export function AppShell({ userLogin, userRole, children }: Props) {
 
   return (
     <div className="flex h-screen overflow-hidden">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:z-[200] focus:bg-primary focus:text-primary-foreground focus:px-4 focus:py-2 focus:rounded-md focus:top-2 focus:left-2"
+      >
+        Перейти к основному контенту
+      </a>
       {/* Desktop sidebar */}
       <div
         className={`relative hidden md:flex flex-col shrink-0 border-r bg-background transition-all duration-200 overflow-hidden ${
@@ -31,6 +37,7 @@ export function AppShell({ userLogin, userRole, children }: Props) {
             onClick={() => setCollapsed(true)}
             className="absolute top-4 right-2 z-10 flex items-center justify-center h-7 w-7 rounded-md border bg-background text-muted-foreground hover:bg-accent hover:text-foreground transition-colors shadow-sm"
             title="Свернуть меню"
+            aria-label="Свернуть меню"
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
@@ -39,7 +46,7 @@ export function AppShell({ userLogin, userRole, children }: Props) {
       </div>
 
       {/* Main content */}
-      <main className="flex-1 flex flex-col overflow-hidden">
+      <main id="main-content" className="flex-1 flex flex-col overflow-hidden">
         {/* Mobile header with hamburger — visible only below md */}
         <MobileHeader userLogin={userLogin} userRole={userRole} />
 
@@ -51,6 +58,7 @@ export function AppShell({ userLogin, userRole, children }: Props) {
               onClick={() => setCollapsed(false)}
               className="flex items-center justify-center h-7 w-7 rounded-md border bg-background text-muted-foreground hover:bg-accent hover:text-foreground transition-colors shadow-sm"
               title="Развернуть меню"
+              aria-label="Развернуть меню"
             >
               <ChevronRight className="h-4 w-4" />
             </button>

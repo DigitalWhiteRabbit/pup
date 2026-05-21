@@ -61,7 +61,7 @@ export function NotificationSettings({
           }}
         />
       </div>
-      <p className="text-[11px] text-muted-foreground">
+      <p className="text-xs text-muted-foreground">
         Уведомления появляются в правом нижнем углу при получении новых
         сообщений в чатах.
       </p>

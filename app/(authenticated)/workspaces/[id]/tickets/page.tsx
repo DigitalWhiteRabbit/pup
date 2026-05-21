@@ -3,6 +3,8 @@ import { isModuleEnabled } from "@/lib/services/workspace.service";
 import { redirect } from "next/navigation";
 import { TicketsClient } from "./tickets-client";
 
+export const metadata = { title: "Тикеты | ПУП" };
+
 type Props = { params: { id: string } };
 
 export default async function TicketsPage({ params }: Props) {

@@ -919,12 +919,13 @@ export async function generateReply(
 
     if (role === "assistant") {
       // Wrap outgoing messages to look like tool use results
+      const toolId = `prev_${msg.id || Math.random().toString(36).slice(2)}`;
       messages.push({
         role: "assistant",
         content: [
           {
             type: "tool_use",
-            id: `prev_${msg.id || Math.random().toString(36).slice(2)}`,
+            id: toolId,
             name: "send_reply",
             input: {
               body: content,
@@ -938,7 +939,7 @@ export async function generateReply(
         content: [
           {
             type: "tool_result",
-            tool_use_id: `prev_${msg.id || Math.random().toString(36).slice(2)}`,
+            tool_use_id: toolId,
             content: "Сообщение отправлено.",
           },
         ],

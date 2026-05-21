@@ -121,6 +121,18 @@ export async function getLead(workspaceId: string, leadId: string) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Lead Status State Machine
+// ═══════════════════════════════════════════════════════════════════════════
+
+const VALID_LEAD_TRANSITIONS: Record<MktLeadStatus, MktLeadStatus[]> = {
+  PENDING: ["READY", "IN_WORK", "REJECTED"],
+  READY: ["IN_WORK", "REJECTED", "PENDING"],
+  IN_WORK: ["DONE", "REJECTED", "PENDING"],
+  DONE: ["IN_WORK", "PENDING"],
+  REJECTED: ["PENDING"],
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Update Lead
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -138,6 +150,19 @@ export async function updateLead(
     where: { id: leadId, workspaceId },
   });
   if (!existing) throw new Error("Lead not found");
+
+  // Validate status transition
+  if (
+    data.leadStatus !== undefined &&
+    data.leadStatus !== existing.leadStatus
+  ) {
+    const allowed = VALID_LEAD_TRANSITIONS[existing.leadStatus];
+    if (!allowed.includes(data.leadStatus)) {
+      throw new Error(
+        `Invalid status transition: ${existing.leadStatus} → ${data.leadStatus}`,
+      );
+    }
+  }
 
   return db.mktLead.update({
     where: { id: leadId },
@@ -215,27 +240,31 @@ export async function createManualLead(
       .slice(0, 30)}_${Date.now()}`;
   }
 
-  const lead = await db.mktLead.create({
-    data: {
-      workspaceId,
-      channelId,
-      channelName: data.channelName,
-      channelUrl: data.channelUrl || null,
-      source: data.source,
-      email: data.email || null,
-      telegram: data.telegram || null,
-      notes: data.notes || null,
-      leadStatus: "PENDING",
-      dialogueStage: "NOT_CONTACTED",
-    },
-  });
-
-  // Create email lookup if email provided
-  if (data.email) {
-    await db.mktLeadEmail.create({
-      data: { leadId: lead.id, email: data.email },
+  const lead = await db.$transaction(async (tx) => {
+    const created = await tx.mktLead.create({
+      data: {
+        workspaceId,
+        channelId,
+        channelName: data.channelName,
+        channelUrl: data.channelUrl || null,
+        source: data.source,
+        email: data.email || null,
+        telegram: data.telegram || null,
+        notes: data.notes || null,
+        leadStatus: "PENDING",
+        dialogueStage: "NOT_CONTACTED",
+      },
     });
-  }
+
+    // Create email lookup if email provided
+    if (data.email) {
+      await tx.mktLeadEmail.create({
+        data: { leadId: created.id, email: data.email },
+      });
+    }
+
+    return created;
+  });
 
   return lead;
 }

@@ -1061,17 +1061,18 @@ export async function runYouTubeParser(
   log(`Saving ${allChannels.length} channels to database...`);
   let newLeads = 0;
 
-  for (const ch of allChannels) {
-    const existing = await db.mktLead.findUnique({
-      where: {
-        workspaceId_channelId: {
-          workspaceId: opts.workspaceId,
-          channelId: ch.channelId,
-        },
-      },
-    });
+  // Pre-fetch existing leads to determine new vs updated without per-row queries
+  const existingLeads = await db.mktLead.findMany({
+    where: {
+      workspaceId: opts.workspaceId,
+      channelId: { in: allChannels.map((ch) => ch.channelId) },
+    },
+    select: { channelId: true },
+  });
+  const existingChannelIds = new Set(existingLeads.map((l) => l.channelId));
 
-    await db.mktLead.upsert({
+  for (const ch of allChannels) {
+    const lead = await db.mktLead.upsert({
       where: {
         workspaceId_channelId: {
           workspaceId: opts.workspaceId,
@@ -1140,37 +1141,22 @@ export async function runYouTubeParser(
         lastVideosJson: ch.lastVideosJson,
         topPlaylistsJson: ch.topPlaylistsJson,
       },
+      select: { id: true },
     });
 
-    if (!existing) newLeads++;
+    if (!existingChannelIds.has(ch.channelId)) newLeads++;
 
-    // Also upsert email lookup if email found
+    // Upsert email lookup using the lead ID from the upsert result
     if (ch.email) {
       await db.mktLeadEmail.upsert({
         where: {
           leadId_email: {
-            leadId: (await db.mktLead.findUnique({
-              where: {
-                workspaceId_channelId: {
-                  workspaceId: opts.workspaceId,
-                  channelId: ch.channelId,
-                },
-              },
-              select: { id: true },
-            }))!.id,
+            leadId: lead.id,
             email: ch.email,
           },
         },
         create: {
-          leadId: (await db.mktLead.findUnique({
-            where: {
-              workspaceId_channelId: {
-                workspaceId: opts.workspaceId,
-                channelId: ch.channelId,
-              },
-            },
-            select: { id: true },
-          }))!.id,
+          leadId: lead.id,
           email: ch.email,
         },
         update: {},

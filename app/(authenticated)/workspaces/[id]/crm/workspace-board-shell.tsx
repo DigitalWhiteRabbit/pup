@@ -25,7 +25,7 @@ export function WorkspaceBoardShell({
     queryKey: ["workspace", initialWorkspace.id],
     queryFn: () => apiFetchWorkspace(initialWorkspace.id),
     initialData: initialWorkspace,
-    refetchInterval: 5000,
+    refetchInterval: 15000,
   });
 
   return (

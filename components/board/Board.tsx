@@ -5,6 +5,7 @@ import {
   DndContext,
   DragOverlay,
   PointerSensor,
+  KeyboardSensor,
   useSensor,
   useSensors,
   closestCorners,
@@ -14,6 +15,7 @@ import {
 import {
   SortableContext,
   horizontalListSortingStrategy,
+  sortableKeyboardCoordinates,
   arrayMove,
 } from "@dnd-kit/sortable";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -65,6 +67,9 @@ export function Board({ initialData, workspaceId }: Props) {
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
   );
 
   // ─── Move task mutation (T046) ─────────────────────────────────────────────
@@ -348,6 +353,7 @@ export function Board({ initialData, workspaceId }: Props) {
                   value={newColumnName}
                   onChange={(e) => setNewColumnName(e.target.value)}
                   placeholder="Название колонки"
+                  aria-label="Название новой колонки"
                   className="w-full rounded-md border border-input bg-background px-3 h-8 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                   onKeyDown={(e) => {
                     if (e.key === "Enter") void handleAddColumn();

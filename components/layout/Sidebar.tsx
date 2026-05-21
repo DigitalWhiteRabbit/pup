@@ -218,7 +218,10 @@ function SidebarContent({
         </div>
       </div>
 
-      <nav className="flex-1 space-y-1 px-2 overflow-y-auto">
+      <nav
+        className="flex-1 space-y-1 px-2 overflow-y-auto"
+        aria-label="Основная навигация"
+      >
         {isContextual ? (
           // ── CONTEXTUAL MODE ──
           <>

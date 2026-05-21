@@ -3,23 +3,8 @@
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { X, Plus, LogOut, MessageSquare } from "lucide-react";
+import { STATUS_BADGE_COLORS, STATUS_LABELS } from "@/lib/constants/ui";
 import type { ChatTicketSummary } from "../types";
-
-const STATUS_LABELS: Record<string, string> = {
-  OPEN: "Открыт",
-  IN_PROGRESS: "В работе",
-  WAITING_CUSTOMER: "Ждёт ответа",
-  RESOLVED: "Решён",
-  CLOSED: "Закрыт",
-};
-
-const STATUS_COLORS: Record<string, string> = {
-  OPEN: "bg-blue-100 text-blue-700",
-  IN_PROGRESS: "bg-emerald-100 text-emerald-700",
-  WAITING_CUSTOMER: "bg-amber-100 text-amber-700",
-  RESOLVED: "bg-gray-100 text-gray-600",
-  CLOSED: "bg-gray-100 text-gray-400",
-};
 
 type Props = {
   open: boolean;
@@ -56,21 +41,23 @@ export function TicketsSidebar({
       />
 
       {/* Panel */}
-      <div className="fixed inset-y-0 left-0 w-full max-w-xs bg-white shadow-xl z-50 flex flex-col">
+      <div className="fixed inset-y-0 left-0 w-full max-w-xs bg-card shadow-xl z-50 flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b">
-          <div className="text-sm font-semibold text-gray-800">Мои диалоги</div>
+          <div className="text-sm font-semibold text-foreground">
+            Мои диалоги
+          </div>
           <button
             onClick={onClose}
-            className="p-1 rounded hover:bg-gray-100"
+            className="p-1 rounded hover:bg-muted"
             aria-label="Закрыть меню"
           >
-            <X className="h-5 w-5 text-gray-500" />
+            <X className="h-5 w-5 text-muted-foreground" />
           </button>
         </div>
 
         {/* Customer info */}
-        <div className="px-4 py-2 bg-gray-50 border-b text-xs text-gray-500">
+        <div className="px-4 py-2 bg-muted border-b text-xs text-muted-foreground">
           {customerName}
         </div>
 
@@ -78,8 +65,8 @@ export function TicketsSidebar({
         <div className="flex-1 overflow-y-auto">
           {tickets.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-center px-4">
-              <MessageSquare className="h-8 w-8 text-gray-300 mb-2" />
-              <p className="text-sm text-gray-400">Нет диалогов</p>
+              <MessageSquare className="h-8 w-8 text-muted-foreground mb-2" />
+              <p className="text-sm text-muted-foreground">Нет диалогов</p>
             </div>
           ) : (
             <div className="divide-y">
@@ -87,16 +74,18 @@ export function TicketsSidebar({
                 <button
                   key={t.id}
                   onClick={() => onSelect(t.id)}
-                  className={`w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors ${
-                    t.id === activeTicketId ? "bg-emerald-50" : ""
+                  className={`w-full text-left px-4 py-3 hover:bg-muted transition-colors ${
+                    t.id === activeTicketId
+                      ? "bg-emerald-50 dark:bg-emerald-900/20"
+                      : ""
                   }`}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-gray-800 truncate">
+                      <div className="text-sm font-medium text-foreground truncate">
                         #{t.number} {t.title}
                       </div>
-                      <div className="text-[11px] text-gray-400 mt-0.5">
+                      <div className="text-xs text-muted-foreground mt-0.5">
                         {t.messagesCount} сообщ. ·{" "}
                         {formatDistanceToNow(new Date(t.lastMessageAt), {
                           addSuffix: true,
@@ -105,7 +94,7 @@ export function TicketsSidebar({
                       </div>
                     </div>
                     <span
-                      className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full shrink-0 ${STATUS_COLORS[t.status] ?? "bg-gray-100 text-gray-500"}`}
+                      className={`text-xs font-medium px-1.5 py-0.5 rounded-full shrink-0 ${STATUS_BADGE_COLORS[t.status] ?? "bg-gray-100 text-gray-500"}`}
                     >
                       {STATUS_LABELS[t.status] ?? t.status}
                     </span>
@@ -128,7 +117,7 @@ export function TicketsSidebar({
           </button>
           <button
             onClick={onLogout}
-            className="w-full flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm text-gray-500 hover:bg-gray-100 transition-colors"
+            className="w-full flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-muted transition-colors"
           >
             <LogOut className="h-3.5 w-3.5" />
             Выйти

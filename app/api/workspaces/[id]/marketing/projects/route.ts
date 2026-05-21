@@ -5,6 +5,7 @@ import {
   listProjects,
   createProject,
 } from "@/lib/services/marketing/mkt-project.service";
+import { checkMembership } from "@/lib/services/workspace.service";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -14,6 +15,10 @@ export async function GET(req: NextRequest, { params }: Params) {
     if (!session?.user?.id)
       throw new ApiError("Не авторизован", "UNAUTHORIZED", 401);
     const { id: workspaceId } = await params;
+
+    const membership = await checkMembership(workspaceId, session.user.id);
+    if (!membership && session.user.role !== "ADMIN")
+      throw new ApiError("Forbidden", "FORBIDDEN", 403);
 
     const projects = await listProjects(workspaceId);
     return NextResponse.json(projects);
@@ -26,6 +31,10 @@ export async function POST(req: NextRequest, { params }: Params) {
     if (!session?.user?.id)
       throw new ApiError("Не авторизован", "UNAUTHORIZED", 401);
     const { id: workspaceId } = await params;
+
+    const membership = await checkMembership(workspaceId, session.user.id);
+    if (!membership && session.user.role !== "ADMIN")
+      throw new ApiError("Forbidden", "FORBIDDEN", 403);
 
     const body = await req.json();
     const project = await createProject(workspaceId, body);

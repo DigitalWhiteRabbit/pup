@@ -13,16 +13,7 @@ import {
   Calendar,
 } from "lucide-react";
 import type { WorkspaceBoard } from "@/lib/services/workspace.service";
-
-const priorityConfig: Record<
-  string,
-  { label: string; color: string } | undefined
-> = {
-  LOW: { label: "Низкий", color: "bg-blue-100 text-blue-700" },
-  MEDIUM: { label: "Средний", color: "bg-yellow-100 text-yellow-700" },
-  HIGH: { label: "Высокий", color: "bg-orange-100 text-orange-700" },
-  URGENT: { label: "Срочный", color: "bg-red-100 text-red-700" },
-};
+import { priorityColorClass, PRIORITY_LABELS } from "@/lib/constants/ui";
 
 type Task = WorkspaceBoard["columns"][0]["tasks"][0];
 
@@ -93,14 +84,24 @@ export function TaskCard({ task, columnId, onClick }: Props) {
       className={`group rounded-lg border bg-card p-3 shadow-sm cursor-pointer hover:shadow-md transition-shadow select-none ${
         isDragging ? "opacity-40 ring-2 ring-primary" : ""
       }`}
+      role="button"
+      tabIndex={0}
+      aria-label={`Задача: ${task.title}`}
       onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick();
+        }
+      }}
     >
       <div className="flex items-start gap-2">
         {/* Drag handle */}
         <div
           {...attributes}
           {...listeners}
-          className="mt-0.5 shrink-0 cursor-grab active:cursor-grabbing text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+          className="mt-0.5 shrink-0 cursor-grab active:cursor-grabbing text-muted-foreground opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+          aria-label={`Перетащить задачу: ${task.title}`}
           onClick={(e) => e.stopPropagation()}
         >
           <GripVertical className="h-4 w-4" />
@@ -109,11 +110,11 @@ export function TaskCard({ task, columnId, onClick }: Props) {
         <div className="flex-1 min-w-0">
           {task.priority &&
             task.priority !== "NONE" &&
-            priorityConfig[task.priority] && (
+            priorityColorClass(task.priority) && (
               <span
-                className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium ${priorityConfig[task.priority]!.color}`}
+                className={`inline-block rounded px-1.5 py-0.5 text-xs font-medium ${priorityColorClass(task.priority)}`}
               >
-                {priorityConfig[task.priority]!.label}
+                {PRIORITY_LABELS[task.priority]}
               </span>
             )}
           <p className="text-sm font-medium leading-snug break-words">
@@ -126,7 +127,7 @@ export function TaskCard({ task, columnId, onClick }: Props) {
               {task.labels.map((l) => (
                 <span
                   key={l.id}
-                  className="rounded-full px-2 py-0.5 text-[10px] font-medium text-white"
+                  className="rounded-full px-2 py-0.5 text-xs font-medium text-white"
                   style={{ backgroundColor: l.color }}
                 >
                   {l.name}
@@ -137,7 +138,7 @@ export function TaskCard({ task, columnId, onClick }: Props) {
 
           {/* Indicators row: due date + checklist */}
           {(task.dueDate || task.checklistTotal > 0) && (
-            <div className="mt-1.5 flex items-center gap-2 text-[10px] text-muted-foreground">
+            <div className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground">
               {task.dueDate && (
                 <span className="flex items-center gap-0.5">
                   <Calendar className="h-3 w-3" />
@@ -164,7 +165,7 @@ export function TaskCard({ task, columnId, onClick }: Props) {
               {task.assignees.map((a) => (
                 <Avatar key={a.id} className="h-6 w-6 border-2 border-card">
                   <AvatarFallback
-                    className={`text-[10px] ${!a.isActive ? "opacity-40" : ""}`}
+                    className={`text-xs ${!a.isActive ? "opacity-40" : ""}`}
                     title={a.isActive ? a.login : `${a.login} (деактивирован)`}
                   >
                     {a.login.slice(0, 2).toUpperCase()}

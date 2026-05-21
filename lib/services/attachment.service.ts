@@ -163,8 +163,18 @@ export async function deleteAttachment(
     select: { login: true },
   });
 
-  await storage().delete(attachment.storagePath);
+  // Delete DB record first (authoritative), then file.
+  // If file deletion fails, log and continue — orphaned files can be cleaned up later.
   await db.attachment.delete({ where: { id: attachmentId } });
+
+  try {
+    await storage().delete(attachment.storagePath);
+  } catch (fileErr) {
+    console.error(
+      `[attachment] Failed to delete file ${attachment.storagePath}, orphaned file remains:`,
+      fileErr,
+    );
+  }
 
   await logActivity({
     workspaceId: attachment.task.workspaceId,

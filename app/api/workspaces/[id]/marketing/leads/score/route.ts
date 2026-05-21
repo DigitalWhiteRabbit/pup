@@ -7,6 +7,7 @@ import {
   ScoreResult,
 } from "@/lib/services/marketing/mkt-scoring.service";
 import { ApiErrorResponse } from "@/lib/api-error";
+import { checkMembership } from "@/lib/services/workspace.service";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -19,6 +20,10 @@ export async function POST(req: NextRequest, { params }: Params) {
       if (!session?.user?.id)
         throw new ApiError("Не авторизован", "UNAUTHORIZED", 401);
       const { id: workspaceId } = await params;
+
+      const membership = await checkMembership(workspaceId, session.user.id);
+      if (!membership && session.user.role !== "ADMIN")
+        throw new ApiError("Forbidden", "FORBIDDEN", 403);
 
       const { leadId } = await req.json();
 

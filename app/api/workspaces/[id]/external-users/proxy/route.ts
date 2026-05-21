@@ -1,5 +1,7 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { checkMembership } from "@/lib/services/workspace.service";
+import { validateExternalUrl } from "@/lib/services/kb/url-validator";
 import { NextRequest, NextResponse } from "next/server";
 
 type RouteParams = { params: Promise<{ id: string }> };
@@ -21,6 +23,11 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id: workspaceId } = await params;
+
+  // Check workspace membership
+  const membership = await checkMembership(workspaceId, session.user.id);
+  if (!membership && session.user.role !== "ADMIN")
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const config = await db.externalUsersConfig.findUnique({
     where: { workspaceId },
@@ -48,6 +55,16 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
   if (config.authType === "query") {
     targetUrl += `${targetUrl.includes("?") ? "&" : "?"}apiKey=${config.apiKey}`;
+  }
+
+  // SSRF protection: validate target URL before fetching
+  try {
+    await validateExternalUrl(targetUrl);
+  } catch {
+    return NextResponse.json(
+      { error: "Blocked: target URL resolves to internal network" },
+      { status: 403 },
+    );
   }
 
   // Check cache

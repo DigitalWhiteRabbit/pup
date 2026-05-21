@@ -1,5 +1,6 @@
 "use client";
 
+import { formatFileSize } from "@/lib/utils";
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
@@ -56,12 +57,6 @@ type ChatUser = {
 };
 
 const QUICK_EMOJIS = ["👍", "❤️", "😂", "🔥"];
-
-function fmtSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} Б`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} КБ`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`;
-}
 
 /* ── Main Component ── */
 
@@ -125,6 +120,7 @@ export function GlobalChatClient({
       )
     : [];
 
+  const prevMsgCountRef = useRef(0);
   useEffect(() => {
     // If URL has hash (e.g. #gmsg-xxx), scroll to that message instead of bottom
     const hash = window.location.hash;
@@ -134,10 +130,27 @@ export function GlobalChatClient({
         el.scrollIntoView({ behavior: "smooth", block: "start" });
         el.classList.add("bg-emerald-900/20");
         setTimeout(() => el.classList.remove("bg-emerald-900/20"), 3000);
+        prevMsgCountRef.current = msgs.length;
         return;
       }
     }
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
+    // Only auto-scroll if new messages arrived AND user is near bottom
+    if (msgs.length > prevMsgCountRef.current) {
+      const container = messagesRef.current;
+      if (container) {
+        const isNearBottom =
+          container.scrollHeight -
+            container.scrollTop -
+            container.clientHeight <
+          100;
+        if (isNearBottom) {
+          endRef.current?.scrollIntoView({ behavior: "smooth" });
+        }
+      } else {
+        endRef.current?.scrollIntoView({ behavior: "smooth" });
+      }
+    }
+    prevMsgCountRef.current = msgs.length;
   }, [msgs.length]);
 
   // Scroll listener for scroll-to-bottom button
@@ -190,6 +203,7 @@ export function GlobalChatClient({
   });
 
   function send() {
+    if (sendMut.isPending) return;
     const t = msgText.trim();
     if (t || pendingFiles.length > 0)
       sendMut.mutate({
@@ -246,8 +260,8 @@ export function GlobalChatClient({
       >
         {/* Members header */}
         <div className="px-5 py-4 border-b border">
-          <h2 className="text-[15px] font-bold text-foreground">Участники</h2>
-          <p className="text-[11px] text-muted-foreground mt-0.5">
+          <h2 className="text-base font-bold text-foreground">Участники</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
             Все пользователи системы
           </p>
         </div>
@@ -268,7 +282,7 @@ export function GlobalChatClient({
           {/* Online */}
           {filteredOnline.length > 0 && (
             <div className="mb-4">
-              <div className="flex items-center gap-1.5 text-[9px] font-bold text-muted-foreground/60 uppercase tracking-widest mb-2">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-muted-foreground/60 uppercase tracking-widest mb-2">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                 Онлайн — {filteredOnline.length}
               </div>
@@ -286,10 +300,10 @@ export function GlobalChatClient({
                     <span className="absolute -bottom-px -right-px w-2.5 h-2.5 bg-emerald-500 border-2 border-card rounded-full" />
                   </div>
                   <div className="min-w-0">
-                    <div className="text-[13px] text-foreground font-medium truncate">
+                    <div className="text-sm text-foreground font-medium truncate">
                       {u.login}
                     </div>
-                    <div className="text-[10px] text-muted-foreground/60">
+                    <div className="text-xs text-muted-foreground/60">
                       {u.role === "ADMIN" ? "Администратор" : "Пользователь"}
                     </div>
                   </div>
@@ -301,7 +315,7 @@ export function GlobalChatClient({
           {/* Offline */}
           {filteredOffline.length > 0 && (
             <div>
-              <div className="text-[9px] font-bold text-muted-foreground/60 uppercase tracking-widest mb-2">
+              <div className="text-xs font-bold text-muted-foreground/60 uppercase tracking-widest mb-2">
                 Офлайн — {filteredOffline.length}
               </div>
               {filteredOffline.map((u) => (
@@ -315,10 +329,10 @@ export function GlobalChatClient({
                     size={32}
                   />
                   <div className="min-w-0">
-                    <div className="text-[13px] text-foreground font-medium truncate">
+                    <div className="text-sm text-foreground font-medium truncate">
                       {u.login}
                     </div>
-                    <div className="text-[10px] text-muted-foreground/60">
+                    <div className="text-xs text-muted-foreground/60">
                       {u.role === "ADMIN" ? "Администратор" : "Пользователь"}
                     </div>
                   </div>
@@ -338,10 +352,8 @@ export function GlobalChatClient({
               💬
             </div>
             <div>
-              <h2 className="text-[15px] font-bold text-foreground">
-                Общий чат
-              </h2>
-              <p className="text-[11px] text-muted-foreground">
+              <h2 className="text-base font-bold text-foreground">Общий чат</h2>
+              <p className="text-xs text-muted-foreground">
                 {allUsers.length} участников · {onlineUsers.length} онлайн
               </p>
             </div>
@@ -392,7 +404,7 @@ export function GlobalChatClient({
               placeholder="Поиск по сообщениям..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full px-4 py-2 bg-background border border rounded-lg text-[13px] text-foreground outline-none placeholder:text-muted-foreground focus:border-emerald-500 transition-colors"
+              className="w-full px-4 py-2 bg-background border border rounded-lg text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-emerald-500 transition-colors"
               autoFocus
             />
             {searchResults.length > 0 && (
@@ -415,7 +427,7 @@ export function GlobalChatClient({
                       }
                     }}
                   >
-                    <div className="text-[11px] font-semibold text-muted-foreground">
+                    <div className="text-xs font-semibold text-muted-foreground">
                       {m.authorLogin} · {format(new Date(m.createdAt), "HH:mm")}
                     </div>
                     <div className="text-[12px] text-muted-foreground mt-0.5 truncate">
@@ -503,11 +515,11 @@ export function GlobalChatClient({
                       <span className="text-[12px] font-semibold text-foreground">
                         {m.authorLogin}
                       </span>
-                      <span className="text-[10px] text-muted-foreground/60">
+                      <span className="text-xs text-muted-foreground/60">
                         {format(new Date(m.createdAt), "HH:mm", { locale: ru })}
                       </span>
                       {m.editedAt && (
-                        <span className="text-[10px] text-muted-foreground/60 italic">
+                        <span className="text-xs text-muted-foreground/60 italic">
                           изм.
                         </span>
                       )}
@@ -573,13 +585,13 @@ export function GlobalChatClient({
                         <div className="flex gap-1.5 justify-end">
                           <button
                             onClick={() => setEditingMsgId(null)}
-                            className={`text-[10px] px-2.5 py-1 rounded-full ${isMe ? "text-white/70 hover:bg-white/10" : "text-muted-foreground hover:bg-muted"}`}
+                            className={`text-xs px-2.5 py-1 rounded-full ${isMe ? "text-white/70 hover:bg-white/10" : "text-muted-foreground hover:bg-muted"}`}
                           >
                             Отмена
                           </button>
                           <button
                             onClick={() => void saveEdit(m.id)}
-                            className={`text-[10px] px-2.5 py-1 rounded-full font-medium ${isMe ? "bg-white/20 text-white" : "bg-emerald-500/20 text-emerald-400"}`}
+                            className={`text-xs px-2.5 py-1 rounded-full font-medium ${isMe ? "bg-white/20 text-white" : "bg-emerald-500/20 text-emerald-400"}`}
                           >
                             <Check className="h-3 w-3 inline mr-0.5" />
                             Сохранить
@@ -631,7 +643,7 @@ export function GlobalChatClient({
                                 {att.originalName}
                               </span>
                               <span className="shrink-0 opacity-60">
-                                {fmtSize(att.size)}
+                                {formatFileSize(att.size)}
                               </span>
                               <Download className="h-3 w-3 shrink-0" />
                             </a>
@@ -656,7 +668,7 @@ export function GlobalChatClient({
                         <button
                           key={r.emoji}
                           onClick={() => void react(m.id, r.emoji)}
-                          className={`flex items-center gap-1 rounded-[10px] px-2 py-0.5 text-[11px] border cursor-pointer transition-colors ${r.myReaction ? "bg-emerald-500/10 border-emerald-500" : "bg-muted/80 border hover:bg-muted"}`}
+                          className={`flex items-center gap-1 rounded-[10px] px-2 py-0.5 text-xs border cursor-pointer transition-colors ${r.myReaction ? "bg-emerald-500/10 border-emerald-500" : "bg-muted/80 border hover:bg-muted"}`}
                         >
                           {r.emoji}{" "}
                           <span className="text-muted-foreground">
@@ -712,7 +724,7 @@ export function GlobalChatClient({
                       </button>
                     ))}
                     {isContinuation && (
-                      <span className="text-[10px] text-muted-foreground/60 self-center ml-1">
+                      <span className="text-xs text-muted-foreground/60 self-center ml-1">
                         {format(new Date(m.createdAt), "HH:mm", { locale: ru })}
                       </span>
                     )}
@@ -775,16 +787,15 @@ export function GlobalChatClient({
         {/* Pending files */}
         {pendingFiles.length > 0 && (
           <div className="bg-card border-t border px-3 md:px-6 py-3 flex gap-2.5 flex-wrap shrink-0">
-            {pendingFiles.map((f, i) => (
-              <div key={i} className="relative group/file">
+            {pendingFiles.map((f) => (
+              <div
+                key={f.name + f.size + f.lastModified}
+                className="relative group/file"
+              >
                 {f.type.startsWith("image/") ? (
-                  <img
-                    src={URL.createObjectURL(f)}
-                    alt={f.name}
-                    className="w-16 h-16 rounded-xl object-cover border"
-                  />
+                  <FilePreviewImg file={f} />
                 ) : (
-                  <div className="w-16 h-16 rounded-xl border bg-muted flex flex-col items-center justify-center text-[9px] text-muted-foreground px-1">
+                  <div className="w-16 h-16 rounded-xl border bg-muted flex flex-col items-center justify-center text-xs text-muted-foreground px-1">
                     <FileText className="h-5 w-5 mb-0.5" />
                     <span className="truncate w-full text-center">
                       {f.name}
@@ -793,9 +804,9 @@ export function GlobalChatClient({
                 )}
                 <button
                   onClick={() =>
-                    setPendingFiles((prev) => prev.filter((_, j) => j !== i))
+                    setPendingFiles((prev) => prev.filter((p) => p !== f))
                   }
-                  className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center text-[10px] opacity-0 group-hover/file:opacity-100 transition-opacity"
+                  className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center text-xs opacity-0 group-hover/file:opacity-100 transition-opacity"
                 >
                   <X className="h-3 w-3" />
                 </button>
@@ -862,11 +873,28 @@ export function GlobalChatClient({
               />
             )}
           </div>
-          <div className="text-[10px] text-muted-foreground/60 mt-1.5 pl-[52px] hidden md:block">
+          <div className="text-xs text-muted-foreground/60 mt-1.5 pl-[52px] hidden md:block">
             Enter — отправить · Shift+Enter — новая строка · 🎤 голосовое
           </div>
         </div>
       </div>
     </div>
+  );
+}
+
+function FilePreviewImg({ file }: { file: File }) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    const u = URL.createObjectURL(file);
+    setUrl(u);
+    return () => URL.revokeObjectURL(u);
+  }, [file]);
+  if (!url) return null;
+  return (
+    <img
+      src={url}
+      alt={file.name}
+      className="w-16 h-16 rounded-xl object-cover border"
+    />
   );
 }

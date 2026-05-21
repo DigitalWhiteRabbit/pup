@@ -193,46 +193,59 @@ export async function handleInboundEmail(
     }
   }
 
-  // Create new ticket
-  const last = await db.ticket.findFirst({
-    where: { workspaceId },
-    orderBy: { number: "desc" },
-    select: { number: true },
-  });
-  const nextNumber = (last?.number ?? 0) + 1;
+  // Create new ticket (with transaction + retry to avoid number race condition)
+  const MAX_RETRIES = 3;
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      const ticket = await db.$transaction(async (tx) => {
+        const last = await tx.ticket.findFirst({
+          where: { workspaceId },
+          orderBy: { number: "desc" },
+          select: { number: true },
+        });
+        const nextNumber = (last?.number ?? 0) + 1;
 
-  const ticket = await db.ticket.create({
-    data: {
-      workspaceId,
-      number: nextNumber,
-      title: input.subject || "Email обращение",
-      description: input.textBody,
-      source: "EMAIL",
-      category: "GENERAL",
-      priority: "MEDIUM",
-      slaDeadline: new Date(Date.now() + 24 * 60 * 60 * 1000),
-      customerId: customer.id,
-      messages: {
-        create: {
-          authorType: "CUSTOMER",
-          customerAuthorId: customer.id,
-          content: input.textBody,
-        },
-      },
-    },
-  });
+        return tx.ticket.create({
+          data: {
+            workspaceId,
+            number: nextNumber,
+            title: input.subject || "Email обращение",
+            description: input.textBody,
+            source: "EMAIL",
+            category: "GENERAL",
+            priority: "MEDIUM",
+            slaDeadline: new Date(Date.now() + 24 * 60 * 60 * 1000),
+            customerId: customer.id,
+            messages: {
+              create: {
+                authorType: "CUSTOMER",
+                customerAuthorId: customer.id,
+                content: input.textBody,
+              },
+            },
+          },
+        });
+      });
 
-  void logActivity({
-    workspaceId,
-    actorId: null,
-    action: "TICKET_CREATED",
-    entityType: "Ticket",
-    entityId: ticket.id,
-    summary: generateSummary("TICKET_CREATED", {
-      kbArticleTitle: `#${nextNumber} ${input.subject}`,
-    }),
-    metadata: { source: "EMAIL", from: input.from },
-  });
+      void logActivity({
+        workspaceId,
+        actorId: null,
+        action: "TICKET_CREATED",
+        entityType: "Ticket",
+        entityId: ticket.id,
+        summary: generateSummary("TICKET_CREATED", {
+          kbArticleTitle: `#${ticket.number} ${input.subject}`,
+        }),
+        metadata: { source: "EMAIL", from: input.from },
+      });
 
-  return { ticketId: ticket.id, isNew: true };
+      return { ticketId: ticket.id, isNew: true };
+    } catch (err: unknown) {
+      const prismaErr = err as { code?: string };
+      if (prismaErr.code === "P2002" && attempt < MAX_RETRIES - 1) continue;
+      throw err;
+    }
+  }
+
+  throw new Error("Failed to create ticket from inbound email after retries");
 }

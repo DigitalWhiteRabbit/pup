@@ -353,7 +353,7 @@ export function VoicePlayer({ src, isMe }: { src: string; isMe: boolean }) {
           {/* Time + transcribe button */}
           <div className="flex items-center justify-between mt-0.5">
             <span
-              className={`text-[10px] font-mono ${
+              className={`text-xs font-mono ${
                 isMe ? "text-white/60" : "text-muted-foreground"
               }`}
             >
@@ -363,7 +363,7 @@ export function VoicePlayer({ src, isMe }: { src: string; isMe: boolean }) {
               <button
                 onClick={() => void transcribe()}
                 disabled={transcribing}
-                className={`text-[10px] flex items-center gap-0.5 transition-colors ${
+                className={`text-xs flex items-center gap-0.5 transition-colors ${
                   isMe
                     ? "text-white/50 hover:text-white/80"
                     : "text-muted-foreground hover:text-foreground"
@@ -384,7 +384,7 @@ export function VoicePlayer({ src, isMe }: { src: string; isMe: boolean }) {
       {/* Transcript text */}
       {showTranscript && transcript && (
         <div
-          className={`mt-1.5 text-[11px] leading-relaxed rounded-lg px-2 py-1.5 ${
+          className={`mt-1.5 text-xs leading-relaxed rounded-lg px-2 py-1.5 ${
             isMe
               ? "bg-white/10 text-white/80"
               : "bg-muted/50 text-muted-foreground"

@@ -92,7 +92,7 @@ function ResultCard({
                 {item.category && (
                   <Badge
                     variant="outline"
-                    className="text-[10px] py-0 px-1.5 shrink-0"
+                    className="text-xs py-0 px-1.5 shrink-0"
                     style={{
                       borderColor: item.category.color,
                       color: item.category.color,
@@ -118,7 +118,7 @@ function ResultCard({
               <Badge
                 key={tag.id}
                 variant="outline"
-                className="text-[10px] py-0 px-1.5"
+                className="text-xs py-0 px-1.5"
                 style={{ borderColor: tag.color, color: tag.color }}
               >
                 {tag.name}

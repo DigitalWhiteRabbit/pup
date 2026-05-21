@@ -289,16 +289,14 @@ async function runCrawl(
             }
           }
         }
-      } catch {
+      } catch (err) {
         pagesFailed++;
         await db.kbCrawlPage.update({
           where: { id: page.id },
           data: {
             status: "failed",
             fetchedAt: new Date(),
-            error:
-              (Error as unknown as { message?: string }).message ??
-              "Parse error",
+            error: (err as Error).message ?? "Parse error",
           },
         });
       }

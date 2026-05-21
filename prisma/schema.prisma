@@ -85,8 +85,7 @@ model User {
   voiceParticipations VoiceParticipant[]
   voiceMessages       VoiceMessage[]
 
-  @@index([email])
-  @@index([login])
+  @@index([lastSeenAt])
 }
 
 enum Role {
@@ -222,6 +221,7 @@ model VoiceParticipant {
 
   @@unique([roomId, userId])
   @@index([roomId])
+  @@index([userId])
 }
 
 model VoiceSignal {
@@ -364,6 +364,7 @@ model Task {
 
   @@index([workspaceId])
   @@index([columnId])
+  @@index([createdById])
 }
 
 model TaskAssignee {
@@ -457,6 +458,7 @@ model ColumnMoveLog {
   movedBy User @relation(fields: [movedByUserId], references: [id], onDelete: Restrict)
 
   @@index([taskId])
+  @@index([movedByUserId])
 }
 
 // ─────────────────────────────────────────
@@ -475,6 +477,7 @@ model Comment {
   author User @relation(fields: [authorId], references: [id], onDelete: Restrict)
 
   @@index([taskId])
+  @@index([authorId])
 }
 
 // ─────────────────────────────────────────
@@ -495,6 +498,7 @@ model Attachment {
   uploadedBy User @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
 
   @@index([taskId])
+  @@index([uploadedById])
 }
 
 // ─────────────────────────────────────────
@@ -517,6 +521,7 @@ model Notification {
   workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
 
   @@index([recipientId, isRead])
+  @@index([recipientId, createdAt])
 }
 
 enum NotificationType {
@@ -537,8 +542,6 @@ model TelegramLinkToken {
   expiresAt DateTime // now + 10 min
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([token])
 }
 
 // ─────────────────────────────────────────
@@ -1353,7 +1356,6 @@ model TicketRating {
   ticket   Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
   customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
-  @@index([ticketId])
   @@index([customerId])
 }
 
@@ -1625,6 +1627,7 @@ model MktLead {
   @@index([workspaceId, source])
   @@index([workspaceId, leadScore])
   @@index([projectId])
+  @@index([email])
 }
 
 // Fast email lookup (one lead can have multiple emails)

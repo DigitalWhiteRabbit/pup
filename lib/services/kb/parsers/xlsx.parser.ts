@@ -4,32 +4,52 @@ export async function parseXlsx(
   buffer: Buffer,
   originalName: string,
 ): Promise<ParseResult> {
-  const XLSX = await import("xlsx");
-  const workbook = XLSX.read(buffer, { type: "buffer" });
+  const ExcelJS = await import("exceljs");
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(
+    buffer.buffer.slice(
+      buffer.byteOffset,
+      buffer.byteOffset + buffer.byteLength,
+    ) as ArrayBuffer,
+  );
 
   const sections: string[] = [];
-  const sheetNames = workbook.SheetNames;
+  const sheetNames: string[] = [];
 
-  for (const sheetName of sheetNames) {
-    const sheet = workbook.Sheets[sheetName];
-    if (!sheet) continue;
+  workbook.eachSheet((sheet) => {
+    sheetNames.push(sheet.name);
+    sections.push(`## ${sheet.name}\n`);
 
-    sections.push(`## ${sheetName}\n`);
-
-    const csvData = XLSX.utils.sheet_to_csv(sheet, { FS: "|" });
-    const rows = csvData.trim().split("\n");
+    const rows: string[][] = [];
+    sheet.eachRow((row) => {
+      const cells: string[] = [];
+      row.eachCell({ includeEmpty: true }, (cell) => {
+        cells.push(String(cell.value ?? ""));
+      });
+      rows.push(cells);
+    });
 
     if (rows.length > 0) {
-      sections.push(`| ${rows[0]?.split("|").join(" | ")} |`);
-      const cols = rows[0]?.split("|").length ?? 0;
-      sections.push(`| ${Array(cols).fill("---").join(" | ")} |`);
+      const colCount = Math.max(...rows.map((r) => r.length));
+
+      // Header row
+      const header = rows[0] ?? [];
+      sections.push(
+        `| ${Array.from({ length: colCount }, (_, i) => header[i] ?? "").join(" | ")} |`,
+      );
+      sections.push(`| ${Array(colCount).fill("---").join(" | ")} |`);
+
+      // Data rows
       for (let i = 1; i < rows.length; i++) {
-        sections.push(`| ${rows[i]?.split("|").join(" | ")} |`);
+        const row = rows[i] ?? [];
+        sections.push(
+          `| ${Array.from({ length: colCount }, (_, j) => row[j] ?? "").join(" | ")} |`,
+        );
       }
     }
 
     sections.push("\n");
-  }
+  });
 
   return {
     title: originalName.replace(/\.xlsx?$/i, ""),

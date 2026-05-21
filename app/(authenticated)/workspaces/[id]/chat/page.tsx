@@ -3,6 +3,8 @@ import { isModuleEnabled } from "@/lib/services/workspace.service";
 import { redirect } from "next/navigation";
 import { ChatClient } from "./chat-client";
 
+export const metadata = { title: "Чат | ПУП" };
+
 type Props = { params: { id: string } };
 
 export default async function ChatPage({ params }: Props) {

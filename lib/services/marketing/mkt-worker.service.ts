@@ -30,12 +30,13 @@ import { scoreLead } from "./mkt-scoring.service";
 // Constants
 // ═══════════════════════════════════════════════════════════════════════════
 
-const LOCK_DURATION_MS = 5 * 60 * 1000; // 5 minutes
+const LOCK_DURATION_MS = 15 * 60 * 1000; // 15 minutes — covers slow AI generation
 const OUTREACH_INTERVAL_MS = 30 * 1000; // 30s between outreach ticks
 const INBOX_INTERVAL_MS = 60 * 1000; // 60s between inbox checks
 const DECISIONS_INTERVAL_MS = 15 * 1000; // 15s between decision checks
 const FOLLOWUP_INTERVAL_MS = 5 * 60 * 1000; // 5min between followup checks
 const LOG_BUFFER_MAX = 500;
+const CIRCUIT_BREAKER_THRESHOLD = 10; // consecutive errors before auto-stop
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -43,12 +44,14 @@ const LOG_BUFFER_MAX = 500;
 
 interface WorkerState {
   running: boolean;
+  workspaceId: string | null;
   outreachInterval: NodeJS.Timeout | null;
   inboxInterval: NodeJS.Timeout | null;
   decisionsInterval: NodeJS.Timeout | null;
   followUpInterval: NodeJS.Timeout | null;
   lastTick: string | null;
   lastError: string | null;
+  consecutiveErrors: number;
   stats: {
     sent: number;
     replied: number;
@@ -79,12 +82,14 @@ export interface WorkerStatus {
 
 const workerState: WorkerState = {
   running: false,
+  workspaceId: null,
   outreachInterval: null,
   inboxInterval: null,
   decisionsInterval: null,
   followUpInterval: null,
   lastTick: null,
   lastError: null,
+  consecutiveErrors: 0,
   stats: { sent: 0, replied: 0, errors: 0, deals: 0, skipped: 0 },
 };
 
@@ -115,6 +120,25 @@ function log(level: string, msg: string): void {
 
 function getLogs(): string[] {
   return [...logBuffer];
+}
+
+/** Circuit breaker: track consecutive errors and auto-stop the worker. */
+function recordTickSuccess(): void {
+  workerState.consecutiveErrors = 0;
+}
+
+async function recordTickError(source: string, err: unknown): Promise<void> {
+  workerState.consecutiveErrors++;
+  workerState.stats.errors++;
+  workerState.lastError = String(err);
+
+  if (workerState.consecutiveErrors >= CIRCUIT_BREAKER_THRESHOLD) {
+    log(
+      "error",
+      `CIRCUIT BREAKER: ${workerState.consecutiveErrors} consecutive errors (last from ${source}: ${err}). Auto-stopping worker to prevent runaway failures.`,
+    );
+    await stop();
+  }
 }
 
 async function isReviewMode(workspaceId: string): Promise<boolean> {
@@ -593,7 +617,10 @@ async function processInbox(workspaceId: string): Promise<void> {
         if (!lead && msg.from) {
           // Check MktLeadEmail table first (fast lookup)
           const leadEmail = await db.mktLeadEmail.findFirst({
-            where: { email: msg.from.toLowerCase() },
+            where: {
+              email: msg.from.toLowerCase(),
+              lead: { workspaceId },
+            },
             include: { lead: true },
           });
           if (leadEmail) {
@@ -1575,15 +1602,18 @@ export async function start(workspaceId: string): Promise<void> {
   log("info", `Starting worker for workspace ${workspaceId}`);
 
   workerState.running = true;
+  workerState.workspaceId = workspaceId;
   workerState.lastError = null;
+  workerState.consecutiveErrors = 0;
   workerState.stats = { sent: 0, replied: 0, errors: 0, deals: 0, skipped: 0 };
 
   // Outreach loop
   workerState.outreachInterval = setInterval(async () => {
     try {
       await processOutreachQueue(workspaceId);
+      recordTickSuccess();
     } catch (err) {
-      log("error", `Outreach interval error: ${err}`);
+      await recordTickError("outreach", err);
     }
   }, OUTREACH_INTERVAL_MS);
 
@@ -1591,8 +1621,9 @@ export async function start(workspaceId: string): Promise<void> {
   workerState.inboxInterval = setInterval(async () => {
     try {
       await processInbox(workspaceId);
+      recordTickSuccess();
     } catch (err) {
-      log("error", `Inbox interval error: ${err}`);
+      await recordTickError("inbox", err);
     }
   }, INBOX_INTERVAL_MS);
 
@@ -1601,8 +1632,9 @@ export async function start(workspaceId: string): Promise<void> {
     try {
       await processDecidedDeals(workspaceId);
       await processApprovedQueue(workspaceId);
+      recordTickSuccess();
     } catch (err) {
-      log("error", `Decisions interval error: ${err}`);
+      await recordTickError("decisions", err);
     }
   }, DECISIONS_INTERVAL_MS);
 
@@ -1610,8 +1642,9 @@ export async function start(workspaceId: string): Promise<void> {
   workerState.followUpInterval = setInterval(async () => {
     try {
       await processFollowUps(workspaceId);
+      recordTickSuccess();
     } catch (err) {
-      log("error", `FollowUp interval error: ${err}`);
+      await recordTickError("followup", err);
     }
   }, FOLLOWUP_INTERVAL_MS);
 
@@ -1651,10 +1684,15 @@ export async function stop(): Promise<void> {
   }
 
   workerState.running = false;
+  workerState.workspaceId = null;
   log("info", "Worker stopped");
 }
 
 export async function getStatus(workspaceId: string): Promise<WorkerStatus> {
+  // Worker is singleton — only report running if it belongs to THIS workspace
+  const isRunningForWorkspace =
+    workerState.running && workerState.workspaceId === workspaceId;
+
   const [config, daily, pendingCount, readyCount, inWorkCount] =
     await Promise.all([
       db.mktConfig.findUnique({
@@ -1683,10 +1721,12 @@ export async function getStatus(workspaceId: string): Promise<WorkerStatus> {
     ]);
 
   return {
-    running: workerState.running,
-    lastTick: workerState.lastTick,
-    lastError: workerState.lastError,
-    stats: { ...workerState.stats },
+    running: isRunningForWorkspace,
+    lastTick: isRunningForWorkspace ? workerState.lastTick : null,
+    lastError: isRunningForWorkspace ? workerState.lastError : null,
+    stats: isRunningForWorkspace
+      ? { ...workerState.stats }
+      : { sent: 0, replied: 0, errors: 0, deals: 0, skipped: 0 },
     pendingCount,
     readyCount,
     inWorkCount,
@@ -1694,7 +1734,7 @@ export async function getStatus(workspaceId: string): Promise<WorkerStatus> {
     dailySentTg: daily.sent_tg,
     reviewMode: config?.reviewMode ?? false,
     dryRun: config?.dryRun ?? false,
-    logCount: logBuffer.length,
+    logCount: isRunningForWorkspace ? logBuffer.length : 0,
   };
 }
 
@@ -1775,7 +1815,7 @@ export async function runLeadNow(
   }
 
   // Always use review mode for manual runs (safety net)
-  if (reviewMode || true) {
+  if (reviewMode) {
     await db.mktPendingReply.create({
       data: {
         leadId: lead.id,

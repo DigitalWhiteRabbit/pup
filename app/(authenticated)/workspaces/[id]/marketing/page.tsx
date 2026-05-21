@@ -3,6 +3,8 @@ import { isModuleEnabled } from "@/lib/services/workspace.service";
 import { redirect } from "next/navigation";
 import { MarketingClient } from "./marketing-client";
 
+export const metadata = { title: "Маркетинг | ПУП" };
+
 type Props = { params: { id: string } };
 
 export default async function MarketingPage({ params }: Props) {

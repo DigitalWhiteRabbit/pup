@@ -4,9 +4,16 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import bcrypt from "bcrypt";
 
+const PASSWORD_ERROR = "Минимум 8 символов, строчная и заглавная буква, цифра";
+
 const schema = z.object({
   currentPassword: z.string().min(1, "Введите текущий пароль"),
-  newPassword: z.string().min(6, "Минимум 6 символов"),
+  newPassword: z
+    .string()
+    .min(8, PASSWORD_ERROR)
+    .regex(/[a-z]/, PASSWORD_ERROR)
+    .regex(/[A-Z]/, PASSWORD_ERROR)
+    .regex(/[0-9]/, PASSWORD_ERROR),
 });
 
 export async function PATCH(req: Request) {

@@ -174,7 +174,7 @@ export function VoiceChannelClient({
       }));
     },
     enabled: !!activeRoomId,
-    refetchInterval: connected ? 3000 : 10000,
+    refetchInterval: connected ? 5000 : 10000,
   });
 
   // WebRTC hook (must be after participants query)
@@ -183,7 +183,7 @@ export function VoiceChannelClient({
     .filter((id): id is string => !!id);
 
   const signalBase = activeRoomId ? `${base}/rooms/${activeRoomId}` : "";
-  const { remoteScreens, speakingPeers } = useWebRTC({
+  const { remoteScreens, speakingPeers, setVolume } = useWebRTC({
     signalBase,
     currentUserId,
     connected,
@@ -220,7 +220,7 @@ export function VoiceChannelClient({
       }));
     },
     enabled: !!activeRoomId && showChat,
-    refetchInterval: connected ? 3000 : false,
+    refetchInterval: connected ? 5000 : false,
   });
 
   /* ── Sessions ── */
@@ -499,13 +499,14 @@ export function VoiceChannelClient({
         className={`w-full md:w-[240px] bg-card border-r border-border flex flex-col shrink-0 min-h-0 ${mobileShowSidebar ? "flex" : "hidden md:flex"}`}
       >
         <div className="px-4 py-4 border-b border-border flex items-center justify-between">
-          <h3 className="text-[13px] font-bold text-white flex items-center gap-2">
+          <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
             <Volume2 className="h-4 w-4 opacity-50" />
             Голосовые каналы
           </h3>
           <button
             onClick={() => setShowNewRoom(true)}
-            className="w-7 h-7 rounded-md border border-border bg-transparent text-muted-foreground hover:bg-muted hover:text-white hover:border-emerald-500 flex items-center justify-center transition-all text-sm"
+            className="w-7 h-7 rounded-md border border-border bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground hover:border-emerald-500 flex items-center justify-center transition-all text-sm"
+            aria-label="Создать голосовой канал"
           >
             <Plus className="h-4 w-4" />
           </button>
@@ -518,13 +519,14 @@ export function VoiceChannelClient({
               value={newRoomName}
               onChange={(e) => setNewRoomName(e.target.value)}
               placeholder="Название канала..."
+              aria-label="Название нового канала"
               className="w-full px-2.5 py-1.5 bg-muted border border-border rounded-lg text-xs text-foreground outline-none focus:border-emerald-500"
               autoFocus
             />
             {/* Private toggle */}
             <button
               onClick={() => setIsPrivateRoom((v) => !v)}
-              className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] border transition-colors ${isPrivateRoom ? "border-emerald-500 bg-emerald-500/10 text-emerald-400" : "border-border text-muted-foreground hover:border-border"}`}
+              className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs border transition-colors ${isPrivateRoom ? "border-emerald-500 bg-emerald-500/10 text-emerald-400" : "border-border text-muted-foreground hover:border-border"}`}
             >
               <Lock className="h-3 w-3" />
               {isPrivateRoom ? "Приватный канал" : "Сделать приватным"}
@@ -537,7 +539,7 @@ export function VoiceChannelClient({
                   .map((m) => (
                     <label
                       key={m.id}
-                      className="flex items-center gap-2 px-2 py-1 rounded-md hover:bg-muted/80 cursor-pointer text-[11px]"
+                      className="flex items-center gap-2 px-2 py-1 rounded-md hover:bg-muted/80 cursor-pointer text-xs"
                     >
                       <input
                         type="checkbox"
@@ -575,7 +577,7 @@ export function VoiceChannelClient({
                   }
                 }}
                 disabled={!newRoomName.trim()}
-                className="flex-1 py-1.5 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-40 text-white rounded-lg text-[11px] font-medium transition-colors"
+                className="flex-1 py-1.5 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-40 text-white rounded-lg text-xs font-medium transition-colors"
               >
                 Создать
               </button>
@@ -586,7 +588,7 @@ export function VoiceChannelClient({
                   setSelectedMembers([]);
                   setNewRoomName("");
                 }}
-                className="px-3 py-1.5 text-muted-foreground hover:text-foreground text-[11px] rounded-lg hover:bg-muted transition-colors"
+                className="px-3 py-1.5 text-muted-foreground hover:text-foreground text-xs rounded-lg hover:bg-muted transition-colors"
               >
                 Отмена
               </button>
@@ -603,7 +605,7 @@ export function VoiceChannelClient({
                   if (!connected) setActiveRoomId(room.id);
                   setMobileShowSidebar(false);
                 }}
-                className={`flex items-center gap-2 px-3 py-2 mx-2 rounded-lg cursor-pointer text-[13px] transition-colors ${room.id === activeRoomId ? "bg-emerald-500/10 text-emerald-400" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
+                className={`flex items-center gap-2 px-3 py-2 mx-2 rounded-lg cursor-pointer text-sm transition-colors ${room.id === activeRoomId ? "bg-emerald-500/10 text-emerald-400" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
               >
                 {room.isDefault ? (
                   <Volume2 className="h-4 w-4 shrink-0 opacity-60" />
@@ -613,7 +615,7 @@ export function VoiceChannelClient({
                 <span className="flex-1 truncate">{room.name}</span>
                 {room.participantCount > 0 && (
                   <span
-                    className={`text-[10px] px-1.5 py-0.5 rounded-full ${room.id === activeRoomId ? "bg-emerald-500/15 text-emerald-400" : "bg-muted text-muted-foreground/70"}`}
+                    className={`text-xs px-1.5 py-0.5 rounded-full ${room.id === activeRoomId ? "bg-emerald-500/15 text-emerald-400" : "bg-muted text-muted-foreground/70"}`}
                   >
                     {room.participantCount}
                   </span>
@@ -626,6 +628,7 @@ export function VoiceChannelClient({
                         deleteRoomMut.mutate(room.id);
                     }}
                     className="opacity-0 group-hover:opacity-100 text-muted-foreground/70 hover:text-red-400 p-0.5"
+                    aria-label={`Удалить канал ${room.name}`}
                   >
                     <Trash2 className="h-3 w-3" />
                   </button>
@@ -637,7 +640,7 @@ export function VoiceChannelClient({
                   {participants.map((p) => (
                     <div
                       key={p.id}
-                      className="flex items-center gap-1.5 py-1 text-[11px] text-muted-foreground"
+                      className="flex items-center gap-1.5 py-1 text-xs text-muted-foreground"
                     >
                       <div
                         className={`w-5 h-5 rounded-full flex items-center justify-center text-[7px] font-bold text-white shrink-0 ${((p.userId === currentUserId && isSpeaking) || (p.userId && p.userId !== currentUserId && speakingPeers.has(p.userId))) && !p.isMuted ? "ring-2 ring-emerald-500" : ""}`}
@@ -664,7 +667,7 @@ export function VoiceChannelClient({
         {/* History */}
         {sessions.length > 0 && (
           <div className="border-t border-border pb-2">
-            <div className="text-[9px] font-bold text-muted-foreground/70 uppercase tracking-widest px-4 pt-3 pb-1">
+            <div className="text-xs font-bold text-muted-foreground/70 uppercase tracking-widest px-4 pt-3 pb-1">
               История звонков
             </div>
             {sessions.slice(0, 5).map((s) => (
@@ -675,17 +678,17 @@ export function VoiceChannelClient({
               >
                 <Clock className="h-3.5 w-3.5 text-muted-foreground/70 shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <div className="text-[11px] text-foreground truncate">
+                  <div className="text-xs text-foreground truncate">
                     {s.roomName} · {s.duration ? fmtDuration(s.duration) : "—"}
                   </div>
-                  <div className="text-[9px] text-muted-foreground/70">
+                  <div className="text-xs text-muted-foreground/70">
                     {format(new Date(s.startedAt), "d MMM, HH:mm", {
                       locale: ru,
                     })}
                   </div>
                 </div>
                 {s.summary && (
-                  <span className="text-[8px] text-[#8b5cf6] bg-[#8b5cf6]/10 px-1.5 py-0.5 rounded font-semibold shrink-0">
+                  <span className="text-xs text-[#8b5cf6] bg-[#8b5cf6]/10 px-1.5 py-0.5 rounded font-semibold shrink-0">
                     AI
                   </span>
                 )}
@@ -705,6 +708,7 @@ export function VoiceChannelClient({
             <button
               onClick={() => setMobileShowSidebar(true)}
               className="md:hidden p-1 rounded-lg hover:bg-muted text-muted-foreground"
+              aria-label="Назад к списку каналов"
             >
               <svg
                 className="w-5 h-5"
@@ -721,18 +725,21 @@ export function VoiceChannelClient({
               </svg>
             </button>
             <Volume2 className="h-5 w-5 text-emerald-500" />
-            <h2 className="text-[15px] font-bold text-white">
+            <h2 className="text-base font-bold text-foreground">
               {activeRoom?.name ?? "Голосовой канал"}
             </h2>
             {connected && (
-              <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full font-semibold">
+              <span className="text-xs text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full font-semibold">
                 Подключено
               </span>
             )}
           </div>
           <div className="flex gap-1.5">
             {connected && participants.some((p) => p.isScreenSharing) && (
-              <button className="w-8 h-8 rounded-lg border border-blue-500 bg-blue-500/15 text-blue-400 flex items-center justify-center">
+              <button
+                className="w-8 h-8 rounded-lg border border-blue-500 bg-blue-500/15 text-blue-400 flex items-center justify-center"
+                aria-label="Идёт демонстрация экрана"
+              >
                 <Monitor className="h-4 w-4" />
               </button>
             )}
@@ -740,6 +747,7 @@ export function VoiceChannelClient({
               onClick={() => void copyInvite()}
               className="w-8 h-8 rounded-lg border border-border text-muted-foreground hover:bg-muted hover:text-emerald-400 hover:border-emerald-500 flex items-center justify-center transition-colors"
               title="Пригласить по ссылке"
+              aria-label="Пригласить по ссылке"
             >
               <Link2 className="h-4 w-4" />
             </button>
@@ -748,8 +756,9 @@ export function VoiceChannelClient({
                 setRenameValue(activeRoom?.name ?? "");
                 setShowSettings(true);
               }}
-              className="w-8 h-8 rounded-lg border border-border text-muted-foreground hover:bg-muted hover:text-white flex items-center justify-center transition-colors"
+              className="w-8 h-8 rounded-lg border border-border text-muted-foreground hover:bg-muted hover:text-foreground flex items-center justify-center transition-colors"
               title="Настройки"
+              aria-label="Настройки канала"
             >
               <Settings className="h-4 w-4" />
             </button>
@@ -759,13 +768,13 @@ export function VoiceChannelClient({
         {/* Screen share preview */}
         {isScreenSharing && (
           <div className="mx-6 mt-4 bg-card border border-border rounded-xl overflow-hidden shrink-0">
-            <div className="px-3 py-2 border-b border-border flex items-center gap-2 text-[11px] text-muted-foreground">
+            <div className="px-3 py-2 border-b border-border flex items-center gap-2 text-xs text-muted-foreground">
               <Monitor className="h-3.5 w-3.5 text-blue-400" />
               <b className="text-blue-400">{currentUserLogin}</b> демонстрирует
               экран
               <button
                 onClick={() => void toggleScreenShare()}
-                className="ml-auto text-[10px] text-red-400 hover:text-red-300 transition-colors"
+                className="ml-auto text-xs text-red-400 hover:text-red-300 transition-colors"
               >
                 Остановить
               </button>
@@ -789,7 +798,7 @@ export function VoiceChannelClient({
               key={rs.userId}
               className="mx-6 mt-4 bg-card border border-border rounded-xl overflow-hidden shrink-0"
             >
-              <div className="px-3 py-2 border-b border-border flex items-center gap-2 text-[11px] text-muted-foreground">
+              <div className="px-3 py-2 border-b border-border flex items-center gap-2 text-xs text-muted-foreground">
                 <Monitor className="h-3.5 w-3.5 text-blue-400" />
                 <b className="text-blue-400">{sharerName}</b> демонстрирует
                 экран
@@ -858,23 +867,23 @@ export function VoiceChannelClient({
                       <UserAvatar userId={p.userId} login={name} size={64} />
                     ) : (
                       <div
-                        className="w-16 h-16 rounded-full flex items-center justify-center text-[22px] font-bold text-white"
+                        className="w-16 h-16 rounded-full flex items-center justify-center text-xl font-bold text-white"
                         style={{ background: colorFor(name) }}
                       >
                         {name[0]?.toUpperCase()}
                       </div>
                     )}
                   </div>
-                  <div className="text-[13px] font-semibold text-foreground truncate max-w-full">
+                  <div className="text-sm font-semibold text-foreground truncate max-w-full">
                     {name}
                   </div>
                   {!p.userId && (
-                    <span className="text-[9px] text-[#f59e0b] bg-[#f59e0b]/10 px-1.5 py-0.5 rounded font-semibold">
+                    <span className="text-xs text-[#f59e0b] bg-[#f59e0b]/10 px-1.5 py-0.5 rounded font-semibold">
                       Гость
                     </span>
                   )}
                   {p.isScreenSharing && (
-                    <span className="text-[9px] text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded font-semibold flex items-center gap-1">
+                    <span className="text-xs text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded font-semibold flex items-center gap-1">
                       <Monitor className="h-3 w-3" /> Экран
                     </span>
                   )}
@@ -887,15 +896,20 @@ export function VoiceChannelClient({
                         min={0}
                         max={100}
                         value={vol}
-                        onChange={(e) =>
+                        aria-label={`Громкость ${name}`}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
                           setVolumes((v) => ({
                             ...v,
-                            [p.id]: Number(e.target.value),
-                          }))
-                        }
+                            [p.id]: val,
+                          }));
+                          if (p.userId) {
+                            setVolume(p.userId, val / 100);
+                          }
+                        }}
                         className="flex-1 min-w-0 h-1 appearance-none bg-border rounded-full [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-emerald-500 [&::-webkit-slider-thumb]:cursor-pointer"
                       />
-                      <span className="text-[9px] text-muted-foreground/70 min-w-[28px] text-right shrink-0">
+                      <span className="text-xs text-muted-foreground/70 min-w-[28px] text-right shrink-0">
                         {vol}%
                       </span>
                     </div>
@@ -909,7 +923,7 @@ export function VoiceChannelClient({
         {connected && (
           <div className="px-6 py-4 border-t border-border bg-card flex items-center justify-center gap-3 relative">
             {/* Timer */}
-            <div className="absolute left-6 flex items-center gap-1.5 text-[11px] text-muted-foreground/70">
+            <div className="absolute left-6 flex items-center gap-1.5 text-xs text-muted-foreground/70">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
               {fmtDuration(elapsed)}
             </div>
@@ -918,6 +932,7 @@ export function VoiceChannelClient({
               onClick={toggleMute}
               className={`w-11 h-11 rounded-full flex items-center justify-center transition-colors ${isMuted ? "bg-red-500 text-white" : "bg-muted text-emerald-400 hover:bg-muted"}`}
               title={isMuted ? "Включить микрофон" : "Выключить микрофон"}
+              aria-label={isMuted ? "Включить микрофон" : "Выключить микрофон"}
             >
               {isMuted ? (
                 <MicOff className="h-5 w-5" />
@@ -934,6 +949,11 @@ export function VoiceChannelClient({
                   ? "Остановить демонстрацию"
                   : "Демонстрация экрана"
               }
+              aria-label={
+                isScreenSharing
+                  ? "Остановить демонстрацию экрана"
+                  : "Демонстрация экрана"
+              }
             >
               <Monitor className="h-5 w-5" />
             </button>
@@ -942,6 +962,9 @@ export function VoiceChannelClient({
               onClick={() => setShowChat((v) => !v)}
               className={`w-11 h-11 rounded-full flex items-center justify-center transition-colors ${showChat ? "bg-muted text-foreground" : "bg-muted text-muted-foreground hover:bg-muted"}`}
               title="Чат канала"
+              aria-label={
+                showChat ? "Скрыть чат канала" : "Показать чат канала"
+              }
             >
               <MessageSquare className="h-5 w-5" />
             </button>
@@ -952,6 +975,7 @@ export function VoiceChannelClient({
               onClick={() => leaveMut.mutate()}
               className="w-11 h-11 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center transition-colors"
               title="Отключиться"
+              aria-label="Отключиться от канала"
             >
               <PhoneOff className="h-5 w-5" />
             </button>
@@ -963,10 +987,13 @@ export function VoiceChannelClient({
       {showChat && connected && (
         <aside className="fixed inset-0 z-40 bg-card md:static md:inset-auto md:z-auto md:w-[320px] md:border-l md:border-border flex flex-col shrink-0 min-h-0">
           <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-            <span className="text-[13px] font-bold text-white">Чат канала</span>
+            <span className="text-sm font-bold text-foreground">
+              Чат канала
+            </span>
             <button
               onClick={() => setShowChat(false)}
-              className="w-7 h-7 rounded-md text-muted-foreground hover:text-white hover:bg-muted flex items-center justify-center"
+              className="w-7 h-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted flex items-center justify-center"
+              aria-label="Закрыть чат"
             >
               <X className="h-4 w-4" />
             </button>
@@ -984,10 +1011,10 @@ export function VoiceChannelClient({
                     >
                       {name[0]?.toUpperCase()}
                     </div>
-                    <span className="text-[11px] font-semibold text-foreground">
+                    <span className="text-xs font-semibold text-foreground">
                       {name}
                     </span>
-                    <span className="text-[10px] text-muted-foreground/70">
+                    <span className="text-xs text-muted-foreground/70">
                       {format(new Date(m.createdAt), "HH:mm")}
                     </span>
                   </div>
@@ -1006,7 +1033,10 @@ export function VoiceChannelClient({
 
           <div className="px-4 py-3 border-t border-border">
             <div className="bg-muted border border-border rounded-xl px-3 py-2 flex items-center gap-2 focus-within:border-emerald-500">
-              <button className="text-muted-foreground hover:text-muted-foreground shrink-0">
+              <button
+                className="text-muted-foreground hover:text-muted-foreground shrink-0"
+                aria-label="Прикрепить файл"
+              >
                 <Paperclip className="h-3.5 w-3.5" />
               </button>
               <input
@@ -1019,12 +1049,14 @@ export function VoiceChannelClient({
                   }
                 }}
                 placeholder="Напишите в чат канала..."
+                aria-label="Сообщение в чат канала"
                 className="flex-1 bg-transparent text-[12px] text-foreground outline-none placeholder:text-muted-foreground/70"
               />
               {chatText.trim() && (
                 <button
                   onClick={() => void sendChat()}
                   className="w-7 h-7 rounded-lg bg-emerald-500 text-white flex items-center justify-center shrink-0"
+                  aria-label="Отправить сообщение"
                 >
                   <Send className="h-3.5 w-3.5" />
                 </button>
@@ -1038,19 +1070,30 @@ export function VoiceChannelClient({
       {viewSession && (
         <div
           className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="session-summary-title"
           onClick={() => setViewSession(null)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") setViewSession(null);
+          }}
         >
           <div
             className="bg-card border border-border rounded-2xl p-6 w-full max-w-[500px] shadow-2xl max-h-[80vh] overflow-y-auto"
+            tabIndex={-1}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold text-foreground">
+              <h3
+                id="session-summary-title"
+                className="text-lg font-bold text-foreground"
+              >
                 Сводка звонка
               </h3>
               <button
                 onClick={() => setViewSession(null)}
                 className="text-muted-foreground hover:text-foreground"
+                aria-label="Закрыть сводку"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -1106,7 +1149,7 @@ export function VoiceChannelClient({
             {viewSession.summary ? (
               <div className="p-4 bg-muted/50 rounded-xl border border-border">
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="text-[10px] text-purple-500 bg-purple-500/10 px-2 py-0.5 rounded font-semibold">
+                  <span className="text-xs text-purple-500 bg-purple-500/10 px-2 py-0.5 rounded font-semibold">
                     AI Саммари
                   </span>
                 </div>
@@ -1129,19 +1172,30 @@ export function VoiceChannelClient({
       {showSettings && activeRoom && (
         <div
           className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="channel-settings-title"
           onClick={() => setShowSettings(false)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") setShowSettings(false);
+          }}
         >
           <div
             className="bg-card border border-border rounded-2xl p-6 w-full max-w-[400px] shadow-2xl"
+            tabIndex={-1}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-5">
-              <h3 className="text-lg font-bold text-foreground">
+              <h3
+                id="channel-settings-title"
+                className="text-lg font-bold text-foreground"
+              >
                 Настройки канала
               </h3>
               <button
                 onClick={() => setShowSettings(false)}
                 className="text-muted-foreground hover:text-foreground"
+                aria-label="Закрыть настройки"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -1156,6 +1210,7 @@ export function VoiceChannelClient({
                 <input
                   value={renameValue}
                   onChange={(e) => setRenameValue(e.target.value)}
+                  aria-label="Переименовать канал"
                   className="flex-1 px-3 py-2 bg-muted border border-border rounded-lg text-sm text-foreground outline-none focus:border-emerald-500"
                   onKeyDown={(e) => {
                     if (

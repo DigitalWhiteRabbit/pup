@@ -58,7 +58,7 @@ export function LinkPreview({ url, isMe }: { url: string; isMe: boolean }) {
         )}
         {data.description && (
           <div
-            className={`text-[11px] line-clamp-2 mt-0.5 ${
+            className={`text-xs line-clamp-2 mt-0.5 ${
               isMe ? "text-white/70" : "text-muted-foreground"
             }`}
           >
@@ -66,7 +66,7 @@ export function LinkPreview({ url, isMe }: { url: string; isMe: boolean }) {
           </div>
         )}
         <div
-          className={`flex items-center gap-1 mt-1 text-[10px] ${
+          className={`flex items-center gap-1 mt-1 text-xs ${
             isMe ? "text-white/50" : "text-gray-400"
           }`}
         >

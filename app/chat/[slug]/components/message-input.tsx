@@ -50,7 +50,7 @@ export function MessageInput({ onSend, disabled, placeholder, accent }: Props) {
           placeholder={placeholder}
           disabled={disabled}
           rows={1}
-          className="w-full resize-none rounded-xl border border-gray-200 bg-gray-50/50 px-4 py-2.5 text-sm leading-relaxed text-gray-900 placeholder:text-gray-400 transition-all focus:outline-none focus:ring-2 focus:border-transparent focus:bg-white disabled:opacity-40"
+          className="w-full resize-none rounded-xl border border-border bg-muted/50 px-4 py-2.5 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground transition-all focus:outline-none focus:ring-2 focus:border-transparent focus:bg-background disabled:opacity-40"
           style={
             {
               "--tw-ring-color": `${accent}30`,

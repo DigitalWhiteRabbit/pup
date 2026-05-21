@@ -116,7 +116,7 @@ export function CannedResponsesClient({
                   </code>
                   <span className="text-sm font-medium">{cr.title}</span>
                   {cr.category && (
-                    <Badge variant="outline" className="text-[10px]">
+                    <Badge variant="outline" className="text-xs">
                       {cr.category}
                     </Badge>
                   )}

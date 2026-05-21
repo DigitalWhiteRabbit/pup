@@ -19,9 +19,16 @@ export const updateUserRoleSchema = z.object({
   role: z.enum(["ADMIN", "USER"]),
 });
 
+const PASSWORD_ERROR = "Минимум 8 символов, строчная и заглавная буква, цифра";
+
 export const changePasswordSchema = z.object({
   currentPassword: z.string().min(1),
-  newPassword: z.string().min(8, "Минимум 8 символов"),
+  newPassword: z
+    .string()
+    .min(8, PASSWORD_ERROR)
+    .regex(/[a-z]/, PASSWORD_ERROR)
+    .regex(/[A-Z]/, PASSWORD_ERROR)
+    .regex(/[0-9]/, PASSWORD_ERROR),
 });
 
 export type LoginInput = z.infer<typeof loginSchema>;

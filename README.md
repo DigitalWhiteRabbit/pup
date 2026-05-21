@@ -1,36 +1,130 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ПУП -- Пульт Управления Проектами
 
-## Getting Started
+> Мультимодульная платформа для управления рабочими пространствами: CRM, тикеты, чат, база знаний, маркетинг и AI-аутрич -- всё в одном месте.
 
-First, run the development server:
+## Что это
+
+ПУП решает проблему разрозненных инструментов. Вместо отдельных сервисов для задач, коммуникации, базы знаний и маркетинга -- вы получаете единую платформу, где всё привязано к одному рабочему пространству и работает вместе.
+
+Каждое рабочее пространство (Workspace) содержит 8 модулей, которые можно включать и отключать:
+
+| Модуль               | Описание                                                                    |
+| -------------------- | --------------------------------------------------------------------------- |
+| **CRM**              | Kanban-доска с задачами, метками, учётом времени и drag-and-drop            |
+| **База знаний**      | Статьи, загрузка файлов, веб-краулинг, полнотекстовый поиск                 |
+| **Тикеты**           | CRUD + SLA, публичный чат-виджет, шаблоны ответов, CSAT, AI-агент           |
+| **Чат**              | Каналы, личные сообщения, ответы, реакции, @упоминания, голосовые сообщения |
+| **Голосовые каналы** | WebRTC-аудио, комнаты, демонстрация экрана, AI-резюме, гостевой доступ      |
+| **Маркетинг**        | AI-аутрич-пайплайн: парсинг лидов, скоринг, AI-питчи, email-рассылка, IMAP  |
+| **Пользователи**     | Внешний API-коннектор с 10-табовым интерфейсом                              |
+| **Логи**             | Статистика, таймлайн, diff-просмотр, системные события, фильтры             |
+
+## Быстрый старт
+
+**Требования:** Node.js 20+, pnpm 9+
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+# 1. Клонировать и установить зависимости
+git clone https://github.com/DigitalWhiteRabbit/pup.git
+cd pup
+pnpm install
+
+# 2. Настроить окружение
+cp .env.example .env
+# Отредактировать .env -- заполнить DATABASE_URL и AUTH_SECRET
+
+# 3. Применить миграции и создать админа
+pnpm db:migrate
+pnpm db:seed
+
+# 4. Запустить
 pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Откройте http://localhost:3000. Логин по умолчанию: `admin` / пароль из `.env` (`INITIAL_ADMIN_PASSWORD`).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Для демо-данных (воркспейс + модули + тестовые задачи):
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+SEED_DEMO_DATA=true pnpm db:seed
+```
 
-## Learn More
+## Стек технологий
 
-To learn more about Next.js, take a look at the following resources:
+| Категория      | Технологии                                                           |
+| -------------- | -------------------------------------------------------------------- |
+| Фреймворк      | Next.js 14 (App Router), TypeScript strict                           |
+| БД             | Prisma ORM -- SQLite (dev) / PostgreSQL (prod)                       |
+| UI             | shadcn/ui, Radix UI, Tailwind CSS, тёмная/светлая тема               |
+| Состояние      | TanStack Query (React Query)                                         |
+| Drag & Drop    | dnd-kit                                                              |
+| Аутентификация | NextAuth.js v5 (JWT-стратегия)                                       |
+| AI             | Anthropic Claude (питчи, агент, резюме), Groq Whisper (транскрипция) |
+| Голос          | WebRTC mesh + TURN (Metered.ca / coturn / Twilio)                    |
+| Email          | Resend (отправка), IMAP (приём ответов)                              |
+| Уведомления    | In-app toast + Telegram Bot API                                      |
+| Инструменты    | YouTube-парсер (Express, `tools/yt-parser/`, порт 3001)              |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Структура проекта
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```
+app/                          # Next.js App Router — страницы и API-роуты
+  (authenticated)/            # Защищённые маршруты
+    workspaces/[id]/          # Модули рабочего пространства
+  api/                        # REST API
+components/                   # React-компоненты
+  layout/                     # Sidebar, Header
+  ui/                         # shadcn/ui примитивы
+lib/
+  services/                   # Бизнес-логика (workspace, task, notification, marketing...)
+  schemas/                    # Zod-схемы валидации
+prisma/
+  schema.prisma               # Модель данных
+  seed.ts                     # Сидинг БД
+tools/
+  yt-parser/                  # YouTube-парсер (standalone Express-приложение)
+```
 
-## Deploy on Vercel
+## Команды
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+| Команда           | Описание                                |
+| ----------------- | --------------------------------------- |
+| `pnpm dev`        | Запуск dev-сервера (Turbopack)          |
+| `pnpm build`      | Production-сборка                       |
+| `pnpm start`      | Запуск production-сервера               |
+| `pnpm db:migrate` | Применить миграции Prisma               |
+| `pnpm db:seed`    | Создать админ-пользователя              |
+| `pnpm db:reset`   | Сбросить БД и применить миграции заново |
+| `pnpm typecheck`  | Проверка типов TypeScript               |
+| `pnpm lint`       | ESLint                                  |
+| `pnpm test`       | Запуск тестов (Vitest)                  |
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Скриншоты
+
+<!-- TODO: добавить скриншоты -->
+
+## URL-структура
+
+```
+/workspaces                        — список рабочих пространств
+/workspaces/[id]                   — обзор: модули, участники, настройки
+/workspaces/[id]/crm               — CRM kanban-доска
+/workspaces/[id]/knowledge         — база знаний
+/workspaces/[id]/tickets           — система тикетов
+/workspaces/[id]/chat              — внутренний чат
+/workspaces/[id]/marketing         — маркетинг и аутрич
+/workspaces/[id]/users             — пользователи проекта
+/workspaces/[id]/logs              — логи и аналитика
+```
+
+## Деплой
+
+См. [DEPLOY.md](DEPLOY.md) -- инструкции по развёртыванию на сервере.
+
+## Переменные окружения
+
+См. [.env.example](.env.example) -- полный список с комментариями.
+
+## Лицензия
+
+Проприетарный код. Все права защищены.

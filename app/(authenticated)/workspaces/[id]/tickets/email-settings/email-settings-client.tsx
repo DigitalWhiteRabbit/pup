@@ -274,14 +274,14 @@ export function EmailSettingsClient({ workspaceId }: { workspaceId: string }) {
                 readOnly
                 className="font-mono text-xs"
               />
-              <p className="text-[10px] text-muted-foreground mt-1">
+              <p className="text-xs text-muted-foreground mt-1">
                 Передавайте в поле &quot;secret&quot; в теле запроса
               </p>
             </div>
 
             <div className="bg-muted rounded-lg p-3">
               <div className="text-xs font-medium mb-1">Формат запроса:</div>
-              <pre className="text-[10px] font-mono text-muted-foreground whitespace-pre-wrap">
+              <pre className="text-xs font-mono text-muted-foreground whitespace-pre-wrap">
                 {`POST ${webhookUrl}
 Content-Type: application/json
 

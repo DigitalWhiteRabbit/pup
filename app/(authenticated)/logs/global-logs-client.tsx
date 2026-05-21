@@ -248,7 +248,7 @@ function DiffView({ metadata }: { metadata: Record<string, unknown> }) {
   return (
     <div className="mt-2 space-y-1">
       {diffs.map((d) => (
-        <div key={d.field} className="flex items-center gap-2 text-[11px]">
+        <div key={d.field} className="flex items-center gap-2 text-xs">
           <span className="text-muted-foreground font-medium min-w-[60px]">
             {d.field}:
           </span>
@@ -317,34 +317,34 @@ function LogRow({ log }: { log: GlobalLogItem }) {
                 login={log.actor.login}
                 size={18}
               />
-              <span className="text-[11px] font-medium text-muted-foreground">
+              <span className="text-xs font-medium text-muted-foreground">
                 {log.actor.login}
               </span>
             </span>
           ) : (
-            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-500">
+            <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-500">
               <Shield className="h-3 w-3" /> Система
             </span>
           )}
-          <span className="text-[10px] text-muted-foreground/40">·</span>
+          <span className="text-xs text-muted-foreground/40">·</span>
           {log.workspaceName && (
             <>
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">
+              <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">
                 {log.workspaceName}
               </span>
-              <span className="text-[10px] text-muted-foreground/40">·</span>
+              <span className="text-xs text-muted-foreground/40">·</span>
             </>
           )}
           {!log.workspaceName && isSystem && (
             <>
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-500 font-medium">
+              <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-500 font-medium">
                 Системное
               </span>
-              <span className="text-[10px] text-muted-foreground/40">·</span>
+              <span className="text-xs text-muted-foreground/40">·</span>
             </>
           )}
           <span
-            className="text-[11px] text-muted-foreground"
+            className="text-xs text-muted-foreground"
             title={format(new Date(log.createdAt), "d MMMM yyyy, HH:mm:ss", {
               locale: ru,
             })}
@@ -354,7 +354,7 @@ function LogRow({ log }: { log: GlobalLogItem }) {
           {hasMetadata && !hasDiff && (
             <button
               onClick={() => setExpanded((v) => !v)}
-              className="text-[10px] text-muted-foreground/70 hover:text-foreground transition-colors flex items-center gap-0.5 ml-1"
+              className="text-xs text-muted-foreground/70 hover:text-foreground transition-colors flex items-center gap-0.5 ml-1"
             >
               {expanded ? (
                 <ChevronUp className="h-3 w-3" />
@@ -367,7 +367,7 @@ function LogRow({ log }: { log: GlobalLogItem }) {
         </div>
 
         {expanded && hasMetadata && (
-          <pre className="mt-2.5 text-[11px] bg-muted/50 border border-border/40 rounded-lg p-3 overflow-auto max-h-40 text-muted-foreground font-mono">
+          <pre className="mt-2.5 text-xs bg-muted/50 border border-border/40 rounded-lg p-3 overflow-auto max-h-40 text-muted-foreground font-mono">
             {JSON.stringify(log.metadata, null, 2)}
           </pre>
         )}
@@ -388,7 +388,7 @@ function DaySeparator({ date }: { date: Date }) {
   return (
     <div className="flex items-center gap-3 px-4 py-2">
       <div className="h-px flex-1 bg-border/50" />
-      <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider shrink-0">
+      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider shrink-0">
         {label}
       </span>
       <div className="h-px flex-1 bg-border/50" />
@@ -410,7 +410,7 @@ function StatsCards({ stats }: { stats: Stats }) {
             <div className="text-2xl font-bold text-foreground">
               {stats.todayCount}
             </div>
-            <div className="text-[11px] text-muted-foreground">Сегодня</div>
+            <div className="text-xs text-muted-foreground">Сегодня</div>
           </div>
         </CardContent>
       </Card>
@@ -423,7 +423,7 @@ function StatsCards({ stats }: { stats: Stats }) {
             <div className="text-2xl font-bold text-foreground">
               {stats.weekCount}
             </div>
-            <div className="text-[11px] text-muted-foreground">За неделю</div>
+            <div className="text-xs text-muted-foreground">За неделю</div>
           </div>
         </CardContent>
       </Card>
@@ -436,7 +436,7 @@ function StatsCards({ stats }: { stats: Stats }) {
             <div className="text-sm font-bold text-foreground truncate">
               {stats.topActor?.login ?? "—"}
             </div>
-            <div className="text-[11px] text-muted-foreground">
+            <div className="text-xs text-muted-foreground">
               {stats.topActor
                 ? `${stats.topActor.count} действий за неделю`
                 : "Нет данных"}
@@ -661,7 +661,7 @@ export function GlobalLogsClient() {
                     setDatePreset(p.value);
                     setPage(1);
                   }}
-                  className={`px-3 py-1 rounded-md text-[11px] font-medium transition-colors ${datePreset === p.value ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                  className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${datePreset === p.value ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
                 >
                   {p.label}
                 </button>
@@ -675,7 +675,7 @@ export function GlobalLogsClient() {
                 setPage(1);
               }}
             >
-              <SelectTrigger className="w-40 h-8 text-[11px]">
+              <SelectTrigger className="w-40 h-8 text-xs">
                 <SelectValue placeholder="Проект" />
               </SelectTrigger>
               <SelectContent>
@@ -695,7 +695,7 @@ export function GlobalLogsClient() {
                 setPage(1);
               }}
             >
-              <SelectTrigger className="w-40 h-8 text-[11px]">
+              <SelectTrigger className="w-40 h-8 text-xs">
                 <SelectValue placeholder="Тип" />
               </SelectTrigger>
               <SelectContent>
@@ -717,7 +717,7 @@ export function GlobalLogsClient() {
                   setPage(1);
                 }}
               >
-                <SelectTrigger className="w-40 h-8 text-[11px]">
+                <SelectTrigger className="w-40 h-8 text-xs">
                   <SelectValue placeholder="Автор" />
                 </SelectTrigger>
                 <SelectContent>
@@ -745,7 +745,7 @@ export function GlobalLogsClient() {
                   placeholder="Поиск..."
                   value={searchInput}
                   onChange={(e) => setSearchInput(e.target.value)}
-                  className="h-8 text-[11px] pl-7"
+                  className="h-8 text-xs pl-7"
                 />
               </div>
             </form>
@@ -755,7 +755,7 @@ export function GlobalLogsClient() {
                 variant="ghost"
                 size="sm"
                 onClick={reset}
-                className="h-8 text-[11px] text-muted-foreground"
+                className="h-8 text-xs text-muted-foreground"
               >
                 <XCircle className="h-3 w-3 mr-1" /> Сбросить
               </Button>

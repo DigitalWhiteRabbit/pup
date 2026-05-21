@@ -1,5 +1,6 @@
 "use client";
 
+import { formatFileSize } from "@/lib/utils";
 import { useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -38,12 +39,6 @@ type Props = {
   categories: KbCategoryWithCount[];
   tags: KbTagItem[];
 };
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
 
 // ─── File Tab ─────────────────────────────────────────────────────────────────
 
@@ -162,7 +157,7 @@ function FileTab({
               <span className="font-medium text-sm">{file.name}</span>
             </div>
             <p className="text-xs text-muted-foreground">
-              {formatBytes(file.size)}
+              {formatFileSize(file.size)}
             </p>
           </div>
         ) : (

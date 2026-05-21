@@ -1,8 +1,10 @@
 "use client";
 
+import { formatFileSize } from "@/lib/utils";
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import DOMPurify from "dompurify";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
@@ -112,12 +114,6 @@ function FileIcon({
   return <File className={className} />;
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} Б`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} КБ`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`;
-}
-
 // ─── Article Card ─────────────────────────────────────────────────────────────
 
 function ArticleCard({
@@ -155,7 +151,7 @@ function ArticleCard({
               <Badge
                 key={tag.id}
                 variant="outline"
-                className="text-[10px] py-0 px-1.5"
+                className="text-xs py-0 px-1.5"
                 style={{ borderColor: tag.color, color: tag.color }}
               >
                 {tag.name}
@@ -172,7 +168,7 @@ function ArticleCard({
             </span>
           </div>
           {!article.isPublished && (
-            <Badge variant="secondary" className="text-[10px] self-start">
+            <Badge variant="secondary" className="text-xs self-start">
               Черновик
             </Badge>
           )}
@@ -286,9 +282,9 @@ function CategoryDialog({
   const [editName, setEditName] = useState("");
   const [editColor, setEditColor] = useState("#6366f1");
 
-  useState(() => {
+  useEffect(() => {
     setLocalCats(categories);
-  });
+  }, [categories]);
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -528,7 +524,7 @@ function FilePreviewModal({
           </DialogTitle>
           <div className="flex items-center gap-3 pt-1">
             <span className="text-xs text-muted-foreground">
-              {formatBytes(file.size)} · {file.uploadedBy?.login ?? "—"} ·{" "}
+              {formatFileSize(file.size)} · {file.uploadedBy?.login ?? "—"} ·{" "}
               {formatDistanceToNow(new Date(file.uploadedAt), {
                 addSuffix: true,
                 locale: ru,
@@ -581,7 +577,9 @@ function FilePreviewModal({
           ) : data.type === "html" ? (
             <div
               className="[&_p]:mb-3 [&_h1]:text-2xl [&_h1]:font-bold [&_h1]:mb-4 [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:mb-3 [&_h3]:text-lg [&_h3]:font-semibold [&_h3]:mb-2 [&_strong]:font-semibold [&_em]:italic [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:mb-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:mb-3 [&_li]:mb-1 [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-border [&_td]:p-2 [&_th]:border [&_th]:border-border [&_th]:p-2 [&_th]:bg-muted p-6 text-sm leading-relaxed"
-              dangerouslySetInnerHTML={{ __html: data.content }}
+              dangerouslySetInnerHTML={{
+                __html: DOMPurify.sanitize(data.content),
+              }}
             />
           ) : (
             <pre className="p-6 text-sm whitespace-pre-wrap break-words font-mono leading-relaxed">
@@ -734,7 +732,7 @@ function FilesTab({ workspaceId }: { workspaceId: string }) {
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium truncate">{f.originalName}</p>
                 <p className="text-xs text-muted-foreground">
-                  {formatBytes(f.size)} · {f.uploadedBy?.login ?? "—"} ·{" "}
+                  {formatFileSize(f.size)} · {f.uploadedBy?.login ?? "—"} ·{" "}
                   {formatDistanceToNow(new Date(f.uploadedAt), {
                     addSuffix: true,
                     locale: ru,

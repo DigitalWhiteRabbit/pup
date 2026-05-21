@@ -6,6 +6,8 @@ import { listCategories } from "@/lib/services/kb/category.service";
 import { listTags } from "@/lib/services/kb/tag.service";
 import { KnowledgeClient } from "./knowledge-client";
 
+export const metadata = { title: "База знаний | ПУП" };
+
 type Props = { params: { id: string } };
 
 export default async function KnowledgePage({ params }: Props) {

@@ -105,10 +105,7 @@ function SourceBadge({ source }: { source: string }) {
   const cls =
     SOURCE_COLORS[source?.toUpperCase()] || "bg-muted text-muted-foreground";
   return (
-    <Badge
-      variant="outline"
-      className={`text-[10px] font-bold uppercase ${cls}`}
-    >
+    <Badge variant="outline" className={`text-xs font-bold uppercase ${cls}`}>
       {source}
     </Badge>
   );
@@ -127,7 +124,7 @@ function StatusBadge({ status }: { status: string }) {
   const cls =
     STATUS_COLORS[status?.toLowerCase()] || "bg-muted text-muted-foreground";
   return (
-    <Badge variant="outline" className={`text-[10px] font-bold ${cls}`}>
+    <Badge variant="outline" className={`text-xs font-bold ${cls}`}>
       {status}
     </Badge>
   );
@@ -147,7 +144,7 @@ function ScoreBadge({ score }: { score: string | number | null }) {
     label = "Medium";
   }
   return (
-    <Badge variant="outline" className={`text-[10px] font-bold ${cls}`}>
+    <Badge variant="outline" className={`text-xs font-bold ${cls}`}>
       {label}
     </Badge>
   );
@@ -239,7 +236,7 @@ function DashboardSection({ workspaceId }: Props) {
       <div className="grid grid-cols-4 gap-3.5">
         <Card className="hover:border-emerald-500/30 transition-colors">
           <CardContent className="pt-4 pb-4">
-            <div className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider mb-2">
+            <div className="text-xs font-bold uppercase text-muted-foreground tracking-wider mb-2">
               Всего лидов
             </div>
             <div className="text-3xl font-extrabold">{totalLeads}</div>
@@ -251,7 +248,7 @@ function DashboardSection({ workspaceId }: Props) {
 
         <Card className="hover:border-emerald-500/30 transition-colors">
           <CardContent className="pt-4 pb-4">
-            <div className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider mb-2">
+            <div className="text-xs font-bold uppercase text-muted-foreground tracking-wider mb-2">
               Активные парсеры
             </div>
             <div className="text-3xl font-extrabold">
@@ -269,7 +266,7 @@ function DashboardSection({ workspaceId }: Props) {
 
         <Card className="hover:border-emerald-500/30 transition-colors">
           <CardContent className="pt-4 pb-4">
-            <div className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider mb-2">
+            <div className="text-xs font-bold uppercase text-muted-foreground tracking-wider mb-2">
               Расход
             </div>
             <div className="text-3xl font-extrabold">
@@ -284,7 +281,7 @@ function DashboardSection({ workspaceId }: Props) {
 
         <Card className="hover:border-emerald-500/30 transition-colors">
           <CardContent className="pt-4 pb-4">
-            <div className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider mb-2">
+            <div className="text-xs font-bold uppercase text-muted-foreground tracking-wider mb-2">
               Конверсия в ответ
             </div>
             <div className="text-3xl font-extrabold">{conversionRate}%</div>
@@ -300,7 +297,7 @@ function DashboardSection({ workspaceId }: Props) {
       <div className="grid grid-cols-5 gap-3.5">
         <Card className="col-span-3">
           <CardHeader className="pb-3">
-            <CardTitle className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+            <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
               Последние события
             </CardTitle>
           </CardHeader>
@@ -348,7 +345,7 @@ function DashboardSection({ workspaceId }: Props) {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="font-medium">{item.title}</div>
-                      <div className="text-[10px] text-muted-foreground mt-0.5">
+                      <div className="text-xs text-muted-foreground mt-0.5">
                         {item.meta}
                       </div>
                     </div>
@@ -367,7 +364,7 @@ function DashboardSection({ workspaceId }: Props) {
 
         <Card className="col-span-2">
           <CardHeader className="pb-3">
-            <CardTitle className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+            <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
               Топ источников по конверсии
             </CardTitle>
           </CardHeader>
@@ -379,7 +376,7 @@ function DashboardSection({ workspaceId }: Props) {
                     <SourceBadge source={src.source} />
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-semibold">{src.source}</div>
-                      <div className="text-[11px] text-muted-foreground">
+                      <div className="text-xs text-muted-foreground">
                         {src.total} лидов · {src.qualified ?? 0} qualified
                       </div>
                     </div>
@@ -403,7 +400,7 @@ function DashboardSection({ workspaceId }: Props) {
       {/* Pending actions */}
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+          <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
             Ожидают действия
           </CardTitle>
         </CardHeader>
@@ -413,7 +410,7 @@ function DashboardSection({ workspaceId }: Props) {
               <div className="text-2xl font-extrabold text-orange-500">
                 {pendingActions.awaitingReply}
               </div>
-              <div className="text-[11px] text-muted-foreground mt-1">
+              <div className="text-xs text-muted-foreground mt-1">
                 Ждут ответа
               </div>
             </div>
@@ -421,7 +418,7 @@ function DashboardSection({ workspaceId }: Props) {
               <div className="text-2xl font-extrabold text-yellow-500">
                 {pendingActions.awaitingApproval}
               </div>
-              <div className="text-[11px] text-muted-foreground mt-1">
+              <div className="text-xs text-muted-foreground mt-1">
                 Ждут одобрения
               </div>
             </div>
@@ -429,7 +426,7 @@ function DashboardSection({ workspaceId }: Props) {
               <div className="text-2xl font-extrabold text-blue-500">
                 {pendingActions.newLeads}
               </div>
-              <div className="text-[11px] text-muted-foreground mt-1">
+              <div className="text-xs text-muted-foreground mt-1">
                 Новые лиды
               </div>
             </div>
@@ -613,7 +610,7 @@ function ParsersSection({ workspaceId }: Props) {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-semibold">{s.name}</div>
-                      <div className="text-[11px] text-muted-foreground mt-0.5">
+                      <div className="text-xs text-muted-foreground mt-0.5">
                         {s.desc}
                       </div>
                     </div>
@@ -621,8 +618,8 @@ function ParsersSection({ workspaceId }: Props) {
                       variant="outline"
                       className={
                         connected
-                          ? "bg-emerald-500/10 text-emerald-500 text-[10px]"
-                          : "bg-muted text-muted-foreground text-[10px]"
+                          ? "bg-emerald-500/10 text-emerald-500 text-xs"
+                          : "bg-muted text-muted-foreground text-xs"
                       }
                     >
                       {connected ? "Подключён" : "Не настроен"}
@@ -661,22 +658,22 @@ function ParsersSection({ workspaceId }: Props) {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="bg-muted/30">
-                    <th className="text-left p-2.5 font-bold text-[10px] uppercase text-muted-foreground tracking-wide">
+                    <th className="text-left p-2.5 font-bold text-xs uppercase text-muted-foreground tracking-wide">
                       Название
                     </th>
-                    <th className="text-left p-2.5 font-bold text-[10px] uppercase text-muted-foreground tracking-wide">
+                    <th className="text-left p-2.5 font-bold text-xs uppercase text-muted-foreground tracking-wide">
                       Источник
                     </th>
-                    <th className="text-left p-2.5 font-bold text-[10px] uppercase text-muted-foreground tracking-wide">
+                    <th className="text-left p-2.5 font-bold text-xs uppercase text-muted-foreground tracking-wide">
                       Ключевики
                     </th>
-                    <th className="text-left p-2.5 font-bold text-[10px] uppercase text-muted-foreground tracking-wide">
+                    <th className="text-left p-2.5 font-bold text-xs uppercase text-muted-foreground tracking-wide">
                       Расписание
                     </th>
-                    <th className="text-left p-2.5 font-bold text-[10px] uppercase text-muted-foreground tracking-wide">
+                    <th className="text-left p-2.5 font-bold text-xs uppercase text-muted-foreground tracking-wide">
                       Посл. запуск
                     </th>
-                    <th className="text-left p-2.5 font-bold text-[10px] uppercase text-muted-foreground tracking-wide">
+                    <th className="text-left p-2.5 font-bold text-xs uppercase text-muted-foreground tracking-wide">
                       Статус
                     </th>
                     <th className="p-2.5 w-10"></th>
@@ -711,14 +708,14 @@ function ParsersSection({ workspaceId }: Props) {
                           variant="outline"
                           className={
                             task.status === "COMPLETED"
-                              ? "bg-emerald-500/10 text-emerald-500 text-[10px]"
+                              ? "bg-emerald-500/10 text-emerald-500 text-xs"
                               : task.status === "RUNNING"
-                                ? "bg-blue-500/10 text-blue-500 text-[10px]"
+                                ? "bg-blue-500/10 text-blue-500 text-xs"
                                 : task.status === "QUEUED"
-                                  ? "bg-yellow-500/10 text-yellow-500 text-[10px]"
+                                  ? "bg-yellow-500/10 text-yellow-500 text-xs"
                                   : task.status === "FAILED"
-                                    ? "bg-red-500/10 text-red-500 text-[10px]"
-                                    : "bg-muted text-muted-foreground text-[10px]"
+                                    ? "bg-red-500/10 text-red-500 text-xs"
+                                    : "bg-muted text-muted-foreground text-xs"
                           }
                         >
                           {task.status === "COMPLETED"
@@ -774,7 +771,7 @@ function ParsersSection({ workspaceId }: Props) {
               </DialogHeader>
               <div className="grid grid-cols-2 gap-3 mt-2">
                 <div className="col-span-2">
-                  <label className="text-[10px] font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
+                  <label className="text-xs font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
                     Название
                   </label>
                   <Input
@@ -786,7 +783,7 @@ function ParsersSection({ workspaceId }: Props) {
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
+                  <label className="text-xs font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
                     Источник
                   </label>
                   <Select
@@ -808,7 +805,7 @@ function ParsersSection({ workspaceId }: Props) {
                   </Select>
                 </div>
                 <div>
-                  <label className="text-[10px] font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
+                  <label className="text-xs font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
                     Страна
                   </label>
                   <Select
@@ -829,7 +826,7 @@ function ParsersSection({ workspaceId }: Props) {
                   </Select>
                 </div>
                 <div className="col-span-2">
-                  <label className="text-[10px] font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
+                  <label className="text-xs font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
                     Ключевые слова
                   </label>
                   <Input
@@ -844,7 +841,7 @@ function ParsersSection({ workspaceId }: Props) {
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
+                  <label className="text-xs font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
                     Мин. подписчиков
                   </label>
                   <Input
@@ -859,7 +856,7 @@ function ParsersSection({ workspaceId }: Props) {
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
+                  <label className="text-xs font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
                     Макс. результатов
                   </label>
                   <Input
@@ -874,7 +871,7 @@ function ParsersSection({ workspaceId }: Props) {
                   />
                 </div>
                 <div className="col-span-2">
-                  <label className="text-[10px] font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
+                  <label className="text-xs font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
                     Расписание (cron или текст)
                   </label>
                   <Input
@@ -924,28 +921,28 @@ function ParsersSection({ workspaceId }: Props) {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="bg-muted/30">
-                    <th className="text-left p-2.5 font-bold text-[10px] uppercase text-muted-foreground tracking-wide">
+                    <th className="text-left p-2.5 font-bold text-xs uppercase text-muted-foreground tracking-wide">
                       Дата
                     </th>
-                    <th className="text-left p-2.5 font-bold text-[10px] uppercase text-muted-foreground tracking-wide">
+                    <th className="text-left p-2.5 font-bold text-xs uppercase text-muted-foreground tracking-wide">
                       Задача
                     </th>
-                    <th className="text-left p-2.5 font-bold text-[10px] uppercase text-muted-foreground tracking-wide">
+                    <th className="text-left p-2.5 font-bold text-xs uppercase text-muted-foreground tracking-wide">
                       Источник
                     </th>
-                    <th className="text-left p-2.5 font-bold text-[10px] uppercase text-muted-foreground tracking-wide">
+                    <th className="text-left p-2.5 font-bold text-xs uppercase text-muted-foreground tracking-wide">
                       Найдено
                     </th>
-                    <th className="text-left p-2.5 font-bold text-[10px] uppercase text-muted-foreground tracking-wide">
+                    <th className="text-left p-2.5 font-bold text-xs uppercase text-muted-foreground tracking-wide">
                       Новых
                     </th>
-                    <th className="text-left p-2.5 font-bold text-[10px] uppercase text-muted-foreground tracking-wide">
+                    <th className="text-left p-2.5 font-bold text-xs uppercase text-muted-foreground tracking-wide">
                       Стоимость
                     </th>
-                    <th className="text-left p-2.5 font-bold text-[10px] uppercase text-muted-foreground tracking-wide">
+                    <th className="text-left p-2.5 font-bold text-xs uppercase text-muted-foreground tracking-wide">
                       Время
                     </th>
-                    <th className="text-left p-2.5 font-bold text-[10px] uppercase text-muted-foreground tracking-wide">
+                    <th className="text-left p-2.5 font-bold text-xs uppercase text-muted-foreground tracking-wide">
                       Статус
                     </th>
                   </tr>
@@ -984,12 +981,12 @@ function ParsersSection({ workspaceId }: Props) {
                           variant="outline"
                           className={
                             run.status === "OK" || run.status === "COMPLETED"
-                              ? "bg-emerald-500/10 text-emerald-500 text-[10px]"
+                              ? "bg-emerald-500/10 text-emerald-500 text-xs"
                               : run.status === "RUNNING"
-                                ? "bg-blue-500/10 text-blue-500 text-[10px]"
+                                ? "bg-blue-500/10 text-blue-500 text-xs"
                                 : run.status === "FAILED"
-                                  ? "bg-red-500/10 text-red-500 text-[10px]"
-                                  : "bg-muted text-muted-foreground text-[10px]"
+                                  ? "bg-red-500/10 text-red-500 text-xs"
+                                  : "bg-muted text-muted-foreground text-xs"
                           }
                         >
                           {run.status === "OK" || run.status === "COMPLETED"
@@ -1028,7 +1025,7 @@ function ParsersSection({ workspaceId }: Props) {
             <CardContent>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-[10px] font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
+                  <label className="text-xs font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
                     Источник
                   </label>
                   <Select
@@ -1050,7 +1047,7 @@ function ParsersSection({ workspaceId }: Props) {
                   </Select>
                 </div>
                 <div>
-                  <label className="text-[10px] font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
+                  <label className="text-xs font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
                     Запрос
                   </label>
                   <Input
@@ -1062,7 +1059,7 @@ function ParsersSection({ workspaceId }: Props) {
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
+                  <label className="text-xs font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
                     Мин. подписчиков
                   </label>
                   <Input
@@ -1077,7 +1074,7 @@ function ParsersSection({ workspaceId }: Props) {
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
+                  <label className="text-xs font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
                     Макс. результатов
                   </label>
                   <Input
@@ -1092,7 +1089,7 @@ function ParsersSection({ workspaceId }: Props) {
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
+                  <label className="text-xs font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
                     Страна
                   </label>
                   <Select
@@ -1113,7 +1110,7 @@ function ParsersSection({ workspaceId }: Props) {
                   </Select>
                 </div>
                 <div>
-                  <label className="text-[10px] font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
+                  <label className="text-xs font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
                     Мин. Engagement Rate
                   </label>
                   <Input
@@ -1394,31 +1391,31 @@ function LeadsSection({ workspaceId }: Props) {
                           className="rounded"
                         />
                       </th>
-                      <th className="text-left p-2.5 font-bold text-[10px] uppercase text-muted-foreground tracking-wide">
+                      <th className="text-left p-2.5 font-bold text-xs uppercase text-muted-foreground tracking-wide">
                         Канал
                       </th>
-                      <th className="text-left p-2.5 font-bold text-[10px] uppercase text-muted-foreground tracking-wide">
+                      <th className="text-left p-2.5 font-bold text-xs uppercase text-muted-foreground tracking-wide">
                         Источник
                       </th>
-                      <th className="text-left p-2.5 font-bold text-[10px] uppercase text-muted-foreground tracking-wide">
+                      <th className="text-left p-2.5 font-bold text-xs uppercase text-muted-foreground tracking-wide">
                         Подписчики
                       </th>
-                      <th className="text-left p-2.5 font-bold text-[10px] uppercase text-muted-foreground tracking-wide">
+                      <th className="text-left p-2.5 font-bold text-xs uppercase text-muted-foreground tracking-wide">
                         Avg Views
                       </th>
-                      <th className="text-left p-2.5 font-bold text-[10px] uppercase text-muted-foreground tracking-wide">
+                      <th className="text-left p-2.5 font-bold text-xs uppercase text-muted-foreground tracking-wide">
                         ER
                       </th>
-                      <th className="text-left p-2.5 font-bold text-[10px] uppercase text-muted-foreground tracking-wide">
+                      <th className="text-left p-2.5 font-bold text-xs uppercase text-muted-foreground tracking-wide">
                         Контакты
                       </th>
-                      <th className="text-left p-2.5 font-bold text-[10px] uppercase text-muted-foreground tracking-wide">
+                      <th className="text-left p-2.5 font-bold text-xs uppercase text-muted-foreground tracking-wide">
                         AI Score
                       </th>
-                      <th className="text-left p-2.5 font-bold text-[10px] uppercase text-muted-foreground tracking-wide">
+                      <th className="text-left p-2.5 font-bold text-xs uppercase text-muted-foreground tracking-wide">
                         Статус
                       </th>
-                      <th className="text-left p-2.5 font-bold text-[10px] uppercase text-muted-foreground tracking-wide">
+                      <th className="text-left p-2.5 font-bold text-xs uppercase text-muted-foreground tracking-wide">
                         Дата
                       </th>
                     </tr>
@@ -1439,7 +1436,7 @@ function LeadsSection({ workspaceId }: Props) {
                         </td>
                         <td className="p-2.5">
                           <div className="flex items-center gap-2">
-                            <div className="w-7 h-7 rounded-full bg-muted shrink-0 flex items-center justify-center text-[10px] font-bold text-muted-foreground">
+                            <div className="w-7 h-7 rounded-full bg-muted shrink-0 flex items-center justify-center text-xs font-bold text-muted-foreground">
                               {(lead.channelName ||
                                 lead.name ||
                                 "?")[0]?.toUpperCase()}
@@ -1452,7 +1449,7 @@ function LeadsSection({ workspaceId }: Props) {
                                 {lead.channelName || lead.name}
                               </button>
                               {lead.username && (
-                                <div className="text-[10px] text-muted-foreground">
+                                <div className="text-xs text-muted-foreground">
                                   @{lead.username}
                                 </div>
                               )}
@@ -1478,7 +1475,7 @@ function LeadsSection({ workspaceId }: Props) {
                             {lead.email && (
                               <Badge
                                 variant="outline"
-                                className="bg-emerald-500/10 text-emerald-500 text-[9px] px-1.5 py-0"
+                                className="bg-emerald-500/10 text-emerald-500 text-xs px-1.5 py-0"
                               >
                                 <Mail className="h-2.5 w-2.5" />
                               </Badge>
@@ -1486,7 +1483,7 @@ function LeadsSection({ workspaceId }: Props) {
                             {lead.telegramUsername && (
                               <Badge
                                 variant="outline"
-                                className="bg-blue-500/10 text-blue-500 text-[9px] px-1.5 py-0"
+                                className="bg-blue-500/10 text-blue-500 text-xs px-1.5 py-0"
                               >
                                 TG
                               </Badge>
@@ -1494,7 +1491,7 @@ function LeadsSection({ workspaceId }: Props) {
                             {lead.instagramUsername && (
                               <Badge
                                 variant="outline"
-                                className="bg-purple-500/10 text-purple-500 text-[9px] px-1.5 py-0"
+                                className="bg-purple-500/10 text-purple-500 text-xs px-1.5 py-0"
                               >
                                 IG
                               </Badge>
@@ -1603,7 +1600,7 @@ function LeadsSection({ workspaceId }: Props) {
                             <div className="text-base font-bold">
                               {formatNumber(lead.subscribers)}
                             </div>
-                            <div className="text-[9px] uppercase text-muted-foreground">
+                            <div className="text-xs uppercase text-muted-foreground">
                               Подписчики
                             </div>
                           </div>
@@ -1613,7 +1610,7 @@ function LeadsSection({ workspaceId }: Props) {
                                 ? formatNumber(lead.avgViews)
                                 : "—"}
                             </div>
-                            <div className="text-[9px] uppercase text-muted-foreground">
+                            <div className="text-xs uppercase text-muted-foreground">
                               Avg Views
                             </div>
                           </div>
@@ -1623,7 +1620,7 @@ function LeadsSection({ workspaceId }: Props) {
                                 ? `${lead.engagementRate}%`
                                 : "—"}
                             </div>
-                            <div className="text-[9px] uppercase text-muted-foreground">
+                            <div className="text-xs uppercase text-muted-foreground">
                               ER
                             </div>
                           </div>
@@ -1671,7 +1668,7 @@ function LeadsSection({ workspaceId }: Props) {
                 {/* AI Summary */}
                 <Card>
                   <CardHeader className="pb-2">
-                    <CardTitle className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                    <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                       AI Резюме
                     </CardTitle>
                   </CardHeader>
@@ -1686,7 +1683,7 @@ function LeadsSection({ workspaceId }: Props) {
                 {/* History */}
                 <Card>
                   <CardHeader className="pb-2">
-                    <CardTitle className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                    <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                       История взаимодействий
                     </CardTitle>
                   </CardHeader>
@@ -1726,7 +1723,7 @@ function LeadsSection({ workspaceId }: Props) {
                             </div>
                             <div className="flex-1 min-w-0">
                               <div className="font-medium">{h.title}</div>
-                              <div className="text-[10px] text-muted-foreground mt-0.5">
+                              <div className="text-xs text-muted-foreground mt-0.5">
                                 {h.createdAt
                                   ? formatDistanceToNow(new Date(h.createdAt), {
                                       locale: ru,
@@ -1752,7 +1749,7 @@ function LeadsSection({ workspaceId }: Props) {
                 {/* Contacts */}
                 <Card>
                   <CardHeader className="pb-2">
-                    <CardTitle className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                    <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                       Контакты
                     </CardTitle>
                   </CardHeader>
@@ -1762,7 +1759,7 @@ function LeadsSection({ workspaceId }: Props) {
                         <div className="flex items-center gap-2">
                           <Badge
                             variant="outline"
-                            className="bg-emerald-500/10 text-emerald-500 text-[9px] w-6 justify-center"
+                            className="bg-emerald-500/10 text-emerald-500 text-xs w-6 justify-center"
                           >
                             <Mail className="h-2.5 w-2.5" />
                           </Badge>
@@ -1770,7 +1767,7 @@ function LeadsSection({ workspaceId }: Props) {
                           {lead.emailType && (
                             <Badge
                               variant="outline"
-                              className="bg-emerald-500/10 text-emerald-500 text-[9px] ml-auto shrink-0"
+                              className="bg-emerald-500/10 text-emerald-500 text-xs ml-auto shrink-0"
                             >
                               {lead.emailType}
                             </Badge>
@@ -1781,7 +1778,7 @@ function LeadsSection({ workspaceId }: Props) {
                         <div className="flex items-center gap-2">
                           <Badge
                             variant="outline"
-                            className="bg-blue-500/10 text-blue-500 text-[9px] w-6 justify-center"
+                            className="bg-blue-500/10 text-blue-500 text-xs w-6 justify-center"
                           >
                             TG
                           </Badge>
@@ -1792,7 +1789,7 @@ function LeadsSection({ workspaceId }: Props) {
                         <div className="flex items-center gap-2">
                           <Badge
                             variant="outline"
-                            className="bg-purple-500/10 text-purple-500 text-[9px] w-6 justify-center"
+                            className="bg-purple-500/10 text-purple-500 text-xs w-6 justify-center"
                           >
                             IG
                           </Badge>
@@ -1803,7 +1800,7 @@ function LeadsSection({ workspaceId }: Props) {
                         <div className="flex items-center gap-2">
                           <Badge
                             variant="outline"
-                            className="bg-muted text-muted-foreground text-[9px] w-6 justify-center"
+                            className="bg-muted text-muted-foreground text-xs w-6 justify-center"
                           >
                             <ExternalLink className="h-2.5 w-2.5" />
                           </Badge>
@@ -1825,7 +1822,7 @@ function LeadsSection({ workspaceId }: Props) {
                 {/* Status */}
                 <Card>
                   <CardHeader className="pb-2">
-                    <CardTitle className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                    <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                       Статус
                     </CardTitle>
                   </CardHeader>
@@ -1845,7 +1842,7 @@ function LeadsSection({ workspaceId }: Props) {
                         <span className="text-muted-foreground">Диалог</span>
                         <Badge
                           variant="outline"
-                          className="bg-muted text-muted-foreground text-[10px]"
+                          className="bg-muted text-muted-foreground text-xs"
                         >
                           {lead.dialogueStatus || "not_contacted"}
                         </Badge>
@@ -1858,7 +1855,7 @@ function LeadsSection({ workspaceId }: Props) {
                 {lead.projects?.length > 0 && (
                   <Card>
                     <CardHeader className="pb-2">
-                      <CardTitle className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                      <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                         Привязка к проектам
                       </CardTitle>
                     </CardHeader>
@@ -1886,7 +1883,7 @@ function LeadsSection({ workspaceId }: Props) {
                 {/* Notes */}
                 <Card>
                   <CardHeader className="pb-2">
-                    <CardTitle className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                    <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                       Заметки
                     </CardTitle>
                   </CardHeader>
@@ -1949,7 +1946,7 @@ function LeadsSection({ workspaceId }: Props) {
                   <CardContent className="pt-4 pb-4 flex items-center gap-3.5">
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-semibold">{seg.name}</div>
-                      <div className="text-[11px] text-muted-foreground mt-1">
+                      <div className="text-xs text-muted-foreground mt-1">
                         {seg.description || seg.filterJson || "Без описания"}
                       </div>
                     </div>
@@ -1992,7 +1989,7 @@ function LeadsSection({ workspaceId }: Props) {
               </DialogHeader>
               <div className="space-y-3 mt-2">
                 <div>
-                  <label className="text-[10px] font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
+                  <label className="text-xs font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
                     Название
                   </label>
                   <Input
@@ -2004,7 +2001,7 @@ function LeadsSection({ workspaceId }: Props) {
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
+                  <label className="text-xs font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
                     Описание фильтров
                   </label>
                   <Input
@@ -2160,7 +2157,7 @@ function CampaignsSection({ workspaceId }: Props) {
             {dialogues.length > 0 && (
               <Badge
                 variant="destructive"
-                className="ml-1.5 text-[9px] px-1.5 py-0 h-4"
+                className="ml-1.5 text-xs px-1.5 py-0 h-4"
               >
                 {dialogues.length}
               </Badge>
@@ -2169,7 +2166,7 @@ function CampaignsSection({ workspaceId }: Props) {
           <TabsTrigger value="approvals">
             Одобрение
             {pending.length > 0 && (
-              <Badge className="ml-1.5 text-[9px] px-1.5 py-0 h-4 bg-yellow-500 text-black">
+              <Badge className="ml-1.5 text-xs px-1.5 py-0 h-4 bg-yellow-500 text-black">
                 {pending.length}
               </Badge>
             )}
@@ -2210,7 +2207,7 @@ function CampaignsSection({ workspaceId }: Props) {
                         <div className="text-base font-bold">
                           {project.name}
                         </div>
-                        <div className="text-[11px] text-muted-foreground mt-1">
+                        <div className="text-xs text-muted-foreground mt-1">
                           {project.segmentName &&
                             `Сегмент: ${project.segmentName} · `}
                           Каналы: {project.channels || "Email"}
@@ -2220,12 +2217,12 @@ function CampaignsSection({ workspaceId }: Props) {
                         variant="outline"
                         className={
                           project.status === "ACTIVE"
-                            ? "bg-emerald-500/10 text-emerald-500 text-[10px]"
+                            ? "bg-emerald-500/10 text-emerald-500 text-xs"
                             : project.status === "DRAFT"
-                              ? "bg-yellow-500/10 text-yellow-500 text-[10px]"
+                              ? "bg-yellow-500/10 text-yellow-500 text-xs"
                               : project.status === "PAUSED"
-                                ? "bg-orange-500/10 text-orange-500 text-[10px]"
-                                : "bg-muted text-muted-foreground text-[10px]"
+                                ? "bg-orange-500/10 text-orange-500 text-xs"
+                                : "bg-muted text-muted-foreground text-xs"
                         }
                       >
                         {project.status === "ACTIVE"
@@ -2248,7 +2245,7 @@ function CampaignsSection({ workspaceId }: Props) {
                           >
                             {project.stats?.[s.key] ?? 0}
                           </div>
-                          <div className="text-[10px] text-muted-foreground mt-0.5">
+                          <div className="text-xs text-muted-foreground mt-0.5">
                             {s.label}
                           </div>
                         </div>
@@ -2304,10 +2301,10 @@ function CampaignsSection({ workspaceId }: Props) {
                           variant="outline"
                           className={
                             tpl.channel === "EMAIL"
-                              ? "bg-emerald-500/10 text-emerald-500 text-[10px]"
+                              ? "bg-emerald-500/10 text-emerald-500 text-xs"
                               : tpl.channel === "TELEGRAM"
-                                ? "bg-blue-500/10 text-blue-500 text-[10px]"
-                                : "bg-muted text-muted-foreground text-[10px]"
+                                ? "bg-blue-500/10 text-blue-500 text-xs"
+                                : "bg-muted text-muted-foreground text-xs"
                           }
                         >
                           {tpl.channel}
@@ -2315,7 +2312,7 @@ function CampaignsSection({ workspaceId }: Props) {
                         {tpl.language && (
                           <Badge
                             variant="outline"
-                            className="bg-blue-500/10 text-blue-500 text-[10px]"
+                            className="bg-blue-500/10 text-blue-500 text-xs"
                           >
                             {tpl.language}
                           </Badge>
@@ -2354,7 +2351,7 @@ function CampaignsSection({ workspaceId }: Props) {
               </DialogHeader>
               <div className="space-y-3 mt-2">
                 <div>
-                  <label className="text-[10px] font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
+                  <label className="text-xs font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
                     Название
                   </label>
                   <Input
@@ -2367,7 +2364,7 @@ function CampaignsSection({ workspaceId }: Props) {
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-[10px] font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
+                    <label className="text-xs font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
                       Канал
                     </label>
                     <Select
@@ -2387,7 +2384,7 @@ function CampaignsSection({ workspaceId }: Props) {
                     </Select>
                   </div>
                   <div>
-                    <label className="text-[10px] font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
+                    <label className="text-xs font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
                       Язык
                     </label>
                     <Select
@@ -2407,7 +2404,7 @@ function CampaignsSection({ workspaceId }: Props) {
                   </div>
                 </div>
                 <div>
-                  <label className="text-[10px] font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
+                  <label className="text-xs font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
                     Текст сообщения
                   </label>
                   <textarea
@@ -2473,10 +2470,10 @@ function CampaignsSection({ workspaceId }: Props) {
                       <div className="text-sm font-semibold">
                         {d.leadName || d.lead?.channelName || "Unknown"}
                       </div>
-                      <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
+                      <div className="text-xs text-muted-foreground mt-0.5 truncate">
                         {d.lastMessage || "Нет сообщений"}
                       </div>
-                      <div className="text-[10px] text-muted-foreground mt-1">
+                      <div className="text-xs text-muted-foreground mt-1">
                         {d.updatedAt
                           ? formatDistanceToNow(new Date(d.updatedAt), {
                               locale: ru,
@@ -2521,14 +2518,14 @@ function CampaignsSection({ workspaceId }: Props) {
                             }`}
                           >
                             {msg.pending && (
-                              <div className="text-[10px] text-purple-500 font-semibold mb-1">
+                              <div className="text-xs text-purple-500 font-semibold mb-1">
                                 AI предлагает ответ:
                               </div>
                             )}
                             <div className="whitespace-pre-wrap">
                               {msg.body}
                             </div>
-                            <div className="text-[9px] text-muted-foreground mt-1">
+                            <div className="text-xs text-muted-foreground mt-1">
                               {msg.sender ||
                                 (msg.direction === "OUT" ? "AI Agent" : "Lead")}
                               {msg.createdAt &&
@@ -2603,7 +2600,7 @@ function CampaignsSection({ workspaceId }: Props) {
                         <div className="text-sm font-semibold">
                           {item.leadName || item.lead?.channelName}
                         </div>
-                        <div className="text-[11px] text-muted-foreground">
+                        <div className="text-xs text-muted-foreground">
                           {item.channel || "Email"} · Кампания:{" "}
                           {item.projectName || item.project?.name || "—"}
                         </div>
@@ -2613,10 +2610,10 @@ function CampaignsSection({ workspaceId }: Props) {
                           variant="outline"
                           className={
                             item.tag === "price"
-                              ? "bg-yellow-500/10 text-yellow-500 text-[10px]"
+                              ? "bg-yellow-500/10 text-yellow-500 text-xs"
                               : item.tag === "first"
-                                ? "bg-orange-500/10 text-orange-500 text-[10px]"
-                                : "bg-muted text-muted-foreground text-[10px]"
+                                ? "bg-orange-500/10 text-orange-500 text-xs"
+                                : "bg-muted text-muted-foreground text-xs"
                           }
                         >
                           {item.tag === "price"
@@ -2717,7 +2714,7 @@ function AnalyticsSection({ workspaceId }: Props) {
           <div className="grid grid-cols-4 gap-3.5 mb-4">
             <Card className="hover:border-emerald-500/30 transition-colors">
               <CardContent className="pt-4 pb-4">
-                <div className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider mb-2">
+                <div className="text-xs font-bold uppercase text-muted-foreground tracking-wider mb-2">
                   Всего лидов
                 </div>
                 <div className="text-3xl font-extrabold">{totalLeads}</div>
@@ -2725,7 +2722,7 @@ function AnalyticsSection({ workspaceId }: Props) {
             </Card>
             <Card className="hover:border-emerald-500/30 transition-colors">
               <CardContent className="pt-4 pb-4">
-                <div className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider mb-2">
+                <div className="text-xs font-bold uppercase text-muted-foreground tracking-wider mb-2">
                   Qualified
                 </div>
                 <div className="text-3xl font-extrabold">{qualifiedLeads}</div>
@@ -2738,7 +2735,7 @@ function AnalyticsSection({ workspaceId }: Props) {
             </Card>
             <Card className="hover:border-emerald-500/30 transition-colors">
               <CardContent className="pt-4 pb-4">
-                <div className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider mb-2">
+                <div className="text-xs font-bold uppercase text-muted-foreground tracking-wider mb-2">
                   Средняя стоимость лида
                 </div>
                 <div className="text-3xl font-extrabold">
@@ -2751,7 +2748,7 @@ function AnalyticsSection({ workspaceId }: Props) {
             </Card>
             <Card className="hover:border-emerald-500/30 transition-colors">
               <CardContent className="pt-4 pb-4">
-                <div className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider mb-2">
+                <div className="text-xs font-bold uppercase text-muted-foreground tracking-wider mb-2">
                   Лучший источник
                 </div>
                 <div className="text-lg font-extrabold">{bestSource}</div>
@@ -2765,28 +2762,28 @@ function AnalyticsSection({ workspaceId }: Props) {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="bg-muted/30">
-                    <th className="text-left p-2.5 font-bold text-[10px] uppercase text-muted-foreground tracking-wide">
+                    <th className="text-left p-2.5 font-bold text-xs uppercase text-muted-foreground tracking-wide">
                       Источник
                     </th>
-                    <th className="text-left p-2.5 font-bold text-[10px] uppercase text-muted-foreground tracking-wide">
+                    <th className="text-left p-2.5 font-bold text-xs uppercase text-muted-foreground tracking-wide">
                       Всего лидов
                     </th>
-                    <th className="text-left p-2.5 font-bold text-[10px] uppercase text-muted-foreground tracking-wide">
+                    <th className="text-left p-2.5 font-bold text-xs uppercase text-muted-foreground tracking-wide">
                       С email
                     </th>
-                    <th className="text-left p-2.5 font-bold text-[10px] uppercase text-muted-foreground tracking-wide">
+                    <th className="text-left p-2.5 font-bold text-xs uppercase text-muted-foreground tracking-wide">
                       Qualified
                     </th>
-                    <th className="text-left p-2.5 font-bold text-[10px] uppercase text-muted-foreground tracking-wide">
+                    <th className="text-left p-2.5 font-bold text-xs uppercase text-muted-foreground tracking-wide">
                       Contacted
                     </th>
-                    <th className="text-left p-2.5 font-bold text-[10px] uppercase text-muted-foreground tracking-wide">
+                    <th className="text-left p-2.5 font-bold text-xs uppercase text-muted-foreground tracking-wide">
                       Ответили
                     </th>
-                    <th className="text-left p-2.5 font-bold text-[10px] uppercase text-muted-foreground tracking-wide">
+                    <th className="text-left p-2.5 font-bold text-xs uppercase text-muted-foreground tracking-wide">
                       Конверсия
                     </th>
-                    <th className="text-left p-2.5 font-bold text-[10px] uppercase text-muted-foreground tracking-wide">
+                    <th className="text-left p-2.5 font-bold text-xs uppercase text-muted-foreground tracking-wide">
                       Ср. стоимость
                     </th>
                   </tr>
@@ -2841,7 +2838,7 @@ function AnalyticsSection({ workspaceId }: Props) {
           <div className="grid grid-cols-4 gap-3.5 mb-4">
             <Card className="hover:border-emerald-500/30 transition-colors">
               <CardContent className="pt-4 pb-4">
-                <div className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider mb-2">
+                <div className="text-xs font-bold uppercase text-muted-foreground tracking-wider mb-2">
                   Всего за месяц
                 </div>
                 <div className="text-3xl font-extrabold">
@@ -2851,7 +2848,7 @@ function AnalyticsSection({ workspaceId }: Props) {
             </Card>
             <Card className="hover:border-emerald-500/30 transition-colors">
               <CardContent className="pt-4 pb-4">
-                <div className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider mb-2">
+                <div className="text-xs font-bold uppercase text-muted-foreground tracking-wider mb-2">
                   Apify
                 </div>
                 <div className="text-3xl font-extrabold">
@@ -2861,7 +2858,7 @@ function AnalyticsSection({ workspaceId }: Props) {
             </Card>
             <Card className="hover:border-emerald-500/30 transition-colors">
               <CardContent className="pt-4 pb-4">
-                <div className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider mb-2">
+                <div className="text-xs font-bold uppercase text-muted-foreground tracking-wider mb-2">
                   YouTube API
                 </div>
                 <div className="text-3xl font-extrabold">
@@ -2871,7 +2868,7 @@ function AnalyticsSection({ workspaceId }: Props) {
             </Card>
             <Card className="hover:border-emerald-500/30 transition-colors">
               <CardContent className="pt-4 pb-4">
-                <div className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider mb-2">
+                <div className="text-xs font-bold uppercase text-muted-foreground tracking-wider mb-2">
                   Claude API
                 </div>
                 <div className="text-3xl font-extrabold">
@@ -2887,19 +2884,19 @@ function AnalyticsSection({ workspaceId }: Props) {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="bg-muted/30">
-                    <th className="text-left p-2.5 font-bold text-[10px] uppercase text-muted-foreground tracking-wide">
+                    <th className="text-left p-2.5 font-bold text-xs uppercase text-muted-foreground tracking-wide">
                       Сервис
                     </th>
-                    <th className="text-left p-2.5 font-bold text-[10px] uppercase text-muted-foreground tracking-wide">
+                    <th className="text-left p-2.5 font-bold text-xs uppercase text-muted-foreground tracking-wide">
                       Тип
                     </th>
-                    <th className="text-left p-2.5 font-bold text-[10px] uppercase text-muted-foreground tracking-wide">
+                    <th className="text-left p-2.5 font-bold text-xs uppercase text-muted-foreground tracking-wide">
                       Сумма
                     </th>
-                    <th className="text-left p-2.5 font-bold text-[10px] uppercase text-muted-foreground tracking-wide">
+                    <th className="text-left p-2.5 font-bold text-xs uppercase text-muted-foreground tracking-wide">
                       Единиц
                     </th>
-                    <th className="text-left p-2.5 font-bold text-[10px] uppercase text-muted-foreground tracking-wide">
+                    <th className="text-left p-2.5 font-bold text-xs uppercase text-muted-foreground tracking-wide">
                       Дата
                     </th>
                   </tr>
@@ -3078,8 +3075,8 @@ function SettingsSection({ workspaceId }: Props) {
                     variant="outline"
                     className={
                       form[field]
-                        ? "bg-emerald-500/10 text-emerald-500 text-[10px]"
-                        : "bg-orange-500/10 text-orange-500 text-[10px]"
+                        ? "bg-emerald-500/10 text-emerald-500 text-xs"
+                        : "bg-orange-500/10 text-orange-500 text-xs"
                     }
                   >
                     {form[field] ? "OK" : "Не настроен"}
@@ -3114,8 +3111,8 @@ function SettingsSection({ workspaceId }: Props) {
                   variant="outline"
                   className={
                     form.telegramApiId
-                      ? "bg-emerald-500/10 text-emerald-500 text-[10px]"
-                      : "bg-orange-500/10 text-orange-500 text-[10px]"
+                      ? "bg-emerald-500/10 text-emerald-500 text-xs"
+                      : "bg-orange-500/10 text-orange-500 text-xs"
                   }
                 >
                   {form.telegramApiId ? "Connected" : "Не настроен"}
@@ -3148,8 +3145,8 @@ function SettingsSection({ workspaceId }: Props) {
                   variant="outline"
                   className={
                     form.imapHost
-                      ? "bg-emerald-500/10 text-emerald-500 text-[10px]"
-                      : "bg-orange-500/10 text-orange-500 text-[10px]"
+                      ? "bg-emerald-500/10 text-emerald-500 text-xs"
+                      : "bg-orange-500/10 text-orange-500 text-xs"
                   }
                 >
                   {form.imapHost ? "OK" : "Не настроен"}
@@ -3176,14 +3173,14 @@ function SettingsSection({ workspaceId }: Props) {
         <TabsContent value="scoring">
           <Card>
             <CardHeader>
-              <CardTitle className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+              <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                 Правила AI-скоринга
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-[10px] font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
+                  <label className="text-xs font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
                     Модель для скоринга
                   </label>
                   <Select
@@ -3202,7 +3199,7 @@ function SettingsSection({ workspaceId }: Props) {
                   </Select>
                 </div>
                 <div>
-                  <label className="text-[10px] font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
+                  <label className="text-xs font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
                     Порог High
                   </label>
                   <Input
@@ -3218,7 +3215,7 @@ function SettingsSection({ workspaceId }: Props) {
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
+                  <label className="text-xs font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
                     Порог Medium
                   </label>
                   <Input
@@ -3234,7 +3231,7 @@ function SettingsSection({ workspaceId }: Props) {
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
+                  <label className="text-xs font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
                     Мин. подписчиков для скоринга
                   </label>
                   <Input
@@ -3249,7 +3246,7 @@ function SettingsSection({ workspaceId }: Props) {
                   />
                 </div>
                 <div className="col-span-2">
-                  <label className="text-[10px] font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
+                  <label className="text-xs font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
                     Промпт для скоринга
                   </label>
                   <textarea
@@ -3285,7 +3282,7 @@ function SettingsSection({ workspaceId }: Props) {
         <TabsContent value="dedup">
           <Card>
             <CardHeader>
-              <CardTitle className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+              <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                 Правила дедупликации
               </CardTitle>
             </CardHeader>
@@ -3327,9 +3324,7 @@ function SettingsSection({ workspaceId }: Props) {
                   </button>
                   <div>
                     <div className="text-sm font-medium">{label}</div>
-                    <div className="text-[11px] text-muted-foreground">
-                      {desc}
-                    </div>
+                    <div className="text-xs text-muted-foreground">{desc}</div>
                   </div>
                 </div>
               ))}
@@ -3353,7 +3348,7 @@ function SettingsSection({ workspaceId }: Props) {
         <TabsContent value="budgets">
           <Card>
             <CardHeader>
-              <CardTitle className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+              <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                 Бюджеты и лимиты
               </CardTitle>
             </CardHeader>
@@ -3388,7 +3383,7 @@ function SettingsSection({ workspaceId }: Props) {
                   },
                 ].map(({ field, label }) => (
                   <div key={field}>
-                    <label className="text-[10px] font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
+                    <label className="text-xs font-semibold uppercase text-muted-foreground tracking-wider mb-1 block">
                       {label}
                     </label>
                     <Input
@@ -3466,7 +3461,7 @@ export function MarketingClient({ workspaceId }: Props) {
       {/* Sidebar */}
       <div className="w-56 border-r bg-card flex flex-col shrink-0">
         <div className="p-4 border-b">
-          <div className="text-[10px] font-bold uppercase text-muted-foreground tracking-widest">
+          <div className="text-xs font-bold uppercase text-muted-foreground tracking-widest">
             Модуль
           </div>
           <div className="text-lg font-extrabold text-emerald-500">
@@ -3487,10 +3482,7 @@ export function MarketingClient({ workspaceId }: Props) {
               <s.icon className="h-4 w-4" />
               {s.label}
               {s.key === "leads" && (analytics?.totalLeads ?? 0) > 0 && (
-                <Badge
-                  variant="secondary"
-                  className="ml-auto text-[10px] px-1.5"
-                >
+                <Badge variant="secondary" className="ml-auto text-xs px-1.5">
                   {analytics.totalLeads}
                 </Badge>
               )}

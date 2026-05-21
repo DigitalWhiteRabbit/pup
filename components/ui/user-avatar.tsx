@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 
 const AVATAR_COLORS = [
   "#10b981",
@@ -52,10 +53,13 @@ export function UserAvatar({
       }}
     >
       {showImg ? (
-        <img
+        <Image
           src={`/api/users/${userId}/avatar`}
           alt={login}
+          width={size}
+          height={size}
           className="w-full h-full object-cover"
+          unoptimized
           onError={() => setImgError(true)}
         />
       ) : (

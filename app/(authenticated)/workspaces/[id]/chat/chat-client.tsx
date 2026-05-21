@@ -1,5 +1,6 @@
 "use client";
 
+import { formatFileSize } from "@/lib/utils";
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow, format } from "date-fns";
@@ -8,6 +9,7 @@ import {
   DndContext,
   closestCenter,
   PointerSensor,
+  KeyboardSensor,
   useSensor,
   useSensors,
   type DragEndEvent,
@@ -15,6 +17,7 @@ import {
 import {
   SortableContext,
   verticalListSortingStrategy,
+  sortableKeyboardCoordinates,
   useSortable,
   arrayMove,
 } from "@dnd-kit/sortable";
@@ -141,6 +144,9 @@ export function ChatClient({
   const endRef = useRef<HTMLDivElement>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
   );
 
   /* ── data ──────────────────────────────────────────────────────────────── */
@@ -151,7 +157,7 @@ export function ChatClient({
       fetch(`/api/workspaces/${workspaceId}/chat-channels`).then((r) =>
         r.json(),
       ),
-    refetchInterval: 5000,
+    refetchInterval: 10000,
   });
   const channels = chD?.data ?? [];
 
@@ -245,7 +251,7 @@ export function ChatClient({
         `/api/workspaces/${workspaceId}/chat-channels/${activeChannelId}/messages`,
       ).then((r) => r.json()),
     enabled: !!activeChannelId,
-    refetchInterval: 2000,
+    refetchInterval: 3000,
   });
   const msgs = mD?.data ?? [];
   const prevMsgCountRef = useRef(0);
@@ -354,7 +360,7 @@ export function ChatClient({
         `/api/workspaces/${workspaceId}/chat-channels/${activeChannelId}/typing`,
       ).then((r) => r.json()),
     enabled: !!activeChannelId,
-    refetchInterval: 2000,
+    refetchInterval: 3000,
   });
   const typingUsers = typingD?.data ?? [];
 
@@ -463,6 +469,7 @@ export function ChatClient({
     onError: toastApiError,
   });
   function send() {
+    if (sendMut.isPending) return;
     const t = msgText.trim();
     if ((t || pendingFiles.length > 0) && activeChannelId)
       sendMut.mutate({
@@ -634,8 +641,9 @@ export function ChatClient({
             onClick={() => setCreateOpen(true)}
             className="w-8 h-8 rounded-lg hover:bg-muted flex items-center justify-center"
             title="Новый канал"
+            aria-label="Создать новый канал"
           >
-            <Plus className="w-5 h-5 text-gray-500" />
+            <Plus className="w-5 h-5 text-muted-foreground" />
           </button>
         </div>
 
@@ -643,7 +651,7 @@ export function ChatClient({
         <div className="px-3 py-2 shrink-0">
           <div className="flex items-center gap-2 bg-muted rounded-lg px-3 py-1.5">
             <svg
-              className="w-4 h-4 text-gray-400 shrink-0"
+              className="w-4 h-4 text-muted-foreground shrink-0"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -659,11 +667,15 @@ export function ChatClient({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Поиск..."
+              aria-label="Поиск по сообщениям"
               className="bg-transparent text-sm outline-none flex-1 text-foreground"
             />
             {searchQuery && (
-              <button onClick={() => setSearchQuery("")}>
-                <X className="w-3 h-3 text-gray-400" />
+              <button
+                onClick={() => setSearchQuery("")}
+                aria-label="Очистить поиск"
+              >
+                <X className="w-3 h-3 text-muted-foreground" />
               </button>
             )}
           </div>
@@ -680,11 +692,13 @@ export function ChatClient({
                 }}
                 className="w-full text-left px-2 py-1.5 rounded hover:bg-muted/50 text-xs"
               >
-                <span className="font-medium text-gray-700">
+                <span className="font-medium text-foreground">
                   {r.authorLogin}
                 </span>{" "}
-                <span className="text-gray-400">в {r.channelName}</span>
-                <div className="text-gray-500 truncate">{r.content}</div>
+                <span className="text-muted-foreground">в {r.channelName}</span>
+                <div className="text-muted-foreground truncate">
+                  {r.content}
+                </div>
               </button>
             ))}
           </div>
@@ -695,7 +709,7 @@ export function ChatClient({
           {/* Pinned: General */}
           {generalCh.length > 0 && (
             <div className="px-4 pt-2">
-              <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">
+              <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">
                 📌 Закреплённые
               </div>
             </div>
@@ -716,7 +730,7 @@ export function ChatClient({
           {/* Sortable channels */}
           {sortedRegular.length > 0 && (
             <div className="px-4 pt-3">
-              <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">
+              <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">
                 Каналы
               </div>
             </div>
@@ -747,7 +761,7 @@ export function ChatClient({
           {/* Sortable DMs */}
           {sortedDm.length > 0 && (
             <div className="px-4 pt-3">
-              <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">
+              <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">
                 Личные сообщения
               </div>
             </div>
@@ -778,7 +792,7 @@ export function ChatClient({
 
         {/* members */}
         <div className="border-t px-3 py-2 shrink-0">
-          <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-1 mb-1">
+          <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider px-1 mb-1">
             Участники
           </div>
           <div className="space-y-0.5 max-h-[100px] overflow-y-auto">
@@ -791,10 +805,12 @@ export function ChatClient({
                   className="w-full flex items-center gap-2 px-2 py-1 rounded hover:bg-muted/50 text-left"
                 >
                   <div className="relative">
-                    <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center text-[10px] font-bold text-muted-foreground">
+                    <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center text-xs font-bold text-muted-foreground">
                       {m.login[0]?.toUpperCase()}
                     </div>
-                    <div className="absolute -bottom-0.5 -right-0.5 w-2 h-2 bg-emerald-400 border border-white rounded-full" />
+                    {onlineLogins.has(m.login) && (
+                      <div className="absolute -bottom-0.5 -right-0.5 w-2 h-2 bg-emerald-400 border border-background rounded-full" />
+                    )}
                   </div>
                   <span className="text-xs text-foreground">{m.login}</span>
                 </button>
@@ -815,6 +831,7 @@ export function ChatClient({
                 <button
                   onClick={() => setMobileShowChat(false)}
                   className="md:hidden p-1 rounded-lg hover:bg-muted text-muted-foreground"
+                  aria-label="Назад к списку каналов"
                 >
                   <svg
                     className="w-5 h-5"
@@ -843,7 +860,7 @@ export function ChatClient({
                   <div className="text-sm font-semibold text-foreground">
                     {aCh.name ?? "Личные сообщения"}
                   </div>
-                  <div className="text-[11px] text-gray-400">
+                  <div className="text-xs text-muted-foreground">
                     {aCh.memberCount} участников
                   </div>
                 </div>
@@ -851,8 +868,13 @@ export function ChatClient({
               <div className="flex items-center gap-1">
                 <button
                   onClick={() => void toggleMute()}
-                  className={`w-8 h-8 rounded-lg hover:bg-muted flex items-center justify-center ${aCh?.muted ? "text-red-400" : "text-gray-400"}`}
+                  className={`w-8 h-8 rounded-lg hover:bg-muted flex items-center justify-center ${aCh?.muted ? "text-red-400" : "text-muted-foreground"}`}
                   title={
+                    aCh?.muted
+                      ? "Включить уведомления"
+                      : "Отключить уведомления"
+                  }
+                  aria-label={
                     aCh?.muted
                       ? "Включить уведомления"
                       : "Отключить уведомления"
@@ -866,15 +888,17 @@ export function ChatClient({
                 </button>
                 <button
                   onClick={() => setBookmarksOpen(true)}
-                  className="w-8 h-8 rounded-lg hover:bg-muted flex items-center justify-center text-gray-400"
+                  className="w-8 h-8 rounded-lg hover:bg-muted flex items-center justify-center text-muted-foreground"
                   title="Избранное"
+                  aria-label="Избранное"
                 >
                   <Bookmark className="w-4 h-4" />
                 </button>
                 <button
-                  className="w-8 h-8 rounded-lg hover:bg-muted flex items-center justify-center text-gray-400"
+                  className="w-8 h-8 rounded-lg hover:bg-muted flex items-center justify-center text-muted-foreground"
                   onClick={() => setShowInfo(!showInfo)}
                   title="Информация"
+                  aria-label="Информация о канале"
                 >
                   <svg
                     className="w-4 h-4"
@@ -924,7 +948,7 @@ export function ChatClient({
                 </div>
               )}
               {msgs.length === 0 && (
-                <div className="flex items-center justify-center h-full text-sm text-gray-400">
+                <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
                   Нет сообщений. Начните диалог!
                 </div>
               )}
@@ -942,7 +966,7 @@ export function ChatClient({
                           {m.authorLogin[0]?.toUpperCase()}
                         </div>
                         {onlineLogins.has(m.authorLogin) && (
-                          <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-400 border-2 border-gray-50 rounded-full" />
+                          <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-400 border-2 border-background rounded-full" />
                         )}
                       </div>
                     )}
@@ -955,14 +979,14 @@ export function ChatClient({
                         <span className="text-xs font-semibold text-foreground">
                           {m.authorLogin}
                         </span>
-                        <span className="text-[10px] text-gray-400">
+                        <span className="text-xs text-muted-foreground">
                           {format(new Date(m.createdAt), "HH:mm", {
                             locale: ru,
                           })}
                         </span>
                         {isMe && (
                           <span
-                            className={`text-[10px] ${m.readByCount > 0 ? "text-blue-400" : "text-gray-300"}`}
+                            className={`text-xs ${m.readByCount > 0 ? "text-blue-400" : "text-muted-foreground"}`}
                             title={
                               m.readByCount > 0
                                 ? `Прочитано: ${m.readByCount}`
@@ -981,7 +1005,7 @@ export function ChatClient({
                         )}
                         {m.editedAt && (
                           <span
-                            className="text-[10px] text-gray-400"
+                            className="text-xs text-muted-foreground"
                             title={`Изменено ${format(new Date(m.editedAt), "dd.MM HH:mm", { locale: ru })}`}
                           >
                             изм.{" "}
@@ -997,7 +1021,7 @@ export function ChatClient({
                         {/* forwarded header */}
                         {m.forwardedFrom && (
                           <div
-                            className={`flex items-center gap-1 mb-1 text-[10px] ${isMe ? "text-white/60" : "text-gray-400"}`}
+                            className={`flex items-center gap-1 mb-1 text-xs ${isMe ? "text-white/60" : "text-muted-foreground"}`}
                           >
                             <Forward className="h-3 w-3" />
                             Переслано от {m.forwardedFrom.originalAuthorLogin}
@@ -1030,7 +1054,7 @@ export function ChatClient({
                               {m.replyTo.authorLogin}
                             </div>
                             <div
-                              className={`truncate ${isMe ? "text-white/60" : "text-gray-400"}`}
+                              className={`truncate ${isMe ? "text-white/60" : "text-muted-foreground"}`}
                             >
                               {m.replyTo.content}
                             </div>
@@ -1059,13 +1083,13 @@ export function ChatClient({
                             <div className="flex gap-1 justify-end">
                               <button
                                 onClick={() => setEditingMsgId(null)}
-                                className={`text-[10px] px-2 py-0.5 rounded ${isMe ? "text-white/70 hover:text-white" : "text-gray-400 hover:text-gray-600"}`}
+                                className={`text-xs px-2 py-0.5 rounded ${isMe ? "text-white/70 hover:text-white" : "text-muted-foreground hover:text-foreground"}`}
                               >
                                 Отмена
                               </button>
                               <button
                                 onClick={() => void saveEdit(m.id)}
-                                className={`text-[10px] px-2 py-0.5 rounded font-medium ${isMe ? "bg-white/20 text-white" : "bg-emerald-100 text-emerald-700"}`}
+                                className={`text-xs px-2 py-0.5 rounded font-medium ${isMe ? "bg-white/20 text-white" : "bg-emerald-100 text-emerald-700"}`}
                               >
                                 <Check className="h-3 w-3 inline mr-0.5" />
                                 Сохранить
@@ -1109,14 +1133,14 @@ export function ChatClient({
                                 <a
                                   key={att.id}
                                   href={`/api/chat-attachments/${att.id}?download=1`}
-                                  className={`flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs ${isMe ? "bg-white/10 hover:bg-white/20 text-white" : "bg-gray-50 hover:bg-muted text-gray-600"}`}
+                                  className={`flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs ${isMe ? "bg-white/10 hover:bg-white/20 text-white" : "bg-muted hover:bg-muted/80 text-muted-foreground"}`}
                                 >
                                   <FileText className="h-4 w-4 shrink-0" />
                                   <span className="truncate flex-1">
                                     {att.originalName}
                                   </span>
                                   <span className="shrink-0 opacity-60">
-                                    {fmtSize(att.size)}
+                                    {formatFileSize(att.size)}
                                   </span>
                                   <Download className="h-3 w-3 shrink-0" />
                                 </a>
@@ -1130,7 +1154,7 @@ export function ChatClient({
                             {m.linkedTicketId && (
                               <a
                                 href={`/workspaces/${workspaceId}/tickets?id=${m.linkedTicketId}`}
-                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium ${isMe ? "bg-white/15 text-white hover:bg-white/25" : "bg-blue-50 text-blue-600 hover:bg-blue-100"}`}
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${isMe ? "bg-white/15 text-white hover:bg-white/25" : "bg-blue-50 text-blue-600 hover:bg-blue-100"}`}
                               >
                                 🎫 Тикет
                               </a>
@@ -1138,7 +1162,7 @@ export function ChatClient({
                             {m.linkedTaskId && (
                               <a
                                 href={`/workspaces/${workspaceId}/crm?taskId=${m.linkedTaskId}`}
-                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium ${isMe ? "bg-white/15 text-white hover:bg-white/25" : "bg-amber-50 text-amber-600 hover:bg-amber-100"}`}
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${isMe ? "bg-white/15 text-white hover:bg-white/25" : "bg-amber-50 text-amber-600 hover:bg-amber-100"}`}
                               >
                                 📋 Задача
                               </a>
@@ -1164,19 +1188,22 @@ export function ChatClient({
                               className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${r.myReaction ? "bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-700" : "bg-muted hover:bg-muted/80"}`}
                             >
                               {r.emoji}{" "}
-                              <span className="text-gray-500">{r.count}</span>
+                              <span className="text-muted-foreground">
+                                {r.count}
+                              </span>
                             </button>
                           ))}
                         </div>
                       )}
                       {/* replyCount removed — Telegram-style inline replies */}
                       <div
-                        className={`opacity-0 group-hover:opacity-100 flex gap-0.5 mt-1 transition-opacity ${isMe ? "flex-row-reverse" : ""}`}
+                        className={`opacity-0 group-hover:opacity-100 focus-within:opacity-100 flex gap-0.5 mt-1 transition-opacity ${isMe ? "flex-row-reverse" : ""}`}
                       >
                         <button
                           onClick={() => setReplyTo(m)}
                           className="p-1 rounded hover:bg-muted text-muted-foreground"
                           title="Ответить"
+                          aria-label="Ответить"
                         >
                           <CornerDownRight className="h-3 w-3" />
                         </button>
@@ -1184,23 +1211,34 @@ export function ChatClient({
                           onClick={() => setForwardMsg(m)}
                           className="p-1 rounded hover:bg-muted text-muted-foreground"
                           title="Переслать"
+                          aria-label="Переслать"
                         >
                           <Forward className="h-3 w-3" />
                         </button>
                         <button
                           onClick={() => void togglePin(m.id)}
-                          className={`p-1 rounded hover:bg-gray-200 ${m.pinnedAt ? "text-amber-500" : "text-gray-400"}`}
+                          className={`p-1 rounded hover:bg-muted ${m.pinnedAt ? "text-amber-500" : "text-muted-foreground"}`}
                           title={m.pinnedAt ? "Открепить" : "Закрепить"}
+                          aria-label={
+                            m.pinnedAt
+                              ? "Открепить сообщение"
+                              : "Закрепить сообщение"
+                          }
                         >
                           <Pin className="h-3 w-3" />
                         </button>
                         <button
                           onClick={() => void toggleBookmark(m.id)}
-                          className={`p-1 rounded hover:bg-gray-200 ${m.bookmarked ? "text-blue-500" : "text-gray-400"}`}
+                          className={`p-1 rounded hover:bg-muted ${m.bookmarked ? "text-blue-500" : "text-muted-foreground"}`}
                           title={
                             m.bookmarked
                               ? "Убрать из избранного"
                               : "В избранное"
+                          }
+                          aria-label={
+                            m.bookmarked
+                              ? "Убрать из избранного"
+                              : "Добавить в избранное"
                           }
                         >
                           {m.bookmarked ? (
@@ -1218,6 +1256,7 @@ export function ChatClient({
                               }}
                               className="p-1 rounded hover:bg-muted text-muted-foreground"
                               title="Редактировать"
+                              aria-label="Редактировать сообщение"
                             >
                               <Pencil className="h-3 w-3" />
                             </button>
@@ -1226,8 +1265,9 @@ export function ChatClient({
                                 if (confirm("Удалить сообщение?"))
                                   void deleteMsg(m.id);
                               }}
-                              className="p-1 rounded hover:bg-red-100 text-gray-400 hover:text-red-500"
+                              className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-muted-foreground hover:text-red-500"
                               title="Удалить"
+                              aria-label="Удалить сообщение"
                             >
                               <Trash2 className="h-3 w-3" />
                             </button>
@@ -1237,7 +1277,7 @@ export function ChatClient({
                           <button
                             key={e}
                             onClick={() => void react(m.id, e)}
-                            className="p-1 rounded hover:bg-gray-200 text-xs"
+                            className="p-1 rounded hover:bg-muted text-xs"
                           >
                             {e}
                           </button>
@@ -1257,8 +1297,12 @@ export function ChatClient({
 
             {/* typing indicator */}
             {typingUsers.length > 0 && (
-              <div className="bg-white border-t px-3 md:px-5 py-1 shrink-0">
-                <span className="text-xs text-gray-400 italic">
+              <div
+                className="bg-card border-t px-3 md:px-5 py-1 shrink-0"
+                aria-live="polite"
+                aria-atomic="true"
+              >
+                <span className="text-xs text-muted-foreground italic">
                   {typingUsers.map((u) => u.login).join(", ")} печатает...
                 </span>
               </div>
@@ -1266,11 +1310,15 @@ export function ChatClient({
 
             {/* reply indicator */}
             {replyTo && (
-              <div className="bg-card border-t px-3 md:px-5 py-1.5 flex items-center gap-2 text-xs text-gray-500 shrink-0">
+              <div className="bg-card border-t px-3 md:px-5 py-1.5 flex items-center gap-2 text-xs text-muted-foreground shrink-0">
                 <CornerDownRight className="h-3 w-3 text-emerald-500" />
                 Ответ: <b>{replyTo.authorLogin}</b>:{" "}
                 {replyTo.content.slice(0, 50)}
-                <button onClick={() => setReplyTo(null)} className="ml-auto">
+                <button
+                  onClick={() => setReplyTo(null)}
+                  className="ml-auto"
+                  aria-label="Отменить ответ"
+                >
                   <X className="h-3 w-3" />
                 </button>
               </div>
@@ -1279,15 +1327,18 @@ export function ChatClient({
             {/* pending files preview */}
             {pendingFiles.length > 0 && (
               <div className="bg-card border-t px-3 md:px-5 py-2 flex gap-2 flex-wrap shrink-0">
-                {pendingFiles.map((f, i) => {
+                {pendingFiles.map((f) => {
                   const isImage = f.type.startsWith("image/");
                   return (
-                    <div key={i} className="relative group/file">
+                    <div
+                      key={f.name + f.size + f.lastModified}
+                      className="relative group/file"
+                    >
                       {isImage ? (
                         <FilePreviewImg file={f} />
                       ) : (
-                        <div className="w-16 h-16 rounded-lg border bg-gray-50 flex flex-col items-center justify-center text-[9px] text-gray-500 px-1">
-                          <FileText className="h-5 w-5 mb-0.5 text-gray-400" />
+                        <div className="w-16 h-16 rounded-lg border bg-muted flex flex-col items-center justify-center text-xs text-muted-foreground px-1">
+                          <FileText className="h-5 w-5 mb-0.5 text-muted-foreground" />
                           <span className="truncate w-full text-center">
                             {f.name}
                           </span>
@@ -1295,11 +1346,10 @@ export function ChatClient({
                       )}
                       <button
                         onClick={() =>
-                          setPendingFiles((prev) =>
-                            prev.filter((_, j) => j !== i),
-                          )
+                          setPendingFiles((prev) => prev.filter((p) => p !== f))
                         }
-                        className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full flex items-center justify-center text-[10px] opacity-0 group-hover/file:opacity-100 transition-opacity"
+                        className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full flex items-center justify-center text-xs opacity-0 group-hover/file:opacity-100 transition-opacity"
+                        aria-label={`Удалить файл ${f.name}`}
                       >
                         ×
                       </button>
@@ -1311,7 +1361,7 @@ export function ChatClient({
 
             {/* linked item indicator */}
             {(linkedTicketId || linkedTaskId) && (
-              <div className="bg-card border-t px-3 md:px-5 py-1.5 flex items-center gap-2 text-xs text-gray-500 shrink-0">
+              <div className="bg-card border-t px-3 md:px-5 py-1.5 flex items-center gap-2 text-xs text-muted-foreground shrink-0">
                 <Link2 className="h-3 w-3 text-blue-500" />
                 Привязано: {linkedTicketId ? "🎫 Тикет" : "📋 Задача"}
                 <button
@@ -1320,6 +1370,7 @@ export function ChatClient({
                     setLinkedTaskId(null);
                   }}
                   className="ml-auto"
+                  aria-label="Убрать привязку"
                 >
                   <X className="h-3 w-3" />
                 </button>
@@ -1346,15 +1397,17 @@ export function ChatClient({
                   onClick={() => fileInputRef.current?.click()}
                   className="w-9 h-9 rounded-lg hover:bg-muted flex items-center justify-center shrink-0"
                   title="Прикрепить файл"
+                  aria-label="Прикрепить файл"
                 >
-                  <Paperclip className="w-5 h-5 text-gray-400" />
+                  <Paperclip className="w-5 h-5 text-muted-foreground" />
                 </button>
                 <button
                   onClick={() => setLinkPickerOpen(true)}
                   className={`w-9 h-9 rounded-lg hover:bg-muted flex items-center justify-center shrink-0 ${linkedTicketId || linkedTaskId ? "text-blue-500" : ""}`}
                   title="Привязать к задаче/тикету"
+                  aria-label="Привязать к задаче или тикету"
                 >
-                  <Link2 className="w-5 h-5 text-gray-400" />
+                  <Link2 className="w-5 h-5 text-muted-foreground" />
                 </button>
                 <div className="flex-1 bg-muted rounded-2xl px-4 py-2.5 relative">
                   {/* @mention dropdown */}
@@ -1366,11 +1419,11 @@ export function ChatClient({
                       );
                       if (filtered.length === 0) return null;
                       return (
-                        <div className="absolute bottom-full left-0 right-0 mb-1 bg-white border rounded-xl shadow-lg max-h-48 overflow-y-auto z-20">
+                        <div className="absolute bottom-full left-0 right-0 mb-1 bg-card border rounded-xl shadow-lg max-h-48 overflow-y-auto z-20">
                           {filtered.slice(0, 8).map((m) => (
                             <button
                               key={m.login}
-                              className="w-full flex items-center gap-2 px-3 py-2 hover:bg-emerald-50 text-left transition-colors"
+                              className="w-full flex items-center gap-2 px-3 py-2 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 text-left transition-colors"
                               onMouseDown={(e) => {
                                 e.preventDefault();
                                 const before = msgText.slice(
@@ -1382,7 +1435,7 @@ export function ChatClient({
                               }}
                             >
                               <div
-                                className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold ${m.login === "all" ? "bg-amber-100 text-amber-700" : "bg-gray-200 text-gray-600"}`}
+                                className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${m.login === "all" ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" : "bg-muted text-muted-foreground"}`}
                               >
                                 {m.login === "all"
                                   ? "📢"
@@ -1436,6 +1489,7 @@ export function ChatClient({
                     className="w-9 h-9 rounded-xl bg-emerald-500 hover:bg-emerald-600 flex items-center justify-center shrink-0 disabled:opacity-40"
                     disabled={sendMut.isPending}
                     onClick={send}
+                    aria-label="Отправить сообщение"
                   >
                     <Send className="w-4 h-4 text-white" />
                   </button>
@@ -1453,14 +1507,14 @@ export function ChatClient({
                   />
                 )}
               </div>
-              <div className="text-[10px] text-gray-400 mt-1 pl-[88px] hidden md:block">
+              <div className="text-xs text-muted-foreground mt-1 pl-[88px] hidden md:block">
                 @упоминание · Enter — отправить · Shift+Enter — новая строка ·
                 🎤 голосовое
               </div>
             </div>
           </>
         ) : (
-          <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">
+          <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
             Выберите канал
           </div>
         )}
@@ -1473,13 +1527,16 @@ export function ChatClient({
             <span className="text-sm font-semibold">
               {aCh.type === "DM" ? "Личные сообщения" : aCh.name}
             </span>
-            <button onClick={() => setShowInfo(false)}>
-              <X className="h-4 w-4 text-gray-400" />
+            <button
+              onClick={() => setShowInfo(false)}
+              aria-label="Закрыть панель информации"
+            >
+              <X className="h-4 w-4 text-muted-foreground" />
             </button>
           </div>
           {aCh.description && (
             <div className="px-4 py-3 border-b">
-              <div className="text-[10px] font-bold text-gray-400 uppercase mb-1">
+              <div className="text-xs font-bold text-muted-foreground uppercase mb-1">
                 Описание
               </div>
               <div className="text-xs text-muted-foreground">
@@ -1488,7 +1545,7 @@ export function ChatClient({
             </div>
           )}
           <div className="px-4 py-3 border-b shrink-0">
-            <div className="text-[10px] font-bold text-gray-400 uppercase mb-1">
+            <div className="text-xs font-bold text-muted-foreground uppercase mb-1">
               Тип
             </div>
             <div className="text-xs text-muted-foreground">
@@ -1502,24 +1559,26 @@ export function ChatClient({
             </div>
           </div>
           <div className="px-4 py-3 flex-1 overflow-y-auto min-h-0">
-            <div className="text-[10px] font-bold text-gray-400 uppercase mb-2">
+            <div className="text-xs font-bold text-muted-foreground uppercase mb-2">
               Участники · {aCh.memberCount}
             </div>
             <div className="space-y-2">
               {members.map((m) => (
                 <div key={m.id} className="flex items-center gap-2.5">
                   <div className="relative">
-                    <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-xs font-bold text-gray-500">
+                    <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-xs font-bold text-muted-foreground">
                       {m.login[0]?.toUpperCase()}
                     </div>
-                    <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-400 border-2 border-white rounded-full" />
+                    {onlineLogins.has(m.login) && (
+                      <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-400 border-2 border-card rounded-full" />
+                    )}
                   </div>
                   <div>
                     <div className="text-xs font-medium text-foreground">
                       {m.login}
                     </div>
                     {m.id === currentUserId && (
-                      <div className="text-[10px] text-gray-400">(вы)</div>
+                      <div className="text-xs text-muted-foreground">(вы)</div>
                     )}
                   </div>
                 </div>
@@ -1538,7 +1597,7 @@ export function ChatClient({
             {aCh.type !== "GENERAL" && aCh.type !== "DM" && (
               <button
                 onClick={() => void deleteChannel()}
-                className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs text-red-500 hover:bg-red-50"
+                className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
               >
                 <Trash2 className="h-3.5 w-3.5" /> Удалить канал
               </button>
@@ -1556,6 +1615,7 @@ export function ChatClient({
           <button
             onClick={() => setLightboxUrl(null)}
             className="absolute top-4 right-4 text-white/80 hover:text-white"
+            aria-label="Закрыть просмотр изображения"
           >
             <X className="h-8 w-8" />
           </button>
@@ -1607,7 +1667,7 @@ export function ChatClient({
           <div className="space-y-3 max-h-80 overflow-y-auto">
             {(ticketsD?.data?.length ?? 0) > 0 && (
               <>
-                <div className="text-[10px] font-bold text-gray-400 uppercase">
+                <div className="text-xs font-bold text-muted-foreground uppercase">
                   Тикеты
                 </div>
                 {ticketsD!.data.map((t) => (
@@ -1627,7 +1687,7 @@ export function ChatClient({
             )}
             {(tasksD?.data?.length ?? 0) > 0 && (
               <>
-                <div className="text-[10px] font-bold text-gray-400 uppercase mt-2">
+                <div className="text-xs font-bold text-muted-foreground uppercase mt-2">
                   Задачи
                 </div>
                 {tasksD!.data.map((t) => (
@@ -1646,7 +1706,7 @@ export function ChatClient({
               </>
             )}
             {!(tasksD?.data?.length ?? 0) && !(ticketsD?.data?.length ?? 0) && (
-              <div className="text-sm text-gray-400 text-center py-4">
+              <div className="text-sm text-muted-foreground text-center py-4">
                 Нет задач или тикетов
               </div>
             )}
@@ -1662,7 +1722,7 @@ export function ChatClient({
           </DialogHeader>
           <div className="space-y-2 max-h-80 overflow-y-auto">
             {(bookmarksD?.data?.length ?? 0) === 0 && (
-              <div className="text-sm text-gray-400 text-center py-4">
+              <div className="text-sm text-muted-foreground text-center py-4">
                 Нет сохранённых сообщений
               </div>
             )}
@@ -1677,7 +1737,7 @@ export function ChatClient({
               >
                 <div className="text-xs font-medium text-foreground">
                   {b.message.authorLogin}{" "}
-                  <span className="text-gray-400 font-normal">
+                  <span className="text-muted-foreground font-normal">
                     в {b.message.channelName}
                   </span>
                 </div>
@@ -1703,7 +1763,7 @@ export function ChatClient({
                 className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-muted/50"
               >
                 <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center text-[10px] font-bold text-muted-foreground">
+                  <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center text-xs font-bold text-muted-foreground">
                     {m.login[0]?.toUpperCase()}
                   </div>
                   <span className="text-sm text-foreground">{m.login}</span>
@@ -1720,7 +1780,7 @@ export function ChatClient({
             ))}
           </div>
           <div className="border-t pt-2 mt-2">
-            <div className="text-[10px] font-bold text-gray-400 uppercase mb-1">
+            <div className="text-xs font-bold text-muted-foreground uppercase mb-1">
               Добавить
             </div>
             {members.filter((m) => m.id !== currentUserId).length <
@@ -1730,7 +1790,7 @@ export function ChatClient({
                   <button
                     key={m.id}
                     onClick={() => void addMember(m.id)}
-                    className="w-full flex items-center gap-2 px-3 py-1.5 rounded hover:bg-emerald-50 text-left"
+                    className="w-full flex items-center gap-2 px-3 py-1.5 rounded hover:bg-emerald-50 dark:hover:bg-emerald-900/20 text-left"
                   >
                     <UserPlus className="h-3 w-3 text-emerald-500" />
                     <span className="text-xs text-foreground">{m.login}</span>
@@ -1777,12 +1837,12 @@ function ChItem({
       <div className="flex-1 min-w-0">
         <div className="flex justify-between">
           <span
-            className={`text-sm truncate ${active ? "font-semibold" : "font-medium"} text-gray-800`}
+            className={`text-sm truncate ${active ? "font-semibold" : "font-medium"} text-foreground`}
           >
             {ch.name ?? "Личные"}
           </span>
           {ch.lastMessage && (
-            <span className="text-[10px] text-gray-400 shrink-0 ml-1">
+            <span className="text-xs text-muted-foreground shrink-0 ml-1">
               {formatDistanceToNow(new Date(ch.lastMessage.createdAt), {
                 locale: ru,
               })}
@@ -1795,7 +1855,7 @@ function ChItem({
               {ch.lastMessage.authorName}: {ch.lastMessage.content}
             </span>
             {ch.unreadCount > 0 && (
-              <div className="bg-emerald-500 text-white text-[10px] rounded-full px-1.5 py-0.5 min-w-[18px] text-center font-medium shrink-0 ml-1">
+              <div className="bg-emerald-500 text-white text-xs rounded-full px-1.5 py-0.5 min-w-[18px] text-center font-medium shrink-0 ml-1">
                 {ch.unreadCount}
               </div>
             )}
@@ -1851,12 +1911,6 @@ function FilePreviewImg({ file }: { file: File }) {
       className="w-16 h-16 rounded-lg object-cover border"
     />
   );
-}
-
-function fmtSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} Б`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} КБ`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`;
 }
 
 function CCD({
@@ -1929,7 +1983,7 @@ function CCD({
           />
           <div className="flex gap-2">
             <label
-              className={`flex-1 p-2.5 border rounded-lg cursor-pointer text-center text-xs ${tp === "PUBLIC" ? "border-emerald-500 bg-emerald-50 text-emerald-700" : "text-gray-500"}`}
+              className={`flex-1 p-2.5 border rounded-lg cursor-pointer text-center text-xs ${tp === "PUBLIC" ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400" : "text-muted-foreground"}`}
             >
               <input
                 type="radio"
@@ -1940,7 +1994,7 @@ function CCD({
               # Публичный
             </label>
             <label
-              className={`flex-1 p-2.5 border rounded-lg cursor-pointer text-center text-xs ${tp === "PRIVATE" ? "border-emerald-500 bg-emerald-50 text-emerald-700" : "text-gray-500"}`}
+              className={`flex-1 p-2.5 border rounded-lg cursor-pointer text-center text-xs ${tp === "PRIVATE" ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400" : "text-muted-foreground"}`}
             >
               <input
                 type="radio"
@@ -1951,14 +2005,14 @@ function CCD({
               🔒 Приватный
             </label>
           </div>
-          <div className="text-[11px] text-gray-400">
+          <div className="text-xs text-muted-foreground">
             {tp === "PUBLIC"
               ? "Все участники пространства видят канал и могут писать"
               : "Только выбранные участники видят канал"}
           </div>
           {tp === "PRIVATE" && allMembers.length > 0 && (
             <div className="space-y-1 max-h-32 overflow-y-auto border rounded-lg p-2">
-              <div className="text-[10px] font-bold text-gray-400 uppercase mb-1">
+              <div className="text-xs font-bold text-muted-foreground uppercase mb-1">
                 Участники
               </div>
               {allMembers.map((m) => (
@@ -1980,7 +2034,7 @@ function CCD({
                       }
                     }}
                   />
-                  <div className="w-5 h-5 rounded-full bg-gray-200 flex items-center justify-center text-[9px] font-bold text-gray-500">
+                  <div className="w-5 h-5 rounded-full bg-muted flex items-center justify-center text-xs font-bold text-muted-foreground">
                     {m.login[0]?.toUpperCase()}
                   </div>
                   <span className="text-xs text-foreground">{m.login}</span>

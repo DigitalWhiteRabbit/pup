@@ -14,8 +14,14 @@ Current branch: 001-crm-kanban-system (Phase R1 refactor complete).
 
 ## Active modules
 
-- **crm** — fully implemented (Phases 1-8 + R1)
-- others — placeholders (redirect to overview if disabled)
+- **crm** — kanban, tasks, labels, time tracking, drag-drop (Phases 1-8 + R1)
+- **knowledge** — articles, files, crawl, search, SSRF protection (KB-1a/1b/1c)
+- **tickets** — CRUD + SLA, public chat, canned responses, CSAT, AI agent (1a/1b/1c/1d)
+- **chat** — channels, DM, replies, reactions, @mentions, voice messages, transcription
+- **marketing** — AI outreach pipeline, YouTube parser, email, IMAP, TG outreach
+- **users** — external API connector, 10-tab UI
+- **logs** — stats, timeline, diff view, system events, filters
+- **analytics** — voice channels: WebRTC mesh, rooms, screen share, AI summary, guest join
 
 ## Key services
 

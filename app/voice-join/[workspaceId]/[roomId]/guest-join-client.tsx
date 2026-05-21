@@ -255,7 +255,7 @@ export function GuestJoinClient({
               {participants.slice(0, 5).map((p) => (
                 <div
                   key={p.id}
-                  className="w-7 h-7 rounded-full flex items-center justify-center text-[9px] font-bold text-white"
+                  className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white"
                   style={{ background: colorFor(displayName(p)) }}
                 >
                   {displayName(p)[0]?.toUpperCase()}
@@ -296,8 +296,8 @@ export function GuestJoinClient({
       <div className="px-5 py-3 border-b border-gray-800 bg-gray-900 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
           <Volume2 className="h-5 w-5 text-emerald-500" />
-          <h2 className="text-[15px] font-bold text-white">{roomName}</h2>
-          <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full font-semibold">
+          <h2 className="text-base font-bold text-white">{roomName}</h2>
+          <span className="text-xs text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full font-semibold">
             Гость: {name}
           </span>
         </div>
@@ -328,7 +328,7 @@ export function GuestJoinClient({
                   {dn}
                 </div>
                 {!p.userId && (
-                  <span className="text-[9px] text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded font-semibold">
+                  <span className="text-xs text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded font-semibold">
                     Гость
                   </span>
                 )}
@@ -355,10 +355,10 @@ export function GuestJoinClient({
                       >
                         {dn[0]?.toUpperCase()}
                       </div>
-                      <span className="text-[11px] font-semibold text-gray-300">
+                      <span className="text-xs font-semibold text-gray-300">
                         {dn}
                       </span>
-                      <span className="text-[10px] text-gray-600">
+                      <span className="text-xs text-gray-600">
                         {format(new Date(m.createdAt), "HH:mm")}
                       </span>
                     </div>
@@ -396,7 +396,7 @@ export function GuestJoinClient({
 
       {/* Controls */}
       <div className="px-6 py-4 border-t border-gray-800 bg-gray-900 flex items-center justify-center gap-3 relative">
-        <div className="absolute left-6 flex items-center gap-1.5 text-[11px] text-gray-600">
+        <div className="absolute left-6 flex items-center gap-1.5 text-xs text-gray-600">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
           {fmtDuration(elapsed)}
         </div>

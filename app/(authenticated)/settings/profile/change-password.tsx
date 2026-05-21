@@ -20,8 +20,13 @@ export function ChangePassword() {
       setError("Пароли не совпадают");
       return;
     }
-    if (newPassword.length < 6) {
-      setError("Минимум 6 символов");
+    if (
+      newPassword.length < 8 ||
+      !/[a-z]/.test(newPassword) ||
+      !/[A-Z]/.test(newPassword) ||
+      !/[0-9]/.test(newPassword)
+    ) {
+      setError("Минимум 8 символов, строчная и заглавная буква, цифра");
       return;
     }
 
@@ -50,7 +55,7 @@ export function ChangePassword() {
     <div>
       <form onSubmit={(e) => void handleSubmit(e)} className="space-y-3.5">
         <div>
-          <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 block">
+          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 block">
             Текущий пароль
           </label>
           <Input
@@ -61,18 +66,18 @@ export function ChangePassword() {
           />
         </div>
         <div>
-          <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 block">
+          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 block">
             Новый пароль
           </label>
           <Input
             type="password"
             value={newPassword}
             onChange={(e) => setNewPassword(e.target.value)}
-            placeholder="Минимум 6 символов"
+            placeholder="Минимум 8 символов, A-z, 0-9"
           />
         </div>
         <div>
-          <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 block">
+          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 block">
             Подтвердите пароль
           </label>
           <Input

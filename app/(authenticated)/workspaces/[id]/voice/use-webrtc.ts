@@ -11,6 +11,15 @@ type PeerState = {
 
 type RemoteScreen = { userId: string; stream: MediaStream };
 
+// Shared AudioContext for all WebRTC peers (browsers limit to ~6 concurrent)
+let _sharedWebRTCAudioCtx: AudioContext | null = null;
+function getWebRTCAudioCtx() {
+  if (!_sharedWebRTCAudioCtx || _sharedWebRTCAudioCtx.state === "closed") {
+    _sharedWebRTCAudioCtx = new AudioContext();
+  }
+  return _sharedWebRTCAudioCtx;
+}
+
 // Fetched from /api/voice/ice-servers (includes TURN if configured)
 let _iceConfigCache: RTCConfiguration | null = null;
 let _iceConfigFetching = false;
@@ -152,7 +161,7 @@ export function useWebRTC({
           void audioEl.play().catch(() => {});
           // Setup speaking analyser for this peer
           try {
-            const actx = new AudioContext();
+            const actx = getWebRTCAudioCtx();
             const src = actx.createMediaStreamSource(remoteAudio);
             const analyser = actx.createAnalyser();
             analyser.fftSize = 256;
@@ -448,5 +457,14 @@ export function useWebRTC({
     };
   }, [closeAll]);
 
-  return { remoteScreens, speakingPeers };
+  /* ── volume control ── */
+
+  const setVolume = useCallback((userId: string, volume: number) => {
+    const peer = peersRef.current.get(userId);
+    if (peer) {
+      peer.audioEl.volume = Math.max(0, Math.min(1, volume));
+    }
+  }, []);
+
+  return { remoteScreens, speakingPeers, setVolume };
 }

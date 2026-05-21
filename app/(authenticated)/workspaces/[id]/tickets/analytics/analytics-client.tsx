@@ -80,7 +80,7 @@ function StatCard({
         </div>
         <span className="text-xs text-muted-foreground">{label}</span>
       </div>
-      <div className="text-2xl font-bold text-gray-800">{value}</div>
+      <div className="text-2xl font-bold text-foreground">{value}</div>
       {sub && <div className="text-xs text-muted-foreground mt-0.5">{sub}</div>}
     </div>
   );
@@ -100,15 +100,16 @@ function BarItem({
   const pct = total > 0 ? (count / total) * 100 : 0;
   return (
     <div className="flex items-center gap-3">
-      <div className="w-28 text-xs text-gray-600 shrink-0">{label}</div>
-      <div className="flex-1 h-6 bg-gray-100 rounded-full overflow-hidden">
+      <div className="w-28 text-xs text-muted-foreground shrink-0">{label}</div>
+      <div className="flex-1 h-6 bg-muted rounded-full overflow-hidden">
         <div
           className="h-full rounded-full transition-all"
           style={{ width: `${Math.max(pct, 2)}%`, backgroundColor: color }}
         />
       </div>
-      <div className="w-12 text-xs text-gray-500 text-right">
-        {count} <span className="text-gray-400">({Math.round(pct)}%)</span>
+      <div className="w-12 text-xs text-muted-foreground text-right">
+        {count}{" "}
+        <span className="text-muted-foreground/70">({Math.round(pct)}%)</span>
       </div>
     </div>
   );
@@ -210,27 +211,31 @@ export function TicketAnalyticsClient({
         {/* AI vs Менеджеры */}
         <div className="border rounded-xl p-5">
           <div className="flex items-center gap-2 mb-4">
-            <UserCheck className="h-4 w-4 text-gray-500" />
-            <h3 className="text-sm font-semibold text-gray-700">
+            <UserCheck className="h-4 w-4 text-muted-foreground" />
+            <h3 className="text-sm font-semibold text-foreground">
               Закрыто: ИИ vs Менеджеры
             </h3>
           </div>
           <div className="flex gap-4 mb-3">
-            <div className="flex-1 text-center p-3 bg-cyan-50 rounded-lg">
-              <div className="text-2xl font-bold text-cyan-700">
+            <div className="flex-1 text-center p-3 bg-cyan-50 dark:bg-cyan-900/20 rounded-lg">
+              <div className="text-2xl font-bold text-cyan-700 dark:text-cyan-400">
                 {data.closedByAgent}
               </div>
-              <div className="text-xs text-cyan-600">ИИ-агент</div>
+              <div className="text-xs text-cyan-600 dark:text-cyan-500">
+                ИИ-агент
+              </div>
             </div>
-            <div className="flex-1 text-center p-3 bg-emerald-50 rounded-lg">
-              <div className="text-2xl font-bold text-emerald-700">
+            <div className="flex-1 text-center p-3 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg">
+              <div className="text-2xl font-bold text-emerald-700 dark:text-emerald-400">
                 {data.closedByManager}
               </div>
-              <div className="text-xs text-emerald-600">Менеджеры</div>
+              <div className="text-xs text-emerald-600 dark:text-emerald-500">
+                Менеджеры
+              </div>
             </div>
           </div>
           {data.closedByAgent + data.closedByManager > 0 && (
-            <div className="h-3 bg-gray-100 rounded-full overflow-hidden flex">
+            <div className="h-3 bg-muted rounded-full overflow-hidden flex">
               <div
                 className="h-full bg-cyan-500 transition-all"
                 style={{ width: `${data.agentPercent}%` }}
@@ -242,7 +247,7 @@ export function TicketAnalyticsClient({
             </div>
           )}
           {data.closedByAgent + data.closedByManager === 0 && (
-            <p className="text-xs text-gray-400 text-center">
+            <p className="text-xs text-muted-foreground text-center">
               Нет закрытых тикетов
             </p>
           )}
@@ -251,13 +256,15 @@ export function TicketAnalyticsClient({
         {/* Топ категорий */}
         <div className="border rounded-xl p-5">
           <div className="flex items-center gap-2 mb-4">
-            <Tag className="h-4 w-4 text-gray-500" />
-            <h3 className="text-sm font-semibold text-gray-700">
+            <Tag className="h-4 w-4 text-muted-foreground" />
+            <h3 className="text-sm font-semibold text-foreground">
               Топ категорий
             </h3>
           </div>
           {data.topCategories.length === 0 ? (
-            <p className="text-xs text-gray-400 text-center py-4">Нет данных</p>
+            <p className="text-xs text-muted-foreground text-center py-4">
+              Нет данных
+            </p>
           ) : (
             <div className="space-y-2.5">
               {data.topCategories.map((c) => (
@@ -276,8 +283,10 @@ export function TicketAnalyticsClient({
         {/* По статусам */}
         <div className="border rounded-xl p-5">
           <div className="flex items-center gap-2 mb-4">
-            <BarChart3 className="h-4 w-4 text-gray-500" />
-            <h3 className="text-sm font-semibold text-gray-700">По статусам</h3>
+            <BarChart3 className="h-4 w-4 text-muted-foreground" />
+            <h3 className="text-sm font-semibold text-foreground">
+              По статусам
+            </h3>
           </div>
           <div className="space-y-2.5">
             {data.byStatus.map((s) => (
@@ -295,8 +304,8 @@ export function TicketAnalyticsClient({
         {/* По приоритетам + источникам */}
         <div className="border rounded-xl p-5">
           <div className="flex items-center gap-2 mb-4">
-            <BarChart3 className="h-4 w-4 text-gray-500" />
-            <h3 className="text-sm font-semibold text-gray-700">
+            <BarChart3 className="h-4 w-4 text-muted-foreground" />
+            <h3 className="text-sm font-semibold text-foreground">
               По приоритетам
             </h3>
           </div>
@@ -311,7 +320,7 @@ export function TicketAnalyticsClient({
               />
             ))}
           </div>
-          <div className="text-xs font-semibold text-gray-500 mb-2">
+          <div className="text-xs font-semibold text-muted-foreground mb-2">
             По источникам
           </div>
           <div className="space-y-2.5">

@@ -22,13 +22,21 @@ type Settings = {
   chatDesktopNotify: boolean;
 };
 
-const POLL_INTERVAL = 5000;
+const POLL_INTERVAL = 30000;
 const TOAST_DURATION = 6000;
 const NOTIFICATION_SOUND_FREQ = 800;
 
+let _sharedAudioCtx: AudioContext | null = null;
+function getAudioCtx() {
+  if (!_sharedAudioCtx || _sharedAudioCtx.state === "closed") {
+    _sharedAudioCtx = new AudioContext();
+  }
+  return _sharedAudioCtx;
+}
+
 function playNotificationSound() {
   try {
-    const ctx = new AudioContext();
+    const ctx = getAudioCtx();
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.connect(gain);
@@ -118,6 +126,12 @@ export function ChatNotifications() {
           for (const m of newMsgs) {
             seenIdsRef.current.add(m.id);
           }
+
+          // Prevent unbounded memory growth — keep only the most recent 200 IDs
+          if (seenIdsRef.current.size > 500) {
+            const entries = Array.from(seenIdsRef.current);
+            seenIdsRef.current = new Set(entries.slice(entries.length - 200));
+          }
         }
 
         // Update since to latest message time
@@ -137,7 +151,12 @@ export function ChatNotifications() {
   if (toasts.length === 0) return null;
 
   return (
-    <div className="fixed bottom-4 right-4 z-[100] flex flex-col gap-2 max-w-[380px]">
+    <div
+      className="fixed bottom-4 right-4 z-[100] flex flex-col gap-2 max-w-[380px]"
+      role="log"
+      aria-live="polite"
+      aria-label="Уведомления чата"
+    >
       {toasts.map((t) => (
         <div
           key={t.id}
@@ -168,10 +187,10 @@ export function ChatNotifications() {
           {/* Content */}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-0.5">
-              <span className="text-[13px] font-semibold text-foreground truncate">
+              <span className="text-sm font-semibold text-foreground truncate">
                 {t.author}
               </span>
-              <span className="text-[10px] text-muted-foreground shrink-0">
+              <span className="text-xs text-muted-foreground shrink-0">
                 {t.channelName}
               </span>
             </div>
@@ -179,7 +198,7 @@ export function ChatNotifications() {
               {t.content}
             </p>
             {t.workspaceName && (
-              <span className="text-[9px] text-muted-foreground/60 mt-0.5 block">
+              <span className="text-xs text-muted-foreground/60 mt-0.5 block">
                 {t.workspaceName}
               </span>
             )}
@@ -192,6 +211,7 @@ export function ChatNotifications() {
               dismiss(t.id);
             }}
             className="shrink-0 text-muted-foreground/50 hover:text-foreground transition-colors self-start"
+            aria-label="Закрыть уведомление"
           >
             <X className="h-3.5 w-3.5" />
           </button>

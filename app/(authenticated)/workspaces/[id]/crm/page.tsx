@@ -6,6 +6,8 @@ import {
 import { redirect } from "next/navigation";
 import { WorkspaceBoardShell } from "./workspace-board-shell";
 
+export const metadata = { title: "CRM | ПУП" };
+
 type Props = { params: { id: string } };
 
 export default async function CrmPage({ params }: Props) {

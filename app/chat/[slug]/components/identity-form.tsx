@@ -72,7 +72,7 @@ export function IdentityForm({ slug, config, embedMode, onIdentified }: Props) {
     >
       <div className="w-full max-w-[400px] animate-in fade-in slide-in-from-bottom-4 duration-500">
         {/* Card */}
-        <div className="rounded-2xl border border-gray-200/80 bg-white shadow-xl shadow-gray-200/40 overflow-hidden">
+        <div className="rounded-2xl border border-border bg-card shadow-xl shadow-black/5 overflow-hidden">
           {/* Accent header strip */}
           <div
             className="px-6 pt-6 pb-5"
@@ -90,25 +90,25 @@ export function IdentityForm({ slug, config, embedMode, onIdentified }: Props) {
                 unoptimized
               />
             )}
-            <h1 className="text-xl font-bold text-gray-900">
+            <h1 className="text-xl font-bold text-foreground">
               {config.chatTitle}
             </h1>
             {config.chatSubtitle && (
-              <p className="text-sm text-gray-500 mt-1">
+              <p className="text-sm text-muted-foreground mt-1">
                 {config.chatSubtitle}
               </p>
             )}
 
             {/* Persona card */}
             {persona && (
-              <div className="flex items-center gap-3 mt-5 p-3 rounded-xl bg-white/80 backdrop-blur-sm border border-gray-100 shadow-sm">
+              <div className="flex items-center gap-3 mt-5 p-3 rounded-xl bg-card/80 backdrop-blur-sm border border-border shadow-sm">
                 {persona.avatarUrl ? (
                   <Image
                     src={`/api/chat/avatars/${persona.avatarUrl.replace(/^personas\//, "")}`}
                     alt={persona.displayName}
                     width={40}
                     height={40}
-                    className="w-10 h-10 rounded-full object-cover shrink-0 ring-2 ring-white"
+                    className="w-10 h-10 rounded-full object-cover shrink-0 ring-2 ring-background"
                     unoptimized
                   />
                 ) : (
@@ -120,12 +120,12 @@ export function IdentityForm({ slug, config, embedMode, onIdentified }: Props) {
                   </div>
                 )}
                 <div className="min-w-0">
-                  <div className="text-sm font-semibold text-gray-800">
+                  <div className="text-sm font-semibold text-foreground">
                     {persona.displayName}
                   </div>
                   <div className="flex items-center gap-1.5 mt-0.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                    <span className="text-xs text-gray-400">
+                    <span className="text-xs text-muted-foreground">
                       {persona.role}
                     </span>
                   </div>
@@ -138,7 +138,7 @@ export function IdentityForm({ slug, config, embedMode, onIdentified }: Props) {
           <div className="px-6 pb-6">
             <form onSubmit={handleSubmit} className="space-y-3.5">
               {method === "ANONYMOUS" ? (
-                <p className="text-sm text-gray-400 text-center py-2">
+                <p className="text-sm text-muted-foreground text-center py-2">
                   Нажмите кнопку ниже, чтобы начать диалог
                 </p>
               ) : method === "EMAIL_WITH_NAME" ? (
@@ -146,7 +146,7 @@ export function IdentityForm({ slug, config, embedMode, onIdentified }: Props) {
                   <div>
                     <label
                       htmlFor="chat-name"
-                      className="block text-xs font-medium text-gray-500 mb-1.5"
+                      className="block text-xs font-medium text-muted-foreground mb-1.5"
                     >
                       Ваше имя
                     </label>
@@ -156,7 +156,7 @@ export function IdentityForm({ slug, config, embedMode, onIdentified }: Props) {
                       value={name}
                       onChange={(e) => setName(e.target.value)}
                       placeholder="Иван"
-                      className="w-full rounded-xl border border-gray-200 bg-gray-50/50 px-4 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 transition-all focus:outline-none focus:ring-2 focus:border-transparent"
+                      className="w-full rounded-xl border border-border bg-muted/50 px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground transition-all focus:outline-none focus:ring-2 focus:border-transparent"
                       style={
                         {
                           "--tw-ring-color": `${accent}40`,
@@ -168,7 +168,7 @@ export function IdentityForm({ slug, config, embedMode, onIdentified }: Props) {
                   <div>
                     <label
                       htmlFor="chat-email"
-                      className="block text-xs font-medium text-gray-500 mb-1.5"
+                      className="block text-xs font-medium text-muted-foreground mb-1.5"
                     >
                       Email
                     </label>
@@ -179,7 +179,7 @@ export function IdentityForm({ slug, config, embedMode, onIdentified }: Props) {
                       onChange={(e) => setEmail(e.target.value)}
                       required
                       placeholder="ivan@example.com"
-                      className="w-full rounded-xl border border-gray-200 bg-gray-50/50 px-4 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 transition-all focus:outline-none focus:ring-2 focus:border-transparent"
+                      className="w-full rounded-xl border border-border bg-muted/50 px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground transition-all focus:outline-none focus:ring-2 focus:border-transparent"
                       style={
                         {
                           "--tw-ring-color": `${accent}40`,
@@ -192,7 +192,7 @@ export function IdentityForm({ slug, config, embedMode, onIdentified }: Props) {
                 <div>
                   <label
                     htmlFor="chat-email"
-                    className="block text-xs font-medium text-gray-500 mb-1.5"
+                    className="block text-xs font-medium text-muted-foreground mb-1.5"
                   >
                     Email
                   </label>
@@ -203,7 +203,7 @@ export function IdentityForm({ slug, config, embedMode, onIdentified }: Props) {
                     onChange={(e) => setEmail(e.target.value)}
                     required
                     placeholder="ivan@example.com"
-                    className="w-full rounded-xl border border-gray-200 bg-gray-50/50 px-4 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 transition-all focus:outline-none focus:ring-2 focus:border-transparent"
+                    className="w-full rounded-xl border border-border bg-muted/50 px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground transition-all focus:outline-none focus:ring-2 focus:border-transparent"
                     style={
                       {
                         "--tw-ring-color": `${accent}40`,
@@ -248,7 +248,7 @@ export function IdentityForm({ slug, config, embedMode, onIdentified }: Props) {
 
         {/* Powered by */}
         <div className="text-center mt-4">
-          <span className="text-[11px] text-gray-300">
+          <span className="text-xs text-muted-foreground">
             {config.workspaceName}
           </span>
         </div>

@@ -37,27 +37,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toastSuccess, toastApiError } from "@/lib/toast";
+import { priorityColorClass, STATUS_LABELS } from "@/lib/constants/ui";
 import type { TicketSummary } from "@/lib/services/tickets/ticket.service";
 
 type ListResult = {
   data: TicketSummary[];
   total: number;
   counters: Record<string, number>;
-};
-
-const PRIORITY_COLORS: Record<string, string> = {
-  LOW: "bg-gray-100 text-gray-700",
-  MEDIUM: "bg-blue-100 text-blue-700",
-  HIGH: "bg-orange-100 text-orange-700",
-  URGENT: "bg-red-100 text-red-700",
-};
-
-const STATUS_LABELS: Record<string, string> = {
-  OPEN: "Открыт",
-  IN_PROGRESS: "В работе",
-  WAITING_CUSTOMER: "Ждёт клиента",
-  RESOLVED: "Решён",
-  CLOSED: "Закрыт",
 };
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -397,6 +383,7 @@ export function TicketsClient({ workspaceId }: { workspaceId: string }) {
             onClick={() => {
               setStatusFilter(t.key);
               setPage(1);
+              setSelected(new Set());
             }}
           >
             {t.label}
@@ -417,6 +404,7 @@ export function TicketsClient({ workspaceId }: { workspaceId: string }) {
             e.preventDefault();
             setSearch(searchInput.trim());
             setPage(1);
+            setSelected(new Set());
           }}
         >
           <Input
@@ -434,6 +422,7 @@ export function TicketsClient({ workspaceId }: { workspaceId: string }) {
           onValueChange={(v) => {
             setSortBy(v);
             setPage(1);
+            setSelected(new Set());
           }}
         >
           <SelectTrigger className="w-44 h-8">
@@ -560,7 +549,7 @@ export function TicketsClient({ workspaceId }: { workspaceId: string }) {
                   <td className="px-3 py-2.5">
                     <Badge
                       variant="secondary"
-                      className={`text-[10px] ${PRIORITY_COLORS[t.priority] ?? ""}`}
+                      className={`text-xs ${priorityColorClass(t.priority)}`}
                     >
                       {t.priority}
                     </Badge>
@@ -577,12 +566,12 @@ export function TicketsClient({ workspaceId }: { workspaceId: string }) {
                     </div>
                   </td>
                   <td className="px-3 py-2.5">
-                    <Badge variant="outline" className="text-[10px]">
+                    <Badge variant="outline" className="text-xs">
                       {CATEGORY_LABELS[t.category] ?? t.category}
                     </Badge>
                   </td>
                   <td className="px-3 py-2.5">
-                    <Badge variant="outline" className="text-[10px]">
+                    <Badge variant="outline" className="text-xs">
                       {STATUS_LABELS[t.status] ?? t.status}
                     </Badge>
                   </td>

@@ -89,10 +89,17 @@ export default function LoginPage() {
                 placeholder="admin или admin@pupanel.io"
                 autoComplete="username"
                 aria-invalid={!!errors.loginOrEmail}
+                aria-describedby={
+                  errors.loginOrEmail ? "loginOrEmail-error" : undefined
+                }
                 {...register("loginOrEmail")}
               />
               {errors.loginOrEmail && (
-                <p className="text-sm text-destructive">
+                <p
+                  id="loginOrEmail-error"
+                  role="alert"
+                  className="text-sm text-destructive"
+                >
                   {errors.loginOrEmail.message}
                 </p>
               )}
@@ -105,6 +112,9 @@ export default function LoginPage() {
                   type={showPassword ? "text" : "password"}
                   autoComplete="current-password"
                   aria-invalid={!!errors.password}
+                  aria-describedby={
+                    errors.password ? "password-error" : undefined
+                  }
                   className="pr-10"
                   {...register("password")}
                 />
@@ -112,7 +122,9 @@ export default function LoginPage() {
                   type="button"
                   onClick={() => setShowPassword((v) => !v)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                  tabIndex={-1}
+                  aria-label={
+                    showPassword ? "Скрыть пароль" : "Показать пароль"
+                  }
                 >
                   {showPassword ? (
                     <EyeOff className="h-4 w-4" />
@@ -122,7 +134,11 @@ export default function LoginPage() {
                 </button>
               </div>
               {errors.password && (
-                <p className="text-sm text-destructive">
+                <p
+                  id="password-error"
+                  role="alert"
+                  className="text-sm text-destructive"
+                >
                   {errors.password.message}
                 </p>
               )}

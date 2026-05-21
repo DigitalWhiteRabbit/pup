@@ -44,6 +44,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { toastSuccess, toastApiError } from "@/lib/toast";
+import { formatFileSize } from "@/lib/utils";
 import { formatDuration } from "./TaskCard";
 import type { WorkspaceBoard } from "@/lib/services/workspace.service";
 import type { TaskFull } from "@/lib/services/task.service";
@@ -113,12 +114,6 @@ type Props = {
   members: Member[];
   onClose: () => void;
 };
-
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 function toDateInputValue(iso: string | null): string {
   if (!iso) return "";
@@ -422,7 +417,7 @@ export function TaskModal({ taskId, workspaceId, members, onClose }: Props) {
                             }
                             className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-accent"
                           >
-                            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground text-[10px] font-medium">
+                            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground text-xs font-medium">
                               {m.login.slice(0, 2).toUpperCase()}
                             </span>
                             {m.login}
@@ -442,7 +437,7 @@ export function TaskModal({ taskId, workspaceId, members, onClose }: Props) {
                         key={uid}
                         className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary pl-1 pr-1.5 py-0.5 text-sm"
                       >
-                        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-medium">
+                        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-medium">
                           {m.login.slice(0, 2).toUpperCase()}
                         </span>
                         {m.login}
@@ -531,9 +526,9 @@ export function TaskModal({ taskId, workspaceId, members, onClose }: Props) {
                   История перемещений
                 </p>
                 <div className="space-y-1.5 rounded-lg border p-3">
-                  {task.moveHistory.map((log, i) => (
+                  {task.moveHistory.map((log) => (
                     <div
-                      key={i}
+                      key={`${log.movedAt}-${log.fromColumnName}`}
                       className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground"
                     >
                       <span className="font-medium text-foreground">
@@ -732,6 +727,7 @@ function LabelsSection({
               type="color"
               value={newColor}
               onChange={(e) => setNewColor(e.target.value)}
+              aria-label="Цвет метки"
               className="h-8 w-8 rounded border cursor-pointer shrink-0"
             />
             <Button
@@ -849,7 +845,7 @@ function ChecklistSection({
               </span>
               <button
                 onClick={() => deleteMutation.mutate(item.id)}
-                className="shrink-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity"
+                className="shrink-0 opacity-0 group-hover:opacity-100 focus:opacity-100 text-muted-foreground hover:text-destructive transition-opacity"
               >
                 <X className="h-3.5 w-3.5" />
               </button>

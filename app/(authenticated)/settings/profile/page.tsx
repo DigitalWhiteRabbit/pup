@@ -98,17 +98,17 @@ export default async function ProfileSettingsPage() {
               hasAvatar={!!user.avatarPath}
             />
             <div className="min-w-0">
-              <p className="text-[22px] font-bold text-foreground leading-tight">
+              <p className="text-xl font-bold text-foreground leading-tight">
                 {user.login}
               </p>
               <p className="text-sm text-muted-foreground mt-0.5">
                 {user.email}
               </p>
               <div className="flex items-center gap-2.5 mt-2">
-                <span className="inline-flex items-center px-2.5 py-1 rounded-md text-[11px] font-semibold bg-emerald-500/15 text-emerald-500">
+                <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold bg-emerald-500/15 text-emerald-500">
                   {user.role === "ADMIN" ? "Администратор" : "Пользователь"}
                 </span>
-                <span className="inline-flex items-center px-2.5 py-1 rounded-md text-[11px] font-semibold bg-muted text-muted-foreground">
+                <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold bg-muted text-muted-foreground">
                   С{" "}
                   {user.createdAt.toLocaleDateString("ru-RU", {
                     day: "numeric",

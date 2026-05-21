@@ -26,11 +26,13 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     });
   }
 
-  // Clean up old consumed signals (>1 hour)
-  const oneHourAgo = new Date(Date.now() - 3_600_000);
-  await db.voiceSignal.deleteMany({
-    where: { roomId, consumedAt: { not: null, lt: oneHourAgo } },
-  });
+  // Clean up old consumed signals (>1 hour) — run probabilistically to avoid DB writes on every poll
+  if (Math.random() < 0.05) {
+    const oneHourAgo = new Date(Date.now() - 3_600_000);
+    await db.voiceSignal.deleteMany({
+      where: { roomId, consumedAt: { not: null, lt: oneHourAgo } },
+    });
+  }
 
   return NextResponse.json(signals);
 }

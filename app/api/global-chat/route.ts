@@ -104,7 +104,9 @@ export async function POST(req: Request) {
         content,
         parentId: parentId ?? null,
       },
-      include: { author: { select: { id: true, login: true } } },
+      include: {
+        author: { select: { id: true, login: true, avatarPath: true } },
+      },
     });
 
     return NextResponse.json(
@@ -112,7 +114,7 @@ export async function POST(req: Request) {
         id: msg.id,
         authorId: msg.author.id,
         authorLogin: msg.author.login,
-        authorHasAvatar: false,
+        authorHasAvatar: !!msg.author.avatarPath,
         content: msg.content,
         parentId: msg.parentId,
         editedAt: null,
