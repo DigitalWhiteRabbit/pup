@@ -114,6 +114,16 @@ router.post("/:id/reject", (req, res) => {
   const notes = (req.body.admin_notes || "").toString().slice(0, 1000) || null;
   const now = new Date().toISOString();
   req.stmts.rejectPendingReply.run(notes, now, id);
+
+  // Reset lead so "Запустить" appears again
+  if (item.lead_id) {
+    req.db
+      .prepare(
+        `UPDATE leads SET lead_status = 'ready', dialogue_stage = 'not_contacted', locked_until = NULL, updated_at = ? WHERE id = ?`,
+      )
+      .run(now, item.lead_id);
+  }
+
   try {
     worker.onPendingReplyRejected(id);
   } catch {}
@@ -123,7 +133,22 @@ router.post("/:id/reject", (req, res) => {
 // DELETE /api/pending-replies/:id — удалить запись из очереди (независимо от статуса)
 router.delete("/:id", (req, res) => {
   const id = parseInt(req.params.id, 10);
+  // Get lead_id before deleting so we can reset the lead
+  const item = req.db
+    .prepare("SELECT lead_id FROM pending_replies WHERE id = ?")
+    .get(id);
   req.db.prepare("DELETE FROM pending_replies WHERE id = ?").run(id);
+
+  // Reset lead so "Запустить" appears again
+  if (item?.lead_id) {
+    const now = new Date().toISOString();
+    req.db
+      .prepare(
+        `UPDATE leads SET lead_status = 'ready', dialogue_stage = 'not_contacted', locked_until = NULL, updated_at = ? WHERE id = ?`,
+      )
+      .run(now, item.lead_id);
+  }
+
   res.json({ success: true });
 });
 
