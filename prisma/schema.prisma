@@ -1464,6 +1464,11 @@ model MktConfig {
   followupDelayDays   Int     @default(3)
   followupMaxAttempts Int     @default(2)
 
+  // Warm-up (graduated daily sending limits for new domains)
+  warmupEnabled   Boolean   @default(false)
+  warmupStartDate DateTime?
+  warmupSchedule  String?   // JSON array of daily limits, e.g. [5,10,20,30,50,75,100,125,150,175,200]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1497,6 +1502,10 @@ model MktProject {
   creatorEconomics    String?
   toneOfVoice         String?
   stopWords           String? // JSON array
+
+  // A/B testing
+  abTestEnabled Boolean @default(false)
+  abVariants    String? // JSON: [{id:"A", name:"Formal", instructions:"..."}, {id:"B", name:"Casual", instructions:"..."}]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1680,6 +1689,9 @@ model MktMessage {
   metadata   String? // JSON (resend_id, headers, etc)
   resendId   String? // for fast email lookup
 
+  // A/B testing
+  abVariantId String? // "A", "B", etc. — tracks which variant generated this message
+
   createdAt DateTime @default(now())
 
   dialogue MktDialogue @relation(fields: [dialogueId], references: [id], onDelete: Cascade)
@@ -1758,6 +1770,9 @@ model MktPendingReply {
   editedBody    String?
   editedSubject String?
   adminNotes    String?
+
+  // A/B testing
+  abVariantId String? // "A", "B", etc.
 
   createdAt DateTime  @default(now())
   decidedAt DateTime?

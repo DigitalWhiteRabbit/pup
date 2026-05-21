@@ -38,6 +38,11 @@ const FOLLOWUP_INTERVAL_MS = 5 * 60 * 1000; // 5min between followup checks
 const LOG_BUFFER_MAX = 500;
 const CIRCUIT_BREAKER_THRESHOLD = 10; // consecutive errors before auto-stop
 
+// Default warm-up schedule: 14 days graduating from 5 to 200 emails/day
+const DEFAULT_WARMUP_SCHEDULE = [
+  5, 10, 20, 30, 50, 75, 100, 125, 150, 175, 200, 200, 200, 200,
+];
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
 // ═══════════════════════════════════════════════════════════════════════════
@@ -74,6 +79,11 @@ export interface WorkerStatus {
   reviewMode: boolean;
   dryRun: boolean;
   logCount: number;
+  // Warm-up info
+  warmupEnabled: boolean;
+  warmupDay: number | null; // current day number (0-based), null if not active
+  warmupLimit: number | null; // effective daily limit from warm-up schedule
+  dailyCapEmail: number; // configured hard cap for reference
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -162,6 +172,99 @@ async function getConfig(workspaceId: string) {
   return getMktConfig(workspaceId);
 }
 
+/**
+ * Compute the effective daily email limit, respecting warm-up schedule.
+ * When warm-up is enabled and a start date is set, the limit graduates
+ * according to the schedule. The effective limit is always capped by
+ * the configured dailyCapEmail hard ceiling.
+ */
+function getEffectiveDailyLimit(config: any): number {
+  if (!config.warmupEnabled || !config.warmupStartDate) {
+    return config.dailyCapEmail;
+  }
+
+  const startMs = new Date(config.warmupStartDate).getTime();
+  const nowMs = Date.now();
+  const daysSinceStart = Math.floor((nowMs - startMs) / 86_400_000);
+
+  // Negative days means start date is in the future — use first day limit
+  const dayIndex = Math.max(0, daysSinceStart);
+
+  let schedule: number[];
+  try {
+    schedule = config.warmupSchedule
+      ? JSON.parse(config.warmupSchedule)
+      : DEFAULT_WARMUP_SCHEDULE;
+  } catch {
+    schedule = DEFAULT_WARMUP_SCHEDULE;
+  }
+
+  if (!Array.isArray(schedule) || schedule.length === 0) {
+    schedule = DEFAULT_WARMUP_SCHEDULE;
+  }
+
+  const rawLimit =
+    dayIndex < schedule.length
+      ? schedule[dayIndex]
+      : schedule[schedule.length - 1];
+  const warmupLimit: number = rawLimit ?? (config.dailyCapEmail as number);
+
+  return Math.min(warmupLimit, (config.dailyCapEmail as number) ?? 200);
+}
+
+/**
+ * Return warm-up metadata for status reporting.
+ */
+function getWarmupInfo(config: any): {
+  warmupEnabled: boolean;
+  warmupDay: number | null;
+  warmupLimit: number | null;
+  dailyCapEmail: number;
+} {
+  const cap: number = (config.dailyCapEmail as number) ?? 200;
+
+  if (!config.warmupEnabled || !config.warmupStartDate) {
+    return {
+      warmupEnabled: config.warmupEnabled ?? false,
+      warmupDay: null,
+      warmupLimit: null,
+      dailyCapEmail: cap,
+    };
+  }
+
+  const startMs = new Date(config.warmupStartDate).getTime();
+  const daysSinceStart = Math.max(
+    0,
+    Math.floor((Date.now() - startMs) / 86_400_000),
+  );
+
+  let schedule: number[];
+  try {
+    schedule = config.warmupSchedule
+      ? JSON.parse(config.warmupSchedule)
+      : DEFAULT_WARMUP_SCHEDULE;
+  } catch {
+    schedule = DEFAULT_WARMUP_SCHEDULE;
+  }
+
+  if (!Array.isArray(schedule) || schedule.length === 0) {
+    schedule = DEFAULT_WARMUP_SCHEDULE;
+  }
+
+  const rawLimit =
+    daysSinceStart < schedule.length
+      ? schedule[daysSinceStart]
+      : schedule[schedule.length - 1];
+  const warmupLimit: number = rawLimit ?? cap;
+
+  return {
+    warmupEnabled: true,
+    warmupDay: daysSinceStart,
+    warmupLimit: Math.min(warmupLimit, cap),
+    dailyCapEmail: cap,
+  };
+}
+
 function todayKey(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -233,17 +336,22 @@ async function processOutreachQueue(workspaceId: string): Promise<void> {
       return;
     }
 
-    // 2. Check daily caps
+    // 2. Check daily caps (warm-up aware)
     const config = await getConfig(workspaceId);
     const daily = await getDailyCounts(workspaceId);
 
-    const emailCapReached = daily.sent_email >= config.dailyCapEmail;
+    const effectiveEmailCap = getEffectiveDailyLimit(config);
+    const emailCapReached = daily.sent_email >= effectiveEmailCap;
     const tgCapReached = daily.sent_tg >= config.dailyCapTg;
 
     if (emailCapReached && tgCapReached) {
+      const warmupDayStr =
+        config.warmupEnabled && config.warmupStartDate
+          ? ` (warmup day ${Math.max(0, Math.floor((Date.now() - new Date(config.warmupStartDate).getTime()) / 86_400_000)) + 1})`
+          : "";
       log(
         "info",
-        `Daily caps reached: email=${daily.sent_email}/${config.dailyCapEmail}, tg=${daily.sent_tg}/${config.dailyCapTg}`,
+        `Daily caps reached: email=${daily.sent_email}/${effectiveEmailCap}${warmupDayStr}, tg=${daily.sent_tg}/${config.dailyCapTg}`,
       );
       return;
     }
@@ -373,6 +481,26 @@ async function processOutreachQueue(workspaceId: string): Promise<void> {
       return;
     }
 
+    // 5b. Select A/B variant (if enabled)
+    let variantId: string | null = null;
+    let variantInstructions: string | null = null;
+    if (project.abTestEnabled && project.abVariants) {
+      try {
+        const variants = JSON.parse(project.abVariants);
+        if (Array.isArray(variants) && variants.length > 0) {
+          const variant = variants[Math.floor(Math.random() * variants.length)];
+          variantId = variant.id;
+          variantInstructions = variant.instructions || null;
+          log(
+            "info",
+            `A/B test: selected variant "${variant.id}" (${variant.name}) for ${lead.channelName}`,
+          );
+        }
+      } catch {
+        log("warn", `Failed to parse abVariants for project ${project.id}`);
+      }
+    }
+
     // 6. Generate pitch via mkt-ai
     let pitch: PitchResult;
     try {
@@ -382,10 +510,11 @@ async function processOutreachQueue(workspaceId: string): Promise<void> {
         project,
         channel,
         null, // angle from qualification could be passed here
+        variantInstructions,
       );
       log(
         "info",
-        `Pitch generated for ${lead.channelName}: subject="${pitch.subject}" rewritten=${pitch._rewritten}`,
+        `Pitch generated for ${lead.channelName}: subject="${pitch.subject}" rewritten=${pitch._rewritten}${variantId ? ` variant=${variantId}` : ""}`,
       );
     } catch (err) {
       log("error", `Pitch generation failed for ${lead.id}: ${err}`);
@@ -439,7 +568,9 @@ async function processOutreachQueue(workspaceId: string): Promise<void> {
             channelName: lead.channelName,
             critique: pitch._critique,
             rewritten: pitch._rewritten,
+            abVariantId: variantId,
           }),
+          abVariantId: variantId,
           status: MktPendingStatus.PENDING,
         },
       });
@@ -495,10 +626,12 @@ async function processOutreachQueue(workspaceId: string): Promise<void> {
           content: pitch.body,
           subject: pitch.subject,
           resendId: channel === "email" ? sendResult?.id : null,
+          abVariantId: variantId,
           metadata: JSON.stringify({
             channel,
             critique: pitch._critique,
             rewritten: pitch._rewritten,
+            abVariantId: variantId,
           }),
         },
       });
@@ -515,7 +648,10 @@ async function processOutreachQueue(workspaceId: string): Promise<void> {
       await incrementDailyCount(workspaceId, channel);
       workerState.stats.sent++;
 
-      log("info", `Outreach complete: ${lead.channelName} via ${channel}`);
+      log(
+        "info",
+        `Outreach complete: ${lead.channelName} via ${channel}${variantId ? ` (variant ${variantId})` : ""}`,
+      );
     } catch (err) {
       log("error", `Send failed for ${lead.id}: ${err}`);
       workerState.stats.errors++;
@@ -1319,11 +1455,13 @@ async function processApprovedQueue(workspaceId: string): Promise<void> {
             content: body,
             subject,
             resendId: channel === "email" ? sendResult?.id : null,
+            abVariantId: pending.abVariantId ?? null,
             metadata: JSON.stringify({
               channel,
               pendingReplyId: pending.id,
               adminEdited: !!(pending.editedBody || pending.editedSubject),
               adminNotes: pending.adminNotes,
+              abVariantId: pending.abVariantId,
             }),
           },
         });
@@ -1693,11 +1831,18 @@ export async function getStatus(workspaceId: string): Promise<WorkerStatus> {
   const isRunningForWorkspace =
     workerState.running && workerState.workspaceId === workspaceId;
 
-  const [config, daily, pendingCount, readyCount, inWorkCount] =
+  const [fullConfig, daily, pendingCount, readyCount, inWorkCount] =
     await Promise.all([
       db.mktConfig.findUnique({
         where: { workspaceId },
-        select: { reviewMode: true, dryRun: true },
+        select: {
+          reviewMode: true,
+          dryRun: true,
+          warmupEnabled: true,
+          warmupStartDate: true,
+          warmupSchedule: true,
+          dailyCapEmail: true,
+        },
       }),
       getDailyCounts(workspaceId),
       db.mktPendingReply.count({
@@ -1720,6 +1865,10 @@ export async function getStatus(workspaceId: string): Promise<WorkerStatus> {
       }),
     ]);
 
+  const warmupInfo = getWarmupInfo(
+    fullConfig ?? { warmupEnabled: false, dailyCapEmail: 200 },
+  );
+
   return {
     running: isRunningForWorkspace,
     lastTick: isRunningForWorkspace ? workerState.lastTick : null,
@@ -1732,9 +1881,10 @@ export async function getStatus(workspaceId: string): Promise<WorkerStatus> {
     inWorkCount,
     dailySentEmail: daily.sent_email,
     dailySentTg: daily.sent_tg,
-    reviewMode: config?.reviewMode ?? false,
-    dryRun: config?.dryRun ?? false,
+    reviewMode: fullConfig?.reviewMode ?? false,
+    dryRun: fullConfig?.dryRun ?? false,
     logCount: isRunningForWorkspace ? logBuffer.length : 0,
+    ...warmupInfo,
   };
 }
 
@@ -1794,6 +1944,26 @@ export async function runLeadNow(
     );
   }
 
+  // Select A/B variant (if enabled)
+  let variantId: string | null = null;
+  let variantInstructions: string | null = null;
+  if (project.abTestEnabled && project.abVariants) {
+    try {
+      const variants = JSON.parse(project.abVariants);
+      if (Array.isArray(variants) && variants.length > 0) {
+        const variant = variants[Math.floor(Math.random() * variants.length)];
+        variantId = variant.id;
+        variantInstructions = variant.instructions || null;
+        log(
+          "info",
+          `runLeadNow A/B test: selected variant "${variant.id}" (${variant.name})`,
+        );
+      }
+    } catch {
+      log("warn", `Failed to parse abVariants for project ${project.id}`);
+    }
+  }
+
   // Generate pitch
   const pitch = await generateInitialPitch(
     workspaceId,
@@ -1801,6 +1971,7 @@ export async function runLeadNow(
     project,
     channel,
     qualification.angle || null,
+    variantInstructions,
   );
 
   const reviewMode = await isReviewMode(workspaceId);
@@ -1832,7 +2003,9 @@ export async function runLeadNow(
           qualification,
           critique: pitch._critique,
           rewritten: pitch._rewritten,
+          abVariantId: variantId,
         }),
+        abVariantId: variantId,
         status: MktPendingStatus.PENDING,
       },
     });

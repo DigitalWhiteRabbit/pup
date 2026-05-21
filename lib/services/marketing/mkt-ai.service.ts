@@ -394,6 +394,7 @@ function buildSystemBlocks(
   channel: string,
   adminDirective: string | null,
   knowledgeContext: string | null,
+  abVariantInstructions: string | null = null,
 ): Array<{
   type: "text";
   text: string;
@@ -425,7 +426,15 @@ function buildSystemBlocks(
     text: dynamicPart,
   });
 
-  // Block 3: Admin directive (if any)
+  // Block 3: A/B variant instructions (if any)
+  if (abVariantInstructions) {
+    blocks.push({
+      type: "text",
+      text: `\nA/B ТЕСТ — ИНСТРУКЦИИ ВАРИАНТА:\n<ab_variant_instructions>\n${abVariantInstructions}\n</ab_variant_instructions>\n\nСтрого следуй инструкциям варианта при написании сообщения.`,
+    });
+  }
+
+  // Block 4: Admin directive (if any)
   if (adminDirective) {
     blocks.push({
       type: "text",
@@ -433,7 +442,7 @@ function buildSystemBlocks(
     });
   }
 
-  // Block 4: Knowledge context (RAG)
+  // Block 5: Knowledge context (RAG)
   // TODO: Implement RAG/knowledge base integration
   if (knowledgeContext) {
     blocks.push({
@@ -711,10 +720,18 @@ export async function generateInitialPitch(
   project: any,
   channel: string = "email",
   angle: string | null = null,
+  abVariantInstructions: string | null = null,
 ): Promise<PitchResult> {
   const { client, config } = await getAiClient(workspaceId);
 
-  const systemBlocks = buildSystemBlocks(lead, project, channel, null, null);
+  const systemBlocks = buildSystemBlocks(
+    lead,
+    project,
+    channel,
+    null,
+    null,
+    abVariantInstructions,
+  );
 
   let userPrompt =
     "Напиши первое холодное сообщение этому блогеру/креатору с предложением рекламной интеграции.";

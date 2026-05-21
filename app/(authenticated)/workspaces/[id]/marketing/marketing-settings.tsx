@@ -1,9 +1,9 @@
 "use client";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Users, Loader2 } from "lucide-react";
+import { Users, Loader2, Flame } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -101,6 +101,7 @@ export function SettingsSection({ workspaceId }: MarketingSectionProps) {
           <TabsTrigger value="scoring">AI-скоринг</TabsTrigger>
           <TabsTrigger value="dedup">Дедупликация</TabsTrigger>
           <TabsTrigger value="budgets">Бюджеты</TabsTrigger>
+          <TabsTrigger value="warmup">Прогрев</TabsTrigger>
           <TabsTrigger value="team">Команда</TabsTrigger>
         </TabsList>
 
@@ -488,6 +489,15 @@ export function SettingsSection({ workspaceId }: MarketingSectionProps) {
           </Card>
         </TabsContent>
 
+        {/* Warm-up */}
+        <TabsContent value="warmup">
+          <WarmupSection
+            workspaceId={workspaceId}
+            config={config}
+            saveMutation={saveMutation}
+          />
+        </TabsContent>
+
         {/* Team */}
         <TabsContent value="team">
           <EmptyState
@@ -498,5 +508,234 @@ export function SettingsSection({ workspaceId }: MarketingSectionProps) {
         </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+// ─── Warm-up sub-section ─────────────────────────────────────────────────────
+
+const DEFAULT_WARMUP_SCHEDULE = [
+  5, 10, 20, 30, 50, 75, 100, 125, 150, 175, 200, 200, 200, 200,
+];
+
+function WarmupSection({
+  workspaceId,
+  config,
+  saveMutation,
+}: {
+  workspaceId: string;
+  config: any;
+  saveMutation: any;
+}) {
+  const warmupEnabled = config?.warmupEnabled ?? false;
+  const warmupStartDate = useMemo(
+    () => (config?.warmupStartDate ? new Date(config.warmupStartDate) : null),
+    [config?.warmupStartDate],
+  );
+
+  const schedule: number[] = useMemo(() => {
+    if (!config?.warmupSchedule) return DEFAULT_WARMUP_SCHEDULE;
+    try {
+      const parsed = JSON.parse(config.warmupSchedule);
+      return Array.isArray(parsed) && parsed.length > 0
+        ? parsed
+        : DEFAULT_WARMUP_SCHEDULE;
+    } catch {
+      return DEFAULT_WARMUP_SCHEDULE;
+    }
+  }, [config?.warmupSchedule]);
+
+  const currentDay = useMemo(() => {
+    if (!warmupEnabled || !warmupStartDate) return null;
+    return Math.max(
+      0,
+      Math.floor((Date.now() - warmupStartDate.getTime()) / 86_400_000),
+    );
+  }, [warmupEnabled, warmupStartDate]);
+
+  const effectiveLimit = useMemo(() => {
+    const cap: number = config?.dailyCapEmail ?? 200;
+    if (currentDay === null) return cap;
+    const rawLimit: number | undefined =
+      currentDay < schedule.length
+        ? schedule[currentDay]
+        : schedule[schedule.length - 1];
+    const warmupLimit: number = rawLimit ?? cap;
+    return Math.min(warmupLimit, cap);
+  }, [currentDay, schedule, config?.dailyCapEmail]);
+
+  const warmupComplete = currentDay !== null && currentDay >= schedule.length;
+
+  const { data: workerStatus } = useQuery({
+    queryKey: ["mkt-worker", workspaceId],
+    queryFn: () =>
+      fetch(`/api/workspaces/${workspaceId}/marketing/worker`).then((r) =>
+        r.json(),
+      ),
+    refetchInterval: warmupEnabled ? 15000 : false,
+  });
+
+  function handleToggleWarmup() {
+    if (!warmupEnabled) {
+      // Turn ON: set start date to now
+      saveMutation.mutate({
+        warmupEnabled: true,
+        warmupStartDate: new Date().toISOString(),
+      });
+    } else {
+      // Turn OFF
+      saveMutation.mutate({
+        warmupEnabled: false,
+        warmupStartDate: null,
+      });
+    }
+  }
+
+  function handleResetWarmup() {
+    saveMutation.mutate({
+      warmupEnabled: true,
+      warmupStartDate: new Date().toISOString(),
+    });
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+          <Flame className="h-3.5 w-3.5" />
+          Прогрев домена
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        {/* Description */}
+        <p className="text-xs text-muted-foreground leading-relaxed">
+          Новые email-домены нужно прогревать — постепенно увеличивая объём
+          отправок, чтобы не попасть в спам. Прогрев автоматически ограничивает
+          дневной лимит email по расписанию на 14 дней.
+        </p>
+
+        {/* Toggle */}
+        <div className="flex items-center gap-3 p-3 bg-muted/20 rounded-lg">
+          <button
+            className={`w-10 h-[22px] rounded-full relative shrink-0 transition-colors ${
+              warmupEnabled ? "bg-emerald-500" : "bg-muted-foreground/30"
+            }`}
+            onClick={handleToggleWarmup}
+            disabled={saveMutation.isPending}
+          >
+            <div
+              className={`absolute top-[3px] w-4 h-4 rounded-full bg-white transition-transform ${
+                warmupEnabled ? "left-[22px]" : "left-[3px]"
+              }`}
+            />
+          </button>
+          <div>
+            <div className="text-sm font-medium">
+              Режим прогрева{" "}
+              {warmupEnabled ? (
+                <Badge className="ml-1.5 bg-emerald-500/10 text-emerald-500 text-[10px]">
+                  Активен
+                </Badge>
+              ) : (
+                <Badge variant="outline" className="ml-1.5 text-[10px]">
+                  Выключен
+                </Badge>
+              )}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {warmupEnabled && warmupStartDate
+                ? `Старт: ${warmupStartDate.toLocaleDateString("ru-RU")} | День ${(currentDay ?? 0) + 1} из ${schedule.length}`
+                : "Включите для постепенного увеличения лимита отправок"}
+            </div>
+          </div>
+        </div>
+
+        {/* Current status */}
+        {warmupEnabled && warmupStartDate && (
+          <div className="grid grid-cols-3 gap-3">
+            <div className="bg-blue-500/10 rounded-xl p-4 text-center">
+              <div className="text-2xl font-extrabold text-blue-500">
+                {(currentDay ?? 0) + 1}
+              </div>
+              <div className="text-xs text-muted-foreground mt-1">
+                Текущий день
+              </div>
+            </div>
+            <div className="bg-emerald-500/10 rounded-xl p-4 text-center">
+              <div className="text-2xl font-extrabold text-emerald-500">
+                {effectiveLimit}
+              </div>
+              <div className="text-xs text-muted-foreground mt-1">
+                Лимит сегодня
+              </div>
+            </div>
+            <div className="bg-orange-500/10 rounded-xl p-4 text-center">
+              <div className="text-2xl font-extrabold text-orange-500">
+                {workerStatus?.dailySentEmail ?? 0}
+              </div>
+              <div className="text-xs text-muted-foreground mt-1">
+                Отправлено
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Warm-up complete badge */}
+        {warmupEnabled && warmupComplete && (
+          <div className="p-3 bg-emerald-500/10 rounded-lg border border-emerald-500/20 text-sm text-emerald-600 dark:text-emerald-400">
+            Прогрев завершён. Домен отправляет на полную мощность (
+            {config?.dailyCapEmail ?? 200} email/день). Можно выключить режим
+            прогрева.
+          </div>
+        )}
+
+        {/* Schedule visualization */}
+        <div>
+          <div className="text-xs font-semibold uppercase text-muted-foreground tracking-wider mb-2">
+            Расписание прогрева
+          </div>
+          <div className="grid grid-cols-7 gap-1.5">
+            {schedule.map((limit, i) => {
+              const isToday = currentDay === i && warmupEnabled;
+              const isPast =
+                currentDay !== null && i < currentDay && warmupEnabled;
+              return (
+                <div
+                  key={i}
+                  className={`rounded-lg p-2 text-center text-xs border transition-colors ${
+                    isToday
+                      ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-600 dark:text-emerald-400 font-bold"
+                      : isPast
+                        ? "bg-muted/40 border-border/30 text-muted-foreground"
+                        : "bg-muted/20 border-border/30"
+                  }`}
+                >
+                  <div className="text-[10px] text-muted-foreground">
+                    День {i + 1}
+                  </div>
+                  <div className="font-bold mt-0.5">{limit}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Actions */}
+        {warmupEnabled && (
+          <div className="flex gap-2 pt-1">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleResetWarmup}
+              disabled={saveMutation.isPending}
+            >
+              {saveMutation.isPending && (
+                <Loader2 className="h-3 w-3 mr-1.5 animate-spin" />
+              )}
+              Перезапустить прогрев
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

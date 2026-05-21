@@ -7,6 +7,12 @@ import { db } from "@/lib/db";
 // Types
 // ═══════════════════════════════════════════════════════════════════════════
 
+interface AbVariant {
+  id: string;
+  name: string;
+  instructions: string;
+}
+
 interface CreateProjectData {
   name: string;
   description: string;
@@ -21,6 +27,8 @@ interface CreateProjectData {
   valueProp?: string;
   toneOfVoice?: string;
   stopWords?: string[];
+  abTestEnabled?: boolean;
+  abVariants?: AbVariant[];
 }
 
 type UpdateProjectData = Partial<CreateProjectData>;
@@ -105,6 +113,8 @@ export async function createProject(
       valueProp: data.valueProp || null,
       toneOfVoice: data.toneOfVoice || null,
       stopWords: data.stopWords ? JSON.stringify(data.stopWords) : null,
+      abTestEnabled: data.abTestEnabled ?? false,
+      abVariants: data.abVariants ? JSON.stringify(data.abVariants) : null,
       isActive: false,
     },
   });
@@ -145,6 +155,12 @@ export async function updateProject(
   if (data.toneOfVoice !== undefined) updateData.toneOfVoice = data.toneOfVoice;
   if (data.stopWords !== undefined)
     updateData.stopWords = JSON.stringify(data.stopWords);
+  if (data.abTestEnabled !== undefined)
+    updateData.abTestEnabled = data.abTestEnabled;
+  if (data.abVariants !== undefined)
+    updateData.abVariants = data.abVariants
+      ? JSON.stringify(data.abVariants)
+      : null;
 
   return db.mktProject.update({
     where: { id: projectId },

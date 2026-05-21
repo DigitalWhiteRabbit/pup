@@ -66,6 +66,11 @@ const configPatchSchema = z
     followupDelayDays: z.number().int().min(1).max(90).optional(),
     followupMaxAttempts: z.number().int().min(0).max(20).optional(),
 
+    // Warm-up (graduated daily sending limits for new domains)
+    warmupEnabled: z.boolean().optional(),
+    warmupStartDate: z.string().datetime().nullish(),
+    warmupSchedule: z.string().max(1000).nullish(),
+
     // Sender display (non-secret)
     resendSenderEmail: z.string().email().max(255).nullish(),
     resendSenderName: z.string().max(255).nullish(),
