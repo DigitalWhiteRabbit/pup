@@ -2,8 +2,13 @@ import { auth } from "@/lib/auth";
 import { withErrorHandler, ApiError } from "@/lib/api-error";
 import { db } from "@/lib/db";
 import { checkMembership } from "@/lib/services/workspace.service";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import {
+  resolveAuth,
+  requireScope,
+  requireWorkspace,
+} from "@/lib/middleware/resolve-auth";
 
 type Params = { params: { id: string } };
 
@@ -12,14 +17,18 @@ const createLabelSchema = z.object({
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
 });
 
-export async function GET(_req: Request, { params }: Params) {
+export async function GET(req: NextRequest, { params }: Params) {
   return withErrorHandler(async () => {
-    const session = await auth();
-    if (!session) throw new ApiError("Не авторизован", "UNAUTHORIZED", 401);
+    const ctx = await resolveAuth(req);
+    if (!ctx) throw new ApiError("Не авторизован", "UNAUTHORIZED", 401);
+    requireScope(ctx, "tasks:read");
+    requireWorkspace(ctx, params.id);
 
-    const membership = await checkMembership(params.id, session.user.id);
-    if (!membership && session.user.role !== "ADMIN") {
-      throw new ApiError("Нет доступа", "FORBIDDEN", 403);
+    if (ctx.type === "user") {
+      const membership = await checkMembership(params.id, ctx.id);
+      if (!membership && ctx.role !== "ADMIN") {
+        throw new ApiError("Нет доступа", "FORBIDDEN", 403);
+      }
     }
 
     const labels = await db.label.findMany({

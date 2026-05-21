@@ -1,22 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { withErrorHandler, ApiError } from "@/lib/api-error";
 import { db } from "@/lib/db";
 import { checkMembership } from "@/lib/services/workspace.service";
 import { MktMsgDirection, MktDialogueStage } from "@prisma/client";
+import {
+  resolveAuth,
+  requireScope,
+  requireWorkspace,
+} from "@/lib/middleware/resolve-auth";
 
 type Params = { params: Promise<{ id: string }> };
 
 export async function GET(req: NextRequest, { params }: Params) {
   return withErrorHandler(async () => {
-    const session = await auth();
-    if (!session?.user?.id)
-      throw new ApiError("Не авторизован", "UNAUTHORIZED", 401);
+    const ctx = await resolveAuth(req);
+    if (!ctx) throw new ApiError("Не авторизован", "UNAUTHORIZED", 401);
     const { id: workspaceId } = await params;
+    requireScope(ctx, "marketing:analytics");
+    requireWorkspace(ctx, workspaceId);
 
-    const membership = await checkMembership(workspaceId, session.user.id);
-    if (!membership && session.user.role !== "ADMIN")
-      throw new ApiError("Forbidden", "FORBIDDEN", 403);
+    if (ctx.type === "user") {
+      const membership = await checkMembership(workspaceId, ctx.id);
+      if (!membership && ctx.role !== "ADMIN")
+        throw new ApiError("Forbidden", "FORBIDDEN", 403);
+    }
 
     const url = new URL(req.url);
     const projectId = url.searchParams.get("projectId");

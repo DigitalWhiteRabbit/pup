@@ -148,6 +148,7 @@ model Workspace {
   agentConfig         AgentConfig?
   chatChannels        ChatChannel[]
   voiceRooms          VoiceRoom[]
+  serviceAccounts     ServiceAccount[]
   externalUsersConfig ExternalUsersConfig?
 
   // Marketing
@@ -162,6 +163,26 @@ model Workspace {
   mktSettings      MktSetting[]
 
   @@index([ownerId])
+}
+
+// ─────────────────────────────────────────
+// SERVICE ACCOUNTS (M2M API доступ)
+// ─────────────────────────────────────────
+
+model ServiceAccount {
+  id          String    @id @default(cuid())
+  name        String
+  tokenHash   String    @unique // SHA-256 hash of Bearer token
+  scopes      String // JSON array: ["tasks:read","tickets:read",...]
+  allowedIPs  String? // JSON array: ["187.127.88.96"]. null = any IP
+  isActive    Boolean   @default(true)
+  lastUsedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspaceId String
+
+  @@index([workspaceId])
 }
 
 // ─────────────────────────────────────────

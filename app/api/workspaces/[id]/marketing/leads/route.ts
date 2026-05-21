@@ -7,6 +7,11 @@ import {
   createManualLead,
 } from "@/lib/services/marketing/mkt-lead.service";
 import { checkMembership } from "@/lib/services/workspace.service";
+import {
+  resolveAuth,
+  requireScope,
+  requireWorkspace,
+} from "@/lib/middleware/resolve-auth";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -65,14 +70,17 @@ const createLeadSchema = z
 
 export async function GET(req: NextRequest, { params }: Params) {
   return withErrorHandler(async () => {
-    const session = await auth();
-    if (!session?.user?.id)
-      throw new ApiError("Не авторизован", "UNAUTHORIZED", 401);
+    const ctx = await resolveAuth(req);
+    if (!ctx) throw new ApiError("Не авторизован", "UNAUTHORIZED", 401);
     const { id: workspaceId } = await params;
+    requireScope(ctx, "leads:read");
+    requireWorkspace(ctx, workspaceId);
 
-    const membership = await checkMembership(workspaceId, session.user.id);
-    if (!membership && session.user.role !== "ADMIN")
-      throw new ApiError("Forbidden", "FORBIDDEN", 403);
+    if (ctx.type === "user") {
+      const membership = await checkMembership(workspaceId, ctx.id);
+      if (!membership && ctx.role !== "ADMIN")
+        throw new ApiError("Forbidden", "FORBIDDEN", 403);
+    }
 
     const url = req.nextUrl;
     const rawFilters = {

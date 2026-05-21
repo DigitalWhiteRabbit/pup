@@ -6,19 +6,26 @@ import {
   updateWorkspace,
   deleteWorkspace,
 } from "@/lib/services/workspace.service";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import {
+  resolveAuth,
+  requireScope,
+  requireWorkspace,
+} from "@/lib/middleware/resolve-auth";
 
 type Params = { params: { id: string } };
 
-export async function GET(_request: Request, { params }: Params) {
+export async function GET(request: NextRequest, { params }: Params) {
   return withErrorHandler(async () => {
-    const session = await auth();
-    if (!session) throw new ApiError("Не авторизован", "UNAUTHORIZED", 401);
+    const ctx = await resolveAuth(request);
+    if (!ctx) throw new ApiError("Не авторизован", "UNAUTHORIZED", 401);
+    requireScope(ctx, "dashboard:read");
+    requireWorkspace(ctx, params.id);
 
     const workspace = await getWorkspaceById(
       params.id,
-      session.user.id,
-      session.user.role,
+      ctx.id,
+      ctx.role as "ADMIN" | "USER",
     );
     return NextResponse.json(workspace);
   });

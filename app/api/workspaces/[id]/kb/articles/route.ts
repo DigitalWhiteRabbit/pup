@@ -6,22 +6,29 @@ import {
   createArticleSchema,
   listArticlesSchema,
 } from "@/lib/schemas/kb.schema";
+import {
+  resolveAuth,
+  requireScope,
+  requireWorkspace,
+} from "@/lib/middleware/resolve-auth";
 
 export async function GET(
   req: NextRequest,
   { params }: { params: { id: string } },
 ) {
   return withErrorHandler(async () => {
-    const session = await auth();
-    if (!session) throw new ApiError("Не авторизован", "UNAUTHORIZED", 401);
+    const ctx = await resolveAuth(req);
+    if (!ctx) throw new ApiError("Не авторизован", "UNAUTHORIZED", 401);
+    requireScope(ctx, "kb:read");
+    requireWorkspace(ctx, params.id);
 
     const { searchParams } = new URL(req.url);
     const parsed = listArticlesSchema.parse(Object.fromEntries(searchParams));
 
     const result = await listArticles(
       params.id,
-      session.user.id,
-      session.user.role,
+      ctx.id,
+      ctx.role as "ADMIN" | "USER",
       {
         page: parsed.page,
         pageSize: parsed.pageSize,

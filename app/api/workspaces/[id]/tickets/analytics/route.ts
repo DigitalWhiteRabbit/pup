@@ -1,26 +1,35 @@
-import { auth } from "@/lib/auth";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { ApiError } from "@/lib/api-error";
 import { getTicketAnalytics } from "@/lib/services/tickets/analytics.service";
+import {
+  resolveAuth,
+  requireScope,
+  requireWorkspace,
+  ServiceRateLimitError,
+} from "@/lib/middleware/resolve-auth";
 
 export async function GET(
-  _request: Request,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.id)
+    const ctx = await resolveAuth(request);
+    if (!ctx)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const { id: workspaceId } = await params;
+    requireScope(ctx, "tickets:analytics");
+    requireWorkspace(ctx, workspaceId);
+
     const analytics = await getTicketAnalytics(
       workspaceId,
-      session.user.id,
-      session.user.role as "ADMIN" | "USER",
+      ctx.id,
+      ctx.role as "ADMIN" | "USER",
     );
 
     return NextResponse.json(analytics);
   } catch (err) {
+    if (err instanceof ServiceRateLimitError) return err.toResponse();
     if (err instanceof ApiError)
       return NextResponse.json(
         { error: err.message, code: err.code },

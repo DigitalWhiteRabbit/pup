@@ -1,11 +1,17 @@
 import { auth } from "@/lib/auth";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import {
   createTicket,
   listTickets,
 } from "@/lib/services/tickets/ticket.service";
 import { ApiError } from "@/lib/api-error";
 import { z } from "zod";
+import {
+  resolveAuth,
+  requireScope,
+  requireWorkspace,
+  ServiceRateLimitError,
+} from "@/lib/middleware/resolve-auth";
 
 const createSchema = z.object({
   title: z.string().min(1).max(200),
@@ -37,23 +43,26 @@ const listSchema = z.object({
 });
 
 export async function GET(
-  request: Request,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.id)
+    const ctx = await resolveAuth(request);
+    if (!ctx)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const { id: workspaceId } = await params;
+    requireScope(ctx, "tickets:read");
+    requireWorkspace(ctx, workspaceId);
+
     const url = new URL(request.url);
     const raw = Object.fromEntries(url.searchParams);
     const q = listSchema.parse(raw);
 
     const result = await listTickets(
       workspaceId,
-      session.user.id,
-      session.user.role as "ADMIN" | "USER",
+      ctx.id,
+      ctx.role as "ADMIN" | "USER",
       {
         page: q.page,
         pageSize: q.pageSize,
@@ -76,6 +85,7 @@ export async function GET(
 
     return NextResponse.json(result);
   } catch (err) {
+    if (err instanceof ServiceRateLimitError) return err.toResponse();
     if (err instanceof ApiError)
       return NextResponse.json(
         { error: err.message, code: err.code },
