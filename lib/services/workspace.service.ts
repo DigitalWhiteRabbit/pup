@@ -1,14 +1,26 @@
 import "server-only";
 import { db } from "@/lib/db";
 import { ApiError } from "@/lib/api-error";
-import { handleColumnRename } from "./timer.service";
-import { notify } from "./notification.service";
 import {
   logActivity,
   notifyCriticalEvent,
   generateSummary,
 } from "./logger.service";
+import { checkMembership } from "./member.service";
 import type { MemberRole } from "@prisma/client";
+
+// ─── Re-exports for backward compatibility ───────────────────────────────────
+// Consumers can keep importing from workspace.service without changes.
+
+export { checkMembership } from "./member.service";
+export type { MembershipRole } from "./member.service";
+export { addMember, removeMember } from "./member.service";
+export {
+  createColumn,
+  renameColumn,
+  reorderColumn,
+  deleteColumn,
+} from "./column.service";
 
 // ─── Slug generation ─────────────────────────────────────────────────────────
 
@@ -87,22 +99,6 @@ export type WorkspaceBoard = {
     }>;
   }>;
 };
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-export type MembershipRole = "OWNER" | "MEMBER" | null;
-
-export async function checkMembership(
-  workspaceId: string,
-  userId: string,
-): Promise<MembershipRole> {
-  const membership = await db.workspaceMember.findUnique({
-    where: { workspaceId_userId: { workspaceId, userId } },
-    select: { role: true },
-  });
-  if (!membership) return null;
-  return membership.role;
-}
 
 // ─── createWorkspace ──────────────────────────────────────────────────────────
 
@@ -391,356 +387,6 @@ export async function deleteWorkspace(
     workspaceName,
     actorLogin: userId,
   });
-}
-
-// ─── addMember ────────────────────────────────────────────────────────────────
-
-export async function addMember(
-  workspaceId: string,
-  loginOrEmail: string,
-  requesterId: string,
-): Promise<{ userId: string; login: string; email: string; role: MemberRole }> {
-  const membership = await checkMembership(workspaceId, requesterId);
-  if (membership !== "OWNER") {
-    throw new ApiError(
-      "Только владелец может добавлять участников",
-      "FORBIDDEN",
-      403,
-    );
-  }
-
-  const user = await db.user.findFirst({
-    where: { OR: [{ login: loginOrEmail }, { email: loginOrEmail }] },
-    select: { id: true, login: true, email: true, isActive: true },
-  });
-
-  if (!user) {
-    throw new ApiError("Пользователь не найден", "USER_NOT_FOUND", 404);
-  }
-
-  if (!user.isActive) {
-    throw new ApiError(
-      "Нельзя добавить деактивированного пользователя",
-      "USER_INACTIVE",
-      400,
-    );
-  }
-
-  const existing = await db.workspaceMember.findUnique({
-    where: { workspaceId_userId: { workspaceId, userId: user.id } },
-  });
-
-  if (existing) {
-    throw new ApiError(
-      "Пользователь уже является участником",
-      "ALREADY_MEMBER",
-      409,
-    );
-  }
-
-  await db.workspaceMember.create({
-    data: { workspaceId, userId: user.id, role: "MEMBER" },
-  });
-
-  // Auto-add to General chat channel
-  void import("./chat-internal/channel.service")
-    .then(({ addUserToGeneralChannel }) =>
-      addUserToGeneralChannel(workspaceId, user.id),
-    )
-    .catch(() => {});
-
-  await notify({
-    type: "PROJECT_ADDED",
-    recipientId: user.id,
-    actorId: requesterId,
-    workspaceId,
-  });
-
-  const requester = await db.user.findUnique({
-    where: { id: requesterId },
-    select: { login: true },
-  });
-
-  await logActivity({
-    workspaceId,
-    actorId: requesterId,
-    action: "MEMBER_ADDED",
-    entityType: "User",
-    entityId: user.id,
-    summary: generateSummary("MEMBER_ADDED", {
-      actorLogin: requester?.login,
-      targetLogin: user.login,
-    }),
-    metadata: { targetUserId: user.id, targetLogin: user.login },
-  });
-
-  return {
-    userId: user.id,
-    login: user.login,
-    email: user.email,
-    role: "MEMBER",
-  };
-}
-
-// ─── removeMember ─────────────────────────────────────────────────────────────
-
-export async function removeMember(
-  workspaceId: string,
-  targetUserId: string,
-  requesterId: string,
-): Promise<void> {
-  const requesterMembership = await checkMembership(workspaceId, requesterId);
-  if (requesterMembership !== "OWNER") {
-    throw new ApiError(
-      "Только владелец может удалять участников",
-      "FORBIDDEN",
-      403,
-    );
-  }
-
-  const targetMembership = await db.workspaceMember.findUnique({
-    where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
-    select: { role: true },
-  });
-
-  if (!targetMembership) {
-    throw new ApiError("Участник не найден", "MEMBER_NOT_FOUND", 404);
-  }
-
-  if (targetMembership.role === "OWNER") {
-    throw new ApiError(
-      "Нельзя удалить владельца workspace. Сначала передайте права или удалите workspace.",
-      "CANNOT_REMOVE_OWNER",
-      400,
-    );
-  }
-
-  // Clean up task assignments for this user in this workspace before removing membership
-  await db.taskAssignee.deleteMany({
-    where: {
-      userId: targetUserId,
-      task: { workspaceId },
-    },
-  });
-
-  await db.workspaceMember.delete({
-    where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
-  });
-
-  const [requester, targetUser, workspace] = await Promise.all([
-    db.user.findUnique({ where: { id: requesterId }, select: { login: true } }),
-    db.user.findUnique({
-      where: { id: targetUserId },
-      select: { login: true },
-    }),
-    db.workspace.findUnique({
-      where: { id: workspaceId },
-      select: { name: true },
-    }),
-  ]);
-
-  await logActivity({
-    workspaceId,
-    actorId: requesterId,
-    action: "MEMBER_REMOVED",
-    entityType: "User",
-    entityId: targetUserId,
-    summary: generateSummary("MEMBER_REMOVED", {
-      actorLogin: requester?.login,
-      targetLogin: targetUser?.login,
-    }),
-    metadata: { targetUserId, targetLogin: targetUser?.login },
-  });
-
-  void notifyCriticalEvent({
-    action: "MEMBER_REMOVED",
-    removedUserId: targetUserId,
-    workspaceName: workspace?.name ?? "?",
-    actorLogin: requester?.login ?? requesterId,
-  });
-}
-
-// ─── Column service ────────────────────────────────────────────────────────────
-
-export async function createColumn(input: {
-  workspaceId: string;
-  name: string;
-  requesterId: string;
-  requesterRole: "ADMIN" | "USER";
-}): Promise<{ id: string; name: string; position: number }> {
-  const membership = await checkMembership(
-    input.workspaceId,
-    input.requesterId,
-  );
-  if (!membership && input.requesterRole !== "ADMIN") {
-    throw new ApiError("Нет доступа к workspace", "FORBIDDEN", 403);
-  }
-
-  const maxCol = await db.column.findFirst({
-    where: { workspaceId: input.workspaceId },
-    orderBy: { position: "desc" },
-    select: { position: true },
-  });
-  const position = maxCol ? maxCol.position + 1 : 0;
-
-  const column = await db.column.create({
-    data: { workspaceId: input.workspaceId, name: input.name, position },
-    select: { id: true, name: true, position: true },
-  });
-
-  const actor = await db.user.findUnique({
-    where: { id: input.requesterId },
-    select: { login: true },
-  });
-
-  await logActivity({
-    workspaceId: input.workspaceId,
-    actorId: input.requesterId,
-    action: "COLUMN_CREATED",
-    entityType: "Column",
-    entityId: column.id,
-    columnId: column.id,
-    summary: generateSummary("COLUMN_CREATED", {
-      actorLogin: actor?.login,
-      columnName: input.name,
-    }),
-    metadata: { columnName: input.name, position },
-  });
-
-  return column;
-}
-
-export async function renameColumn(
-  columnId: string,
-  newName: string,
-  requesterId: string,
-  requesterRole: "ADMIN" | "USER",
-): Promise<{ id: string; name: string }> {
-  const columnCheck = await db.column.findUnique({
-    where: { id: columnId },
-    select: { workspaceId: true },
-  });
-  if (!columnCheck) throw new ApiError("Колонка не найдена", "NOT_FOUND", 404);
-
-  const membership = await checkMembership(
-    columnCheck.workspaceId,
-    requesterId,
-  );
-  if (!membership && requesterRole !== "ADMIN") {
-    throw new ApiError("Нет доступа", "FORBIDDEN", 403);
-  }
-
-  const { result: renamed, oldName } = await db.$transaction(async (tx) => {
-    const column = await tx.column.findUnique({ where: { id: columnId } });
-    if (!column) throw new ApiError("Колонка не найдена", "NOT_FOUND", 404);
-
-    const capturedOldName = column.name;
-
-    await tx.column.update({
-      where: { id: columnId },
-      data: { name: newName },
-    });
-
-    await handleColumnRename(tx, columnId, capturedOldName, newName);
-
-    return {
-      result: { id: columnId, name: newName },
-      oldName: capturedOldName,
-    };
-  });
-
-  const actor = await db.user.findUnique({
-    where: { id: requesterId },
-    select: { login: true },
-  });
-
-  await logActivity({
-    workspaceId: columnCheck.workspaceId,
-    actorId: requesterId,
-    action: "COLUMN_RENAMED",
-    entityType: "Column",
-    entityId: columnId,
-    columnId,
-    summary: generateSummary("COLUMN_RENAMED", {
-      actorLogin: actor?.login,
-      columnNameOld: oldName,
-      columnName: newName,
-    }),
-    metadata: { columnId, oldName, newName },
-  });
-
-  return renamed;
-}
-
-export async function deleteColumn(
-  columnId: string,
-  requesterId: string,
-  requesterRole: "ADMIN" | "USER",
-): Promise<void> {
-  const column = await db.column.findUnique({
-    where: { id: columnId },
-    include: { _count: { select: { tasks: true } } },
-  });
-  if (!column) throw new ApiError("Колонка не найдена", "NOT_FOUND", 404);
-
-  const membership = await checkMembership(column.workspaceId, requesterId);
-  if (!membership && requesterRole !== "ADMIN") {
-    throw new ApiError("Нет доступа", "FORBIDDEN", 403);
-  }
-
-  if (column._count.tasks > 0) {
-    throw new ApiError(
-      "Нельзя удалить колонку с задачами. Сначала переместите все задачи.",
-      "COLUMN_HAS_TASKS",
-      400,
-    );
-  }
-
-  const actor = await db.user.findUnique({
-    where: { id: requesterId },
-    select: { login: true },
-  });
-
-  await logActivity({
-    workspaceId: column.workspaceId,
-    actorId: requesterId,
-    action: "COLUMN_DELETED",
-    entityType: "Column",
-    entityId: columnId,
-    columnId,
-    summary: generateSummary("COLUMN_DELETED", {
-      actorLogin: actor?.login,
-      columnName: column.name,
-    }),
-    metadata: { columnId, columnName: column.name },
-  });
-
-  await db.column.delete({ where: { id: columnId } });
-}
-
-export async function reorderColumn(
-  columnId: string,
-  newPosition: number,
-  requesterId: string,
-  requesterRole: "ADMIN" | "USER",
-): Promise<{ id: string; position: number }> {
-  const column = await db.column.findUnique({
-    where: { id: columnId },
-    select: { workspaceId: true },
-  });
-  if (!column) throw new ApiError("Колонка не найдена", "NOT_FOUND", 404);
-
-  const membership = await checkMembership(column.workspaceId, requesterId);
-  if (!membership && requesterRole !== "ADMIN") {
-    throw new ApiError("Нет доступа", "FORBIDDEN", 403);
-  }
-
-  await db.column.update({
-    where: { id: columnId },
-    data: { position: newPosition },
-  });
-
-  return { id: columnId, position: newPosition };
 }
 
 // ─── Module service ───────────────────────────────────────────────────────────

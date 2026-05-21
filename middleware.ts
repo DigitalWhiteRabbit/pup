@@ -1,8 +1,27 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { checkAuthRateLimit } from "@/lib/services/auth/rate-limit";
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  // Rate limit auth credential login attempts
+  if (pathname === "/api/auth/callback/credentials") {
+    const ip =
+      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+      request.headers.get("x-real-ip") ||
+      "unknown";
+    const { allowed, retryAfter } = checkAuthRateLimit(ip);
+    if (!allowed) {
+      return NextResponse.json(
+        { error: "Too many login attempts. Please try again later." },
+        {
+          status: 429,
+          headers: { "Retry-After": String(retryAfter) },
+        },
+      );
+    }
+  }
 
   // Handle CORS for public chat API — dynamic origin instead of wildcard
   if (pathname.startsWith("/api/chat/")) {
@@ -36,9 +55,21 @@ export function middleware(request: NextRequest) {
     const response = NextResponse.next();
     const embed = request.nextUrl.searchParams.get("embed");
     if (embed === "1") {
-      // Allow framing from any origin (workspace-specific checks happen at API level)
       response.headers.delete("X-Frame-Options");
-      response.headers.set("Content-Security-Policy", "frame-ancestors *");
+      const origin =
+        request.headers.get("origin") || request.headers.get("referer");
+      let frameAncestor = "'self'";
+      if (origin) {
+        try {
+          frameAncestor = new URL(origin).origin;
+        } catch {
+          // Malformed origin/referer — fall back to self only
+        }
+      }
+      response.headers.set(
+        "Content-Security-Policy",
+        `frame-ancestors 'self' ${frameAncestor}`,
+      );
     }
     return response;
   }
@@ -47,5 +78,9 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/api/chat/:path*", "/chat/:path*"],
+  matcher: [
+    "/api/auth/callback/credentials",
+    "/api/chat/:path*",
+    "/chat/:path*",
+  ],
 };

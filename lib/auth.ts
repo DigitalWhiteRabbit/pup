@@ -11,6 +11,54 @@ interface AppJWT extends JWT {
   role: "ADMIN" | "USER";
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// In-memory cache for user isActive/role checks (60s TTL)
+// Reduces DB queries from 1-per-request to 1-per-minute-per-user
+// ═══════════════════════════════════════════════════════════════════════════
+
+interface UserCacheEntry {
+  isActive: boolean;
+  role: "ADMIN" | "USER";
+  expiresAt: number;
+}
+
+const userActiveCache = new Map<string, UserCacheEntry>();
+const CACHE_TTL = 60_000; // 60 seconds
+const CACHE_CLEANUP_INTERVAL = 5 * 60_000; // 5 minutes
+
+function getCachedUser(
+  userId: string,
+): { isActive: boolean; role: "ADMIN" | "USER" } | null {
+  const entry = userActiveCache.get(userId);
+  if (!entry || Date.now() > entry.expiresAt) {
+    if (entry) userActiveCache.delete(userId);
+    return null;
+  }
+  return { isActive: entry.isActive, role: entry.role };
+}
+
+function setCachedUser(
+  userId: string,
+  isActive: boolean,
+  role: "ADMIN" | "USER",
+): void {
+  userActiveCache.set(userId, {
+    isActive,
+    role,
+    expiresAt: Date.now() + CACHE_TTL,
+  });
+}
+
+// Periodic cleanup to prevent unbounded memory growth
+setInterval(() => {
+  const now = Date.now();
+  userActiveCache.forEach((entry, key) => {
+    if (now > entry.expiresAt) {
+      userActiveCache.delete(key);
+    }
+  });
+}, CACHE_CLEANUP_INTERVAL).unref();
+
 export const { auth, handlers, signIn, signOut } = NextAuth({
   trustHost: true,
   session: { strategy: "jwt" },
@@ -82,17 +130,26 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
       }
 
       // On every request: re-check isActive from DB (FR-004a)
+      // Uses in-memory cache (60s TTL) to avoid DB query on every request
       if (!appToken.id && token.sub) appToken.id = token.sub;
       const userId = appToken.id;
       if (userId) {
-        const dbUser = await db.user.findUnique({
-          where: { id: userId },
-          select: { isActive: true, role: true },
-        });
-        if (!dbUser || !dbUser.isActive) {
-          return null;
+        const cached = getCachedUser(userId);
+        if (cached) {
+          if (!cached.isActive) return null;
+          appToken.role = cached.role;
+        } else {
+          const dbUser = await db.user.findUnique({
+            where: { id: userId },
+            select: { isActive: true, role: true },
+          });
+          if (!dbUser || !dbUser.isActive) {
+            setCachedUser(userId, false, "USER");
+            return null;
+          }
+          setCachedUser(userId, true, dbUser.role);
+          appToken.role = dbUser.role;
         }
-        appToken.role = dbUser.role;
       }
 
       return appToken as AppJWT;

@@ -4,17 +4,31 @@ import { auth } from "@/lib/auth";
 import { withErrorHandler, ApiError } from "@/lib/api-error";
 import { db } from "@/lib/db";
 import { checkMembership } from "@/lib/services/workspace.service";
+import {
+  decryptConfig,
+  encryptConfigFields,
+} from "@/lib/services/crypto.service";
 
 type Params = { params: Promise<{ id: string }> };
 
 /**
  * Allowed fields for PATCH /config.
- * NEVER include: id, workspaceId, createdAt, updatedAt,
- * anthropicApiKey, apifyToken, resendApiKey, imapPass,
- * youtubeApiKey, tgApiHash, tgSession, adminBotToken.
+ * Sensitive fields (API keys, tokens, passwords) are accepted here
+ * and encrypted before storage by encryptConfigFields().
+ * NEVER include: id, workspaceId, createdAt, updatedAt.
  */
 const configPatchSchema = z
   .object({
+    // Sensitive fields — encrypted at rest via AES-256-GCM
+    anthropicApiKey: z.string().max(500).nullish(),
+    apifyToken: z.string().max(500).nullish(),
+    resendApiKey: z.string().max(500).nullish(),
+    imapPass: z.string().max(500).nullish(),
+    youtubeApiKey: z.string().max(500).nullish(),
+    tgApiHash: z.string().max(500).nullish(),
+    tgSession: z.string().max(10000).nullish(),
+    adminBotToken: z.string().max(500).nullish(),
+
     // AI models
     claudeModel: z.string().max(100).optional(),
     claudeModelSummary: z.string().max(100).optional(),
@@ -80,7 +94,8 @@ export async function GET(req: NextRequest, { params }: Params) {
       config = await db.mktConfig.create({ data: { workspaceId } });
     }
 
-    return NextResponse.json(config);
+    // Decrypt sensitive fields before sending to client
+    return NextResponse.json(decryptConfig(config));
   });
 }
 
@@ -112,11 +127,15 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       update: {},
     });
 
+    // Encrypt sensitive fields before writing to DB
+    const data = encryptConfigFields(parsed.data as Record<string, unknown>);
+
     const config = await db.mktConfig.update({
       where: { workspaceId },
-      data: parsed.data,
+      data,
     });
 
-    return NextResponse.json(config);
+    // Decrypt before returning so the client sees plaintext
+    return NextResponse.json(decryptConfig(config));
   });
 }
