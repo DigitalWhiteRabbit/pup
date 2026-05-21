@@ -39,10 +39,10 @@ function sha256(s) {
 }
 
 // Фоновая индексация (не блокируем ответ)
-function indexInBackground(docId) {
+function indexInBackground(docId, wsStmts) {
   setImmediate(async () => {
     try {
-      await kn.indexDocument(docId);
+      await kn.indexDocument(docId, wsStmts);
       console.log(`[knowledge] indexed doc #${docId}`);
     } catch (e) {
       console.error(`[knowledge] index fail doc #${docId}:`, e.message);
@@ -116,7 +116,7 @@ router.post("/text", express.json({ limit: "10mb" }), (req, res) => {
       created_at: now,
       updated_at: now,
     });
-    indexInBackground(info.lastInsertRowid);
+    indexInBackground(info.lastInsertRowid, req.stmts);
     res.json({ success: true, id: info.lastInsertRowid });
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
@@ -218,7 +218,7 @@ router.post("/upload", upload.single("file"), async (req, res) => {
       created_at: now,
       updated_at: now,
     });
-    indexInBackground(info.lastInsertRowid);
+    indexInBackground(info.lastInsertRowid, req.stmts);
     res.json({
       success: true,
       id: info.lastInsertRowid,
@@ -263,7 +263,7 @@ router.post("/:id/reindex", express.json(), async (req, res, next) => {
       }
     });
   } else {
-    indexInBackground(id);
+    indexInBackground(id, req.stmts);
   }
   res.json({ success: true });
 });
@@ -381,7 +381,7 @@ router.post("/crawl", express.json(), async (req, res) => {
             });
             crawlJob.createdDocIds.push(info.lastInsertRowid);
             crawlJob.processed++;
-            indexInBackground(info.lastInsertRowid);
+            indexInBackground(info.lastInsertRowid, req.stmts);
           } catch (e) {
             crawlJob.failed++;
             pushCrawlLog({ stage: "db-error", url: p.url, error: e.message });

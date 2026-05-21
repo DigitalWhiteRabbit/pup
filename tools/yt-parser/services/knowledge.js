@@ -311,11 +311,12 @@ function loadChunksForProject(projectId) {
 }
 
 // ─── Индексация документа ─────────────────────────────────────────
-async function indexDocument(docId) {
-  const doc = stmts.getKnowledgeDoc.get(docId);
+async function indexDocument(docId, wsStmts = null) {
+  const s = wsStmts || stmts;
+  const doc = s.getKnowledgeDoc.get(docId);
   if (!doc) throw new Error(`doc ${docId} not found`);
   const now = new Date().toISOString();
-  stmts.setKnowledgeDocStatus.run("indexing", null, now, docId);
+  s.setKnowledgeDocStatus.run("indexing", null, now, docId);
   try {
     const text = String(doc.content || "").trim();
     if (!text) throw new Error("пустой контент");
@@ -323,7 +324,7 @@ async function indexDocument(docId) {
     if (chunks.length === 0) throw new Error("нет чанков после разбиения");
 
     // удалить старые чанки
-    stmts.deleteChunksByDoc.run(docId);
+    s.deleteChunksByDoc.run(docId);
 
     // батчами эмбеддим и пишем
     for (let i = 0; i < chunks.length; i += EMBED_BATCH) {
@@ -331,7 +332,7 @@ async function indexDocument(docId) {
       const embs = await embed(slice, "passage: ");
       const ts = new Date().toISOString();
       for (let j = 0; j < slice.length; j++) {
-        stmts.insertKnowledgeChunk.run({
+        s.insertKnowledgeChunk.run({
           doc_id: docId,
           position: i + j,
           chunk_text: slice[j],
@@ -342,7 +343,7 @@ async function indexDocument(docId) {
       }
     }
 
-    stmts.setKnowledgeDocChunks.run(
+    s.setKnowledgeDocChunks.run(
       chunks.length,
       "indexed",
       new Date().toISOString(),
@@ -351,7 +352,7 @@ async function indexDocument(docId) {
     invalidateCache();
     return { chunks: chunks.length };
   } catch (e) {
-    stmts.setKnowledgeDocStatus.run(
+    s.setKnowledgeDocStatus.run(
       "failed",
       String(e.message || e).slice(0, 500),
       new Date().toISOString(),
