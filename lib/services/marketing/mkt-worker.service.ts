@@ -15,6 +15,7 @@ import {
   qualifyLead,
   generateReply,
   generateFollowUp,
+  generateContentSummary,
   type PitchResult,
 } from "./mkt-ai.service";
 import {
@@ -389,6 +390,28 @@ async function processOutreachQueue(workspaceId: string): Promise<void> {
     }
 
     log("info", `Processing lead: ${lead.channelName} (${lead.id})`);
+
+    // 3b. Generate content summary if missing (gives AI full context about the lead)
+    if (!lead.contentSummary) {
+      try {
+        log("info", `Generating content summary for ${lead.channelName}...`);
+        const summary = await generateContentSummary(workspaceId, lead);
+        if (summary) {
+          await db.mktLead.update({
+            where: { id: lead.id },
+            data: { contentSummary: summary },
+          });
+          lead.contentSummary = summary;
+          log("info", `Content summary generated for ${lead.channelName}`);
+        }
+      } catch (err) {
+        log(
+          "warn",
+          `Summary generation failed for ${lead.channelName}: ${(err as Error).message}`,
+        );
+        // Continue without summary — not blocking
+      }
+    }
 
     // 4. Determine channel
     const channel = pickChannel(lead);
@@ -1919,6 +1942,28 @@ export async function runLeadNow(
   if (lead.leadScore == null) {
     log("info", `Scoring lead ${leadId} before outreach`);
     await scoreLead(workspaceId, leadId);
+  }
+
+  // Generate content summary if missing
+  if (!lead.contentSummary) {
+    try {
+      log("info", `Generating content summary for ${lead.channelName}...`);
+      const summary = await generateContentSummary(workspaceId, lead);
+      if (summary) {
+        await db.mktLead.update({
+          where: { id: lead.id },
+          data: { contentSummary: summary },
+        });
+        lead.contentSummary = summary;
+        log("info", `Content summary generated for ${lead.channelName}`);
+      }
+    } catch (err) {
+      log(
+        "warn",
+        `Summary generation failed for ${lead.channelName}: ${(err as Error).message}`,
+      );
+      // Continue without summary — not blocking
+    }
   }
 
   // Determine channel
