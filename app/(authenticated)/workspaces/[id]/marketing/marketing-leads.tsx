@@ -8,9 +8,7 @@ import { ru } from "date-fns/locale";
 import {
   Search,
   Users,
-  Send,
   Plus,
-  Trash2,
   ExternalLink,
   Mail,
   X,
@@ -268,15 +266,61 @@ export function LeadsSection({ workspaceId }: MarketingSectionProps) {
             <div className="flex items-center gap-2 mb-3 p-2.5 bg-emerald-500/5 border border-emerald-500/20 rounded-lg text-xs">
               <span className="font-medium">Выбрано: {selectedIds.size}</span>
               <div className="flex-1" />
-              <Button size="sm" variant="outline" className="h-7 text-xs">
-                <Send className="h-3 w-3 mr-1" /> В кампанию
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs"
+                onClick={() => {
+                  selectedIds.forEach((id) =>
+                    updateLeadMutation.mutate({
+                      leadId: id,
+                      data: { leadStatus: "IN_WORK" },
+                    }),
+                  );
+                  setSelectedIds(new Set());
+                }}
+              >
+                → В работу
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs"
+                onClick={() => {
+                  selectedIds.forEach((id) =>
+                    updateLeadMutation.mutate({
+                      leadId: id,
+                      data: { dialogueStage: "NOT_CONTACTED" },
+                    }),
+                  );
+                  setSelectedIds(new Set());
+                }}
+              >
+                ↺ Сбросить стадию
               </Button>
               <Button
                 size="sm"
                 variant="outline"
                 className="h-7 text-xs text-red-500 hover:text-red-400"
+                onClick={() => {
+                  selectedIds.forEach((id) =>
+                    updateLeadMutation.mutate({
+                      leadId: id,
+                      data: { leadStatus: "REJECTED" },
+                    }),
+                  );
+                  setSelectedIds(new Set());
+                }}
               >
-                <Trash2 className="h-3 w-3 mr-1" /> Отклонить
+                <X className="h-3 w-3 mr-1" /> Отклонить
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 text-xs"
+                onClick={() => setSelectedIds(new Set())}
+              >
+                Сброс
               </Button>
             </div>
           )}
