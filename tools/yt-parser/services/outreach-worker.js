@@ -342,9 +342,11 @@ async function _processPickedLead(lead, project, counts) {
       stmts.lockLead.run(Date.now() + LOCK_DURATION_ERR_MS, lead.id);
       return;
     } else {
-      log("WARN", `Lead #${lead.id} has no usable contacts, marking lost`);
-      stmts.updateLeadStage.run("lost", new Date().toISOString(), lead.id);
-      stmts.unlockLead.run(lead.id);
+      log(
+        "WARN",
+        `Lead #${lead.id} has no usable contacts — skipping (not rejecting)`,
+      );
+      stmts.lockLead.run(Date.now() + LOCK_DURATION_ERR_MS, lead.id);
       return;
     }
 
@@ -358,18 +360,10 @@ async function _processPickedLead(lead, project, counts) {
     let pitchAngle = null;
     try {
       const qual = await ai.qualifyLead(lead, project);
-      if (!qual.suitable) {
-        log(
-          "INFO",
-          `Lead #${lead.id} disqualified by fit-gate: ${qual.reason}`,
-        );
-        const now2 = new Date().toISOString();
-        db.prepare(
-          `UPDATE leads SET lead_status = 'unfit', dialogue_stage = 'disqualified', locked_until = NULL, notes = COALESCE(notes,'') || ? , updated_at = ? WHERE id = ?`,
-        ).run(`\n[fit-gate ${now2}] ${qual.reason}`, now2, lead.id);
-        workerState.stats.skipped = (workerState.stats.skipped || 0) + 1;
-        return;
-      }
+      log(
+        "INFO",
+        `Lead #${lead.id} fit-gate: suitable=${qual.suitable}, angle=${qual.angle}, reason=${qual.reason}`,
+      );
       pitchAngle = qual.angle || null;
     } catch (e) {
       log(
