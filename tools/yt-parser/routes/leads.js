@@ -72,9 +72,9 @@ router.get("/:id", (req, res) => {
   res.json({ success: true, lead });
 });
 
-// PATCH /api/leads/:id  { lead_status?, notes? }
+// PATCH /api/leads/:id  { lead_status?, dialogue_stage?, notes? }
 router.patch("/:id", (req, res) => {
-  const { lead_status, notes } = req.body;
+  const { lead_status, dialogue_stage, notes } = req.body;
   const id = parseInt(req.params.id, 10);
   const now = new Date().toISOString();
 
@@ -85,6 +85,14 @@ router.patch("/:id", (req, res) => {
         .json({ success: false, error: "invalid lead_status" });
     }
     req.stmts.updateLeadStatus.run(lead_status, now, id);
+  }
+  if (dialogue_stage !== undefined) {
+    if (!VALID_DIALOGUE_STAGES.includes(dialogue_stage)) {
+      return res
+        .status(400)
+        .json({ success: false, error: "invalid dialogue_stage" });
+    }
+    req.stmts.updateLeadStage.run(dialogue_stage, now, id);
   }
   if (notes !== undefined) {
     req.stmts.updateLeadNotes.run(notes, now, id);

@@ -197,6 +197,47 @@ body.sb-collapsed .sidebar-toggle .chev { transform:rotate(180deg); }
 .dialogue-stage-pill.info .dot-pulse,
 .dialogue-stage-pill.accent .dot-pulse { animation:pulse 1.6s infinite; }
 
+/* ─── Lead dropdown selectors ────────────────────────── */
+.lead-status-select, .dialogue-stage-select {
+  background: var(--card);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+  transition: border-color .15s;
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23888' fill='none' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  padding-right: 22px;
+  max-width: 140px;
+}
+.lead-status-select:hover, .dialogue-stage-select:hover { border-color: var(--accent); }
+.lead-status-select:focus, .dialogue-stage-select:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(255,107,53,0.15); }
+.lead-status-select option, .dialogue-stage-select option {
+  background: var(--bg);
+  color: var(--text);
+  padding: 4px 8px;
+}
+/* Status-colored selects */
+.lead-status-select.s-pending { border-color: #2a3540; color: var(--text-mid); }
+.lead-status-select.s-ready { border-color: var(--accent); color: var(--accent); }
+.lead-status-select.s-in_work { border-color: var(--blue); color: var(--blue); }
+.lead-status-select.s-done { border-color: var(--green); color: var(--green); }
+.lead-status-select.s-rejected { border-color: var(--red); color: var(--red); }
+/* Stage-colored selects */
+.dialogue-stage-select.k-neutral { border-color: var(--border); color: var(--text-dim); }
+.dialogue-stage-select.k-info { border-color: rgba(59,130,246,0.5); color: var(--blue); }
+.dialogue-stage-select.k-accent { border-color: rgba(255,107,53,0.5); color: var(--accent); }
+.dialogue-stage-select.k-warn { border-color: rgba(251,191,36,0.5); color: var(--yellow); }
+.dialogue-stage-select.k-success { border-color: rgba(74,222,128,0.5); color: var(--green); }
+.dialogue-stage-select.k-danger { border-color: rgba(239,68,68,0.5); color: var(--red); }
+
 /* ─── Dialogues / chat ────────────────────────────── */
 .dlg-layout { display:grid; grid-template-columns:340px 1fr; gap:16px; height:calc(100vh - 200px); }
 @media(max-width:1100px) { .dlg-layout { grid-template-columns:1fr; height:auto; } }
@@ -4734,14 +4775,23 @@ function renderLeadsTable() {
     tdContacts.innerHTML = '<div class="contact-icons">' + buildContactIcons(contactRow) + '</div>';
     tr.appendChild(tdContacts);
 
-    // Lead status
+    // Lead status (dropdown)
     const tdStatus = document.createElement('td');
-    tdStatus.innerHTML = `<span class="lead-status-pill ${lead.lead_status}">${LEAD_STATUS_LABELS[lead.lead_status] || lead.lead_status}</span>`;
+    const curStatus = lead.lead_status || 'pending';
+    const statusOpts = Object.entries(LEAD_STATUS_LABELS).map(([k,v]) =>
+      `<option value="${k}"${k===curStatus?' selected':''}>${v}</option>`
+    ).join('');
+    tdStatus.innerHTML = `<select class="lead-status-select s-${curStatus}" data-lead-id="${lead.id}" onchange="updateLeadField(this,'lead_status')">${statusOpts}</select>`;
     tr.appendChild(tdStatus);
 
-    // Dialogue stage
+    // Dialogue stage (dropdown)
     const tdStage = document.createElement('td');
-    tdStage.innerHTML = `<span class="dialogue-stage-pill ${DIALOGUE_STAGE_KINDS[lead.dialogue_stage]||'neutral'}">${DIALOGUE_STAGE_LABELS[lead.dialogue_stage] || lead.dialogue_stage}</span>`;
+    const curStage = lead.dialogue_stage || 'not_contacted';
+    const stageKind = DIALOGUE_STAGE_KINDS[curStage] || 'neutral';
+    const stageOpts = Object.entries(DIALOGUE_STAGE_LABELS).map(([k,v]) =>
+      `<option value="${k}"${k===curStage?' selected':''}>${v}</option>`
+    ).join('');
+    tdStage.innerHTML = `<select class="dialogue-stage-select k-${stageKind}" data-lead-id="${lead.id}" onchange="updateLeadField(this,'dialogue_stage')">${stageOpts}</select>`;
     tr.appendChild(tdStage);
 
     // Summary
@@ -4782,6 +4832,33 @@ async function setLeadStatus(id, status) {
     await fetch('/api/leads/' + id, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({lead_status:status}) });
     loadLeads();
   } catch(e) { toast('Ошибка: '+e.message,'error'); }
+}
+
+async function updateLeadField(selectEl, field) {
+  const leadId = selectEl.dataset.leadId;
+  const value = selectEl.value;
+  try {
+    const res = await fetch('/api/leads/' + leadId, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ [field]: value })
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    // Update local data to avoid full reload flicker
+    const lead = leadsData.find(l => l.id == leadId);
+    if (lead) lead[field] = value;
+    // Re-apply color class on the select
+    if (field === 'lead_status') {
+      selectEl.className = 'lead-status-select s-' + value;
+    } else if (field === 'dialogue_stage') {
+      const kind = DIALOGUE_STAGE_KINDS[value] || 'neutral';
+      selectEl.className = 'dialogue-stage-select k-' + kind;
+    }
+    toast('Обновлено', 'success');
+  } catch(err) {
+    toast('Ошибка: ' + err.message, 'error');
+    loadLeads(); // reload to revert
+  }
 }
 
 function openLeadDialog(leadId) {
