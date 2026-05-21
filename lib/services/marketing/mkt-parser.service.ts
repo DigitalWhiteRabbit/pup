@@ -3,9 +3,8 @@ import "server-only";
 
 import { db } from "@/lib/db";
 
-// NOTE: googleapis package must be installed: pnpm add googleapis
-// It was in the standalone parser's package.json but not yet in PUP's.
-// import { google } from "googleapis";
+// googleapis lives in tools/yt-parser/ (standalone Express app).
+// On the server it's available via require() since both apps share node_modules.
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -702,15 +701,17 @@ export async function runYouTubeParser(
     );
   }
 
-  // NOTE: googleapis must be installed: pnpm add googleapis
-  // Lazy import to avoid build errors if not yet installed
+  // googleapis lives in tools/yt-parser (standalone process), not in main PUP deps.
+  // Use require() with dynamic string to prevent webpack from bundling it.
   let google: any;
   try {
-    const mod = await import("googleapis");
+    const pkgName = "googleapis";
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mod = require(pkgName);
     google = mod.google;
   } catch {
     throw new Error(
-      "googleapis package not installed. Run: pnpm add googleapis",
+      "googleapis package not available on this server. Install in tools/yt-parser or add to main deps.",
     );
   }
 

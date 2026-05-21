@@ -3921,9 +3921,14 @@ async function loadPresets(){
       pill.querySelector('.x').onclick=async(e)=>{
         e.stopPropagation();
         if(!await confirmDialog('Удалить пресет?', p.name)) return;
-        await fetch('/api/presets/'+encodeURIComponent(p.name),{method:'DELETE'});
-        toast('Пресет удалён','info');
-        loadPresets();
+        try{
+          const res=await fetch('/api/presets/'+encodeURIComponent(p.name),{method:'DELETE'});
+          if(!res.ok) throw new Error('HTTP '+res.status);
+          toast('Пресет удалён','info');
+          loadPresets();
+        }catch(err){
+          toast('Ошибка удаления: '+err.message,'error');
+        }
       };
       bar.appendChild(pill);
     });
