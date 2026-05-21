@@ -840,7 +840,12 @@ model KbFile {
   originalName String
   size         Int // bytes
   mimeType     String
-  storagePath  String
+  storagePath     String
+
+  // Auto-extracted document content
+  extractedText   String?
+  extractedAt     DateTime?
+  extractionError String?
 
   uploadedAt DateTime @default(now())
 
@@ -1283,6 +1288,7 @@ model AgentConfig {
   autoResolve      Boolean @default(false)
   autoFaq          Boolean @default(false)
   autoContactNotes Boolean @default(false)
+  useKnowledgeBase Boolean @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

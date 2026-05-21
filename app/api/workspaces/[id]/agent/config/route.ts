@@ -19,6 +19,7 @@ const updateSchema = z.object({
   autoResolve: z.boolean().optional(),
   autoFaq: z.boolean().optional(),
   autoContactNotes: z.boolean().optional(),
+  useKnowledgeBase: z.boolean().optional(),
 });
 
 export async function GET(

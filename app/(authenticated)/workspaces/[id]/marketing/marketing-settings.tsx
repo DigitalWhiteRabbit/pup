@@ -1,9 +1,23 @@
 "use client";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Users, Loader2, Flame } from "lucide-react";
+import {
+  Users,
+  Loader2,
+  Flame,
+  BookOpen,
+  Plus,
+  FileText,
+  Upload,
+  Trash2,
+  ChevronDown,
+  ChevronRight,
+  CheckCircle,
+  AlertCircle,
+  Clock,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -17,6 +31,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import { toastSuccess, toastApiError } from "@/lib/toast";
 import {
   type MarketingSectionProps,
@@ -98,6 +119,7 @@ export function SettingsSection({ workspaceId }: MarketingSectionProps) {
       <Tabs defaultValue="integrations">
         <TabsList className="mb-4">
           <TabsTrigger value="integrations">Интеграции</TabsTrigger>
+          <TabsTrigger value="knowledge">Знания</TabsTrigger>
           <TabsTrigger value="scoring">AI-скоринг</TabsTrigger>
           <TabsTrigger value="dedup">Дедупликация</TabsTrigger>
           <TabsTrigger value="budgets">Бюджеты</TabsTrigger>
@@ -241,6 +263,11 @@ export function SettingsSection({ workspaceId }: MarketingSectionProps) {
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* Knowledge */}
+        <TabsContent value="knowledge">
+          <KnowledgeSection workspaceId={workspaceId} />
         </TabsContent>
 
         {/* AI Scoring */}
@@ -737,5 +764,567 @@ function WarmupSection({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+// ─── Knowledge Base sub-section ─────────────────────────────────────────────
+
+interface KnowledgeDoc {
+  id: string;
+  title: string;
+  kind: string;
+  source: string | null;
+  status: string;
+  chunksCount: number;
+  sizeBytes: number | null;
+  createdAt: string;
+  updatedAt: string;
+  content?: string;
+  chunks?: Array<{
+    id: string;
+    position: number;
+    chunkText: string;
+    tokenCount: number | null;
+  }>;
+}
+
+function KnowledgeSection({ workspaceId }: { workspaceId: string }) {
+  const queryClient = useQueryClient();
+  const [showAddText, setShowAddText] = useState(false);
+  const [showUpload, setShowUpload] = useState(false);
+  const [expandedDocId, setExpandedDocId] = useState<string | null>(null);
+
+  // Fetch docs list
+  const { data, isLoading } = useQuery({
+    queryKey: ["mkt-knowledge", workspaceId],
+    queryFn: () => fetchApi(api(workspaceId, "/knowledge")),
+  });
+
+  const docs: KnowledgeDoc[] = data?.docs ?? [];
+
+  // Fetch expanded doc content
+  const { data: expandedDoc } = useQuery({
+    queryKey: ["mkt-knowledge-doc", workspaceId, expandedDocId],
+    queryFn: () =>
+      expandedDocId
+        ? fetchApi(api(workspaceId, `/knowledge/${expandedDocId}`))
+        : null,
+    enabled: !!expandedDocId,
+  });
+
+  // Delete mutation
+  const deleteMutation = useMutation({
+    mutationFn: async (docId: string) => {
+      const res = await fetch(api(workspaceId, `/knowledge/${docId}`), {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error(`API error: ${res.status}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      toastSuccess("Документ удалён");
+      queryClient.invalidateQueries({
+        queryKey: ["mkt-knowledge", workspaceId],
+      });
+      setExpandedDocId(null);
+    },
+    onError: toastApiError,
+  });
+
+  // Add text mutation
+  const addTextMutation = useMutation({
+    mutationFn: async (data: { title: string; content: string }) => {
+      const res = await fetch(api(workspaceId, "/knowledge"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...data, kind: "text" }),
+      });
+      if (!res.ok) throw new Error(`API error: ${res.status}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      toastSuccess("Документ добавлен и проиндексирован");
+      queryClient.invalidateQueries({
+        queryKey: ["mkt-knowledge", workspaceId],
+      });
+      setShowAddText(false);
+    },
+    onError: toastApiError,
+  });
+
+  // Upload file mutation
+  const uploadFileMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const text = await file.text();
+      const res = await fetch(api(workspaceId, "/knowledge"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: file.name,
+          content: text,
+          kind: "file",
+          source: file.name,
+        }),
+      });
+      if (!res.ok) throw new Error(`API error: ${res.status}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      toastSuccess("Файл загружен и проиндексирован");
+      queryClient.invalidateQueries({
+        queryKey: ["mkt-knowledge", workspaceId],
+      });
+      setShowUpload(false);
+    },
+    onError: toastApiError,
+  });
+
+  const toggleExpanded = useCallback((docId: string) => {
+    setExpandedDocId((prev) => (prev === docId ? null : docId));
+  }, []);
+
+  function formatSize(bytes: number | null): string {
+    if (bytes == null) return "--";
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  function statusIcon(status: string) {
+    switch (status) {
+      case "INDEXED":
+        return <CheckCircle className="h-3.5 w-3.5 text-emerald-500" />;
+      case "INDEXING":
+      case "PENDING":
+        return <Clock className="h-3.5 w-3.5 text-yellow-500 animate-pulse" />;
+      case "FAILED":
+        return <AlertCircle className="h-3.5 w-3.5 text-red-500" />;
+      default:
+        return null;
+    }
+  }
+
+  function statusBadge(status: string) {
+    const map: Record<string, string> = {
+      INDEXED: "bg-emerald-500/10 text-emerald-500",
+      INDEXING: "bg-yellow-500/10 text-yellow-500",
+      PENDING: "bg-yellow-500/10 text-yellow-500",
+      FAILED: "bg-red-500/10 text-red-500",
+    };
+    return (
+      <Badge
+        variant="outline"
+        className={`text-[10px] font-bold ${map[status] || "bg-muted text-muted-foreground"}`}
+      >
+        {status}
+      </Badge>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-48 rounded-xl" />
+      </div>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+            <BookOpen className="h-3.5 w-3.5" />
+            База знаний для AI-агента
+          </CardTitle>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs h-8"
+              onClick={() => setShowAddText(true)}
+            >
+              <Plus className="h-3.5 w-3.5 mr-1" />
+              Добавить текст
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs h-8"
+              onClick={() => setShowUpload(true)}
+            >
+              <Upload className="h-3.5 w-3.5 mr-1" />
+              Загрузить файл
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <p className="text-xs text-muted-foreground leading-relaxed mb-4">
+          Загруженные документы используются AI-агентом при генерации питчей и
+          ответов. Информация о проекте, USP, кейсы, FAQ -- всё это поможет
+          агенту писать более точные и убедительные сообщения.
+        </p>
+
+        {docs.length === 0 ? (
+          <EmptyState
+            icon={BookOpen}
+            title="Нет документов"
+            description="Добавьте текст или загрузите файл, чтобы AI-агент мог использовать эту информацию при генерации сообщений."
+            action={
+              <Button
+                size="sm"
+                className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                onClick={() => setShowAddText(true)}
+              >
+                <Plus className="h-3.5 w-3.5 mr-1.5" />
+                Добавить первый документ
+              </Button>
+            }
+          />
+        ) : (
+          <div className="space-y-1.5">
+            {docs.map((doc) => (
+              <div key={doc.id} className="border rounded-lg overflow-hidden">
+                {/* Doc header row */}
+                <div
+                  className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-muted/30 transition-colors"
+                  onClick={() => toggleExpanded(doc.id)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      toggleExpanded(doc.id);
+                    }
+                  }}
+                >
+                  {expandedDocId === doc.id ? (
+                    <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  ) : (
+                    <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  )}
+                  {statusIcon(doc.status)}
+                  <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <span className="text-sm font-medium truncate flex-1">
+                    {doc.title}
+                  </span>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {statusBadge(doc.status)}
+                    <Badge variant="outline" className="text-[10px]">
+                      {doc.chunksCount} чанков
+                    </Badge>
+                    <span className="text-[10px] text-muted-foreground w-14 text-right">
+                      {formatSize(doc.sizeBytes)}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground w-20 text-right">
+                      {new Date(doc.createdAt).toLocaleDateString("ru-RU")}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0 text-muted-foreground hover:text-red-500"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (confirm("Удалить документ?")) {
+                          deleteMutation.mutate(doc.id);
+                        }
+                      }}
+                      disabled={deleteMutation.isPending}
+                      aria-label="Удалить документ"
+                    >
+                      {deleteMutation.isPending ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Expanded content */}
+                {expandedDocId === doc.id && (
+                  <div className="border-t px-4 py-3 bg-muted/10">
+                    {expandedDoc ? (
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                          <span>
+                            Тип:{" "}
+                            <span className="font-medium text-foreground">
+                              {expandedDoc.kind}
+                            </span>
+                          </span>
+                          {expandedDoc.source && (
+                            <span>
+                              Источник:{" "}
+                              <span className="font-medium text-foreground">
+                                {expandedDoc.source}
+                              </span>
+                            </span>
+                          )}
+                          <span>
+                            Чанков:{" "}
+                            <span className="font-medium text-foreground">
+                              {expandedDoc.chunks?.length ?? 0}
+                            </span>
+                          </span>
+                        </div>
+                        <div className="bg-muted/30 rounded-lg p-3 max-h-64 overflow-y-auto">
+                          <pre className="text-xs whitespace-pre-wrap break-words font-mono leading-relaxed">
+                            {expandedDoc.content?.slice(0, 5000)}
+                            {(expandedDoc.content?.length ?? 0) > 5000 && (
+                              <span className="text-muted-foreground">
+                                {"\n\n"}... (ещё{" "}
+                                {(
+                                  (expandedDoc.content?.length ?? 0) - 5000
+                                ).toLocaleString()}{" "}
+                                символов)
+                              </span>
+                            )}
+                          </pre>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-center py-4">
+                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+
+      {/* Add text dialog */}
+      <AddTextDialog
+        open={showAddText}
+        onClose={() => setShowAddText(false)}
+        onSubmit={(title, content) =>
+          addTextMutation.mutate({ title, content })
+        }
+        isPending={addTextMutation.isPending}
+      />
+
+      {/* Upload file dialog */}
+      <UploadFileDialog
+        open={showUpload}
+        onClose={() => setShowUpload(false)}
+        onSubmit={(file) => uploadFileMutation.mutate(file)}
+        isPending={uploadFileMutation.isPending}
+      />
+    </Card>
+  );
+}
+
+// ─── Add Text Dialog ────────────────────────────────────────────────────────
+
+function AddTextDialog({
+  open,
+  onClose,
+  onSubmit,
+  isPending,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSubmit: (title: string, content: string) => void;
+  isPending: boolean;
+}) {
+  const [title, setTitle] = useState("");
+  const [content, setContent] = useState("");
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!title.trim() || !content.trim()) return;
+    onSubmit(title.trim(), content.trim());
+  }
+
+  function handleClose() {
+    if (!isPending) {
+      setTitle("");
+      setContent("");
+      onClose();
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-sm">
+            <FileText className="h-4 w-4" />
+            Добавить текст в базу знаний
+          </DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="text-xs font-semibold uppercase text-muted-foreground tracking-wider mb-1.5 block">
+              Название документа
+            </label>
+            <Input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Например: О проекте Atlas System"
+              className="text-sm"
+              autoFocus
+              disabled={isPending}
+            />
+          </div>
+          <div>
+            <label className="text-xs font-semibold uppercase text-muted-foreground tracking-wider mb-1.5 block">
+              Содержимое
+            </label>
+            <Textarea
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              placeholder="Вставьте текст документа: описание проекта, USP, FAQ, кейсы..."
+              className="min-h-[250px] text-sm font-mono resize-y"
+              disabled={isPending}
+            />
+            {content.length > 0 && (
+              <div className="text-[10px] text-muted-foreground mt-1">
+                {content.length.toLocaleString()} символов / ~
+                {Math.ceil(content.length / 800)} чанков
+              </div>
+            )}
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleClose}
+              disabled={isPending}
+            >
+              Отмена
+            </Button>
+            <Button
+              type="submit"
+              disabled={!title.trim() || !content.trim() || isPending}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+            >
+              {isPending && (
+                <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+              )}
+              Добавить и индексировать
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Upload File Dialog ─────────────────────────────────────────────────────
+
+function UploadFileDialog({
+  open,
+  onClose,
+  onSubmit,
+  isPending,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSubmit: (file: File) => void;
+  isPending: boolean;
+}) {
+  const [file, setFile] = useState<File | null>(null);
+
+  const ACCEPTED_TYPES = [
+    "text/plain",
+    "text/markdown",
+    "text/csv",
+    "application/json",
+  ];
+  const ACCEPTED_EXTENSIONS = [".txt", ".md", ".csv", ".json"];
+  const MAX_SIZE = 5 * 1024 * 1024; // 5 MB
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setFile(f);
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!file) return;
+    onSubmit(file);
+  }
+
+  function handleClose() {
+    if (!isPending) {
+      setFile(null);
+      onClose();
+    }
+  }
+
+  const fileTooLarge = file && file.size > MAX_SIZE;
+  const fileTypeInvalid =
+    file &&
+    !ACCEPTED_TYPES.includes(file.type) &&
+    !ACCEPTED_EXTENSIONS.some((ext) => file.name.toLowerCase().endsWith(ext));
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-sm">
+            <Upload className="h-4 w-4" />
+            Загрузить файл
+          </DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="text-xs font-semibold uppercase text-muted-foreground tracking-wider mb-1.5 block">
+              Файл (TXT, MD, CSV, JSON)
+            </label>
+            <input
+              type="file"
+              accept=".txt,.md,.csv,.json,text/plain,text/markdown,text/csv,application/json"
+              onChange={handleFileChange}
+              className="block w-full text-sm text-muted-foreground file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-emerald-500/10 file:text-emerald-500 hover:file:bg-emerald-500/20 cursor-pointer"
+              disabled={isPending}
+            />
+            {file && (
+              <div className="mt-2 text-xs text-muted-foreground">
+                {file.name} ({(file.size / 1024).toFixed(1)} KB)
+              </div>
+            )}
+            {fileTooLarge && (
+              <div className="mt-1 text-xs text-red-500">
+                Файл слишком большой (макс. 5 MB)
+              </div>
+            )}
+            {fileTypeInvalid && (
+              <div className="mt-1 text-xs text-red-500">
+                Неподдерживаемый тип файла. Используйте TXT, MD, CSV или JSON.
+              </div>
+            )}
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleClose}
+              disabled={isPending}
+            >
+              Отмена
+            </Button>
+            <Button
+              type="submit"
+              disabled={
+                !file || !!fileTooLarge || !!fileTypeInvalid || isPending
+              }
+              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+            >
+              {isPending && (
+                <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+              )}
+              Загрузить
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

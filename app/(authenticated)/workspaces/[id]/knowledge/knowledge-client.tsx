@@ -4,7 +4,6 @@ import { formatFileSize } from "@/lib/utils";
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import DOMPurify from "dompurify";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
@@ -489,6 +488,16 @@ type PreviewData =
   | { type: "image"; content: string }
   | { type: "unsupported"; content: string };
 
+type ContentData = {
+  content: string | null;
+  extractedAt: string | null;
+  error: string | null;
+};
+
+function isImageMime(mime: string): boolean {
+  return mime.startsWith("image/");
+}
+
 function FilePreviewModal({
   file,
   onClose,
@@ -496,20 +505,139 @@ function FilePreviewModal({
   file: KbFileView;
   onClose: () => void;
 }) {
-  const { data, isPending, isError } = useQuery<PreviewData>({
+  const isImage = isImageMime(file.mimeType);
+
+  // For images: use preview endpoint (returns base64 data URI)
+  const {
+    data: previewData,
+    isPending: previewPending,
+    isError: previewError,
+  } = useQuery<PreviewData>({
     queryKey: ["kb-file-preview", file.id],
     queryFn: async () => {
       const res = await fetch(`/api/kb/files/${file.id}/preview`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json() as Promise<PreviewData>;
     },
+    enabled: isImage,
     staleTime: 0,
     gcTime: 0,
     retry: 1,
   });
 
-  const isUnsupported =
-    isError || !data || !("type" in data) || data.type === "unsupported";
+  // For documents: use content endpoint (returns extracted text)
+  const {
+    data: contentData,
+    isPending: contentPending,
+    isError: contentError,
+  } = useQuery<ContentData>({
+    queryKey: ["kb-file-content", file.id],
+    queryFn: async () => {
+      const res = await fetch(`/api/kb/files/${file.id}/content`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json() as Promise<ContentData>;
+    },
+    enabled: !isImage,
+    staleTime: 60_000,
+    retry: 1,
+  });
+
+  const isPending = isImage ? previewPending : contentPending;
+
+  // Determine content to render
+  let bodyContent: React.ReactNode;
+
+  if (isPending) {
+    bodyContent = (
+      <div className="flex items-center justify-center h-48 gap-2 text-muted-foreground">
+        <Loader2 className="h-5 w-5 animate-spin" />
+        <span className="text-sm">Загружаем содержимое...</span>
+      </div>
+    );
+  } else if (isImage) {
+    if (previewError || !previewData || previewData.type !== "image") {
+      bodyContent = (
+        <div className="flex flex-col items-center justify-center h-48 gap-3 text-muted-foreground">
+          <FileIcon mimeType={file.mimeType} className="h-10 w-10 opacity-30" />
+          <p className="text-sm">Не удалось загрузить изображение</p>
+          <a
+            href={`/api/kb/files/${file.id}/download`}
+            download={file.originalName}
+          >
+            <Button variant="outline" size="sm">
+              <Download className="h-4 w-4 mr-1.5" />
+              Скачать файл
+            </Button>
+          </a>
+        </div>
+      );
+    } else {
+      bodyContent = (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={previewData.content}
+          alt={file.originalName}
+          className="max-w-full h-auto mx-auto block p-4"
+        />
+      );
+    }
+  } else {
+    // Document content
+    if (contentError || !contentData) {
+      bodyContent = (
+        <div className="flex flex-col items-center justify-center h-48 gap-3 text-muted-foreground">
+          <FileIcon mimeType={file.mimeType} className="h-10 w-10 opacity-30" />
+          <p className="text-sm">Не удалось загрузить содержимое</p>
+          <a
+            href={`/api/kb/files/${file.id}/download`}
+            download={file.originalName}
+          >
+            <Button variant="outline" size="sm">
+              <Download className="h-4 w-4 mr-1.5" />
+              Скачать файл
+            </Button>
+          </a>
+        </div>
+      );
+    } else if (contentData.error || !contentData.content) {
+      bodyContent = (
+        <div className="flex flex-col items-center justify-center h-48 gap-3 text-muted-foreground">
+          <FileIcon mimeType={file.mimeType} className="h-10 w-10 opacity-30" />
+          <p className="text-sm">
+            {contentData.error
+              ? `Ошибка извлечения: ${contentData.error}`
+              : "Содержимое не извлечено"}
+          </p>
+          <a
+            href={`/api/kb/files/${file.id}/download`}
+            download={file.originalName}
+          >
+            <Button variant="outline" size="sm">
+              <Download className="h-4 w-4 mr-1.5" />
+              Скачать файл
+            </Button>
+          </a>
+        </div>
+      );
+    } else {
+      bodyContent = (
+        <div className="p-6">
+          {contentData.extractedAt && (
+            <p className="text-xs text-muted-foreground mb-3">
+              Текст извлечён{" "}
+              {formatDistanceToNow(new Date(contentData.extractedAt), {
+                addSuffix: true,
+                locale: ru,
+              })}
+            </p>
+          )}
+          <pre className="text-sm whitespace-pre-wrap break-words font-mono leading-relaxed">
+            {contentData.content}
+          </pre>
+        </div>
+      );
+    }
+  }
 
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
@@ -543,49 +671,7 @@ function FilePreviewModal({
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto border rounded-md mt-2">
-          {isPending ? (
-            <div className="flex items-center justify-center h-48 gap-2 text-muted-foreground">
-              <Loader2 className="h-5 w-5 animate-spin" />
-              <span className="text-sm">Загружаем содержимое...</span>
-            </div>
-          ) : isUnsupported ? (
-            <div className="flex flex-col items-center justify-center h-48 gap-3 text-muted-foreground">
-              <FileIcon
-                mimeType={file.mimeType}
-                className="h-10 w-10 opacity-30"
-              />
-              <p className="text-sm">
-                Предпросмотр недоступен для этого типа файла
-              </p>
-              <a
-                href={`/api/kb/files/${file.id}/download`}
-                download={file.originalName}
-              >
-                <Button variant="outline" size="sm">
-                  <Download className="h-4 w-4 mr-1.5" />
-                  Скачать файл
-                </Button>
-              </a>
-            </div>
-          ) : data.type === "image" ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={data.content}
-              alt={file.originalName}
-              className="max-w-full h-auto mx-auto block p-4"
-            />
-          ) : data.type === "html" ? (
-            <div
-              className="[&_p]:mb-3 [&_h1]:text-2xl [&_h1]:font-bold [&_h1]:mb-4 [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:mb-3 [&_h3]:text-lg [&_h3]:font-semibold [&_h3]:mb-2 [&_strong]:font-semibold [&_em]:italic [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:mb-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:mb-3 [&_li]:mb-1 [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-border [&_td]:p-2 [&_th]:border [&_th]:border-border [&_th]:p-2 [&_th]:bg-muted p-6 text-sm leading-relaxed"
-              dangerouslySetInnerHTML={{
-                __html: DOMPurify.sanitize(data.content),
-              }}
-            />
-          ) : (
-            <pre className="p-6 text-sm whitespace-pre-wrap break-words font-mono leading-relaxed">
-              {data.content}
-            </pre>
-          )}
+          {bodyContent}
         </div>
       </DialogContent>
     </Dialog>

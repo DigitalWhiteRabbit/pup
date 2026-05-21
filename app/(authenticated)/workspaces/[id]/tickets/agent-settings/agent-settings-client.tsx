@@ -3,7 +3,15 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Bot, Plus, Trash2, Sparkles, Shield } from "lucide-react";
+import {
+  ArrowLeft,
+  Bot,
+  Plus,
+  Trash2,
+  Sparkles,
+  Shield,
+  BookOpen,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -30,6 +38,7 @@ type AgentConfig = {
   autoResolve: boolean;
   autoFaq: boolean;
   autoContactNotes: boolean;
+  useKnowledgeBase: boolean;
 };
 
 type Scenario = {
@@ -86,6 +95,7 @@ export function AgentSettingsClient({ workspaceId }: { workspaceId: string }) {
   const [autoResolve, setAutoResolve] = useState(false);
   const [autoFaq, setAutoFaq] = useState(false);
   const [autoContactNotes, setAutoContactNotes] = useState(false);
+  const [useKnowledgeBase, setUseKnowledgeBase] = useState(true);
 
   useEffect(() => {
     if (cfg) {
@@ -100,6 +110,7 @@ export function AgentSettingsClient({ workspaceId }: { workspaceId: string }) {
       setAutoResolve(cfg.autoResolve);
       setAutoFaq(cfg.autoFaq);
       setAutoContactNotes(cfg.autoContactNotes);
+      setUseKnowledgeBase(cfg.useKnowledgeBase);
     }
   }, [cfg]);
 
@@ -360,6 +371,25 @@ export function AgentSettingsClient({ workspaceId }: { workspaceId: string }) {
             </label>
           </div>
 
+          <div className="space-y-2 pt-2 border-t">
+            <div className="text-sm font-medium flex items-center gap-1.5">
+              <BookOpen className="h-4 w-4" />
+              База знаний
+            </div>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={useKnowledgeBase}
+                onChange={(e) => setUseKnowledgeBase(e.target.checked)}
+              />
+              Использовать базу знаний
+            </label>
+            <p className="text-xs text-muted-foreground">
+              AI будет искать релевантные статьи и документы из базы знаний при
+              ответе на вопросы клиентов.
+            </p>
+          </div>
+
           <Button
             onClick={() =>
               saveMut.mutate({
@@ -372,6 +402,7 @@ export function AgentSettingsClient({ workspaceId }: { workspaceId: string }) {
                 autoResolve,
                 autoFaq,
                 autoContactNotes,
+                useKnowledgeBase,
               })
             }
             disabled={saveMut.isPending}

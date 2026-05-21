@@ -6,6 +6,7 @@ import { checkMembership } from "../workspace.service";
 import { logActivity, generateSummary } from "../logger.service";
 import { sendTelegramNotification } from "../telegram/sender";
 import type { TicketMessageAuthorType } from "@prisma/client";
+import { searchArticles } from "@/lib/services/kb/search.service";
 
 // ─── Agent config CRUD ──────────────────────────────────────────────────────
 
@@ -22,6 +23,7 @@ export type AgentConfigView = {
   autoResolve: boolean;
   autoFaq: boolean;
   autoContactNotes: boolean;
+  useKnowledgeBase: boolean;
 };
 
 export type ScenarioView = {
@@ -58,6 +60,7 @@ export async function getAgentConfig(
     autoResolve: cfg.autoResolve,
     autoFaq: cfg.autoFaq,
     autoContactNotes: cfg.autoContactNotes,
+    useKnowledgeBase: cfg.useKnowledgeBase,
   };
 }
 
@@ -86,6 +89,7 @@ export async function updateAgentConfig(
       autoResolve: data.autoResolve ?? false,
       autoFaq: data.autoFaq ?? false,
       autoContactNotes: data.autoContactNotes ?? false,
+      useKnowledgeBase: data.useKnowledgeBase ?? true,
     },
     update: data,
   });
@@ -239,6 +243,125 @@ function toClaudeMessages(msgs: TicketMsg[]): Anthropic.MessageParam[] {
   return result;
 }
 
+// ─── Knowledge Base context retrieval ───────────────────────────────────────
+
+/**
+ * Search KB articles + files for content relevant to the customer query.
+ * Returns a formatted knowledge context string for the system prompt.
+ */
+async function fetchKnowledgeContext(
+  workspaceId: string,
+  customerMessages: TicketMsg[],
+): Promise<string> {
+  // Take the last customer message as the search query
+  const lastCustomerMsg = customerMessages
+    .filter((m) => m.authorType === "CUSTOMER")
+    .pop();
+  if (!lastCustomerMsg) return "";
+
+  const queryText = lastCustomerMsg.content.slice(0, 200);
+  const parts: string[] = [];
+
+  // 1. Search KB articles via the existing search service
+  try {
+    const kbResults = await searchArticles(
+      workspaceId,
+      // Use a system-level call — no user auth check needed for internal agent use
+      "system",
+      "ADMIN",
+      { text: queryText, pageSize: 3 },
+    );
+    if (kbResults.data.length > 0) {
+      for (const article of kbResults.data) {
+        parts.push(`## ${article.title}\n${article.contentPreview}`);
+      }
+    }
+  } catch {
+    // KB search failure should not block the agent response
+  }
+
+  // 2. Search KB files with extracted text
+  try {
+    // Split query into meaningful search terms (words >= 3 chars)
+    const searchTerms = queryText
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((w) => w.length >= 3);
+
+    if (searchTerms.length > 0) {
+      // Search for files where extractedText contains any of the search terms
+      const kbFiles = await db.kbFile.findMany({
+        where: {
+          workspaceId,
+          extractedText: { not: null },
+          OR: searchTerms.slice(0, 5).map((term) => ({
+            extractedText: { contains: term },
+          })),
+        },
+        take: 2,
+        select: { originalName: true, extractedText: true },
+      });
+
+      for (const file of kbFiles) {
+        if (file.extractedText) {
+          // Find the most relevant chunk around the search term
+          const excerpt = extractRelevantChunk(
+            file.extractedText,
+            searchTerms,
+            1500,
+          );
+          parts.push(`## Документ: ${file.originalName}\n${excerpt}`);
+        }
+      }
+    }
+  } catch {
+    // File search failure should not block the agent response
+  }
+
+  if (parts.length === 0) return "";
+
+  return (
+    "\n\n<knowledge_base>\n" + parts.join("\n\n---\n\n") + "\n</knowledge_base>"
+  );
+}
+
+/**
+ * Extract a relevant chunk from a long text around the first occurrence
+ * of any search term, with a window of `maxLen` characters.
+ */
+function extractRelevantChunk(
+  text: string,
+  terms: string[],
+  maxLen: number,
+): string {
+  if (text.length <= maxLen) return text;
+
+  const lowerText = text.toLowerCase();
+  let bestIndex = -1;
+
+  for (const term of terms) {
+    const idx = lowerText.indexOf(term);
+    if (idx !== -1) {
+      bestIndex = idx;
+      break;
+    }
+  }
+
+  if (bestIndex === -1) {
+    // No term found — return the beginning
+    return text.slice(0, maxLen) + "...";
+  }
+
+  // Center the window around the found term
+  const halfWindow = Math.floor(maxLen / 2);
+  const start = Math.max(0, bestIndex - halfWindow);
+  const end = Math.min(text.length, start + maxLen);
+  const prefix = start > 0 ? "..." : "";
+  const suffix = end < text.length ? "..." : "";
+
+  return prefix + text.slice(start, end) + suffix;
+}
+
 /**
  * Copilot: предложить ответ менеджеру.
  */
@@ -271,11 +394,21 @@ export async function suggestReply(
   if (!cfg?.enabled)
     throw new ApiError("AI-агент не активирован", "AI_DISABLED", 400);
 
+  // Fetch KB context if enabled
+  let knowledgeContext = "";
+  if (cfg.useKnowledgeBase) {
+    knowledgeContext = await fetchKnowledgeContext(
+      ticket.workspaceId,
+      ticket.messages,
+    );
+  }
+
   const anthropic = getAnthropic();
   const systemPrompt = buildSystemPrompt(
     cfg.systemPrompt,
     cfg.guardrails,
     cfg.scenarios,
+    knowledgeContext,
   );
 
   const response = await anthropic.messages.create({
@@ -321,11 +454,21 @@ export async function autoRespond(
   });
   if (!ticket) return { responded: false, handoff: false };
 
+  // Fetch KB context if enabled
+  let knowledgeContext = "";
+  if (cfg.useKnowledgeBase) {
+    knowledgeContext = await fetchKnowledgeContext(
+      workspaceId,
+      ticket.messages,
+    );
+  }
+
   const anthropic = getAnthropic();
   const systemPrompt = buildSystemPrompt(
     cfg.systemPrompt,
     cfg.guardrails,
     cfg.scenarios,
+    knowledgeContext,
   );
 
   const response = await anthropic.messages.create({
@@ -456,11 +599,21 @@ export async function autoRespondWithTyping(
   }
 
   try {
+    // Fetch KB context if enabled
+    let knowledgeContext = "";
+    if (cfg.useKnowledgeBase) {
+      knowledgeContext = await fetchKnowledgeContext(
+        workspaceId,
+        ticket.messages,
+      );
+    }
+
     const anthropic = getAnthropic();
     const systemPrompt = buildSystemPrompt(
       cfg.systemPrompt,
       cfg.guardrails,
       cfg.scenarios,
+      knowledgeContext,
     );
 
     const response = await anthropic.messages.create({
@@ -695,6 +848,7 @@ function buildSystemPrompt(
   customPrompt: string | null,
   guardrails: string | null,
   scenarios: Array<{ title: string; description: string; instruction: string }>,
+  knowledgeContext: string = "",
 ): string {
   const parts: string[] = [];
 
@@ -702,6 +856,14 @@ function buildSystemPrompt(
     customPrompt ??
       "Ты — AI-помощник поддержки. Отвечай вежливо, точно и по делу на русском языке.",
   );
+
+  // Insert knowledge base context if available
+  if (knowledgeContext) {
+    parts.push(
+      "\nИспользуй следующую базу знаний для ответов. Если информация есть в базе знаний — используй её. Если нет — отвечай на основе контекста разговора." +
+        knowledgeContext,
+    );
+  }
 
   parts.push(`
 ВАЖНЫЕ ПРАВИЛА ПОВЕДЕНИЯ:

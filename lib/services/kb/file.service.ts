@@ -1,4 +1,6 @@
 import "server-only";
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
 import { db } from "@/lib/db";
 import { ApiError } from "@/lib/api-error";
 import { storage } from "@/lib/services/storage";
@@ -11,7 +13,113 @@ export type KbFileView = {
   mimeType: string;
   uploadedBy: { id: string; login: string } | null;
   uploadedAt: Date;
+  hasExtractedText: boolean;
+  extractionError: string | null;
 };
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function getUploadDir(): string {
+  return path.resolve(process.env["UPLOAD_DIR"] ?? "./uploads");
+}
+
+function resolveStoragePath(storagePath: string): string {
+  const uploadDir = getUploadDir();
+  const resolved = path.resolve(path.join(uploadDir, storagePath));
+  if (!resolved.startsWith(uploadDir + path.sep) && resolved !== uploadDir) {
+    throw new ApiError("Invalid file path", "INVALID_PATH", 400);
+  }
+  return resolved;
+}
+
+// ─── Text Extraction ──────────────────────────────────────────────────────────
+
+/**
+ * Extract text content from uploaded document (PDF, DOCX, XLSX, TXT, MD, etc.)
+ * Runs in background after upload -- does not block the upload response.
+ */
+async function extractFileText(
+  fileId: string,
+  storagePath: string,
+  mimeType: string,
+  originalName: string,
+): Promise<void> {
+  try {
+    const filePath = resolveStoragePath(storagePath);
+    const buffer = await fs.readFile(filePath);
+
+    const { parseDocument } = await import("./parsers");
+    const result = await parseDocument(buffer, mimeType, originalName);
+
+    await db.kbFile.update({
+      where: { id: fileId },
+      data: {
+        extractedText: result.content,
+        extractedAt: new Date(),
+        extractionError: null,
+      },
+    });
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : "Unknown extraction error";
+    await db.kbFile.update({
+      where: { id: fileId },
+      data: {
+        extractionError: message,
+        extractedAt: new Date(),
+      },
+    });
+  }
+}
+
+/**
+ * On-demand extraction for files that weren't extracted at upload time.
+ * Returns the extracted text or null if extraction fails.
+ */
+export async function extractFileTextOnDemand(
+  fileId: string,
+): Promise<{
+  content: string | null;
+  extractedAt: Date | null;
+  error: string | null;
+}> {
+  const kbFile = await db.kbFile.findUnique({ where: { id: fileId } });
+  if (!kbFile) throw new ApiError("File not found", "NOT_FOUND", 404);
+
+  // Already extracted successfully
+  if (kbFile.extractedText && kbFile.extractedAt) {
+    return {
+      content: kbFile.extractedText,
+      extractedAt: kbFile.extractedAt,
+      error: null,
+    };
+  }
+
+  // Previous extraction failed -- return the error
+  if (kbFile.extractionError && kbFile.extractedAt) {
+    return {
+      content: null,
+      extractedAt: kbFile.extractedAt,
+      error: kbFile.extractionError,
+    };
+  }
+
+  // Not yet extracted -- try now
+  await extractFileText(
+    fileId,
+    kbFile.storagePath,
+    kbFile.mimeType,
+    kbFile.originalName,
+  );
+
+  const updated = await db.kbFile.findUnique({ where: { id: fileId } });
+  return {
+    content: updated?.extractedText ?? null,
+    extractedAt: updated?.extractedAt ?? null,
+    error: updated?.extractionError ?? null,
+  };
+}
+
+// ─── CRUD ─────────────────────────────────────────────────────────────────────
 
 export async function uploadKbFile(input: {
   workspaceId: string;
@@ -50,6 +158,14 @@ export async function uploadKbFile(input: {
     include: { uploadedBy: { select: { id: true, login: true } } },
   });
 
+  // Auto-extract text in background (don't block upload response)
+  void extractFileText(
+    kbFile.id,
+    kbFile.storagePath,
+    kbFile.mimeType,
+    kbFile.originalName,
+  ).catch(() => {});
+
   return {
     id: kbFile.id,
     originalName: kbFile.originalName,
@@ -57,6 +173,8 @@ export async function uploadKbFile(input: {
     mimeType: kbFile.mimeType,
     uploadedBy: kbFile.uploadedBy,
     uploadedAt: kbFile.uploadedAt,
+    hasExtractedText: false,
+    extractionError: null,
   };
 }
 
@@ -83,6 +201,8 @@ export async function listKbFiles(
     mimeType: f.mimeType,
     uploadedBy: f.uploadedBy,
     uploadedAt: f.uploadedAt,
+    hasExtractedText: !!f.extractedText,
+    extractionError: f.extractionError,
   }));
 }
 

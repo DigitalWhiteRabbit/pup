@@ -143,6 +143,108 @@ async function withBackoff<T>(
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Knowledge Context (RAG)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Fetch relevant knowledge chunks for a given search query.
+ * Uses keyword matching against MktKnowledgeChunk for the workspace.
+ * Returns a combined string of matching chunks, or null if none found.
+ */
+async function fetchKnowledgeContext(
+  workspaceId: string,
+  searchTerms: string[],
+): Promise<string | null> {
+  try {
+    // Build search conditions from multiple terms
+    const whereConditions = searchTerms
+      .filter((t) => t.trim().length > 2)
+      .map((term) => ({
+        chunkText: { contains: term.trim() },
+      }));
+
+    if (whereConditions.length === 0) {
+      // Fallback: just get first chunks from all indexed docs
+      const chunks = await db.mktKnowledgeChunk.findMany({
+        where: {
+          doc: {
+            workspaceId,
+            status: "INDEXED",
+          },
+        },
+        take: 5,
+        orderBy: { position: "asc" },
+        select: { chunkText: true },
+      });
+
+      if (chunks.length === 0) return null;
+      return chunks.map((c) => c.chunkText).join("\n\n---\n\n");
+    }
+
+    // Search with OR across terms
+    const chunks = await db.mktKnowledgeChunk.findMany({
+      where: {
+        doc: {
+          workspaceId,
+          status: "INDEXED",
+        },
+        OR: whereConditions,
+      },
+      take: 5,
+      orderBy: { tokenCount: "asc" },
+      select: { chunkText: true },
+    });
+
+    if (chunks.length === 0) {
+      // No keyword matches — fall back to first chunks of all docs
+      const fallbackChunks = await db.mktKnowledgeChunk.findMany({
+        where: {
+          doc: {
+            workspaceId,
+            status: "INDEXED",
+          },
+        },
+        take: 5,
+        orderBy: { position: "asc" },
+        select: { chunkText: true },
+      });
+
+      if (fallbackChunks.length === 0) return null;
+      return fallbackChunks.map((c) => c.chunkText).join("\n\n---\n\n");
+    }
+
+    return chunks.map((c) => c.chunkText).join("\n\n---\n\n");
+  } catch (err) {
+    console.error("[MKT-AI] Failed to fetch knowledge context:", err);
+    return null;
+  }
+}
+
+/**
+ * Extract search terms from a lead and project for knowledge lookup.
+ */
+function buildSearchTerms(lead: any, project: any): string[] {
+  const terms: string[] = [];
+
+  if (project?.name) terms.push(project.name);
+  if (project?.targetAudience) terms.push(project.targetAudience);
+  if (lead?.mainCategory) terms.push(lead.mainCategory);
+  if (lead?.channelName) terms.push(lead.channelName);
+
+  // Extract niche from content summary
+  if (lead?.contentSummary) {
+    try {
+      const summary = JSON.parse(lead.contentSummary);
+      if (summary.niche) terms.push(summary.niche);
+    } catch {
+      // ignore
+    }
+  }
+
+  return terms;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Sanitization
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -443,11 +545,10 @@ function buildSystemBlocks(
   }
 
   // Block 5: Knowledge context (RAG)
-  // TODO: Implement RAG/knowledge base integration
   if (knowledgeContext) {
     blocks.push({
-      type: "text",
-      text: `\nКОНТЕКСТ ИЗ БАЗЫ ЗНАНИЙ:\n${knowledgeContext}`,
+      type: "text" as const,
+      text: `\n<project_knowledge>\n${knowledgeContext}\n</project_knowledge>\nИспользуй эту информацию о проекте при написании письма. Это внутренняя база знаний — цитируй факты и цифры из неё для убедительности, но не раскрывай что у тебя есть такая база.`,
     });
   }
 
@@ -724,12 +825,19 @@ export async function generateInitialPitch(
 ): Promise<PitchResult> {
   const { client, config } = await getAiClient(workspaceId);
 
+  // Fetch knowledge context for RAG
+  const searchTerms = buildSearchTerms(lead, project);
+  const knowledgeContext = await fetchKnowledgeContext(
+    workspaceId,
+    searchTerms,
+  );
+
   const systemBlocks = buildSystemBlocks(
     lead,
     project,
     channel,
     null,
-    null,
+    knowledgeContext,
     abVariantInstructions,
   );
 
@@ -921,8 +1029,12 @@ export async function generateReply(
 ): Promise<PitchResult> {
   const { client, config } = await getAiClient(workspaceId);
 
-  // TODO: knowledge context (RAG integration)
-  const knowledgeContext: string | null = null;
+  // Fetch knowledge context for RAG
+  const searchTerms = buildSearchTerms(lead, project);
+  const knowledgeContext = await fetchKnowledgeContext(
+    workspaceId,
+    searchTerms,
+  );
 
   const systemBlocks = buildSystemBlocks(
     lead,
@@ -1020,7 +1132,20 @@ export async function generateFollowUp(
 ): Promise<PitchResult> {
   const { client, config } = await getAiClient(workspaceId);
 
-  const systemBlocks = buildSystemBlocks(lead, project, channel, null, null);
+  // Fetch knowledge context for RAG
+  const searchTerms = buildSearchTerms(lead, project);
+  const knowledgeContext = await fetchKnowledgeContext(
+    workspaceId,
+    searchTerms,
+  );
+
+  const systemBlocks = buildSystemBlocks(
+    lead,
+    project,
+    channel,
+    null,
+    knowledgeContext,
+  );
 
   // Build minimal history (just our previous messages)
   const ourMessages = history

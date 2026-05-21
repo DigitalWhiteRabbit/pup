@@ -350,28 +350,47 @@ app.get("/api/results", (req, res) => {
 app.get("/api/quota", (req, res) => {
   try {
     const quota = apiKeysDb.getWorkspaceQuota(req.workspaceId);
-    if (quota.keys > 0) {
-      return res.json({
-        success: true,
-        used: quota.totalUsed,
-        total: quota.totalQuota,
-        remaining: quota.remaining,
-        keys: quota.keys,
-        perKey: quota.perKey,
+
+    // Always include the .env YOUTUBE_API_KEY in quota (it's used as fallback)
+    const envKey = process.env.YOUTUBE_API_KEY;
+    const hasEnvKey =
+      envKey && envKey !== "your_key_here" && envKey.length > 10;
+    // Check if env key is already in the pool (avoid double-counting)
+    const poolKeys = apiKeysDb.getKeysForWorkspace(req.workspaceId);
+    const envKeyInPool =
+      hasEnvKey && poolKeys.some((k) => k.api_key === envKey);
+
+    let envUsed = 0;
+    if (hasEnvKey && !envKeyInPool && fs.existsSync(CACHE_FILE)) {
+      try {
+        const cache = JSON.parse(fs.readFileSync(CACHE_FILE, "utf-8"));
+        envUsed = cache.apiUnitsUsed || 0;
+      } catch {}
+    }
+
+    const envExtra = hasEnvKey && !envKeyInPool ? 1 : 0;
+    const totalKeys = quota.keys + envExtra;
+    const totalQuota = quota.totalQuota + (envExtra ? 10000 : 0);
+    const totalUsed = quota.totalUsed + envUsed;
+
+    const perKey = [...(quota.perKey || [])];
+    if (envExtra) {
+      perKey.unshift({
+        id: 0,
+        label: ".env (fallback)",
+        key: envKey.slice(0, 8) + "...",
+        quota: 10000,
+        used: envUsed,
       });
     }
-    // Fallback: legacy single key from cache.json
-    let used = 0;
-    if (fs.existsSync(CACHE_FILE)) {
-      const cache = JSON.parse(fs.readFileSync(CACHE_FILE, "utf-8"));
-      used = cache.apiUnitsUsed || 0;
-    }
+
     res.json({
       success: true,
-      used,
-      total: 10000,
-      remaining: Math.max(0, 10000 - used),
-      keys: 0,
+      used: totalUsed,
+      total: totalQuota,
+      remaining: Math.max(0, totalQuota - totalUsed),
+      keys: totalKeys,
+      perKey,
     });
   } catch {
     res.json({
