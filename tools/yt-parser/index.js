@@ -1445,6 +1445,14 @@ async function main() {
   console.log(
     `  Прошли все фильтры:          ${filtered.length} / ${opts.limit}`,
   );
+  if (filtered.length < opts.limit) {
+    console.log(
+      `  ⚠ YouTube исчерпан: по данным ключевым словам больше каналов нет.`,
+    );
+    console.log(
+      `    Для большего охвата — добавь смежные keywords (без "bitnest")`,
+    );
+  }
   if (opts.requireContacts) console.log(`  (фильтр: только с контактами)`);
   console.log(`  ─────────────────────────────`);
   console.log(`  Потрачено API units:         ${apiUnitsUsed}`);
