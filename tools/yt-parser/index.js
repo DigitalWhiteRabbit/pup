@@ -1376,11 +1376,15 @@ async function main() {
         const newOnPage = pageIds.filter(
           (id) => !skipSet.has(id) && !allProcessedIds.has(id),
         );
+        const skippedFromCsv = pageIds.filter((id) => skipSet.has(id)).length;
         if (newOnPage.length === 0) {
+          // Only count as "dry" if results are truly empty, not just already in CSV
+          if (skippedFromCsv < pageIds.length / 2) {
+            kwDryPages++;
+          }
           console.log(
-            `    Стр.${pageNum}: ${pageIds.length} каналов (все уже известны — пропуск)`,
+            `    Стр.${pageNum}: ${pageIds.length} каналов (${skippedFromCsv} в CSV, ${pageIds.length - skippedFromCsv - newOnPage.length} обработаны — пропуск)`,
           );
-          kwDryPages++;
         } else {
           console.log(
             `    Стр.${pageNum}: ${pageIds.length} каналов (${newOnPage.length} новых)`,
@@ -1398,7 +1402,7 @@ async function main() {
           );
           break;
         }
-        if (pageNum >= 3 && kwNewCount < 3) {
+        if (pageNum >= 5 && kwNewCount < 2) {
           console.log(
             `    ⚡ Только ${kwNewCount} новых за ${pageNum} страниц — пропускаем keyword`,
           );
