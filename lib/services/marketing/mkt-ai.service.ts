@@ -273,12 +273,24 @@ function buildStaticSystemPart(): string {
 1. НИКОГДА не начинай с "Здравствуйте" или "Добрый день" — сразу к делу
 2. Первое предложение — хук, показывающий что ты знаешь их контент
 3. КОРОТКИЕ сообщения: 3-5 предложений максимум для первого контакта
-4. Конкретика: цифры, названия видео, специфика канала
+4. Покажи что ты в курсе тематики канала — упомяни 1-2 конкретных аспекта (нишу, формат, аудиторию)
 5. Один чёткий CTA (call-to-action) в конце
 6. Тон: как коллега-профессионал, НЕ как менеджер по продажам
 7. НИКОГДА не ври и не приукрашивай — только реальные факты
 8. Не используй шаблонные фразы типа "уникальное предложение", "выгодное сотрудничество"
 9. Подпись — только имя и должность, БЕЗ "С уважением" и прочего
+10. НЕ раскрывай бюджет/условия оплаты до прямого вопроса блогера
+11. НЕ упоминай конкретные названия видео блогера в письме — данные о видео используй только для понимания ниши и тона
+12. НЕ пересказывай метрики канала (подписчики, просмотры, ER) — блогер и так их знает
+13. НЕ проси ссылку на канал — она уже есть в CRM
+14. НЕ давай CTA-ссылку в первом письме — цель первого письма получить ОТВЕТ
+15. НЕ выдумывай детали о контенте блогера — если нет данных, пиши обобщённо про нишу
+16. Воронка: знакомство -> детали -> условия -> возражения и закрытие. Каждое сообщение — следующий шаг. Не повторяй что уже говорил.
+17. Весь ответ ВСЕГДА возвращается через инструмент send_reply (tool use). Не пиши ответ просто текстом.
+
+ТЕМА ПИСЬМА (subject): 3-6 слов, lowercase, без CAPS/!!!/emoji. Упомяни деталь канала, НЕ свой продукт. Запрещено: "collaboration", "partnership", "opportunity", "предложение", "сотрудничество".
+
+ОТКАЗ БЛОГЕРА: Если блогер ответил отказом ("не интересно", "отпишите", "unsubscribe", "not interested", "stop") — ответь вежливым однострочным закрытием ("Понял, спасибо за ответ! Удачи с каналом.") и установи flag="not_interested". Больше не продолжай переписку.
 
 ANTI-ПАТТЕРНЫ (ЗАПРЕЩЕНО):
 - "Мы заметили ваш канал" — все так пишут
@@ -286,7 +298,9 @@ ANTI-ПАТТЕРНЫ (ЗАПРЕЩЕНО):
 - "Хотели бы обсудить сотрудничество" — слишком общо
 - Длинные перечисления достоинств компании
 - Множественные CTA — только один
-- Формальности и канцеляризм`;
+- Формальности и канцеляризм
+- Фальшивые комплименты ("Ваш канал потрясающий!")
+- Упоминание конкретных названий видео блогера`;
 }
 
 function buildAgentPersonaPart(project: any): string {
@@ -429,11 +443,11 @@ ${channelDataParts.join("\n")}
   // Channel-specific instructions
   if (channel === "telegram") {
     parts.push(
-      "\nКАНАЛ ОТПРАВКИ: Telegram\n- Пиши ещё короче (2-3 предложения)\n- Можно использовать emoji чуть больше\n- Не нужна тема письма (subject)\n- Формат: обычное сообщение в чат",
+      "\nКАНАЛ ОТПРАВКИ: Telegram\n- Пиши ещё короче (2-3 предложения), 30-50 слов\n- Можно использовать emoji чуть больше\n- Не нужна тема письма (subject)\n- Формат: обычное сообщение в чат",
     );
   } else if (channel === "email") {
     parts.push(
-      "\nКАНАЛ ОТПРАВКИ: Email\n- Тема письма ОБЯЗАТЕЛЬНА (поле subject)\n- Тема: 5-8 слов, интригующая, без спам-слов\n- Тело: 3-5 коротких абзацев\n- Подпись в конце",
+      "\nКАНАЛ ОТПРАВКИ: Email\n- Тема письма ОБЯЗАТЕЛЬНА (поле subject)\n- Тема: 3-6 слов, lowercase, без CAPS/!!!/emoji, упомяни деталь канала\n- Тело письма: 1-2 коротких абзаца, 50-100 слов максимум\n- Подпись в конце",
     );
   }
 
@@ -850,7 +864,7 @@ export async function generateInitialPitch(
 
   if (channel === "email") {
     userPrompt +=
-      "\n\nОбязательно укажи тему письма (subject). Тема должна быть интригующей, 5-8 слов.";
+      "\n\nОбязательно укажи тему письма (subject). Тема: 3-6 слов, lowercase, без CAPS/!!!/emoji, упомяни деталь канала.";
   }
 
   // TODO: trackUsage — implement usage tracking
@@ -859,6 +873,7 @@ export async function generateInitialPitch(
     const response = await client.messages.create({
       model: config.claudeModel,
       max_tokens: 1500,
+      temperature: 0.6,
       system: systemBlocks,
       tools: [SEND_REPLY_TOOL],
       tool_choice: { type: "tool", name: "send_reply" },
@@ -893,6 +908,7 @@ ${critique.issues.map((i, idx) => `${idx + 1}. ${i}`).join("\n")}
       const response = await client.messages.create({
         model: config.claudeModel,
         max_tokens: 1500,
+        temperature: 0.6,
         system: systemBlocks,
         tools: [SEND_REPLY_TOOL],
         tool_choice: { type: "tool", name: "send_reply" },
@@ -942,6 +958,7 @@ ${project.badFitExamples ? `НЕ подходят: ${sanitize(project.badFitExam
     const response = await client.messages.create({
       model: config.claudeModelSummary,
       max_tokens: 800,
+      temperature: 0.2,
       system: systemBlocks,
       tools: [QUALIFY_TOOL],
       tool_choice: { type: "tool", name: "qualify_lead" },
@@ -970,19 +987,26 @@ export async function critiquePitch(
 
   const systemPrompt = `Ты — старший копирайтер, специализирующийся на B2B-аутриче для блогеров. Твоя задача — критически оценить питч.
 
-КРИТЕРИИ ОЦЕНКИ:
-1. Персонализация (0-3): упомянуты ли конкретные видео, факты о канале?
-2. Краткость (0-2): не слишком ли длинное сообщение?
-3. Ценностное предложение (0-2): понятно ли что получит блогер?
-4. CTA (0-1): есть ли один чёткий призыв к действию?
-5. Тон (0-2): соответствует ли тон аудитории и каналу?
+ШКАЛА:
+10 = Идеально: короткий, личный, конкретный hook, zero шаблонность
+8 = Хорошо: персонализирован, но есть мелкие шаблоны
+6 = Средне: есть персонализация, но тон generic
+4 = Плохо: шаблонное письмо с подставленным именем
+2 = Спам: длинное, продажное, без персонализации
 
-КРАСНЫЕ ФЛАГИ (автоматически -2 балла каждый):
-- Шаблонные фразы ("уникальное предложение", "выгодное сотрудничество")
+АВТОМАТИЧЕСКИЙ ПРОВАЛ (score <= 4):
+- Упоминает конкретные названия видео блогера
+- Фальшивые комплименты ("Ваш канал потрясающий!")
+- Длиннее 100 слов (без подписи)
+- Просит ссылку на канал (мы и так знаем)
+- Subject длиннее 6 слов или содержит CAPS
 - Начало с приветствия ("Здравствуйте", "Добрый день")
-- Слишком длинное (> 500 символов для первого контакта)
+- Шаблонные фразы ("уникальное предложение", "выгодное сотрудничество")
+- Пересказывает блогеру его метрики ("у тебя 50k подписчиков")
 - Нет конкретики о канале блогера
-- Множественные CTA`;
+- Множественные CTA
+
+В issues укажи конкретные нарушения (макс 3). Если все ок — issues пустой.`;
 
   const userPrompt = `Оцени этот питч для канала "${sanitize(lead.channelName)}" (${lead.subscribers?.toLocaleString() || "?"} подписчиков):
 
@@ -997,6 +1021,7 @@ ${pitch.body}
       const response = await client.messages.create({
         model: config.claudeModelSummary,
         max_tokens: 600,
+        temperature: 0.2,
         system: [{ type: "text", text: systemPrompt }],
         tools: [CRITIQUE_TOOL],
         tool_choice: { type: "tool", name: "critique_pitch" },
@@ -1109,6 +1134,7 @@ export async function generateReply(
     const response = await client.messages.create({
       model: config.claudeModel,
       max_tokens: 1500,
+      temperature: 0.6,
       system: systemBlocks,
       tools: [SEND_REPLY_TOOL],
       tool_choice: { type: "tool", name: "send_reply" },
@@ -1181,6 +1207,7 @@ ${ourMessages.map((m, i) => `--- Сообщение ${i + 1} ---\n${sanitize(m, 
     const response = await client.messages.create({
       model: config.claudeModel,
       max_tokens: 1000,
+      temperature: 0.6,
       system: systemBlocks,
       tools: [SEND_REPLY_TOOL],
       tool_choice: { type: "tool", name: "send_reply" },
@@ -1268,6 +1295,7 @@ ${channelParts.join("\n")}
     const response = await client.messages.create({
       model: config.claudeModelSummary,
       max_tokens: 1200,
+      temperature: 0.3,
       system: [
         {
           type: "text",
@@ -1376,6 +1404,7 @@ ${channelParts.join("\n")}
     const response = await client.messages.create({
       model: config.claudeModel,
       max_tokens: 2000,
+      temperature: 0.3,
       system: [
         {
           type: "text",
@@ -1460,6 +1489,7 @@ ${transcript}
     const response = await client.messages.create({
       model: config.claudeModelSummary,
       max_tokens: 600,
+      temperature: 0.2,
       messages: [{ role: "user", content: userPrompt }],
     });
 
