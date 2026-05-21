@@ -4966,6 +4966,35 @@ function showLeadSummary(leadId) {
     ? '<span class="sum-chip accent" style="margin-left:8px;font-size:11px;vertical-align:middle">PREMIUM</span>'
     : '';
 
+  // Build editable contacts section
+  const leadEmail = (lead.email || '').replace(/"/g, '&quot;');
+  const leadTelegram = (lead.telegram || '').replace(/"/g, '&quot;');
+  const contactsHtml = `
+    <div class="lead-contacts-edit" style="margin-bottom:16px;padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-alt)">
+      <div style="font-size:10px;text-transform:uppercase;color:var(--text-dim);font-weight:600;margin-bottom:8px;letter-spacing:.5px">Контакты</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div>
+          <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Email</label>
+          <input type="email" id="leadEmailEdit" value="${leadEmail}"
+            style="width:100%;padding:6px 8px;background:var(--input-bg);border:1px solid var(--input-border);border-radius:6px;color:var(--input-text);font-size:12px;outline:none;transition:border-color .15s"
+            onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--input-border)'"
+            placeholder="email@example.com">
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Telegram</label>
+          <input type="text" id="leadTelegramEdit" value="${leadTelegram}"
+            style="width:100%;padding:6px 8px;background:var(--input-bg);border:1px solid var(--input-border);border-radius:6px;color:var(--input-text);font-size:12px;outline:none;transition:border-color .15s"
+            onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--input-border)'"
+            placeholder="@username">
+        </div>
+      </div>
+      <button onclick="saveLeadContacts(${leadId})"
+        style="margin-top:8px;padding:5px 14px;background:var(--accent);color:#fff;border:none;border-radius:6px;font-size:11px;font-weight:500;cursor:pointer;transition:background .15s"
+        onmouseover="this.style.background='var(--accent-hover)'" onmouseout="this.style.background='var(--accent)'">
+        Сохранить контакты
+      </button>
+    </div>`;
+
   const overlay = document.createElement('div');
   overlay.className = 'summary-modal-overlay';
   overlay.innerHTML = `
@@ -4975,6 +5004,7 @@ function showLeadSummary(leadId) {
         <div class="summary-modal-sub">Сводка по каналу</div>
         <h3>${title}${premiumBadge}</h3>
       </div>
+      ${contactsHtml}
       <div class="summary-modal-body">${renderSummaryBody(raw)}</div>
       <div class="summary-modal-foot">
         <button class="btn-secondary btn-sm" onclick="deepLeadSummary(${leadId}, this)">🔬 Углубить анализ</button>
@@ -5026,6 +5056,32 @@ async function regenLeadSummary(id, btn) {
       showLeadSummary(id);
     } else toast('Ошибка: '+(j.error||'unknown'),'error');
   } catch(e) { toast('Ошибка: '+e.message,'error'); }
+}
+
+async function saveLeadContacts(leadId) {
+  const emailInput = document.getElementById('leadEmailEdit');
+  const telegramInput = document.getElementById('leadTelegramEdit');
+  const email = emailInput ? emailInput.value.trim() : '';
+  const telegram = telegramInput ? telegramInput.value.trim() : '';
+  try {
+    const res = await fetch('/api/leads/' + leadId, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, telegram })
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const j = await res.json();
+    if (!j.success) throw new Error(j.error || 'unknown');
+    toast('Контакты сохранены', 'success');
+    // Update local data so the table reflects changes without full reload
+    const idx = (leadsData || []).findIndex(l => l.id === leadId);
+    if (idx !== -1 && j.lead) {
+      leadsData[idx] = j.lead;
+    }
+    loadLeads();
+  } catch(err) {
+    toast('Ошибка: ' + err.message, 'error');
+  }
 }
 
 async function genLeadSummary(id) {

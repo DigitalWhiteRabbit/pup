@@ -546,6 +546,9 @@ function buildStmts(db) {
     updateLeadProject: db.prepare(
       `UPDATE leads SET project_id = ?, updated_at = ? WHERE id = ?`,
     ),
+    updateLeadContacts: db.prepare(
+      `UPDATE leads SET email = @email, telegram = @telegram, updated_at = @updated_at WHERE id = @id`,
+    ),
 
     // Pick next ready lead for outreach
     pickNextLeadForOutreach: db.prepare(`

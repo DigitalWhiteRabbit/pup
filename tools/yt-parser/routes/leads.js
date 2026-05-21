@@ -72,9 +72,9 @@ router.get("/:id", (req, res) => {
   res.json({ success: true, lead });
 });
 
-// PATCH /api/leads/:id  { lead_status?, dialogue_stage?, notes? }
+// PATCH /api/leads/:id  { lead_status?, dialogue_stage?, notes?, email?, telegram? }
 router.patch("/:id", (req, res) => {
-  const { lead_status, dialogue_stage, notes } = req.body;
+  const { lead_status, dialogue_stage, notes, email, telegram } = req.body;
   const id = parseInt(req.params.id, 10);
   const now = new Date().toISOString();
 
@@ -96,6 +96,26 @@ router.patch("/:id", (req, res) => {
   }
   if (notes !== undefined) {
     req.stmts.updateLeadNotes.run(notes, now, id);
+  }
+  if (email !== undefined || telegram !== undefined) {
+    const existing = req.stmts.getLead.get(id);
+    if (existing) {
+      const newEmail = email !== undefined ? email : existing.email || "";
+      const newTelegram =
+        telegram !== undefined ? telegram : existing.telegram || "";
+      req.stmts.updateLeadContacts.run({
+        email: newEmail,
+        telegram: newTelegram,
+        updated_at: now,
+        id,
+      });
+      // Sync lead_emails table when email changes
+      try {
+        syncLeadEmails(req.workspaceId, id, newEmail);
+      } catch (e) {
+        console.error("[PATCH lead] syncLeadEmails:", e.message);
+      }
+    }
   }
 
   const lead = req.stmts.getLead.get(id);
