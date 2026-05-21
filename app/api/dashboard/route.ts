@@ -78,7 +78,7 @@ export async function GET() {
     // Build per-channel unread counts in ONE query using OR conditions
     let unreadResults: { channelId: string; _count: { id: number } }[] = [];
     if (allChatMembers.length > 0) {
-      unreadResults = await db.chatMsg.groupBy({
+      unreadResults = (await db.chatMsg.groupBy({
         by: ["channelId"],
         where: {
           deletedAt: null,
@@ -89,7 +89,8 @@ export async function GET() {
           })),
         },
         _count: { id: true },
-      });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any)) as typeof unreadResults;
     }
     const unreadByChannel = new Map(
       unreadResults.map((r) => [r.channelId, r._count.id]),

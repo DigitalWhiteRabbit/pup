@@ -123,25 +123,27 @@ export async function GET(req: NextRequest, { params }: Params) {
 
           const leadId = dialogueToLead[msg.dialogueId];
           if (leadId) {
-            const stage = leadStageMap[leadId];
-            // Count as replied if lead progressed past AWAITING_REPLY
-            const repliedStages: string[] = [
-              MktDialogueStage.REPLIED,
-              MktDialogueStage.NEGOTIATING,
-              MktDialogueStage.DEAL_PENDING,
-              MktDialogueStage.WON,
-            ];
-            if (repliedStages.includes(stage)) {
-              variantStats[vid].repliedLeadIds.add(leadId);
-            }
-            // Count as interested if lead reached negotiation or beyond
-            const interestedStages: string[] = [
-              MktDialogueStage.NEGOTIATING,
-              MktDialogueStage.DEAL_PENDING,
-              MktDialogueStage.WON,
-            ];
-            if (interestedStages.includes(stage)) {
-              variantStats[vid].interestedLeadIds.add(leadId);
+            const stage = leadStageMap[leadId] as string | undefined;
+            if (stage) {
+              // Count as replied if lead progressed past AWAITING_REPLY
+              const repliedStages: string[] = [
+                MktDialogueStage.REPLIED,
+                MktDialogueStage.NEGOTIATING,
+                MktDialogueStage.DEAL_PENDING,
+                MktDialogueStage.WON,
+              ];
+              if (repliedStages.includes(stage)) {
+                variantStats[vid].repliedLeadIds.add(leadId);
+              }
+              // Count as interested if lead reached negotiation or beyond
+              const interestedStages: string[] = [
+                MktDialogueStage.NEGOTIATING,
+                MktDialogueStage.DEAL_PENDING,
+                MktDialogueStage.WON,
+              ];
+              if (interestedStages.includes(stage)) {
+                variantStats[vid].interestedLeadIds.add(leadId);
+              }
             }
           }
         }

@@ -15,11 +15,13 @@ async function gracefulShutdown(signal: string) {
   activeIntervals.length = 0;
   console.log("[shutdown] Cleared all intervals");
 
-  // 2. Stop marketing worker (dynamic import to avoid circular deps)
+  // 2. Stop marketing worker (hidden from webpack static analysis)
   try {
-    const { stop } =
-      await import("@/lib/services/marketing/mkt-worker.service");
-    await stop();
+    const modPath = "@/lib/services/marketing/mkt-worker.service";
+    const mod = await (Function("p", "return import(p)")(modPath) as Promise<{
+      stop: () => Promise<void>;
+    }>);
+    await mod.stop();
     console.log("[shutdown] Marketing worker stopped");
   } catch {
     // Worker may not have been running — that's fine
