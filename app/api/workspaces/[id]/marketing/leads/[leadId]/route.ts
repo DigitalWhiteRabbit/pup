@@ -19,15 +19,31 @@ const MktLeadStatus = z.enum([
   "REJECTED",
 ]);
 
+const MktDialogueStage = z.enum([
+  "NOT_CONTACTED",
+  "QUEUED",
+  "AWAITING_REVIEW",
+  "CONTACTED",
+  "AWAITING_REPLY",
+  "FOLLOWUP_1",
+  "FOLLOWUP_2",
+  "REPLIED",
+  "NEGOTIATING",
+  "DEAL_PENDING",
+  "WON",
+  "LOST",
+]);
+
 /**
  * Allowed fields for PATCH /leads/:leadId.
  * Matches the updateLead() service contract exactly.
  * NEVER include: id, workspaceId, channelId, source, leadScore,
- * dialogueStage, or any enrichment / metric field.
+ * or any enrichment / metric field.
  */
 const leadPatchSchema = z
   .object({
     leadStatus: MktLeadStatus.optional(),
+    dialogueStage: MktDialogueStage.optional(),
     notes: z.string().max(10000).optional(),
     projectId: z.string().max(100).nullish(),
   })

@@ -13,7 +13,10 @@ export const api = (workspaceId: string, path: string) =>
 
 export async function fetchApi(url: string) {
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  if (!res.ok) {
+    const data = await res.json().catch(() => null);
+    throw new Error(data?.error || `API error: ${res.status}`);
+  }
   return res.json();
 }
 
@@ -23,7 +26,10 @@ export async function postApi(url: string, body?: unknown) {
     headers: { "Content-Type": "application/json" },
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  if (!res.ok) {
+    const data = await res.json().catch(() => null);
+    throw new Error(data?.error || `API error: ${res.status}`);
+  }
   return res.json();
 }
 
@@ -33,7 +39,10 @@ export async function patchApi(url: string, body: unknown) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  if (!res.ok) {
+    const data = await res.json().catch(() => null);
+    throw new Error(data?.error || `API error: ${res.status}`);
+  }
   return res.json();
 }
 
@@ -94,6 +103,109 @@ export function ScoreBadge({ score }: { score: string | number | null }) {
       {label}
     </Badge>
   );
+}
+
+// ── Dialogue Stage labels & colors ──
+
+export const DIALOGUE_STAGES = [
+  {
+    value: "NOT_CONTACTED",
+    label: "Не связывались",
+    color: "bg-muted text-muted-foreground",
+  },
+  { value: "QUEUED", label: "В очереди", color: "bg-sky-500/10 text-sky-500" },
+  {
+    value: "AWAITING_REVIEW",
+    label: "На ревью",
+    color: "bg-amber-500/10 text-amber-500",
+  },
+  {
+    value: "CONTACTED",
+    label: "Отправлено",
+    color: "bg-blue-500/10 text-blue-500",
+  },
+  {
+    value: "AWAITING_REPLY",
+    label: "Ожидание",
+    color: "bg-orange-500/10 text-orange-500",
+  },
+  {
+    value: "FOLLOWUP_1",
+    label: "Follow-up 1",
+    color: "bg-orange-600/10 text-orange-600",
+  },
+  {
+    value: "FOLLOWUP_2",
+    label: "Follow-up 2",
+    color: "bg-orange-700/10 text-orange-700",
+  },
+  {
+    value: "REPLIED",
+    label: "Ответил",
+    color: "bg-emerald-500/10 text-emerald-500",
+  },
+  {
+    value: "NEGOTIATING",
+    label: "Переговоры",
+    color: "bg-purple-500/10 text-purple-500",
+  },
+  {
+    value: "DEAL_PENDING",
+    label: "Сделка",
+    color: "bg-indigo-500/10 text-indigo-500",
+  },
+  {
+    value: "WON",
+    label: "Выиграно",
+    color: "bg-emerald-600/10 text-emerald-600",
+  },
+  { value: "LOST", label: "Отказ", color: "bg-red-500/10 text-red-500" },
+] as const;
+
+const DIALOGUE_STAGE_MAP = Object.fromEntries(
+  DIALOGUE_STAGES.map((s) => [s.value, s]),
+);
+
+export function dialogueStageLabel(stage: string): string {
+  return DIALOGUE_STAGE_MAP[stage]?.label ?? stage;
+}
+
+export function dialogueStageColor(stage: string): string {
+  return DIALOGUE_STAGE_MAP[stage]?.color ?? "bg-muted text-muted-foreground";
+}
+
+// ── Lead Status labels & colors ──
+
+export const LEAD_STATUSES = [
+  {
+    value: "PENDING",
+    label: "Ожидает",
+    color: "bg-muted text-muted-foreground",
+  },
+  { value: "READY", label: "Готов", color: "bg-sky-500/10 text-sky-500" },
+  {
+    value: "IN_WORK",
+    label: "В работе",
+    color: "bg-orange-500/10 text-orange-500",
+  },
+  {
+    value: "DONE",
+    label: "Готово",
+    color: "bg-emerald-500/10 text-emerald-500",
+  },
+  { value: "REJECTED", label: "Отклонён", color: "bg-red-500/10 text-red-500" },
+] as const;
+
+const LEAD_STATUS_MAP = Object.fromEntries(
+  LEAD_STATUSES.map((s) => [s.value, s]),
+);
+
+export function leadStatusLabel(status: string): string {
+  return LEAD_STATUS_MAP[status]?.label ?? status;
+}
+
+export function leadStatusColor(status: string): string {
+  return LEAD_STATUS_MAP[status]?.color ?? "bg-muted text-muted-foreground";
 }
 
 export function formatNumber(n: number | null | undefined): string {

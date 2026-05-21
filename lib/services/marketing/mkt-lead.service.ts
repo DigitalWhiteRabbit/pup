@@ -141,6 +141,7 @@ export async function updateLead(
   leadId: string,
   data: {
     leadStatus?: MktLeadStatus;
+    dialogueStage?: MktDialogueStage;
     notes?: string;
     projectId?: string | null;
   },
@@ -168,6 +169,9 @@ export async function updateLead(
     where: { id: leadId },
     data: {
       ...(data.leadStatus !== undefined && { leadStatus: data.leadStatus }),
+      ...(data.dialogueStage !== undefined && {
+        dialogueStage: data.dialogueStage,
+      }),
       ...(data.notes !== undefined && { notes: data.notes }),
       ...(data.projectId !== undefined && { projectId: data.projectId }),
     },

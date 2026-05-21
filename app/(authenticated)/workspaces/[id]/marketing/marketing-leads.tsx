@@ -51,11 +51,16 @@ import {
   postApi,
   patchApi,
   SourceBadge,
-  StatusBadge,
   ScoreBadge,
   formatNumber,
   EmptyState,
   SOURCES,
+  DIALOGUE_STAGES,
+  LEAD_STATUSES,
+  dialogueStageLabel,
+  dialogueStageColor,
+  leadStatusLabel,
+  leadStatusColor,
 } from "./marketing-shared";
 
 export function LeadsSection({ workspaceId }: MarketingSectionProps) {
@@ -119,7 +124,12 @@ export function LeadsSection({ workspaceId }: MarketingSectionProps) {
   const updateLeadMutation = useMutation({
     mutationFn: ({ leadId, data }: { leadId: string; data: any }) =>
       patchApi(api(workspaceId, `/leads/${leadId}`), data),
-    onSuccess: () => {
+    onSuccess: (_res, vars) => {
+      if (vars.data.dialogueStage) {
+        toastSuccess(`Стадия: ${dialogueStageLabel(vars.data.dialogueStage)}`);
+      } else if (vars.data.leadStatus) {
+        toastSuccess(`Статус: ${leadStatusLabel(vars.data.leadStatus)}`);
+      }
       queryClient.invalidateQueries({ queryKey: ["mkt-leads", workspaceId] });
       queryClient.invalidateQueries({
         queryKey: ["mkt-lead-detail", workspaceId],
@@ -319,6 +329,9 @@ export function LeadsSection({ workspaceId }: MarketingSectionProps) {
                         Статус
                       </th>
                       <th className="text-left p-2.5 font-bold text-xs uppercase text-muted-foreground tracking-wide">
+                        Стадия диалога
+                      </th>
+                      <th className="text-left p-2.5 font-bold text-xs uppercase text-muted-foreground tracking-wide">
                         Дата
                       </th>
                     </tr>
@@ -405,7 +418,62 @@ export function LeadsSection({ workspaceId }: MarketingSectionProps) {
                           <ScoreBadge score={lead.aiScore} />
                         </td>
                         <td className="p-2.5">
-                          <StatusBadge status={lead.status} />
+                          <Select
+                            value={lead.leadStatus || "PENDING"}
+                            onValueChange={(val) =>
+                              updateLeadMutation.mutate({
+                                leadId: lead.id,
+                                data: { leadStatus: val },
+                              })
+                            }
+                          >
+                            <SelectTrigger
+                              className={`h-7 text-xs w-[110px] border-0 px-2 font-bold ${leadStatusColor(lead.leadStatus || "PENDING")}`}
+                            >
+                              <SelectValue>
+                                {leadStatusLabel(lead.leadStatus || "PENDING")}
+                              </SelectValue>
+                            </SelectTrigger>
+                            <SelectContent>
+                              {LEAD_STATUSES.map((s) => (
+                                <SelectItem key={s.value} value={s.value}>
+                                  <span className={`font-medium ${s.color}`}>
+                                    {s.label}
+                                  </span>
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </td>
+                        <td className="p-2.5">
+                          <Select
+                            value={lead.dialogueStage || "NOT_CONTACTED"}
+                            onValueChange={(val) =>
+                              updateLeadMutation.mutate({
+                                leadId: lead.id,
+                                data: { dialogueStage: val },
+                              })
+                            }
+                          >
+                            <SelectTrigger
+                              className={`h-7 text-xs w-[130px] border-0 px-2 font-bold ${dialogueStageColor(lead.dialogueStage || "NOT_CONTACTED")}`}
+                            >
+                              <SelectValue>
+                                {dialogueStageLabel(
+                                  lead.dialogueStage || "NOT_CONTACTED",
+                                )}
+                              </SelectValue>
+                            </SelectTrigger>
+                            <SelectContent>
+                              {DIALOGUE_STAGES.map((s) => (
+                                <SelectItem key={s.value} value={s.value}>
+                                  <span className={`font-medium ${s.color}`}>
+                                    {s.label}
+                                  </span>
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         </td>
                         <td className="p-2.5 text-muted-foreground whitespace-nowrap">
                           {lead.createdAt
@@ -730,12 +798,37 @@ export function LeadsSection({ workspaceId }: MarketingSectionProps) {
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="space-y-2 text-xs">
+                    <div className="space-y-2.5 text-xs">
                       <div className="flex justify-between items-center">
                         <span className="text-muted-foreground">
                           Lead status
                         </span>
-                        <StatusBadge status={lead.status} />
+                        <Select
+                          value={lead.leadStatus || "PENDING"}
+                          onValueChange={(val) =>
+                            updateLeadMutation.mutate({
+                              leadId: lead.id,
+                              data: { leadStatus: val },
+                            })
+                          }
+                        >
+                          <SelectTrigger
+                            className={`h-7 text-xs w-[110px] border-0 px-2 font-bold ${leadStatusColor(lead.leadStatus || "PENDING")}`}
+                          >
+                            <SelectValue>
+                              {leadStatusLabel(lead.leadStatus || "PENDING")}
+                            </SelectValue>
+                          </SelectTrigger>
+                          <SelectContent>
+                            {LEAD_STATUSES.map((s) => (
+                              <SelectItem key={s.value} value={s.value}>
+                                <span className={`font-medium ${s.color}`}>
+                                  {s.label}
+                                </span>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
                       <div className="flex justify-between items-center">
                         <span className="text-muted-foreground">AI Score</span>
@@ -743,12 +836,34 @@ export function LeadsSection({ workspaceId }: MarketingSectionProps) {
                       </div>
                       <div className="flex justify-between items-center">
                         <span className="text-muted-foreground">Диалог</span>
-                        <Badge
-                          variant="outline"
-                          className="bg-muted text-muted-foreground text-xs"
+                        <Select
+                          value={lead.dialogueStage || "NOT_CONTACTED"}
+                          onValueChange={(val) =>
+                            updateLeadMutation.mutate({
+                              leadId: lead.id,
+                              data: { dialogueStage: val },
+                            })
+                          }
                         >
-                          {lead.dialogueStatus || "not_contacted"}
-                        </Badge>
+                          <SelectTrigger
+                            className={`h-7 text-xs w-[130px] border-0 px-2 font-bold ${dialogueStageColor(lead.dialogueStage || "NOT_CONTACTED")}`}
+                          >
+                            <SelectValue>
+                              {dialogueStageLabel(
+                                lead.dialogueStage || "NOT_CONTACTED",
+                              )}
+                            </SelectValue>
+                          </SelectTrigger>
+                          <SelectContent>
+                            {DIALOGUE_STAGES.map((s) => (
+                              <SelectItem key={s.value} value={s.value}>
+                                <span className={`font-medium ${s.color}`}>
+                                  {s.label}
+                                </span>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
                     </div>
                   </CardContent>
