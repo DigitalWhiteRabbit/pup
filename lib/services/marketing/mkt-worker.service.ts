@@ -463,31 +463,13 @@ async function processOutreachQueue(workspaceId: string): Promise<void> {
       return;
     }
 
-    // 5. Run qualifyLead (fit-gate)
+    // 5. Run qualifyLead (get pitch angle — never rejects)
     try {
       const qualification = await qualifyLead(workspaceId, lead, project);
 
-      if (!qualification.suitable) {
-        log(
-          "info",
-          `Lead ${lead.channelName} rejected by AI: ${qualification.reason}`,
-        );
-        await db.mktLead.update({
-          where: { id: lead.id },
-          data: {
-            leadStatus: MktLeadStatus.REJECTED,
-            dialogueStage: MktDialogueStage.NOT_CONTACTED,
-            lockedUntil: null,
-            notes: `AI rejected: ${qualification.reason}`,
-          },
-        });
-        workerState.stats.skipped++;
-        return;
-      }
-
       log(
         "info",
-        `Lead ${lead.channelName} qualified: ${qualification.reason} | angle: ${qualification.angle}`,
+        `Lead ${lead.channelName} qualified: suitable=${qualification.suitable}, angle: ${qualification.angle}`,
       );
     } catch (err) {
       log("error", `Qualify failed for ${lead.id}: ${err}`);
