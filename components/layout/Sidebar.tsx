@@ -325,48 +325,54 @@ function SidebarContent({
                   },
                 )}
 
-            <Link
-              href={`/workspaces/${workspaceId}/voice`}
-              onClick={onNavigate}
-              className={cn(
-                "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                pathname === `/workspaces/${workspaceId}/voice` ||
-                  pathname.startsWith(`/workspaces/${workspaceId}/voice/`)
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-              )}
-            >
-              <svg
-                className="h-4 w-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
+            {checkModuleAccess(myModuleAccess ?? null, "analytics") && (
+              <Link
+                href={`/workspaces/${workspaceId}/voice`}
+                onClick={onNavigate}
+                className={cn(
+                  "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                  pathname === `/workspaces/${workspaceId}/voice` ||
+                    pathname.startsWith(`/workspaces/${workspaceId}/voice/`)
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                )}
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M9 12a3 3 0 11-6 0 3 3 0 016 0z"
-                />
-              </svg>
-              Голосовой канал
-            </Link>
+                <svg
+                  className="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M9 12a3 3 0 11-6 0 3 3 0 016 0z"
+                  />
+                </svg>
+                Голосовой канал
+              </Link>
+            )}
 
-            <div className="my-1 border-t" />
+            {(!myModuleAccess || myModuleAccess === null) && (
+              <>
+                <div className="my-1 border-t" />
 
-            <Link
-              href={`/workspaces/${workspaceId}`}
-              onClick={onNavigate}
-              className={cn(
-                "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                pathname === `/workspaces/${workspaceId}`
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-              )}
-            >
-              <Settings className="h-4 w-4" />
-              Настройки workspace
-            </Link>
+                <Link
+                  href={`/workspaces/${workspaceId}`}
+                  onClick={onNavigate}
+                  className={cn(
+                    "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                    pathname === `/workspaces/${workspaceId}`
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                  )}
+                >
+                  <Settings className="h-4 w-4" />
+                  Настройки workspace
+                </Link>
+              </>
+            )}
           </>
         ) : (
           // ── GLOBAL MODE ──
