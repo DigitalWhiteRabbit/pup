@@ -622,6 +622,112 @@ CREATE TABLE IF NOT EXISTS tg_invite_attempts (
 );
 CREATE INDEX IF NOT EXISTS idx_tg_inv_att_campaign ON tg_invite_attempts(campaign_id);
 
+-- ─── Boost Tasks (subscribers, reactions, views, votes) ──────────────
+CREATE TABLE IF NOT EXISTS tg_boost_tasks (
+  id              TEXT PRIMARY KEY,
+  name            TEXT NOT NULL,
+  boost_type      TEXT NOT NULL,  -- SUBSCRIBERS|REACTIONS|VIEWS|POLL_VOTES
+  target_channel  TEXT,
+  target_message_id INTEGER,
+  config          TEXT DEFAULT '{}',  -- JSON: natural_curve, distribution, emoji for reactions
+  target_amount   INTEGER DEFAULT 0,
+  current_amount  INTEGER DEFAULT 0,
+  account_ids     TEXT DEFAULT '[]',
+  status          TEXT DEFAULT 'DRAFT',
+  started_at      TEXT,
+  finished_at     TEXT,
+  created_at      TEXT DEFAULT (datetime('now')),
+  updated_at      TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_tg_boost_status ON tg_boost_tasks(status);
+
+-- ─── Boost Actions Log ───────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS tg_boost_actions (
+  id              TEXT PRIMARY KEY,
+  task_id         TEXT NOT NULL REFERENCES tg_boost_tasks(id) ON DELETE CASCADE,
+  account_id      TEXT,
+  action_type     TEXT NOT NULL,  -- subscribe|react|view|vote
+  success         INTEGER DEFAULT 1,
+  error_code      TEXT,
+  created_at      TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_tg_boost_act_task ON tg_boost_actions(task_id);
+
+-- ─── Stories Boost Tasks ─────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS tg_stories_boost_tasks (
+  id              TEXT PRIMARY KEY,
+  name            TEXT NOT NULL,
+  mode            TEXT DEFAULT 'MANUAL',  -- AUTO_MONITOR|MANUAL
+  target_channel  TEXT,
+  target_story_id INTEGER,
+  config          TEXT DEFAULT '{}',
+  account_ids     TEXT DEFAULT '[]',
+  status          TEXT DEFAULT 'DRAFT',
+  total_views     INTEGER DEFAULT 0,
+  total_reactions INTEGER DEFAULT 0,
+  started_at      TEXT,
+  finished_at     TEXT,
+  created_at      TEXT DEFAULT (datetime('now')),
+  updated_at      TEXT DEFAULT (datetime('now'))
+);
+
+-- ─── Clone Tasks ─────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS tg_clone_tasks (
+  id              TEXT PRIMARY KEY,
+  name            TEXT NOT NULL,
+  source_channel  TEXT NOT NULL,
+  target_channel  TEXT NOT NULL,
+  copy_items      TEXT DEFAULT '["posts"]',  -- JSON: posts|profile|avatar|pinned
+  ai_rewrite      INTEGER DEFAULT 0,
+  ai_rewrite_style TEXT,
+  schedule_config TEXT DEFAULT '{}',
+  status          TEXT DEFAULT 'DRAFT',
+  total_posts     INTEGER DEFAULT 0,
+  posted_count    INTEGER DEFAULT 0,
+  rewritten_count INTEGER DEFAULT 0,
+  started_at      TEXT,
+  finished_at     TEXT,
+  created_at      TEXT DEFAULT (datetime('now')),
+  updated_at      TEXT DEFAULT (datetime('now'))
+);
+
+-- ─── Channel Creation Tasks ──────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS tg_channel_creation_tasks (
+  id              TEXT PRIMARY KEY,
+  name            TEXT NOT NULL,
+  channel_type    TEXT DEFAULT 'CHANNEL',  -- CHANNEL|SUPERGROUP|BASIC_GROUP
+  count           INTEGER DEFAULT 1,
+  naming_pattern  TEXT,
+  username_pattern TEXT,
+  description     TEXT,
+  creator_account_ids TEXT DEFAULT '[]',
+  permissions     TEXT DEFAULT '{}',
+  status          TEXT DEFAULT 'DRAFT',
+  created_count   INTEGER DEFAULT 0,
+  created_channel_ids TEXT DEFAULT '[]',
+  started_at      TEXT,
+  finished_at     TEXT,
+  created_at      TEXT DEFAULT (datetime('now')),
+  updated_at      TEXT DEFAULT (datetime('now'))
+);
+
+-- ─── Format Conversion Tasks ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS tg_conversion_tasks (
+  id              TEXT PRIMARY KEY,
+  name            TEXT,
+  input_format    TEXT NOT NULL,  -- TDATA|SESSION|SESSION_JSON
+  output_format   TEXT NOT NULL,
+  files_count     INTEGER DEFAULT 0,
+  success_count   INTEGER DEFAULT 0,
+  failed_count    INTEGER DEFAULT 0,
+  status          TEXT DEFAULT 'DRAFT',
+  errors          TEXT DEFAULT '[]',
+  started_at      TEXT,
+  finished_at     TEXT,
+  created_at      TEXT DEFAULT (datetime('now')),
+  updated_at      TEXT DEFAULT (datetime('now'))
+);
+
 -- ============================================================================
 -- Default data
 -- ============================================================================

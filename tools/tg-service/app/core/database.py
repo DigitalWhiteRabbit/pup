@@ -384,6 +384,105 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
     except Exception:  # noqa: BLE001
         log.warning("migration_failed", migration="stage2_tables", exc_info=True)
 
+    # Migration: Stage 5 tables (boost, stories boost, cloner, channel creator, converter)
+    _stage5_ddl = """
+    CREATE TABLE IF NOT EXISTS tg_boost_tasks (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL,
+      boost_type TEXT NOT NULL,
+      target_channel TEXT, target_message_id INTEGER,
+      config TEXT DEFAULT '{}',
+      target_amount INTEGER DEFAULT 0,
+      current_amount INTEGER DEFAULT 0,
+      account_ids TEXT DEFAULT '[]',
+      status TEXT DEFAULT 'DRAFT',
+      started_at TEXT, finished_at TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_tg_boost_status ON tg_boost_tasks(status);
+
+    CREATE TABLE IF NOT EXISTS tg_boost_actions (
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL REFERENCES tg_boost_tasks(id) ON DELETE CASCADE,
+      account_id TEXT, action_type TEXT NOT NULL,
+      success INTEGER DEFAULT 1, error_code TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_tg_boost_act_task ON tg_boost_actions(task_id);
+
+    CREATE TABLE IF NOT EXISTS tg_stories_boost_tasks (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL,
+      mode TEXT DEFAULT 'MANUAL',
+      target_channel TEXT, target_story_id INTEGER,
+      config TEXT DEFAULT '{}', account_ids TEXT DEFAULT '[]',
+      status TEXT DEFAULT 'DRAFT',
+      total_views INTEGER DEFAULT 0, total_reactions INTEGER DEFAULT 0,
+      started_at TEXT, finished_at TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS tg_clone_tasks (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL,
+      source_channel TEXT NOT NULL, target_channel TEXT NOT NULL,
+      copy_items TEXT DEFAULT '["posts"]',
+      ai_rewrite INTEGER DEFAULT 0, ai_rewrite_style TEXT,
+      schedule_config TEXT DEFAULT '{}',
+      status TEXT DEFAULT 'DRAFT',
+      total_posts INTEGER DEFAULT 0,
+      posted_count INTEGER DEFAULT 0,
+      rewritten_count INTEGER DEFAULT 0,
+      started_at TEXT, finished_at TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS tg_channel_creation_tasks (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL,
+      channel_type TEXT DEFAULT 'CHANNEL',
+      count INTEGER DEFAULT 1,
+      naming_pattern TEXT, username_pattern TEXT,
+      description TEXT, creator_account_ids TEXT DEFAULT '[]',
+      permissions TEXT DEFAULT '{}',
+      status TEXT DEFAULT 'DRAFT',
+      created_count INTEGER DEFAULT 0,
+      created_channel_ids TEXT DEFAULT '[]',
+      started_at TEXT, finished_at TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS tg_conversion_tasks (
+      id TEXT PRIMARY KEY, name TEXT,
+      input_format TEXT NOT NULL, output_format TEXT NOT NULL,
+      files_count INTEGER DEFAULT 0,
+      success_count INTEGER DEFAULT 0,
+      failed_count INTEGER DEFAULT 0,
+      status TEXT DEFAULT 'DRAFT',
+      errors TEXT DEFAULT '[]',
+      started_at TEXT, finished_at TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+    """
+    try:
+        existing_tables = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        stage5_tables = [
+            "tg_boost_tasks", "tg_boost_actions", "tg_stories_boost_tasks",
+            "tg_clone_tasks", "tg_channel_creation_tasks", "tg_conversion_tasks",
+        ]
+        missing = [t for t in stage5_tables if t not in existing_tables]
+        if missing:
+            conn.executescript(_stage5_ddl)
+            log.info("migration_applied", migration="stage5_tables", tables=missing)
+    except Exception:  # noqa: BLE001
+        log.warning("migration_failed", migration="stage5_tables", exc_info=True)
+
 
 def get_db(
     workspace_id: str,
