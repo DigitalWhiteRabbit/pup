@@ -22,6 +22,10 @@ import {
   Crown,
   User,
   Loader2,
+  Activity,
+  Shield,
+  ChevronRight,
+  ChevronDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -34,6 +38,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -45,6 +50,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toastSuccess, toastApiError } from "@/lib/toast";
+import { trackAction } from "@/lib/services/action-tracker";
 import { WorkspaceLogoUpload } from "./workspace-logo-upload";
 import {
   updateWorkspaceSchema,
@@ -54,6 +60,13 @@ import type {
   WorkspaceBoard,
   ModuleKey,
 } from "@/lib/services/workspace.service";
+import { MemberActivityDialog } from "@/components/workspace/MemberActivityDialog";
+import { MemberActivityTimeline } from "@/components/workspace/MemberActivityTimeline";
+import {
+  checkModuleAccess,
+  MODULE_ACCESS_TREE,
+  type ModuleTreeNode,
+} from "@/lib/module-access";
 
 // ─── Module metadata ──────────────────────────────────────────────────────────
 
@@ -206,6 +219,256 @@ async function apiFetchWorkspace(workspaceId: string): Promise<WorkspaceBoard> {
   return res.json() as Promise<WorkspaceBoard>;
 }
 
+// ─── Module access API helpers ────────────────────────────────────────────────
+
+async function apiSetMemberModules(
+  workspaceId: string,
+  userId: string,
+  allowedModules: string[] | null,
+) {
+  const res = await fetch(
+    `/api/workspaces/${workspaceId}/members/${userId}/modules`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ allowedModules }),
+    },
+  );
+  if (!res.ok) {
+    const data: unknown = await res.json();
+    throw data;
+  }
+}
+
+async function fetchMyModuleAccess(
+  workspaceId: string,
+): Promise<string[] | null> {
+  const res = await fetch(`/api/workspaces/${workspaceId}/my-modules`);
+  if (!res.ok) return null;
+  const data = (await res.json()) as { allowedModules: string[] | null };
+  return data.allowedModules;
+}
+
+// ─── Module Access Tree Component ────────────────────────────────────────────
+
+function getAllDescendantKeys(node: ModuleTreeNode): string[] {
+  const keys: string[] = [];
+  if (node.children) {
+    for (const child of node.children) {
+      keys.push(child.key);
+      keys.push(...getAllDescendantKeys(child));
+    }
+  }
+  return keys;
+}
+
+function getAllNodeKeys(node: ModuleTreeNode): string[] {
+  return [node.key, ...getAllDescendantKeys(node)];
+}
+
+function ModuleAccessTreeNode({
+  node,
+  selected,
+  onToggle,
+  depth = 0,
+}: {
+  node: ModuleTreeNode;
+  selected: Set<string>;
+  onToggle: (key: string, checked: boolean, allKeys: string[]) => void;
+  depth?: number;
+}) {
+  const [expanded, setExpanded] = useState(true);
+  const hasChildren = !!node.children?.length;
+  const isChecked = selected.has(node.key);
+
+  let isIndeterminate = false;
+  if (hasChildren && !isChecked) {
+    const allKeys = getAllDescendantKeys(node);
+    const checkedCount = allKeys.filter((k) => selected.has(k)).length;
+    isIndeterminate = checkedCount > 0 && checkedCount < allKeys.length;
+  }
+
+  function handleCheck(checked: boolean) {
+    const allKeys = getAllNodeKeys(node);
+    onToggle(node.key, checked, allKeys);
+  }
+
+  return (
+    <div>
+      <div
+        className="flex items-center gap-1.5 py-1"
+        style={{ paddingLeft: depth * 20 }}
+      >
+        {hasChildren ? (
+          <button
+            type="button"
+            className="h-4 w-4 shrink-0 text-muted-foreground hover:text-foreground"
+            onClick={() => setExpanded((v) => !v)}
+          >
+            {expanded ? (
+              <ChevronDown className="h-3.5 w-3.5" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5" />
+            )}
+          </button>
+        ) : (
+          <span className="w-4 shrink-0" />
+        )}
+        <Checkbox
+          checked={isChecked}
+          indeterminate={isIndeterminate}
+          onChange={() => handleCheck(!isChecked)}
+        />
+        <span className="text-sm select-none">{node.label}</span>
+      </div>
+      {hasChildren && expanded && (
+        <div>
+          {node.children!.map((child) => (
+            <ModuleAccessTreeNode
+              key={child.key}
+              node={child}
+              selected={selected}
+              onToggle={onToggle}
+              depth={depth + 1}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Member Access Dialog ────────────────────────────────────────────────────
+
+type MemberInfo = {
+  id: string;
+  login: string;
+  email: string;
+  role: string;
+  allowedModules: string[] | null;
+};
+
+function MemberAccessDialog({
+  open,
+  onOpenChange,
+  member,
+  workspaceId,
+  onSaved,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  member: MemberInfo | null;
+  workspaceId: string;
+  onSaved: () => void;
+}) {
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [fullAccess, setFullAccess] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (member && open) {
+      if (member.allowedModules === null) {
+        setFullAccess(true);
+        setSelected(new Set());
+      } else {
+        setFullAccess(false);
+        setSelected(new Set(member.allowedModules));
+      }
+    }
+  }, [member, open]);
+
+  function handleToggle(key: string, checked: boolean, allKeys: string[]) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (checked) {
+        for (const k of allKeys) next.add(k);
+        const parts = key.split(":");
+        for (let i = 1; i < parts.length; i++) {
+          next.add(parts.slice(0, i).join(":"));
+        }
+      } else {
+        for (const k of allKeys) next.delete(k);
+      }
+      return next;
+    });
+  }
+
+  async function handleSave() {
+    if (!member) return;
+    setSaving(true);
+    try {
+      const allowedModules = fullAccess ? null : Array.from(selected);
+      await apiSetMemberModules(workspaceId, member.id, allowedModules);
+      toastSuccess("Доступ обновлён");
+      onSaved();
+      onOpenChange(false);
+    } catch (err) {
+      toastApiError(err);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!member) return null;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Shield className="h-5 w-5" />
+            Доступ: {member.login}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="flex items-center justify-between rounded-lg border p-3">
+            <div>
+              <p className="text-sm font-medium">Полный доступ</p>
+              <p className="text-xs text-muted-foreground">
+                Доступ ко всем модулям workspace
+              </p>
+            </div>
+            <Switch checked={fullAccess} onCheckedChange={setFullAccess} />
+          </div>
+
+          {!fullAccess && (
+            <div className="rounded-lg border p-3 max-h-80 overflow-y-auto">
+              <p className="text-xs text-muted-foreground mb-2">
+                Выберите разрешённые модули:
+              </p>
+              {MODULE_ACCESS_TREE.map((node) => (
+                <ModuleAccessTreeNode
+                  key={node.key}
+                  node={node}
+                  selected={selected}
+                  onToggle={handleToggle}
+                />
+              ))}
+            </div>
+          )}
+
+          {!fullAccess && selected.size === 0 && (
+            <p className="text-xs text-destructive">
+              Выберите хотя бы один модуль
+            </p>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Отмена
+          </Button>
+          <Button
+            onClick={handleSave}
+            disabled={saving || (!fullAccess && selected.size === 0)}
+          >
+            {saving ? "Сохранение..." : "Сохранить"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 type Props = {
@@ -236,6 +499,13 @@ export function WorkspaceOverviewClient({
     queryFn: () => apiFetchModules(workspace.id),
     initialData: initialModules,
     staleTime: 10_000,
+  });
+
+  // Fetch the current user's module access for filtering the overview grid
+  const { data: myModuleAccess } = useQuery({
+    queryKey: ["workspace", workspace.id, "my-modules"],
+    queryFn: () => fetchMyModuleAccess(workspace.id),
+    staleTime: 30_000,
   });
 
   const refreshWorkspace = useCallback(async () => {
@@ -280,7 +550,12 @@ export function WorkspaceOverviewClient({
       }
       toastApiError(_err);
     },
-    onSuccess: (_data, { enabled }) => {
+    onSuccess: (_data, { moduleKey, enabled }) => {
+      trackAction(
+        "workspace:module:toggle",
+        `workspace:module:toggle`,
+        `${moduleKey}: ${enabled ? "on" : "off"}`,
+      );
       toastSuccess(enabled ? "Модуль включён" : "Модуль выключен");
       void queryClient.invalidateQueries({
         queryKey: ["workspace", workspace.id, "modules"],
@@ -322,7 +597,8 @@ export function WorkspaceOverviewClient({
   const addMemberMutation = useMutation({
     mutationFn: (loginOrEmail: string) =>
       apiAddMember(workspace.id, loginOrEmail),
-    onSuccess: async () => {
+    onSuccess: async (_data, loginOrEmail) => {
+      trackAction("workspace:member:add", `workspace:member:add`, loginOrEmail);
       void queryClient.invalidateQueries({
         queryKey: ["workspace", workspace.id],
       });
@@ -337,12 +613,30 @@ export function WorkspaceOverviewClient({
 
   const removeMemberMutation = useMutation({
     mutationFn: (userId: string) => apiRemoveMember(workspace.id, userId),
-    onSuccess: async () => {
+    onSuccess: async (_data, userId) => {
+      trackAction("workspace:member:remove", `workspace:member:remove`, userId);
       toastSuccess("Участник удалён");
       await refreshWorkspace();
     },
     onError: toastApiError,
   });
+
+  // ─── Member Activity ────────────────────────────────────────────────────────
+  const [activityOpen, setActivityOpen] = useState(false);
+  const [activityMember, setActivityMember] = useState<{
+    id: string;
+    login: string;
+  } | null>(null);
+
+  // ─── Member module access dialog ──────────────────────────────────────────
+  const [accessDialogOpen, setAccessDialogOpen] = useState(false);
+  const [accessDialogMember, setAccessDialogMember] =
+    useState<MemberInfo | null>(null);
+
+  function openAccessDialog(member: MemberInfo) {
+    setAccessDialogMember(member);
+    setAccessDialogOpen(true);
+  }
 
   // ─── Settings ──────────────────────────────────────────────────────────────
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -365,6 +659,7 @@ export function WorkspaceOverviewClient({
     mutationFn: (data: UpdateWorkspaceInput) =>
       apiUpdateWorkspace(workspace.id, data),
     onSuccess: () => {
+      trackAction("workspace:settings:update", `workspace:settings:update`);
       void refreshWorkspace();
       toastSuccess("Проект обновлён");
       resetSettings();
@@ -455,7 +750,12 @@ export function WorkspaceOverviewClient({
           </div>
         ) : (
           <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-            {MODULE_ORDER.map((key) => {
+            {MODULE_ORDER.filter((key) => {
+              // Owners always see all modules (for toggle management)
+              if (isOwner) return true;
+              // Non-owners: filter by their allowed modules
+              return checkModuleAccess(myModuleAccess ?? null, key);
+            }).map((key) => {
               const meta = MODULE_META[key];
               const enabled = modulesMap.get(key) ?? false;
               const isDisabledForUser = !enabled && !isOwner;
@@ -513,50 +813,129 @@ export function WorkspaceOverviewClient({
           Участники ({workspace.members.length})
         </h2>
         <div className="flex flex-wrap gap-3">
-          {workspace.members.map((member) => (
-            <div
-              key={member.id}
-              className="flex items-center gap-2 rounded-lg border bg-card px-3 py-2"
-            >
-              <Avatar className="h-7 w-7">
-                <AvatarFallback className="text-xs">
-                  {getInitials(member.login)}
-                </AvatarFallback>
-              </Avatar>
-              <div className="min-w-0">
-                <p className="text-sm font-medium">{member.login}</p>
-              </div>
-              <Badge
-                variant={member.role === "OWNER" ? "default" : "secondary"}
-                className="text-xs"
+          {workspace.members.map((member) => {
+            const hasRestrictions = member.allowedModules !== null;
+
+            return (
+              <div
+                key={member.id}
+                className="flex items-center gap-2 rounded-lg border bg-card px-3 py-2"
               >
-                {member.role === "OWNER" ? (
+                <Avatar className="h-7 w-7">
+                  <AvatarFallback className="text-xs">
+                    {getInitials(member.login)}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">{member.login}</p>
+                </div>
+                <Badge
+                  variant={member.role === "OWNER" ? "default" : "secondary"}
+                  className="text-xs"
+                >
+                  {member.role === "OWNER" ? (
+                    <>
+                      <Crown className="mr-1 h-3 w-3" />
+                      Владелец
+                    </>
+                  ) : (
+                    <>
+                      <User className="mr-1 h-3 w-3" />
+                      Участник
+                    </>
+                  )}
+                </Badge>
+                {hasRestrictions && (
+                  <Badge
+                    variant="outline"
+                    className="text-xs text-amber-600 border-amber-300"
+                  >
+                    <Shield className="mr-1 h-3 w-3" />
+                    Ограничен
+                  </Badge>
+                )}
+                {isOwner && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 text-muted-foreground hover:text-emerald-600"
+                    title="Активность"
+                    onClick={() => {
+                      setActivityMember({
+                        id: member.id,
+                        login: member.login,
+                      });
+                      setActivityOpen(true);
+                    }}
+                  >
+                    <Activity className="h-3 w-3" />
+                  </Button>
+                )}
+                {isOwner && member.role !== "OWNER" && (
                   <>
-                    <Crown className="mr-1 h-3 w-3" />
-                    Владелец
-                  </>
-                ) : (
-                  <>
-                    <User className="mr-1 h-3 w-3" />
-                    Участник
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6"
+                      title="Управление доступом"
+                      onClick={() => openAccessDialog(member)}
+                    >
+                      <Shield className="h-3 w-3" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 text-destructive hover:text-destructive"
+                      onClick={() => removeMemberMutation.mutate(member.id)}
+                      disabled={removeMemberMutation.isPending}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
                   </>
                 )}
-              </Badge>
-              {isOwner && member.role !== "OWNER" && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6 text-destructive hover:text-destructive"
-                  onClick={() => removeMemberMutation.mutate(member.id)}
-                  disabled={removeMemberMutation.isPending}
-                >
-                  <Trash2 className="h-3 w-3" />
-                </Button>
-              )}
-            </div>
-          ))}
+              </div>
+            );
+          })}
         </div>
       </section>
+
+      {/* ── Activity Timeline (owner/admin only) ── */}
+      {isOwner && (
+        <section className="mb-8">
+          <MemberActivityTimeline
+            workspaceId={workspace.id}
+            members={workspace.members}
+          />
+        </section>
+      )}
+
+      {/* ── Member Activity Dialog ── */}
+      {activityMember && (
+        <MemberActivityDialog
+          open={activityOpen}
+          onOpenChange={(v) => {
+            setActivityOpen(v);
+            if (!v) setActivityMember(null);
+          }}
+          workspaceId={workspace.id}
+          memberId={activityMember.id}
+          memberLogin={activityMember.login}
+        />
+      )}
+
+      {/* ── Member access dialog ── */}
+      <MemberAccessDialog
+        open={accessDialogOpen}
+        onOpenChange={setAccessDialogOpen}
+        member={accessDialogMember}
+        workspaceId={workspace.id}
+        onSaved={async () => {
+          await refreshWorkspace();
+          void queryClient.invalidateQueries({
+            queryKey: ["workspace", workspace.id, "my-modules"],
+          });
+        }}
+      />
 
       {/* ── Add member dialog ── */}
       <Dialog

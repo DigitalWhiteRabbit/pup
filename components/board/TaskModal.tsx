@@ -44,6 +44,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { toastSuccess, toastApiError } from "@/lib/toast";
+import { trackAction } from "@/lib/services/action-tracker";
 import { formatFileSize } from "@/lib/utils";
 import { formatDuration } from "./TaskCard";
 import type { WorkspaceBoard } from "@/lib/services/workspace.service";
@@ -199,6 +200,7 @@ export function TaskModal({ taskId, workspaceId, members, onClose }: Props) {
       if (!res.ok) throw await res.json();
     },
     onSuccess: () => {
+      trackAction("crm:task:delete", `crm:task:delete`, taskId);
       toastSuccess("Задача удалена");
       void queryClient.invalidateQueries({
         queryKey: ["workspace", workspaceId],
@@ -251,6 +253,7 @@ export function TaskModal({ taskId, workspaceId, members, onClose }: Props) {
       },
       {
         onSuccess: () => {
+          trackAction("crm:task:update", `crm:task:update`, taskId);
           toastSuccess("Задача сохранена");
           onClose();
         },
@@ -909,6 +912,7 @@ function CommentsSection({
       if (!res.ok) throw await res.json();
     },
     onSuccess: () => {
+      trackAction("crm:comment:create", `crm:comment:create`, taskId);
       setNewText("");
       onMutated();
     },
@@ -1086,6 +1090,7 @@ function AttachmentsSection({
       if (!res.ok) throw await res.json();
     },
     onSuccess: () => {
+      trackAction("crm:attachment:upload", `crm:attachment:upload`, taskId);
       toastSuccess("Файл загружен");
       onMutated();
       if (fileInputRef.current) fileInputRef.current.value = "";

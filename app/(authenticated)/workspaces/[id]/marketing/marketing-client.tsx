@@ -3,7 +3,15 @@
 import { useState } from "react";
 import dynamic from "next/dynamic";
 import { useQuery } from "@tanstack/react-query";
-import { BarChart3, Search, Users, Settings, Send, Target } from "lucide-react";
+import {
+  BarChart3,
+  Search,
+  Users,
+  Settings,
+  Send,
+  Target,
+  MessageCircle,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api, fetchApi } from "./marketing-shared";
@@ -65,6 +73,16 @@ const SettingsSection = dynamic(
   },
 );
 
+const TelegramSection = dynamic(
+  () =>
+    import("./telegram/tg-client").then((m) => ({
+      default: m.TgServiceClient,
+    })),
+  {
+    loading: () => <SectionSkeleton />,
+  },
+);
+
 // ── Loading skeleton for sections ──
 
 function SectionSkeleton() {
@@ -88,6 +106,7 @@ const SECTIONS = [
   { key: "leads", label: "Лиды", icon: Users },
   { key: "campaigns", label: "Кампании", icon: Send },
   { key: "analytics", label: "Аналитика", icon: BarChart3 },
+  { key: "telegram", label: "Telegram", icon: MessageCircle },
   { key: "settings", label: "Настройки", icon: Settings },
 ] as const;
 
@@ -172,6 +191,9 @@ export function MarketingClient({ workspaceId }: Props) {
         )}
         {section === "analytics" && (
           <AnalyticsSection workspaceId={workspaceId} />
+        )}
+        {section === "telegram" && (
+          <TelegramSection workspaceId={workspaceId} />
         )}
         {section === "settings" && (
           <SettingsSection workspaceId={workspaceId} />

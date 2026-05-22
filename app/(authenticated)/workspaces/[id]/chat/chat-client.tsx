@@ -53,6 +53,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toastSuccess, toastApiError } from "@/lib/toast";
+import { trackAction } from "@/lib/services/action-tracker";
 import { MessageContent } from "@/components/chat/message-content";
 import { LinkPreview, extractUrl } from "@/components/chat/link-preview";
 import { VoiceRecorder, VoicePlayer } from "@/components/chat/voice-recorder";
@@ -679,6 +680,7 @@ export function ChatClient({
       return msg;
     },
     onSuccess: () => {
+      trackAction("chat:message:send", `chat:message:send`);
       void qc.invalidateQueries({
         queryKey: ["chat-messages", activeChannelId],
       });

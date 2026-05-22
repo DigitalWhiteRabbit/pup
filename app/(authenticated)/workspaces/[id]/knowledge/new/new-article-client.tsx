@@ -17,6 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { Plus, ChevronLeft } from "lucide-react";
 import { MarkdownEditor } from "@/components/kb/MarkdownEditor";
 import { toastSuccess, toastApiError } from "@/lib/toast";
+import { trackAction } from "@/lib/services/action-tracker";
 import type { KbCategoryWithCount } from "@/lib/services/kb/category.service";
 import type { KbTagItem } from "@/lib/services/kb/tag.service";
 import type { KbArticleSummary } from "@/lib/services/kb/article.service";
@@ -71,6 +72,11 @@ export function NewArticleClient({ workspaceId, categories, tags }: Props) {
         body: JSON.stringify(data),
       }).then((r) => r.json()),
     onSuccess: (article: KbArticleSummary) => {
+      trackAction(
+        "knowledge:article:create",
+        `knowledge:article:create`,
+        article.title,
+      );
       void qc.invalidateQueries({ queryKey: ["kb-articles", workspaceId] });
       toastSuccess("Статья создана");
       router.push(`/workspaces/${workspaceId}/knowledge/${article.id}`);

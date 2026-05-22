@@ -38,6 +38,7 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toastSuccess, toastApiError } from "@/lib/toast";
+import { trackAction } from "@/lib/services/action-tracker";
 import {
   type MarketingSectionProps,
   api,
@@ -91,6 +92,7 @@ export function ParsersSection({ workspaceId }: MarketingSectionProps) {
     mutationFn: (taskId: string) =>
       postApi(api(workspaceId, `/parsers/tasks/${taskId}/run`)),
     onSuccess: () => {
+      trackAction("marketing:parser:start", `marketing:parser:start`);
       toastSuccess("Задача запущена");
       queryClient.invalidateQueries({ queryKey: ["mkt-runs", workspaceId] });
       queryClient.invalidateQueries({ queryKey: ["mkt-tasks", workspaceId] });

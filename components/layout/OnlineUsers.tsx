@@ -1,19 +1,27 @@
 "use client";
 
 import { useEffect } from "react";
+import { useParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 
 type OnlineUser = { id: string; login: string };
 
 export function OnlineUsers() {
+  const params = useParams<{ id?: string }>();
+  const workspaceId = params?.id ?? null;
+
   useEffect(() => {
     async function ping() {
-      await fetch("/api/users/heartbeat", { method: "POST" });
+      await fetch("/api/users/heartbeat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workspaceId }),
+      });
     }
     void ping();
     const id = setInterval(ping, 60_000);
     return () => clearInterval(id);
-  }, []);
+  }, [workspaceId]);
 
   const { data: users = [] } = useQuery<OnlineUser[]>({
     queryKey: ["users", "online"],

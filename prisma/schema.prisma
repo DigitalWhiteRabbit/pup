@@ -85,6 +85,9 @@ model User {
   voiceParticipations VoiceParticipant[]
   voiceMessages       VoiceMessage[]
 
+  // Member activity tracking
+  memberActivities MemberActivity[]
+
   @@index([lastSeenAt])
 }
 
@@ -161,6 +164,9 @@ model Workspace {
   mktKnowledgeDocs MktKnowledgeDoc[]
   mktDailyCounters MktDailyCounter[]
   mktSettings      MktSetting[]
+
+  // Member activity tracking
+  memberActivities MemberActivity[]
 
   @@index([ownerId])
 }
@@ -291,11 +297,12 @@ model VoiceSession {
 }
 
 model WorkspaceMember {
-  id          String     @id @default(cuid())
-  workspaceId String
-  userId      String
-  role        MemberRole @default(MEMBER)
-  joinedAt    DateTime   @default(now())
+  id             String     @id @default(cuid())
+  workspaceId    String
+  userId         String
+  role           MemberRole @default(MEMBER)
+  joinedAt       DateTime   @default(now())
+  allowedModules String?    // JSON array, e.g. ["marketing","marketing:parsers:youtube"]. null = full access
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -303,6 +310,29 @@ model WorkspaceMember {
   @@unique([workspaceId, userId])
   @@index([workspaceId])
   @@index([userId])
+}
+
+// ─────────────────────────────────────────
+// УЧЁТ ВРЕМЕНИ УЧАСТНИКОВ (heartbeat-based)
+// ─────────────────────────────────────────
+
+model MemberActivity {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspaceId   String
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  date          String    // "2026-05-22" (ISO date string)
+  minutesActive Int       @default(0)
+  firstSeenAt   DateTime?
+  lastSeenAt    DateTime?
+  heartbeats    Int       @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([userId, workspaceId, date])
+  @@index([workspaceId, date])
+  @@index([userId, date])
 }
 
 enum MemberRole {
@@ -1400,6 +1430,25 @@ model ChatPersona {
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, position])
+}
+
+// ─────────────────────────────────────────
+// КЛИК-ЛОГИ УЧАСТНИКОВ (action tracking)
+// ─────────────────────────────────────────
+
+model MemberClickLog {
+  id          String   @id @default(cuid())
+  userId      String
+  workspaceId String?
+  action      String // "page_view", "button_click", "module_open", etc.
+  target      String // "marketing:leads", "crm:task:create"
+  details     String?
+  occurredAt  DateTime
+  createdAt   DateTime @default(now())
+
+  @@index([userId, occurredAt])
+  @@index([workspaceId, occurredAt])
+  @@index([workspaceId, userId, occurredAt])
 }
 
 model SystemLog {

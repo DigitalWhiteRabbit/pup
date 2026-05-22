@@ -42,6 +42,7 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toastSuccess, toastApiError } from "@/lib/toast";
+import { trackAction } from "@/lib/services/action-tracker";
 import {
   type MarketingSectionProps,
   api,
@@ -109,7 +110,8 @@ export function LeadsSection({ workspaceId }: MarketingSectionProps) {
   const enrichMutation = useMutation({
     mutationFn: (leadId: string) =>
       postApi(api(workspaceId, `/leads/${leadId}/enrich`)),
-    onSuccess: () => {
+    onSuccess: (_res, leadId) => {
+      trackAction("marketing:lead:enrich", `marketing:lead:enrich`, leadId);
       toastSuccess("Лид обогащён");
       queryClient.invalidateQueries({ queryKey: ["mkt-leads", workspaceId] });
       queryClient.invalidateQueries({

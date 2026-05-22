@@ -48,6 +48,7 @@ const NotificationBell = dynamic(
   { ssr: false, loading: () => <span className="w-7 h-7" /> },
 );
 import type { ModuleKey } from "@/lib/services/workspace.service";
+import { checkModuleAccess } from "@/lib/module-access";
 
 // ─── Module nav metadata ──────────────────────────────────────────────────────
 
@@ -86,6 +87,15 @@ async function fetchModules(workspaceId: string): Promise<ModuleState[]> {
   const res = await fetch(`/api/workspaces/${workspaceId}/modules`);
   if (!res.ok) return [];
   return res.json() as Promise<ModuleState[]>;
+}
+
+async function fetchMyModuleAccess(
+  workspaceId: string,
+): Promise<string[] | null> {
+  const res = await fetch(`/api/workspaces/${workspaceId}/my-modules`);
+  if (!res.ok) return null;
+  const data = (await res.json()) as { allowedModules: string[] | null };
+  return data.allowedModules;
 }
 
 async function fetchWorkspaceName(workspaceId: string): Promise<string> {
@@ -197,9 +207,17 @@ function SidebarContent({
     staleTime: 60_000,
   });
 
+  const { data: myModuleAccess } = useQuery({
+    queryKey: ["workspace", workspaceId, "my-modules"],
+    queryFn: () => fetchMyModuleAccess(workspaceId!),
+    enabled: isContextual && !!workspaceId,
+    staleTime: 30_000,
+  });
+
   const enabledModules = (modules ?? [])
     .filter((m) => m.enabled)
-    .map((m) => m.moduleKey);
+    .map((m) => m.moduleKey)
+    .filter((key) => checkModuleAccess(myModuleAccess ?? null, key));
 
   function handleLogout() {
     void signOut({ callbackUrl: "/login" });

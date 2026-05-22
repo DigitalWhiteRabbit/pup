@@ -37,6 +37,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toastSuccess, toastApiError } from "@/lib/toast";
+import { trackAction } from "@/lib/services/action-tracker";
 import { priorityColorClass, STATUS_LABELS } from "@/lib/constants/ui";
 import type { TicketSummary } from "@/lib/services/tickets/ticket.service";
 
@@ -120,6 +121,7 @@ function CreateTicketDialog({
         return r.json();
       }),
     onSuccess: () => {
+      trackAction("tickets:create", `tickets:create`);
       void qc.invalidateQueries({ queryKey: ["tickets", workspaceId] });
       toastSuccess("Тикет создан");
       setTitle("");

@@ -193,3 +193,156 @@ export async function removeMember(
     actorLogin: requester?.login ?? requesterId,
   });
 }
+
+// ─── Module access control ──────────────────────────────────────────────────
+
+/**
+ * Get the allowedModules array for a member.
+ * Returns null if member has full access, or a string[] of allowed module keys.
+ */
+export async function getMemberModuleAccess(
+  workspaceId: string,
+  userId: string,
+): Promise<string[] | null> {
+  const member = await db.workspaceMember.findUnique({
+    where: { workspaceId_userId: { workspaceId, userId } },
+    select: { role: true, allowedModules: true },
+  });
+
+  if (!member) return null;
+
+  // OWNERs always have full access
+  if (member.role === "OWNER") return null;
+
+  if (!member.allowedModules) return null;
+
+  try {
+    const parsed = JSON.parse(member.allowedModules) as unknown;
+    if (!Array.isArray(parsed)) return null;
+    return parsed as string[];
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Check if a user can access a specific module/sub-module path.
+ *
+ * Module key format: "moduleKey" | "moduleKey:subKey" | "moduleKey:subKey:tool"
+ *
+ * Rules:
+ * - If allowedModules is null -> true (full access)
+ * - If allowedModules contains exact match -> true
+ * - If allowedModules contains a parent of the requested path -> true
+ *   (e.g. "marketing" allows "marketing:parsers:youtube")
+ * - Otherwise -> false
+ */
+export async function canAccessModule(
+  workspaceId: string,
+  userId: string,
+  moduleKey: string,
+): Promise<boolean> {
+  const allowed = await getMemberModuleAccess(workspaceId, userId);
+
+  // null = full access
+  if (allowed === null) return true;
+
+  return checkModuleAccess(allowed, moduleKey);
+}
+
+/**
+ * Pure function to check module access against an allowedModules list.
+ * Exported for use in frontend without DB calls.
+ */
+export function checkModuleAccess(
+  allowedModules: string[],
+  moduleKey: string,
+): boolean {
+  // Exact match
+  if (allowedModules.includes(moduleKey)) return true;
+
+  // Check if any allowed entry is a parent of the requested key
+  // e.g. "marketing" allows "marketing:parsers:youtube"
+  for (const allowed of allowedModules) {
+    if (moduleKey.startsWith(allowed + ":")) return true;
+  }
+
+  // Check if any allowed entry is a child of the requested key
+  // e.g. if checking "marketing" top-level and user has "marketing:parsers:youtube",
+  // they should see the marketing module (but only the allowed sub-tabs inside)
+  const requestedPrefix = moduleKey + ":";
+  for (const allowed of allowedModules) {
+    if (allowed.startsWith(requestedPrefix)) return true;
+  }
+
+  return false;
+}
+
+/**
+ * Update the allowedModules for a member. Only OWNER can do this.
+ */
+export async function setMemberModuleAccess(
+  workspaceId: string,
+  targetUserId: string,
+  requesterId: string,
+  allowedModules: string[] | null,
+): Promise<void> {
+  const requesterMembership = await checkMembership(workspaceId, requesterId);
+  if (requesterMembership !== "OWNER") {
+    throw new ApiError(
+      "Только владелец может управлять доступом к модулям",
+      "FORBIDDEN",
+      403,
+    );
+  }
+
+  const targetMembership = await db.workspaceMember.findUnique({
+    where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
+    select: { role: true },
+  });
+
+  if (!targetMembership) {
+    throw new ApiError("Участник не найден", "MEMBER_NOT_FOUND", 404);
+  }
+
+  if (targetMembership.role === "OWNER") {
+    throw new ApiError(
+      "Нельзя ограничить доступ владельца workspace",
+      "CANNOT_RESTRICT_OWNER",
+      400,
+    );
+  }
+
+  await db.workspaceMember.update({
+    where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
+    data: {
+      allowedModules:
+        allowedModules === null ? null : JSON.stringify(allowedModules),
+    },
+  });
+
+  const [requester, targetUser] = await Promise.all([
+    db.user.findUnique({ where: { id: requesterId }, select: { login: true } }),
+    db.user.findUnique({
+      where: { id: targetUserId },
+      select: { login: true },
+    }),
+  ]);
+
+  await logActivity({
+    workspaceId,
+    actorId: requesterId,
+    action: "MEMBER_ROLE_CHANGED",
+    entityType: "User",
+    entityId: targetUserId,
+    summary: generateSummary("MEMBER_ROLE_CHANGED", {
+      actorLogin: requester?.login,
+      targetLogin: targetUser?.login,
+    }),
+    metadata: {
+      targetUserId,
+      targetLogin: targetUser?.login,
+      allowedModules,
+    },
+  });
+}

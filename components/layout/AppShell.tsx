@@ -1,12 +1,25 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { usePathname } from "next/navigation";
 import dynamic from "next/dynamic";
 const Sidebar = dynamic(() => import("./Sidebar").then((m) => m.Sidebar), {
   ssr: false,
 });
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { MobileHeader } from "./MobileHeader";
+import { trackAction } from "@/lib/services/action-tracker";
+
+// ─── Page view tracking hook ────────────────────────────────────────────────
+
+function usePageTracking() {
+  const pathname = usePathname();
+  useEffect(() => {
+    if (pathname) {
+      trackAction("page_view", pathname);
+    }
+  }, [pathname]);
+}
 
 type Props = {
   userLogin: string;
@@ -16,6 +29,7 @@ type Props = {
 
 export function AppShell({ userLogin, userRole, children }: Props) {
   const [collapsed, setCollapsed] = useState(false);
+  usePageTracking();
 
   return (
     <div className="flex h-screen overflow-hidden">

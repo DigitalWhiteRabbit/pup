@@ -16,6 +16,12 @@ export { checkMembership } from "./member.service";
 export type { MembershipRole } from "./member.service";
 export { addMember, removeMember } from "./member.service";
 export {
+  getMemberModuleAccess,
+  canAccessModule,
+  checkModuleAccess,
+  setMemberModuleAccess,
+} from "./member.service";
+export {
   createColumn,
   renameColumn,
   reorderColumn,
@@ -74,6 +80,7 @@ export type WorkspaceBoard = {
     login: string;
     email: string;
     role: MemberRole;
+    allowedModules: string[] | null;
   }>;
   columns: Array<{
     id: string;
@@ -230,8 +237,13 @@ export async function getWorkspaceById(
     include: {
       owner: { select: { id: true, login: true } },
       members: {
-        include: { user: { select: { id: true, login: true, email: true } } },
         orderBy: { joinedAt: "asc" },
+        select: {
+          role: true,
+          userId: true,
+          allowedModules: true,
+          user: { select: { id: true, login: true, email: true } },
+        },
       },
       columns: {
         orderBy: { position: "asc" },
@@ -271,12 +283,24 @@ export async function getWorkspaceById(
     description: workspace.description,
     logoPath: workspace.logoPath,
     owner: workspace.owner,
-    members: workspace.members.map((m) => ({
-      id: m.user.id,
-      login: m.user.login,
-      email: m.user.email,
-      role: m.role,
-    })),
+    members: workspace.members.map((m) => {
+      let parsedModules: string[] | null = null;
+      if (m.allowedModules) {
+        try {
+          const parsed = JSON.parse(m.allowedModules) as unknown;
+          if (Array.isArray(parsed)) parsedModules = parsed as string[];
+        } catch {
+          /* ignore malformed JSON */
+        }
+      }
+      return {
+        id: m.user.id,
+        login: m.user.login,
+        email: m.user.email,
+        role: m.role,
+        allowedModules: m.role === "OWNER" ? null : parsedModules,
+      };
+    }),
     columns: workspace.columns.map((col) => ({
       id: col.id,
       name: col.name,

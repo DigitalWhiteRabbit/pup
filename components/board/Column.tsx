@@ -15,6 +15,7 @@ import { TaskCard } from "./TaskCard";
 import { TaskModal } from "./TaskModal";
 import { toastSuccess, toastApiError } from "@/lib/toast";
 import { toastError } from "@/lib/toast";
+import { trackAction } from "@/lib/services/action-tracker";
 import type { WorkspaceBoard } from "@/lib/services/workspace.service";
 
 type ColumnData = WorkspaceBoard["columns"][0];
@@ -105,6 +106,11 @@ export function Column({ column, workspaceId, members }: Props) {
     const trimmed = renameValue.trim();
     setIsRenaming(false);
     if (!trimmed || trimmed === column.name) return;
+    trackAction(
+      "crm:column:rename",
+      `crm:column:rename`,
+      `${column.name} -> ${trimmed}`,
+    );
     renameMutation.mutate(trimmed);
   }
 
@@ -117,6 +123,7 @@ export function Column({ column, workspaceId, members }: Props) {
       if (!res.ok) throw await res.json();
     },
     onSuccess: () => {
+      trackAction("crm:column:delete", `crm:column:delete`, column.name);
       toastSuccess("Колонка удалена");
       void queryClient.invalidateQueries({
         queryKey: ["workspace", workspaceId],
@@ -141,6 +148,7 @@ export function Column({ column, workspaceId, members }: Props) {
         body: JSON.stringify({ title, columnId: column.id }),
       });
       if (!res.ok) throw await res.json();
+      trackAction("crm:task:create", `crm:task:create`, title);
       setNewTaskTitle("");
       setShowAddTask(false);
       await queryClient.invalidateQueries({

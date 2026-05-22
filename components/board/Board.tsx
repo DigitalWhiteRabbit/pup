@@ -25,6 +25,7 @@ import { useRouter } from "next/navigation";
 import { Column } from "./Column";
 import { TaskModal } from "./TaskModal";
 import { toastError } from "@/lib/toast";
+import { trackAction } from "@/lib/services/action-tracker";
 import type { WorkspaceBoard } from "@/lib/services/workspace.service";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -143,6 +144,9 @@ export function Board({ initialData, workspaceId }: Props) {
         queryClient.setQueryData(["workspace", workspaceId], context.previous);
       }
       toastError("Не удалось переместить задачу. Изменения отменены.");
+    },
+    onSuccess: (_data, { taskId }) => {
+      trackAction("crm:task:move", `crm:task:move`, taskId);
     },
     onSettled: () => {
       // Sync with server — picks up new totalTimeMs/isInProgress after timer logic

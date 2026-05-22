@@ -25,6 +25,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toastSuccess, toastApiError } from "@/lib/toast";
+import { trackAction } from "@/lib/services/action-tracker";
 import type {
   TicketFull,
   TicketMessageView,
@@ -175,7 +176,12 @@ export function TicketDetailClient({
           throw new Error((await r.json().catch(() => ({}))).error ?? "Ошибка");
         return r.json();
       }),
-    onSuccess: () => {
+    onSuccess: (_res, status) => {
+      trackAction(
+        "tickets:status:change",
+        `tickets:status:change`,
+        `${ticketId} -> ${status}`,
+      );
       void qc.invalidateQueries({ queryKey: ["ticket", ticketId] });
       toastSuccess("Статус обновлён");
     },
@@ -229,6 +235,7 @@ export function TicketDetailClient({
         return r.json();
       }),
     onSuccess: () => {
+      trackAction("tickets:assign", `tickets:assign`, ticketId);
       void qc.invalidateQueries({ queryKey: ["ticket", ticketId] });
       toastSuccess("Назначение обновлено");
     },
@@ -247,6 +254,7 @@ export function TicketDetailClient({
         return r.json();
       }),
     onSuccess: () => {
+      trackAction("tickets:message:send", `tickets:message:send`, ticketId);
       void qc.invalidateQueries({ queryKey: ["ticket", ticketId] });
       setReplyText("");
     },

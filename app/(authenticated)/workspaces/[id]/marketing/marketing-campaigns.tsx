@@ -36,6 +36,7 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toastSuccess, toastApiError } from "@/lib/toast";
+import { trackAction } from "@/lib/services/action-tracker";
 import {
   type MarketingSectionProps,
   api,
@@ -294,6 +295,7 @@ export function CampaignsSection({ workspaceId }: MarketingSectionProps) {
     mutationFn: (id: string) =>
       postApi(api(workspaceId, `/pending/${id}/approve`)),
     onSuccess: () => {
+      trackAction("marketing:pitch:approve", `marketing:pitch:approve`);
       toastSuccess("Сообщение одобрено");
       queryClient.invalidateQueries({ queryKey: ["mkt-pending", workspaceId] });
       queryClient.invalidateQueries({
@@ -307,6 +309,7 @@ export function CampaignsSection({ workspaceId }: MarketingSectionProps) {
     mutationFn: (id: string) =>
       postApi(api(workspaceId, `/pending/${id}/reject`)),
     onSuccess: () => {
+      trackAction("marketing:pitch:reject", `marketing:pitch:reject`);
       toastSuccess("Сообщение отклонено");
       queryClient.invalidateQueries({ queryKey: ["mkt-pending", workspaceId] });
     },
