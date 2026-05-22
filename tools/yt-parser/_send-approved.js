@@ -57,6 +57,7 @@ const resend = new Resend(process.env.RESEND_API_KEY);
     content: body,
     metadata: JSON.stringify({ subject, resend_id: r.data?.id }),
     created_at: now,
+    tracking_id: null,
   });
   ws.stmts.incrementDialogueMsgCount.run(dlg.id);
   ws.stmts.updateLeadStage.run("contacted", now, pr.lead_id);

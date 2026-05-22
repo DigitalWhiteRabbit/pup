@@ -52,6 +52,7 @@ router.post("/:id/admin-message", adminAuth, (req, res) => {
     content,
     metadata: JSON.stringify({ manual: true }),
     created_at: now,
+    tracking_id: null,
   });
   res.json({ success: true });
 });

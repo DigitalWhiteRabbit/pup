@@ -296,6 +296,21 @@ function getDb(workspaceId = "default") {
     );
   }
 
+  // Email open tracking columns on messages
+  if (!columnExists("messages", "opened_at"))
+    safeExec(`ALTER TABLE messages ADD COLUMN opened_at TEXT`);
+  if (!columnExists("messages", "open_count"))
+    safeExec(`ALTER TABLE messages ADD COLUMN open_count INTEGER DEFAULT 0`);
+  if (!columnExists("messages", "open_ip"))
+    safeExec(`ALTER TABLE messages ADD COLUMN open_ip TEXT`);
+  if (!columnExists("messages", "open_ua"))
+    safeExec(`ALTER TABLE messages ADD COLUMN open_ua TEXT`);
+  if (!columnExists("messages", "tracking_id"))
+    safeExec(`ALTER TABLE messages ADD COLUMN tracking_id TEXT`);
+  safeExec(
+    `CREATE INDEX IF NOT EXISTS idx_messages_tracking_id ON messages(tracking_id)`,
+  );
+
   // messages.resend_id
   if (!columnExists("messages", "resend_id")) {
     safeExec(`ALTER TABLE messages ADD COLUMN resend_id TEXT`);
@@ -524,7 +539,9 @@ function buildStmts(db) {
       SELECT d.*, l.channel_name, l.country, l.subscribers, l.lead_status, l.dialogue_stage,
              (SELECT content FROM messages WHERE dialogue_id = d.id ORDER BY created_at DESC LIMIT 1) AS last_message,
              (SELECT created_at FROM messages WHERE dialogue_id = d.id ORDER BY created_at DESC LIMIT 1) AS last_message_at,
-             (SELECT COUNT(*) FROM messages WHERE dialogue_id = d.id) AS message_count
+             (SELECT COUNT(*) FROM messages WHERE dialogue_id = d.id) AS message_count,
+             (SELECT opened_at FROM messages WHERE dialogue_id = d.id AND direction = 'out' ORDER BY created_at DESC LIMIT 1) AS last_out_opened_at,
+             (SELECT open_count FROM messages WHERE dialogue_id = d.id AND direction = 'out' ORDER BY created_at DESC LIMIT 1) AS last_out_open_count
       FROM dialogues d
       JOIN leads l ON l.id = d.lead_id
       ORDER BY last_message_at DESC NULLS LAST, d.created_at DESC
@@ -532,12 +549,21 @@ function buildStmts(db) {
 
     // Messages
     insertMessage: db.prepare(`
-      INSERT INTO messages (dialogue_id, direction, sender, content, metadata, created_at)
-      VALUES (@dialogue_id, @direction, @sender, @content, @metadata, @created_at)
+      INSERT INTO messages (dialogue_id, direction, sender, content, metadata, created_at, tracking_id)
+      VALUES (@dialogue_id, @direction, @sender, @content, @metadata, @created_at, @tracking_id)
     `),
     listMessagesByDialogue: db.prepare(
       `SELECT * FROM messages WHERE dialogue_id = ? ORDER BY created_at ASC`,
     ),
+    // Email open tracking: get last outgoing message open status per lead
+    getLastOutgoingMessageOpen: db.prepare(`
+      SELECT m.opened_at, m.open_count
+      FROM messages m
+      JOIN dialogues d ON d.id = m.dialogue_id
+      WHERE d.lead_id = ? AND m.direction = 'out'
+      ORDER BY m.created_at DESC
+      LIMIT 1
+    `),
 
     // Update lead dialogue stage
     updateLeadStage: db.prepare(

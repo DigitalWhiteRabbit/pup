@@ -22,6 +22,21 @@ function getResend() {
  * @param {number} [opts.leadId] — если задан, в footer добавляется ссылка отписки
  * @returns {Promise<{id, messageId}>}
  */
+/**
+ * Convert plain text to simple HTML (escape + linkify + newlines).
+ */
+function textToHtml(text) {
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(
+      /(https?:\/\/[^\s<]+)/g,
+      '<a href="$1" target="_blank" rel="noopener">$1</a>',
+    )
+    .replace(/\n/g, "<br>\n");
+}
+
 async function sendEmail({
   to,
   subject,
@@ -29,6 +44,7 @@ async function sendEmail({
   replyToMessageId,
   replyToHeader,
   leadId,
+  trackingPixelUrl,
 }) {
   const resend = getResend();
   const from = process.env.EMAIL_FROM;
@@ -55,6 +71,14 @@ async function sendEmail({
     }
   }
 
+  // Build HTML version with tracking pixel
+  let htmlBody = null;
+  if (trackingPixelUrl) {
+    htmlBody =
+      textToHtml(finalBody) +
+      `<img src="${trackingPixelUrl}" width="1" height="1" style="display:none;width:1px;height:1px;border:0" alt="" />`;
+  }
+
   const headers = {};
   if (replyToHeader) {
     headers["In-Reply-To"] = replyToHeader;
@@ -66,13 +90,17 @@ async function sendEmail({
   let lastErr = null;
   for (let i = 0; i <= delays.length; i++) {
     try {
-      const result = await resend.emails.send({
+      const sendPayload = {
         from,
         to: [to],
         subject,
         text: finalBody,
         headers,
-      });
+      };
+      // Include HTML with tracking pixel if available
+      if (htmlBody) sendPayload.html = htmlBody;
+
+      const result = await resend.emails.send(sendPayload);
       if (result.error) {
         const code = result.error.statusCode || result.error.status;
         const retryable = code === 429 || (code >= 500 && code < 600);

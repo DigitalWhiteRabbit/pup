@@ -61,6 +61,18 @@ router.get("/", (req, res) => {
   const leads = req.stmts.listLeads.all({ status, stage, limit, offset });
   const counts = req.stmts.countLeads.get();
 
+  // Enrich each lead with last outgoing message open status
+  for (const lead of leads) {
+    try {
+      const openInfo = req.stmts.getLastOutgoingMessageOpen.get(lead.id);
+      lead.last_msg_opened_at = openInfo?.opened_at || null;
+      lead.last_msg_open_count = openInfo?.open_count || 0;
+    } catch {
+      lead.last_msg_opened_at = null;
+      lead.last_msg_open_count = 0;
+    }
+  }
+
   res.json({ success: true, leads, counts });
 });
 

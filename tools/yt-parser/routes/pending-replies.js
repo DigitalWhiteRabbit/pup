@@ -26,6 +26,29 @@ router.get("/", (req, res) => {
     limit,
     offset,
   });
+
+  // Enrich sent items with email open tracking data
+  for (const row of rows) {
+    if (row.status === "sent" && row.channel === "email") {
+      try {
+        // Find the message created from this pending_reply (metadata contains pending_reply_id)
+        const msg = req.db
+          .prepare(
+            `SELECT opened_at, open_count FROM messages WHERE metadata LIKE ? AND direction = 'out' LIMIT 1`,
+          )
+          .get(`%"pending_reply_id":${row.id}%`);
+        row.msg_opened_at = msg?.opened_at || null;
+        row.msg_open_count = msg?.open_count || 0;
+      } catch {
+        row.msg_opened_at = null;
+        row.msg_open_count = 0;
+      }
+    } else {
+      row.msg_opened_at = null;
+      row.msg_open_count = 0;
+    }
+  }
+
   const counts = {
     pending: req.stmts.countPendingReplies.get("pending")?.n || 0,
     approved: req.stmts.countPendingReplies.get("approved")?.n || 0,

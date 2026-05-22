@@ -38,6 +38,10 @@ app.use("/api/auth", authRouter);
 // Unsubscribe (открытый) — до gate, кликают блогеры без аутентификации
 app.use("/unsubscribe", unsubscribeRouter);
 
+// Email open tracking pixel (открытый) — загружается почтовым клиентом получателя
+const trackingRouter = require("./routes/tracking");
+app.use("/api/track", trackingRouter);
+
 // Gate: редиректит неавторизованных на /login.html, пропускает ADMIN_TOKEN и /api/auth/*
 // app.use(authGate); // disabled — PUP handles auth via nginx
 

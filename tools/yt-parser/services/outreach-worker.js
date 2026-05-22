@@ -1,3 +1,4 @@
+const crypto = require("crypto");
 const dbModule = require("../db/database");
 let { stmts, db } = dbModule;
 const ai = require("./ai");
@@ -8,7 +9,25 @@ const { localDateKey } = require("../utils/dates");
 
 const DRY_RUN = process.env.DRY_RUN === "true" || process.env.DRY_RUN === "1";
 
+// ─── Email open tracking helpers ───────────────────────────────────
+
+function generateTrackingId() {
+  return crypto.randomBytes(16).toString("hex");
+}
+
+function buildTrackingPixelUrl(workspaceId, trackingId) {
+  const baseUrl = (
+    process.env.BASE_URL ||
+    process.env.PUBLIC_DOMAIN ||
+    ""
+  ).replace(/\/$/, "");
+  if (!baseUrl) return null;
+  return `${baseUrl}/yt-parser/api/track/open/${workspaceId}_${trackingId}.png`;
+}
+
 // ─── State ──────────────────────────────────────────────────────────
+
+let currentWorkspaceId = "default";
 
 let workerState = {
   running: false,
@@ -416,6 +435,7 @@ async function _processPickedLead(lead, project, counts) {
     try {
       let externalId = null;
       let metadata = { recipient };
+      let trackingId = null;
 
       if (DRY_RUN) {
         log(
@@ -441,11 +461,17 @@ async function _processPickedLead(lead, project, counts) {
           metadata.chat_id = externalId;
         }
       } else if (channel === "email") {
+        trackingId = generateTrackingId();
+        const trackingPixelUrl = buildTrackingPixelUrl(
+          currentWorkspaceId,
+          trackingId,
+        );
         const result = await email.sendEmail({
           to: recipient,
           subject: pitch.subject || "Hello",
           body: pitch.body,
           leadId: lead.id,
+          trackingPixelUrl,
         });
         externalId = result.messageId;
         metadata.subject = pitch.subject;
@@ -472,6 +498,7 @@ async function _processPickedLead(lead, project, counts) {
           content: pitch.body,
           metadata: JSON.stringify(metadata),
           created_at: now,
+          tracking_id: trackingId,
         });
         stmts.incrementDialogueMsgCount.run(dlgResult.lastInsertRowid);
         stmts.updateLeadStage.run("awaiting_reply", now, lead.id);
@@ -504,11 +531,13 @@ async function runLeadNow(leadId, workspaceId) {
   // Swap module-level stmts/db to workspace-specific ones
   const savedStmts = stmts;
   const savedDb = db;
+  const savedWsId = currentWorkspaceId;
 
   if (workspaceId) {
     const ws = dbModule.getDb(workspaceId);
     stmts = ws.stmts;
     db = ws.db;
+    currentWorkspaceId = workspaceId;
   }
 
   try {
@@ -529,6 +558,7 @@ async function runLeadNow(leadId, workspaceId) {
   } finally {
     stmts = savedStmts;
     db = savedDb;
+    currentWorkspaceId = savedWsId;
   }
 }
 
@@ -608,6 +638,7 @@ async function processInbox() {
       let match = null;
       const savedStmts = stmts;
       const savedDb = db;
+      const savedWsId = currentWorkspaceId;
       try {
         // Auto-reply detection
         if (email.isAutoReply(msg)) {
@@ -632,6 +663,7 @@ async function processInbox() {
         if (match?.ws) {
           stmts = match.ws.stmts;
           db = match.ws.db;
+          if (match.wsId) currentWorkspaceId = match.wsId;
         }
 
         if (!lead) {
@@ -677,6 +709,7 @@ async function processInbox() {
               uid: msg.uid,
             }),
             created_at: now,
+            tracking_id: null,
           });
           stmts.incrementDialogueMsgCount.run(dialogue.id);
           stmts.updateLeadStage.run("replied", now, lead.id);
@@ -700,6 +733,7 @@ async function processInbox() {
         if (match?.ws) {
           stmts = savedStmts;
           db = savedDb;
+          currentWorkspaceId = savedWsId;
         }
       }
     }
@@ -714,13 +748,16 @@ async function processInbox() {
     const ws = dbModule.getDb(wsId);
     const savedS = stmts;
     const savedD = db;
+    const savedW = currentWorkspaceId;
     stmts = ws.stmts;
     db = ws.db;
+    currentWorkspaceId = wsId;
     try {
       await generatePendingReplies();
     } finally {
       stmts = savedS;
       db = savedD;
+      currentWorkspaceId = savedW;
     }
   }
   // Also try default workspace
@@ -922,7 +959,13 @@ async function processOneLeadReply(lead, project) {
     }
 
     let metadata = {};
+    let trackingId = null;
     if (dialogue.channel === "email") {
+      trackingId = generateTrackingId();
+      const trackingPixelUrl = buildTrackingPixelUrl(
+        currentWorkspaceId,
+        trackingId,
+      );
       const lastOut = history.filter((m) => m.direction === "out").pop();
       const replyToHeader = lastOut
         ? safeJsonParse(lastOut.metadata).resend_id
@@ -934,6 +977,7 @@ async function processOneLeadReply(lead, project) {
         body: reply.body,
         replyToHeader,
         leadId: lead.id,
+        trackingPixelUrl,
       });
       metadata = { subject: reply.subject, resend_id: result.id };
       incrementDailyCount("email");
@@ -954,6 +998,7 @@ async function processOneLeadReply(lead, project) {
         content: reply.body,
         metadata: JSON.stringify(metadata),
         created_at: now,
+        tracking_id: trackingId,
       });
       stmts.incrementDialogueMsgCount.run(dialogue.id);
       stmts.updateLeadStage.run("negotiating", now, lead.id);
@@ -1036,7 +1081,13 @@ async function processDecidedDeals() {
       }
 
       let metadata = {};
+      let trackingId = null;
       if (dialogue.channel === "email") {
+        trackingId = generateTrackingId();
+        const trackingPixelUrl = buildTrackingPixelUrl(
+          currentWorkspaceId,
+          trackingId,
+        );
         const lastOut = history.filter((m) => m.direction === "out").pop();
         const replyToHeader = lastOut
           ? safeJsonParse(lastOut.metadata).resend_id
@@ -1047,6 +1098,7 @@ async function processDecidedDeals() {
           body: reply.body,
           replyToHeader,
           leadId: lead.id,
+          trackingPixelUrl,
         });
         metadata = { subject: reply.subject, resend_id: result.id };
         incrementDailyCount("email");
@@ -1070,6 +1122,7 @@ async function processDecidedDeals() {
             deal_decision: deal.admin_decision,
           }),
           created_at: now,
+          tracking_id: trackingId,
         });
         stmts.incrementDialogueMsgCount.run(dialogue.id);
         stmts.updateLeadStage.run(finalStage, now, lead.id);
@@ -1153,7 +1206,13 @@ async function processAnsweredConsultations() {
       }
 
       let metadata = { consultation_id: consultation.id };
+      let trackingId = null;
       if (dialogue.channel === "email") {
+        trackingId = generateTrackingId();
+        const trackingPixelUrl = buildTrackingPixelUrl(
+          currentWorkspaceId,
+          trackingId,
+        );
         const lastOut = history.filter((m) => m.direction === "out").pop();
         const replyToHeader = lastOut
           ? safeJsonParse(lastOut.metadata).resend_id
@@ -1163,6 +1222,7 @@ async function processAnsweredConsultations() {
           subject: reply.subject || "Re: ",
           body: reply.body,
           replyToHeader,
+          trackingPixelUrl,
         });
         metadata.subject = reply.subject;
         metadata.resend_id = result.id;
@@ -1184,6 +1244,7 @@ async function processAnsweredConsultations() {
           content: reply.body,
           metadata: JSON.stringify(metadata),
           created_at: now,
+          tracking_id: trackingId,
         });
         stmts.incrementDialogueMsgCount.run(dialogue.id);
       });
@@ -1216,10 +1277,12 @@ async function processApprovedQueue(workspaceId) {
   // Swap to workspace DB if provided
   const savedStmts = stmts;
   const savedDb = db;
+  const savedWsId = currentWorkspaceId;
   if (workspaceId) {
     const ws = dbModule.getDb(workspaceId);
     stmts = ws.stmts;
     db = ws.db;
+    currentWorkspaceId = workspaceId;
   }
 
   try {
@@ -1260,6 +1323,7 @@ async function processApprovedQueue(workspaceId) {
     if (workspaceId) {
       stmts = savedStmts;
       db = savedDb;
+      currentWorkspaceId = savedWsId;
     }
   }
 }
@@ -1299,6 +1363,7 @@ async function sendApprovedPendingReply(item) {
   // Отправка
   let externalId = null;
   let sendMeta = {};
+  let trackingId = null;
   if (DRY_RUN) {
     log(
       "INFO",
@@ -1322,12 +1387,18 @@ async function sendApprovedPendingReply(item) {
       sendMeta.chat_id = externalId;
     }
   } else if (item.channel === "email") {
+    trackingId = generateTrackingId();
+    const trackingPixelUrl = buildTrackingPixelUrl(
+      currentWorkspaceId,
+      trackingId,
+    );
     const result = await email.sendEmail({
       to: item.recipient,
       subject: subject || "Hello",
       body,
       replyToHeader,
       leadId: lead.id,
+      trackingPixelUrl,
     });
     externalId = result.messageId;
     sendMeta = { subject, resend_id: result.id };
@@ -1356,6 +1427,7 @@ async function sendApprovedPendingReply(item) {
         content: body,
         metadata: JSON.stringify({ ...sendMeta, pending_reply_id: item.id }),
         created_at: now,
+        tracking_id: trackingId,
       });
       stmts.incrementDialogueMsgCount.run(dlgResult.lastInsertRowid);
       stmts.updateLeadStage.run("awaiting_reply", now, lead.id);
@@ -1383,6 +1455,7 @@ async function sendApprovedPendingReply(item) {
           pending_reply_id: item.id,
         }),
         created_at: now,
+        tracking_id: trackingId,
       });
       stmts.incrementDialogueMsgCount.run(item.dialogue_id);
       if (ctx.next_stage)
@@ -1508,7 +1581,13 @@ async function processFollowUps() {
           continue;
 
         let metadata = { followup: attempt };
+        let trackingId = null;
         if (row.dlg_channel === "email") {
+          trackingId = generateTrackingId();
+          const trackingPixelUrl = buildTrackingPixelUrl(
+            currentWorkspaceId,
+            trackingId,
+          );
           const lastOut = history.filter((m) => m.direction === "out").pop();
           const replyToHeader = lastOut
             ? safeJsonParse(lastOut.metadata).resend_id
@@ -1521,6 +1600,7 @@ async function processFollowUps() {
             subject: reply.subject || "Re: " + (firstMeta.subject || ""),
             body: reply.body,
             replyToHeader,
+            trackingPixelUrl,
           });
           metadata.subject = reply.subject;
           metadata.resend_id = result.id;
@@ -1540,6 +1620,7 @@ async function processFollowUps() {
             content: reply.body,
             metadata: JSON.stringify(metadata),
             created_at: now,
+            tracking_id: trackingId,
           });
           stmts.incrementDialogueMsgCount.run(row.dlg_id);
           stmts.incrementLeadFollowUp.run(now, now, lead.id);
@@ -1660,6 +1741,7 @@ async function handleIncomingTelegram(msg) {
           chat_id: msg.chatId,
         }),
         created_at: now,
+        tracking_id: null,
       });
       stmts.incrementDialogueMsgCount.run(dialogue.id);
       stmts.updateLeadStage.run("replied", now, lead.id);

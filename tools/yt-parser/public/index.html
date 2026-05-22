@@ -197,6 +197,15 @@ body.sb-collapsed .sidebar-toggle .chev { transform:rotate(180deg); }
 .dialogue-stage-pill.info .dot-pulse,
 .dialogue-stage-pill.accent .dot-pulse { animation:pulse 1.6s infinite; }
 
+/* ─── Email open tracking indicators ──────────────────── */
+.msg-status { font-size:12px; margin-left:6px; white-space:nowrap; }
+.msg-status .sent { color:var(--text-dim); }
+.msg-status .opened { color:var(--blue); font-weight:600; }
+.msg-status .opened-count { font-size:9px; color:var(--text-dim); margin-left:2px; }
+.msg-open-badge { display:inline-flex; align-items:center; gap:4px; font-size:10px; padding:2px 6px; border-radius:4px; }
+.msg-open-badge.is-opened { background:rgba(59,130,246,0.1); color:var(--blue); border:1px solid rgba(59,130,246,0.2); }
+.msg-open-badge.is-sent { background:rgba(255,255,255,0.04); color:var(--text-dim); }
+
 /* ─── Lead dropdown selectors ────────────────────────── */
 .lead-status-select, .dialogue-stage-select {
   background: var(--card);
@@ -4688,6 +4697,23 @@ const DIALOGUE_STAGE_KINDS = {
   won: 'success', lost: 'danger',
 };
 
+// Email open tracking: build indicator for leads table
+function buildOpenIndicator(lead) {
+  if (lead.dialogue_stage === 'not_contacted') return '';
+  const opened = !!lead.last_msg_opened_at;
+  const count = lead.last_msg_open_count || 0;
+  if (opened) {
+    const title = `Прочитано (${count}x) ${new Date(lead.last_msg_opened_at).toLocaleString('ru')}`;
+    return `<span class="msg-status" title="${title}"><span class="opened" title="${title}">&#10003;&#10003;</span>${count > 1 ? '<span class="opened-count">'+count+'</span>' : ''}</span>`;
+  }
+  // Sent but not opened (has any outgoing message stage)
+  const sentStages = ['contacted','awaiting_reply','followup_1','followup_2','negotiating','deal_pending','won','lost','awaiting_review'];
+  if (sentStages.includes(lead.dialogue_stage)) {
+    return '<span class="msg-status"><span class="sent" title="Отправлено, не прочитано">&#10003;</span></span>';
+  }
+  return '';
+}
+
 let leadsAutoTimer = null;
 function startLeadsAutoRefresh() {
   stopLeadsAutoRefresh();
@@ -4791,7 +4817,8 @@ function renderLeadsTable() {
     const stageOpts = Object.entries(DIALOGUE_STAGE_LABELS).map(([k,v]) =>
       `<option value="${k}"${k===curStage?' selected':''}>${v}</option>`
     ).join('');
-    tdStage.innerHTML = `<select class="dialogue-stage-select k-${stageKind}" data-lead-id="${lead.id}" onchange="updateLeadField(this,'dialogue_stage')">${stageOpts}</select>`;
+    const openIndicator = buildOpenIndicator(lead);
+    tdStage.innerHTML = `<div style="display:flex;align-items:center;gap:4px"><select class="dialogue-stage-select k-${stageKind}" data-lead-id="${lead.id}" onchange="updateLeadField(this,'dialogue_stage')">${stageOpts}</select>${openIndicator}</div>`;
     tr.appendChild(tdStage);
 
     // Summary
@@ -5436,6 +5463,9 @@ async function loadDialogues() {
           <span>${d.channel}</span>
           <span>${d.message_count} сообщ.</span>
           ${d.last_message_at?`<span>${timeAgo(d.last_message_at)} назад</span>`:''}
+          ${d.last_out_opened_at
+            ? `<span class="msg-open-badge is-opened" title="Прочитано ${d.last_out_open_count||1}x">&#10003;&#10003; ${d.last_out_open_count > 1 ? d.last_out_open_count+'x' : ''}</span>`
+            : d.message_count > 0 ? `<span class="msg-open-badge is-sent" title="Не прочитано">&#10003;</span>` : ''}
         </div>
       </div>
     `).join('');
@@ -5470,11 +5500,22 @@ async function openDialogue(id) {
       const meta = m.metadata ? (() => { try { return JSON.parse(m.metadata); } catch { return {}; } })() : {};
       const cls = m.direction === 'in' ? 'in' : (m.sender === 'admin' ? 'admin' : 'out');
       const senderLabel = m.direction === 'in' ? 'Блогер' : (m.sender === 'admin' ? 'Админ' : 'AI агент');
+      // Read receipt for outgoing messages
+      let readReceipt = '';
+      if (m.direction === 'out') {
+        if (m.opened_at) {
+          const openTime = new Date(m.opened_at).toLocaleString('ru');
+          const countLabel = (m.open_count || 1) > 1 ? ` (${m.open_count}x)` : '';
+          readReceipt = ` <span class="msg-open-badge is-opened" title="Прочитано ${openTime}${countLabel}">&#10003;&#10003;${countLabel}</span>`;
+        } else {
+          readReceipt = ' <span class="msg-open-badge is-sent" title="Отправлено">&#10003;</span>';
+        }
+      }
       return `
         <div class="dlg-msg ${cls}">
           ${meta.subject ? `<div class="dlg-msg-subject">${escapeHtml(meta.subject)}</div>` : ''}
           <div>${escapeHtml(m.content)}</div>
-          <div class="dlg-msg-meta">${senderLabel} · ${new Date(m.created_at).toLocaleString('ru')}</div>
+          <div class="dlg-msg-meta">${senderLabel} · ${new Date(m.created_at).toLocaleString('ru')}${readReceipt}</div>
         </div>
       `;
     }).join('');
@@ -5772,7 +5813,11 @@ function renderPendingReplyCard(it) {
             ? `<div style="font-size:12px;color:var(--green)">✅ Таймер истёк</div>`
             : ''}
         ${it.status === 'sent'
-          ? `<div style="font-size:12px;color:var(--green)">📤 Отправлено ${it.sent_at ? new Date(it.sent_at).toLocaleString('ru') : ''}</div>`
+          ? `<div style="font-size:12px;color:var(--green)">📤 Отправлено ${it.sent_at ? new Date(it.sent_at).toLocaleString('ru') : ''}</div>${
+              it.msg_opened_at
+                ? `<div style="font-size:12px;color:var(--blue);font-weight:600" title="Прочитано ${new Date(it.msg_opened_at).toLocaleString('ru')}${it.msg_open_count > 1 ? ' ('+it.msg_open_count+'x)' : ''}">&#10003;&#10003; Прочитано${it.msg_open_count > 1 ? ' '+it.msg_open_count+'x' : ''}</div>`
+                : `<div style="font-size:12px;color:var(--text-dim)">&#10003; Не прочитано</div>`
+            }`
           : ''}
         ${it.status === 'pending' ? `<button class="btn-primary btn-sm" style="padding:8px 20px;font-size:13px;border-radius:8px" onclick="approvePendingReply(${it.id})">✅ Одобрить и отправить</button>` : ''}
         ${it.status === 'pending' ? `<button class="btn-danger btn-sm" style="padding:8px 14px;font-size:13px;border-radius:8px" onclick="rejectPendingReply(${it.id})">✕ Отклонить</button>` : ''}
