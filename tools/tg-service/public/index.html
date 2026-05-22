@@ -764,6 +764,55 @@ html.dark .prv-banner { background: rgba(59,130,246,0.06); }
 .wu-profile:hover { border-color: rgba(59,130,246,0.3); transform: translateY(-2px); }
 .wu-emoji { font-size: 2rem; margin-bottom: 0.5rem; }
 
+/* ── Wizard steps ── */
+.wiz-steps { display: flex; gap: 0; margin-bottom: 1.5rem; }
+.wiz-step { display: flex; align-items: center; gap: 0.5rem; flex: 1; padding: 0.5rem; border-bottom: 2px solid var(--border); font-size: 0.75rem; transition: all 0.15s ease; }
+.wiz-step.wiz-done { border-color: var(--emerald-500); color: var(--emerald-500); }
+.wiz-step.wiz-active { border-color: var(--blue-500); color: var(--blue-500); font-weight: 600; }
+.wiz-step.wiz-pending { color: var(--muted-text); }
+.wiz-num { width: 1.5rem; height: 1.5rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; font-weight: 700; border: 1.5px solid currentColor; flex-shrink: 0; }
+.wiz-done .wiz-num { background: var(--emerald-500); color: white; border-color: var(--emerald-500); }
+.wiz-active .wiz-num { background: var(--blue-500); color: white; border-color: var(--blue-500); }
+.wiz-body { min-height: 200px; }
+.wiz-body .sy3 > * + * { margin-top: 0.75rem; }
+.wiz-cost { background: var(--muted-bg); border-radius: var(--radius-md); padding: 1rem; }
+.wiz-cost-row { display: flex; justify-content: space-between; padding: 0.375rem 0; font-size: 0.8125rem; }
+.wiz-cost-row + .wiz-cost-row { border-top: 1px solid var(--border); }
+.wiz-cost-total { font-weight: 700; font-size: 0.875rem; color: var(--text); }
+
+/* ── 3-column layout ── */
+.col3-layout { display: grid; grid-template-columns: 280px 1fr 280px; gap: 0; height: calc(100vh - 200px); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.col3-layout > div { overflow-y: auto; }
+.col3-left { border-right: 1px solid var(--border); background: var(--card); }
+.col3-center { background: var(--bg); padding: 1rem; }
+.col3-right { border-left: 1px solid var(--border); background: var(--card); padding: 1rem; }
+.col3-item { padding: 0.75rem; cursor: pointer; border-bottom: 1px solid var(--border); transition: background 0.1s; font-size: 0.8125rem; }
+.col3-item:hover { background: var(--muted-bg); }
+.col3-item.active { background: rgba(59,130,246,0.08); border-left: 3px solid var(--blue-500); }
+
+/* ── Chat bubble ── */
+.chat-bubble { padding: 0.625rem 0.875rem; border-radius: 0.75rem; max-width: 80%; font-size: 0.8125rem; line-height: 1.5; }
+.chat-bubble-ai { background: rgba(59,130,246,0.08); border-bottom-left-radius: 0.25rem; margin-right: auto; }
+.chat-bubble-user { background: var(--muted-bg); border-bottom-right-radius: 0.25rem; margin-left: auto; }
+.chat-time { font-size: 0.625rem; color: var(--muted-text); margin-top: 0.25rem; }
+
+/* ── Funnel visualization ── */
+.funnel { display: flex; flex-direction: column; gap: 0.25rem; }
+.funnel-stage { display: flex; align-items: center; gap: 0.75rem; padding: 0.625rem 0.75rem; border-radius: var(--radius-md); }
+.funnel-bar { height: 24px; border-radius: var(--radius-md); min-width: 24px; display: flex; align-items: center; justify-content: flex-end; padding: 0 0.5rem; color: #fff; font-size: 0.6875rem; font-weight: 700; transition: width 0.3s ease; }
+
+/* ── Trigger builder ── */
+.trigger-row { display: flex; align-items: center; gap: 0.5rem; padding: 0.625rem; background: var(--muted-bg); border-radius: var(--radius-md); font-size: 0.8125rem; cursor: grab; }
+.trigger-row:hover { background: rgba(59,130,246,0.06); }
+.trigger-handle { color: var(--muted-text); cursor: grab; }
+.trigger-priority { width: 1.5rem; height: 1.5rem; border-radius: 50%; background: var(--blue-500); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 0.6875rem; font-weight: 700; flex-shrink: 0; }
+
+/* ── Live feed ── */
+.live-feed { max-height: 400px; overflow-y: auto; }
+.live-msg { display: flex; gap: 0.75rem; padding: 0.5rem 0.75rem; border-bottom: 1px solid rgba(0,0,0,0.04); font-size: 0.75rem; animation: fi 0.3s ease; }
+html.dark .live-msg { border-bottom-color: rgba(255,255,255,0.04); }
+.live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--emerald-500); flex-shrink: 0; margin-top: 4px; animation: pulse-dot 2s infinite; }
+
 /* ── Responsive ── */
 @media (max-width: 1280px) {
   .kpi-strip { gap: 0.375rem; }
@@ -928,7 +977,8 @@ function avtHtml(name,cls){
 var S={
   sec:'dashboard',ws:null,tok:null,online:false,
   dStats:null,aStats:null,
-  acc:[],accT:0,accP:0,accF:'ALL',accQ:'',accSel:{},accDetail:null,
+  acc:[],accT:0,accP:0,accF:'ALL',accQ:'',accSel:{},accDetail:null,accDetTab:'overview',
+  accCountryF:'ALL',accProxyF:'ALL',accPremF:'ALL',
   prx:[],prxT:0,prxP:0,prxSF:'ALL',prxTF:'ALL',prxQ:'',prxSel:{},prxStats:null,
   cfg:null,cfgF:null
 };
@@ -995,6 +1045,8 @@ function sevIc(s){var v=(s||'').toUpperCase();if(v==='ERROR'||v==='CRITICAL')ret
 var ASL={ALL:'Все',IMPORTED:'Импортированные',ACTIVE:'Активные',WARMING:'На прогреве',PAUSED:'На паузе',FLOOD_WAIT:'Флуд-блок',SPAM_BLOCKED:'Спам-блок',BANNED:'Забанены',DEAD:'Мёртвые'};
 var PRSL={ALL:'Все статусы',ACTIVE:'Активные',DEAD:'Мёртвые',PAUSED:'На паузе',EXPIRED:'Истёкшие'};
 var PRTL={ALL:'Все типы',SOCKS5:'SOCKS5',HTTP:'HTTP',HTTPS:'HTTPS',MTPROTO:'MTProto'};
+var SEC_NAMES={dashboard:'Дашборд',accounts:'Аккаунты',proxies:'Прокси',settings:'Настройки',parser:'Парсер аудитории',audiences:'Базы аудитории',channels:'База каналов','phone-checker':'Чекер номеров','ai-promoter':'AI Промоутер','ai-sales':'AI Продажник','neuro-commenting':'Нейрокомментинг','auto-replier':'Автоответчик',warmup:'Прогрев','dm-campaign':'Рассылка в ЛС','chat-broadcast':'Рассылка по чатам',inviting:'Инвайтинг',templates:'Шаблоны',boost:'Накрутка','stories-boost':'Масслайкинг сторис',cloner:'Клонер','create-channels':'Создание чатов',converter:'Конвертер'};
+function breadcrumb(sec){return '<div style="font-size:0.7rem;color:var(--muted-text);margin-bottom:0.75rem">Маркетинг / <span style="color:var(--blue-500)">Telegram</span> / <strong style="color:var(--text)">'+(SEC_NAMES[sec]||sec)+'</strong></div>';}
 
 function selCount(sel){var c=0;for(var k in sel)if(sel[k])c++;return c;}
 function selIds(sel){var ids=[];for(var k in sel)if(sel[k])ids.push(k);return ids;}
@@ -1155,6 +1207,8 @@ function rMain(){
     case 'converter':rConverter(el);break;
     default:rDash(el);
   }
+  /* Prepend breadcrumb */
+  el.insertAdjacentHTML('afterbegin',breadcrumb(S.sec));
   /* Bind all WIP buttons */
   el.querySelectorAll('.wip-btn').forEach(function(b){b.onclick=wipToast;});
 }
@@ -1261,6 +1315,65 @@ function rDash(el){
     '</div></div>'+
     '</div>'+
 
+    /* ── Activity Heatmap ── */
+    (function(){
+      var heatData=[];var days=['\u041F\u043D','\u0412\u0442','\u0421\u0440','\u0427\u0442','\u041F\u0442','\u0421\u0431','\u0412\u0441'];
+      for(var dd=0;dd<7;dd++){heatData[dd]=[];for(var hh=0;hh<24;hh++){var base=(hh>=9&&hh<=21)?0.5+Math.random()*0.5:Math.random()*0.15;if(dd>=5)base*=0.6;heatData[dd][hh]=base;}}
+      return '<div class="card"><div class="card-head"><div class="card-title">\u0410\u043A\u0442\u0438\u0432\u043D\u043E\u0441\u0442\u044C \u043F\u043E \u0447\u0430\u0441\u0430\u043C</div></div><div class="card-body">'+
+        '<div style="display:grid;grid-template-columns:30px repeat(24,1fr);gap:2px;font-size:0.6rem">'+
+        '<div></div>'+Array.from({length:24},function(_,i){return '<div style="text-align:center;color:var(--muted-text)">'+(i<10?'0'+i:i)+'</div>';}).join('')+
+        days.map(function(day,di){
+          return '<div style="color:var(--muted-text);text-align:right;padding-right:4px;line-height:16px">'+day+'</div>'+
+            heatData[di].map(function(v){return '<div style="height:16px;background:rgba(59,130,246,'+v.toFixed(2)+');border-radius:2px"></div>';}).join('');
+        }).join('')+
+        '</div>'+
+        '<div style="display:flex;align-items:center;gap:0.5rem;margin-top:0.5rem;font-size:0.65rem;color:var(--muted-text)"><span>\u041C\u0435\u043D\u044C\u0448\u0435</span>'+
+        [0.05,0.25,0.5,0.75,1].map(function(v){return '<div style="width:12px;height:10px;background:rgba(59,130,246,'+v+');border-radius:1px"></div>';}).join('')+
+        '<span>\u0411\u043E\u043B\u044C\u0448\u0435</span></div>'+
+      '</div></div>';
+    })()+
+
+    /* ── Row 3: Parsers, Campaigns, Spending, Approval ── */
+    '<div class="g g4">'+
+
+    '<div class="card"><div class="card-head"><div class="card-title">\u0422\u043E\u043F \u043F\u0430\u0440\u0441\u0435\u0440\u043E\u0432</div></div><div class="card-body">'+
+      '<div class="sy1h">'+
+        [{n:'\uD83D\uDD0D \u0424\u0438\u0442\u043D\u0435\u0441-\u0447\u0430\u0442\u044B RU',v:'1 247'},{n:'\uD83D\uDD0D \u041C\u0430\u0440\u043A\u0435\u0442\u0438\u043D\u0433 \u0422\u0413',v:'821'},{n:'\uD83D\uDD0D \u041A\u0440\u0438\u043F\u0442\u043E-\u043A\u043E\u043C\u043C\u0435\u043D\u0442\u044B',v:'487'}].map(function(p){
+          return '<div class="f ac jb" style="padding:0.375rem 0;border-bottom:1px solid var(--border)"><span class="txs">'+p.n+'</span><span class="txs fbol">'+p.v+'</span></div>';
+        }).join('')+
+      '</div>'+
+    '</div></div>'+
+
+    '<div class="card"><div class="card-head"><div class="card-title">\u0410\u043A\u0442\u0438\u0432\u043D\u044B\u0435 \u0440\u0430\u0441\u0441\u044B\u043B\u043A\u0438</div></div><div class="card-body">'+
+      '<div class="sy2">'+
+        [{n:'CopyBanner Q2',pct:67,resp:12},{n:'\u0425\u043E\u043B\u043E\u0434\u043D\u044B\u0439 \u0430\u0443\u0442\u0440\u0438\u0447',pct:34,resp:8}].map(function(c){
+          return '<div>'+
+            '<div class="f ac jb txs mb1"><span class="fmed">'+c.n+'</span><span class="c-m">'+c.resp+'% \u043E\u0442\u0432\u0435\u0442\u0438\u043B\u0438</span></div>'+
+            '<div class="prog"><div class="prog-fill" style="width:'+c.pct+'%;background:var(--blue-500)"></div></div>'+
+            '<div class="txs c-m mt0h" style="text-align:right">'+c.pct+'%</div>'+
+          '</div>';
+        }).join('')+
+      '</div>'+
+    '</div></div>'+
+
+    '<div class="card"><div class="card-head"><div class="card-title">\u0420\u0430\u0441\u0445\u043E\u0434 \u0437\u0430 \u043C\u0435\u0441\u044F\u0446</div></div><div class="card-body">'+
+      '<div class="t3x fxb" style="margin-bottom:0.75rem">$284</div>'+
+      '<div class="sy1h">'+
+        [{n:'Claude API',v:'$142'},{n:'Proxy-Seller',v:'$98'},{n:'\u0410\u043A\u043A\u0430\u0443\u043D\u0442\u044B',v:'$44'}].map(function(r){
+          return '<div class="f ac jb txs" style="padding:0.25rem 0"><span class="c-m">'+r.n+'</span><span class="fmed">'+r.v+'</span></div>';
+        }).join('')+
+      '</div>'+
+      '<div class="txs c-m mt2" style="font-style:italic">\u2192 \u043F\u0440\u043E\u0433\u043D\u043E\u0437 ~$412 \u043A \u043A\u043E\u043D\u0446\u0443 \u043C\u0435\u0441.</div>'+
+    '</div></div>'+
+
+    '<div class="card card-hv"><div class="card-head"><div class="card-title">\u0422\u0440\u0435\u0431\u0443\u0435\u0442 \u043E\u0434\u043E\u0431\u0440\u0435\u043D\u0438\u044F</div></div><div class="card-body" style="text-align:center">'+
+      '<div class="t3x fxb" style="color:var(--orange-500)">7</div>'+
+      '<div class="txs c-m mt2">AI-\u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u044F \u0436\u0434\u0443\u0442 \u0432\u0430\u0448\u0435\u0433\u043E \u041E\u041A</div>'+
+      '<button class="btn btn-sm mt3" id="dash-approval-q">\u2192 \u041E\u0442\u043A\u0440\u044B\u0442\u044C \u043E\u0447\u0435\u0440\u0435\u0434\u044C</button>'+
+    '</div></div>'+
+
+    '</div>'+
+
     '<div class="g g5">'+
     '<div class="card cs3">'+
       '<div class="card-head"><div class="card-title">Последние события</div></div>'+
@@ -1316,6 +1429,9 @@ function rDash(el){
 
   var periodBtn=el.querySelector('#dash-period');
   if(periodBtn)periodBtn.onclick=function(){toast('Выбор периода будет доступен в следующем обновлении','info');};
+
+  var approvalBtn=el.querySelector('#dash-approval-q');
+  if(approvalBtn)approvalBtn.onclick=function(){S.sec='ai-promoter';location.hash='ai-promoter';rSide();rMain();};
 }
 
 /* ====================================================================
@@ -1344,6 +1460,14 @@ function rAcc(el){
   var so=['ALL','IMPORTED','ACTIVE','WARMING','PAUSED','FLOOD_WAIT','SPAM_BLOCKED','BANNED','DEAD'];
   var selC=selCount(S.accSel);
 
+  /* Client-side extra filters */
+  var fAcc=S.acc;
+  if(S.accCountryF!=='ALL'){fAcc=fAcc.filter(function(a){var dc=detectCountry(a.phone);var ac=a.country||'';return (dc&&dc.indexOf(S.accCountryF)>-1)||(ac.toUpperCase()===S.accCountryF);});}
+  if(S.accProxyF==='WITH'){fAcc=fAcc.filter(function(a){return !!a.proxy_id;});}
+  else if(S.accProxyF==='WITHOUT'){fAcc=fAcc.filter(function(a){return !a.proxy_id;});}
+  if(S.accPremF==='PREMIUM'){fAcc=fAcc.filter(function(a){return !!a.is_premium;});}
+  else if(S.accPremF==='REGULAR'){fAcc=fAcc.filter(function(a){return !a.is_premium;});}
+
   var kpis=[
     {k:'ACTIVE',l:'Active',v:bs.ACTIVE||0,bg:'rgba(34,197,94,0.12)',fg:'var(--emerald-500)'},
     {k:'SPAM_BLOCKED',l:'Спам-блок',v:bs.SPAM_BLOCKED||0,bg:'rgba(234,179,8,0.12)',fg:'var(--yellow-500)'},
@@ -1371,14 +1495,28 @@ function rAcc(el){
       '</div>';
     }).join('')+'</div>'+
 
-    '<div class="f ac g3x">'+
+    '<div class="f ac g3x fw">'+
       '<div class="sel-w"><select class="sel" id="a-sf" style="width:12rem">'+
         so.map(function(s){return '<option value="'+s+'"'+(S.accF===s?' selected':'')+'>'+(ASL[s]||s)+'</option>';}).join('')+
+      '</select></div>'+
+      '<div class="sel-w"><select class="sel" id="a-cf" style="width:8rem">'+
+        [['ALL','\u0421\u0442\u0440\u0430\u043D\u0430: \u0412\u0441\u0435'],['RU','\uD83C\uDDF7\uD83C\uDDFA RU'],['CY','\uD83C\uDDE8\uD83C\uDDFE CY'],['KZ','\uD83C\uDDF0\uD83C\uDDFF KZ'],['US','\uD83C\uDDFA\uD83C\uDDF8 US'],['UA','\uD83C\uDDFA\uD83C\uDDE6 UA'],['GB','\uD83C\uDDEC\uD83C\uDDE7 GB']].map(function(o){return '<option value="'+o[0]+'"'+(S.accCountryF===o[0]?' selected':'')+'>'+o[1]+'</option>';}).join('')+
+      '</select></div>'+
+      '<div class="sel-w"><select class="sel" id="a-pxf" style="width:9rem">'+
+        '<option value="ALL"'+(S.accProxyF==='ALL'?' selected':'')+'>\u041F\u0440\u043E\u043A\u0441\u0438: \u0412\u0441\u0435</option>'+
+        '<option value="WITH"'+(S.accProxyF==='WITH'?' selected':'')+'>\u0421 \u043F\u0440\u043E\u043A\u0441\u0438</option>'+
+        '<option value="WITHOUT"'+(S.accProxyF==='WITHOUT'?' selected':'')+'>\u0411\u0435\u0437 \u043F\u0440\u043E\u043A\u0441\u0438</option>'+
+      '</select></div>'+
+      '<div class="sel-w"><select class="sel" id="a-pmf" style="width:9rem">'+
+        '<option value="ALL"'+(S.accPremF==='ALL'?' selected':'')+'>\u041F\u0440\u0435\u043C\u0438\u0443\u043C: \u0412\u0441\u0435</option>'+
+        '<option value="PREMIUM"'+(S.accPremF==='PREMIUM'?' selected':'')+'>\u2B50 Premium</option>'+
+        '<option value="REGULAR"'+(S.accPremF==='REGULAR'?' selected':'')+'>\u041E\u0431\u044B\u0447\u043D\u044B\u0435</option>'+
       '</select></div>'+
       '<div class="srch">'+ic('search')+
         '<input class="input input-pl tsm" id="a-q" placeholder="Поиск по телефону, юзернейму..." value="'+esc(S.accQ)+'">'+
       '</div>'+
-      '<div class="txs c-m mla">'+S.accT+' аккаунтов</div>'+
+      (S.accCountryF!=='ALL'||S.accProxyF!=='ALL'||S.accPremF!=='ALL'?'<button class="btn btn-sm" id="a-reset-f" style="white-space:nowrap">\u2715 \u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C</button>':'')+
+      '<div class="txs c-m mla">'+S.accT+' \u0430\u043A\u043A\u0430\u0443\u043D\u0442\u043E\u0432</div>'+
     '</div>'+
 
     '<div class="card"><div class="card-body flush">'+
@@ -1392,7 +1530,7 @@ function rAcc(el){
       '<button class="btn wip-btn">\uD83E\uDDF9 Очистка</button>'+
       '<button class="btn btn-danger" id="ab-del">\uD83D\uDDD1 Удалить</button>'+
     '</div>':'')+
-    (S.acc.length>0
+    (fAcc.length>0
       ?'<div class="tw"><table>'+
         '<thead><tr>'+
           '<th style="width:32px"><div class="chk-w"><input type="checkbox" class="chk" id="a-chkall-cb"></div></th>'+
@@ -1408,7 +1546,7 @@ function rAcc(el){
           '<th>Последний онлайн</th>'+
           '<th style="width:36px"></th>'+
         '</tr></thead>'+
-        '<tbody>'+S.acc.map(function(a){
+        '<tbody>'+fAcc.map(function(a){
           var name=(a.first_name||'')+(a.last_name?' '+a.last_name:'');
           if(!name.trim())name=a.username||a.phone||'?';
           var country=detectCountry(a.phone)||(a.country?esc(a.country):'--');
@@ -1480,6 +1618,10 @@ function rAcc(el){
     };
   });
   el.querySelector('#a-sf').onchange=function(e){S.accF=e.target.value;S.accP=0;accLoaded=false;ldAcc().then(function(){if(S.sec==='accounts'&&!S.accDetail)rAcc(el);});};
+  var cfEl=el.querySelector('#a-cf');if(cfEl)cfEl.onchange=function(e){S.accCountryF=e.target.value;rAcc(el);};
+  var pxfEl=el.querySelector('#a-pxf');if(pxfEl)pxfEl.onchange=function(e){S.accProxyF=e.target.value;rAcc(el);};
+  var pmfEl=el.querySelector('#a-pmf');if(pmfEl)pmfEl.onchange=function(e){S.accPremF=e.target.value;rAcc(el);};
+  var resetFBtn=el.querySelector('#a-reset-f');if(resetFBtn)resetFBtn.onclick=function(){S.accCountryF='ALL';S.accProxyF='ALL';S.accPremF='ALL';rAcc(el);};
   var qt;
   el.querySelector('#a-q').oninput=function(e){
     S.accQ=e.target.value;S.accP=0;
@@ -1595,72 +1737,166 @@ function rAccDet(el,acc){
       '</div>'+
     '</div>'+
     '<div style="display:flex;border-bottom:1px solid var(--border);margin-bottom:1rem">'+
-      '<button class="det-tab active">\u041E\u0431\u0437\u043E\u0440</button>'+
-      '<button class="det-tab wip-btn">\u0410\u043A\u0442\u0438\u0432\u043D\u043E\u0441\u0442\u044C</button>'+
-      '<button class="det-tab wip-btn">\u041F\u0440\u043E\u043A\u0441\u0438</button>'+
-      '<button class="det-tab wip-btn">\u0427\u0430\u0442\u044B</button>'+
-      '<button class="det-tab wip-btn">\u0411\u0430\u043D\u044B</button>'+
-      '<button class="det-tab wip-btn">\u041F\u0440\u043E\u0444\u0438\u043B\u044C</button>'+
-      '<button class="det-tab wip-btn">\u0421\u0442\u043E\u0440\u0438\u0441</button>'+
-      '<button class="det-tab wip-btn">2FA</button>'+
+      [['overview','\u041E\u0431\u0437\u043E\u0440'],['activity','\u0410\u043A\u0442\u0438\u0432\u043D\u043E\u0441\u0442\u044C'],['proxy','\u041F\u0440\u043E\u043A\u0441\u0438'],['chats','\u0427\u0430\u0442\u044B'],['bans','\u0411\u0430\u043D\u044B'],['profile','\u041F\u0440\u043E\u0444\u0438\u043B\u044C'],['stories','\u0421\u0442\u043E\u0440\u0438\u0441'],['twofa','2FA']].map(function(t){
+        return '<button class="det-tab'+(S.accDetTab===t[0]?' active':'')+'" data-dt="'+t[0]+'">'+t[1]+'</button>';
+      }).join('')+
     '</div>'+
-    '<div class="det-grid">'+
-      '<div class="sy3">'+
-        '<div class="det-section"><div class="det-section-title">Основная информация</div>'+
-          '<div class="det-row"><span class="det-label">Телефон</span><span class="det-value fmo">'+esc(acc.phone||'--')+'</span></div>'+
-          '<div class="det-row"><span class="det-label">Telegram ID</span><span class="det-value fmo">'+(acc.tg_user_id||'--')+'</span></div>'+
-          '<div class="det-row"><span class="det-label">Юзернейм</span><span class="det-value">'+(acc.username?'@'+esc(acc.username):'--')+'</span></div>'+
-          '<div class="det-row"><span class="det-label">Имя</span><span class="det-value">'+esc((acc.first_name||'')+(acc.last_name?' '+acc.last_name:''))+'</span></div>'+
-          '<div class="det-row"><span class="det-label">Bio</span><span class="det-value">'+esc(acc.about||'--')+'</span></div>'+
-          '<div class="det-row"><span class="det-label">Зарегистрирован</span><span class="det-value">'+(meta.register_time?fmtD(meta.register_time):'--')+'</span></div>'+
-          '<div class="det-row"><span class="det-label">Последний онлайн</span><span class="det-value">'+relTime(acc.last_session_at)+'</span></div>'+
-          '<div class="det-row"><span class="det-label">Премиум</span><span class="det-value">'+(acc.is_premium?'\u2B50 Да':'Нет')+'</span></div>'+
-          '<div class="det-row"><span class="det-label">Спамблок</span><span class="det-value">'+(meta.spamblock&&meta.spamblock!=='none'?'<span style="color:var(--red-500)">'+esc(meta.spamblock)+'</span>':'Нет')+'</span></div>'+
-        '</div>'+
-        '<div class="det-section"><div class="det-section-title">Безопасность</div>'+
-          '<div class="det-row"><span class="det-label">2FA пароль</span><span class="det-value fmo" style="user-select:all">'+(meta.twoFA||meta.twofa_password||'<span style="color:var(--muted-text)">не задан</span>')+'</span></div>'+
-          '<div class="det-row"><span class="det-label">App ID</span><span class="det-value fmo">'+(meta.app_id||'--')+'</span></div>'+
-          '<div class="det-row"><span class="det-label">App Hash</span><span class="det-value fmo" style="font-size:0.7rem">'+(meta.app_hash||'--')+'</span></div>'+
-        '</div>'+
-        '<div class="det-section"><div class="det-section-title">Устройство</div>'+
-          '<div class="det-row"><span class="det-label">Модель</span><span class="det-value">'+esc(acc.device_model||'--')+'</span></div>'+
-          '<div class="det-row"><span class="det-label">Система</span><span class="det-value">'+esc(acc.system_version||'--')+'</span></div>'+
-          '<div class="det-row"><span class="det-label">Приложение</span><span class="det-value">'+esc(acc.app_version||'--')+'</span></div>'+
-          '<div class="det-row"><span class="det-label">Язык</span><span class="det-value">'+esc(acc.lang_code||'--')+'</span></div>'+
-        '</div>'+
-      '</div>'+
-      '<div class="sy3">'+
-        '<div class="det-section"><div class="det-section-title">Прокси</div>'+
-          (acc.proxy_id?'<div class="det-row"><span class="det-label">ID</span><span class="det-value fmo txs">'+esc(acc.proxy_id)+'</span></div><div class="det-row"><span class="det-label">Статус</span><span class="det-value">Привязан</span></div>':'<div class="txs c-m" style="padding:0.5rem 0">Прокси не привязан</div>')+
-          '<button class="btn btn-sm mt2" id="det-proxy">Сменить прокси</button>'+
-        '</div>'+
-        '<div class="det-section"><div class="det-section-title">Прогрев</div>'+
-          '<div class="f ac jb mb2"><span class="txs fmed">Уровень: '+wl+'%</span><span class="txs c-m">'+(acc.warmup_profile||'--')+'</span></div>'+
-          '<div class="prog"><div class="prog-fill" style="width:'+Math.min(100,wl)+'%;background:'+wc+'"></div></div>'+
-          '<div class="det-row mt2"><span class="det-label">Дней активности</span><span class="det-value">'+(acc.days_active||0)+'</span></div>'+
-        '</div>'+
-        '<div class="det-section"><div class="det-section-title">Лимиты</div>'+
-          '<div class="det-row"><span class="det-label">Сообщений / день</span><span class="det-value">'+(meta.messages_sent_today||0)+' / 30</span></div>'+
-          '<div class="det-row"><span class="det-label">Инвайтов / день</span><span class="det-value">'+(meta.invites_sent_today||0)+' / 10</span></div>'+
-        '</div>'+
-        '<div class="det-section"><div class="det-section-title">Быстрые действия</div>'+
-          '<div class="g g2" style="gap:0.5rem">'+
-            '<button class="qa det-act" data-act="check">'+ic('refresh')+' Чек Telegram</button>'+
-            '<button class="qa det-act" data-act="edit">'+ic('settings')+' Редактировать</button>'+
-            '<button class="qa det-act" data-act="spamblock">'+ic('shield')+' Спамблок-чек</button>'+
-            '<button class="qa det-act" data-act="export">'+ic('import')+' Экспорт</button>'+
-            '<button class="qa det-act danger" data-act="delete" style="color:var(--red-500)">'+ic('trash')+' Удалить</button>'+
+    '<div id="det-tab-body">'+
+    (function(){
+      var tab=S.accDetTab;
+
+      /* ── Overview Tab ── */
+      if(tab==='overview'){
+        return '<div class="det-grid">'+
+          '<div class="sy3">'+
+            '<div class="det-section"><div class="det-section-title">\u041E\u0441\u043D\u043E\u0432\u043D\u0430\u044F \u0438\u043D\u0444\u043E\u0440\u043C\u0430\u0446\u0438\u044F</div>'+
+              '<div class="det-row"><span class="det-label">\u0422\u0435\u043B\u0435\u0444\u043E\u043D</span><span class="det-value fmo">'+esc(acc.phone||'--')+'</span></div>'+
+              '<div class="det-row"><span class="det-label">Telegram ID</span><span class="det-value fmo">'+(acc.tg_user_id||'--')+'</span></div>'+
+              '<div class="det-row"><span class="det-label">\u042E\u0437\u0435\u0440\u043D\u0435\u0439\u043C</span><span class="det-value">'+(acc.username?'@'+esc(acc.username):'--')+'</span></div>'+
+              '<div class="det-row"><span class="det-label">\u0418\u043C\u044F</span><span class="det-value">'+esc((acc.first_name||'')+(acc.last_name?' '+acc.last_name:''))+'</span></div>'+
+              '<div class="det-row"><span class="det-label">Bio</span><span class="det-value">'+esc(acc.about||'--')+'</span></div>'+
+              '<div class="det-row"><span class="det-label">\u0417\u0430\u0440\u0435\u0433\u0438\u0441\u0442\u0440\u0438\u0440\u043E\u0432\u0430\u043D</span><span class="det-value">'+(meta.register_time?fmtD(meta.register_time):'--')+'</span></div>'+
+              '<div class="det-row"><span class="det-label">\u041F\u043E\u0441\u043B\u0435\u0434\u043D\u0438\u0439 \u043E\u043D\u043B\u0430\u0439\u043D</span><span class="det-value">'+relTime(acc.last_session_at)+'</span></div>'+
+              '<div class="det-row"><span class="det-label">\u041F\u0440\u0435\u043C\u0438\u0443\u043C</span><span class="det-value">'+(acc.is_premium?'\u2B50 \u0414\u0430':'\u041D\u0435\u0442')+'</span></div>'+
+              '<div class="det-row"><span class="det-label">\u0421\u043F\u0430\u043C\u0431\u043B\u043E\u043A</span><span class="det-value">'+(meta.spamblock&&meta.spamblock!=='none'?'<span style="color:var(--red-500)">'+esc(meta.spamblock)+'</span>':'\u041D\u0435\u0442')+'</span></div>'+
+            '</div>'+
+            '<div class="det-section"><div class="det-section-title">\u0411\u0435\u0437\u043E\u043F\u0430\u0441\u043D\u043E\u0441\u0442\u044C</div>'+
+              '<div class="det-row"><span class="det-label">2FA \u043F\u0430\u0440\u043E\u043B\u044C</span><span class="det-value fmo" style="user-select:all">'+(meta.twoFA||meta.twofa_password||'<span style="color:var(--muted-text)">\u043D\u0435 \u0437\u0430\u0434\u0430\u043D</span>')+'</span></div>'+
+              '<div class="det-row"><span class="det-label">App ID</span><span class="det-value fmo">'+(meta.app_id||'--')+'</span></div>'+
+              '<div class="det-row"><span class="det-label">App Hash</span><span class="det-value fmo" style="font-size:0.7rem">'+(meta.app_hash||'--')+'</span></div>'+
+            '</div>'+
+            '<div class="det-section"><div class="det-section-title">\u0423\u0441\u0442\u0440\u043E\u0439\u0441\u0442\u0432\u043E</div>'+
+              '<div class="det-row"><span class="det-label">\u041C\u043E\u0434\u0435\u043B\u044C</span><span class="det-value">'+esc(acc.device_model||'--')+'</span></div>'+
+              '<div class="det-row"><span class="det-label">\u0421\u0438\u0441\u0442\u0435\u043C\u0430</span><span class="det-value">'+esc(acc.system_version||'--')+'</span></div>'+
+              '<div class="det-row"><span class="det-label">\u041F\u0440\u0438\u043B\u043E\u0436\u0435\u043D\u0438\u0435</span><span class="det-value">'+esc(acc.app_version||'--')+'</span></div>'+
+              '<div class="det-row"><span class="det-label">\u042F\u0437\u044B\u043A</span><span class="det-value">'+esc(acc.lang_code||'--')+'</span></div>'+
+            '</div>'+
           '</div>'+
-        '</div>'+
-        '<div class="det-section"><div class="det-section-title">Заметки</div>'+
-          '<textarea class="notes-ta" id="det-notes" placeholder="Заметки об аккаунте...">'+(meta.notes||'')+'</textarea>'+
-          '<button class="btn btn-sm mt2" id="det-save-notes">Сохранить</button>'+
-        '</div>'+
-      '</div>'+
+          '<div class="sy3">'+
+            '<div class="det-section"><div class="det-section-title">\u041F\u0440\u043E\u043A\u0441\u0438</div>'+
+              (acc.proxy_id?'<div class="det-row"><span class="det-label">ID</span><span class="det-value fmo txs">'+esc(acc.proxy_id)+'</span></div><div class="det-row"><span class="det-label">\u0421\u0442\u0430\u0442\u0443\u0441</span><span class="det-value">\u041F\u0440\u0438\u0432\u044F\u0437\u0430\u043D</span></div>':'<div class="txs c-m" style="padding:0.5rem 0">\u041F\u0440\u043E\u043A\u0441\u0438 \u043D\u0435 \u043F\u0440\u0438\u0432\u044F\u0437\u0430\u043D</div>')+
+              '<button class="btn btn-sm mt2" id="det-proxy">\u0421\u043C\u0435\u043D\u0438\u0442\u044C \u043F\u0440\u043E\u043A\u0441\u0438</button>'+
+            '</div>'+
+            '<div class="det-section"><div class="det-section-title">\u041F\u0440\u043E\u0433\u0440\u0435\u0432</div>'+
+              '<div class="f ac jb mb2"><span class="txs fmed">\u0423\u0440\u043E\u0432\u0435\u043D\u044C: '+wl+'%</span><span class="txs c-m">'+(acc.warmup_profile||'--')+'</span></div>'+
+              '<div class="prog"><div class="prog-fill" style="width:'+Math.min(100,wl)+'%;background:'+wc+'"></div></div>'+
+              '<div class="det-row mt2"><span class="det-label">\u0414\u043D\u0435\u0439 \u0430\u043A\u0442\u0438\u0432\u043D\u043E\u0441\u0442\u0438</span><span class="det-value">'+(acc.days_active||0)+'</span></div>'+
+            '</div>'+
+            '<div class="det-section"><div class="det-section-title">\u041B\u0438\u043C\u0438\u0442\u044B</div>'+
+              '<div class="det-row"><span class="det-label">\u0421\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0439 / \u0434\u0435\u043D\u044C</span><span class="det-value">'+(meta.messages_sent_today||0)+' / 30</span></div>'+
+              '<div class="det-row"><span class="det-label">\u0418\u043D\u0432\u0430\u0439\u0442\u043E\u0432 / \u0434\u0435\u043D\u044C</span><span class="det-value">'+(meta.invites_sent_today||0)+' / 10</span></div>'+
+            '</div>'+
+            '<div class="det-section"><div class="det-section-title">\u0411\u044B\u0441\u0442\u0440\u044B\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F</div>'+
+              '<div class="g g2" style="gap:0.5rem">'+
+                '<button class="qa det-act" data-act="check">'+ic('refresh')+' \u0427\u0435\u043A Telegram</button>'+
+                '<button class="qa det-act" data-act="edit">'+ic('settings')+' \u0420\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u0442\u044C</button>'+
+                '<button class="qa det-act" data-act="spamblock">'+ic('shield')+' \u0421\u043F\u0430\u043C\u0431\u043B\u043E\u043A-\u0447\u0435\u043A</button>'+
+                '<button class="qa det-act" data-act="export">'+ic('import')+' \u042D\u043A\u0441\u043F\u043E\u0440\u0442</button>'+
+                '<button class="qa det-act danger" data-act="delete" style="color:var(--red-500)">'+ic('trash')+' \u0423\u0434\u0430\u043B\u0438\u0442\u044C</button>'+
+              '</div>'+
+            '</div>'+
+            '<div class="det-section"><div class="det-section-title">\u0417\u0430\u043C\u0435\u0442\u043A\u0438</div>'+
+              '<textarea class="notes-ta" id="det-notes" placeholder="\u0417\u0430\u043C\u0435\u0442\u043A\u0438 \u043E\u0431 \u0430\u043A\u043A\u0430\u0443\u043D\u0442\u0435...">'+(meta.notes||'')+'</textarea>'+
+              '<button class="btn btn-sm mt2" id="det-save-notes">\u0421\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C</button>'+
+            '</div>'+
+          '</div>'+
+        '</div>';
+      }
+
+      /* ── Activity Tab ── */
+      if(tab==='activity'){
+        return '<div class="card"><div class="card-head"><div class="card-title">\u041F\u043E\u0441\u043B\u0435\u0434\u043D\u0438\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F \u043F\u0440\u043E\u0433\u0440\u0435\u0432\u0430</div></div><div class="card-body">'+
+          '<div id="det-activity-list"><div style="text-align:center;padding:2rem"><span class="spin" style="border-color:var(--border);border-top-color:var(--blue-500)"></span> \u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430...</div></div>'+
+        '</div></div>';
+      }
+
+      /* ── Proxy Tab ── */
+      if(tab==='proxy'){
+        return '<div class="card"><div class="card-head"><div class="card-title">\u041F\u0440\u043E\u043A\u0441\u0438 \u0430\u043A\u043A\u0430\u0443\u043D\u0442\u0430</div></div><div class="card-body">'+
+          (acc.proxy_id
+            ?'<div class="sy2">'+
+              '<div class="det-row"><span class="det-label">ID \u043F\u0440\u043E\u043A\u0441\u0438</span><span class="det-value fmo txs">'+esc(acc.proxy_id)+'</span></div>'+
+              '<div class="det-row"><span class="det-label">\u041C\u0435\u0442\u043A\u0430</span><span class="det-value">'+esc(acc.proxy_label||'\u043F\u0440\u0438\u0432\u044F\u0437\u0430\u043D')+'</span></div>'+
+              '<div class="det-row"><span class="det-label">\u0421\u0442\u0430\u0442\u0443\u0441</span><span class="det-value"><span class="badge b-emerald b-ol">\u041F\u0440\u0438\u0432\u044F\u0437\u0430\u043D</span></span></div>'+
+              '<div id="det-proxy-detail" style="margin-top:0.75rem"><span class="spin" style="border-color:var(--border);border-top-color:var(--blue-500)"></span> \u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0434\u0435\u0442\u0430\u043B\u0435\u0439...</div>'+
+            '</div>'
+            :'<div class="txs c-m" style="text-align:center;padding:1.5rem 0">\u041F\u0440\u043E\u043A\u0441\u0438 \u043D\u0435 \u043F\u0440\u0438\u0432\u044F\u0437\u0430\u043D</div>')+
+          '<div class="mt3"><button class="btn btn-sm" id="det-proxy">\u0421\u043C\u0435\u043D\u0438\u0442\u044C \u043F\u0440\u043E\u043A\u0441\u0438</button></div>'+
+        '</div></div>';
+      }
+
+      /* ── 2FA Tab ── */
+      if(tab==='twofa'){
+        var tfa=meta.twoFA||meta.twofa_password||'';
+        var appId=meta.app_id||'';
+        var appHash=meta.app_hash||'';
+        return '<div class="card"><div class="card-head"><div class="card-title">\u0414\u0432\u0443\u0445\u0444\u0430\u043A\u0442\u043E\u0440\u043D\u0430\u044F \u0430\u0443\u0442\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0446\u0438\u044F</div></div><div class="card-body sy3">'+
+          '<div class="det-section">'+
+            '<div class="det-row"><span class="det-label">2FA \u043F\u0430\u0440\u043E\u043B\u044C</span><span class="det-value f ac g2x"><span class="fmo" style="user-select:all" id="det-2fa-val">'+(tfa||'<span class="c-m">\u043D\u0435 \u0437\u0430\u0434\u0430\u043D</span>')+'</span>'+(tfa?'<button class="btn btn-sm btn-ghost det-copy" data-copy="'+esc(tfa)+'" title="\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C">'+ic('copy')+'</button>':'')+'</span></div>'+
+            '<div class="det-row"><span class="det-label">App ID</span><span class="det-value f ac g2x"><span class="fmo">'+esc(appId||'--')+'</span>'+(appId?'<button class="btn btn-sm btn-ghost det-copy" data-copy="'+esc(appId)+'" title="\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C">'+ic('copy')+'</button>':'')+'</span></div>'+
+            '<div class="det-row"><span class="det-label">App Hash</span><span class="det-value f ac g2x"><span class="fmo" style="font-size:0.7rem">'+esc(appHash||'--')+'</span>'+(appHash?'<button class="btn btn-sm btn-ghost det-copy" data-copy="'+esc(appHash)+'" title="\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C">'+ic('copy')+'</button>':'')+'</span></div>'+
+          '</div>'+
+        '</div></div>';
+      }
+
+      /* ── Placeholder tabs ── */
+      return '<div class="card"><div class="card-body" style="text-align:center;padding:3rem 1rem">'+
+        '<div style="font-size:2rem;margin-bottom:0.75rem">\uD83D\uDCC2</div>'+
+        '<div class="tsm fmed">\u0414\u0430\u043D\u043D\u044B\u0435 \u0437\u0430\u0433\u0440\u0443\u0437\u044F\u0442\u0441\u044F \u043F\u043E\u0441\u043B\u0435 \u043F\u0435\u0440\u0432\u043E\u0433\u043E \u043F\u0430\u0440\u0441\u0438\u043D\u0433\u0430</div>'+
+        '<div class="txs c-m mt2">\u042D\u0442\u043E\u0442 \u0440\u0430\u0437\u0434\u0435\u043B \u0441\u0442\u0430\u043D\u0435\u0442 \u0434\u043E\u0441\u0442\u0443\u043F\u0435\u043D \u043F\u043E\u0441\u043B\u0435 \u043D\u0430\u0447\u0430\u043B\u0430 \u0440\u0430\u0431\u043E\u0442\u044B \u0441 \u0430\u043A\u043A\u0430\u0443\u043D\u0442\u043E\u043C</div>'+
+      '</div></div>';
+    })()+
     '</div>'+
   '</div>';
 
-  el.querySelector('#det-back').onclick=function(){S.accDetail=null;rMain();};
+  el.querySelector('#det-back').onclick=function(){S.accDetail=null;S.accDetTab='overview';rMain();};
+
+  /* ── Tab switching ── */
+  el.querySelectorAll('.det-tab').forEach(function(b){
+    b.onclick=function(){S.accDetTab=b.dataset.dt;rAccDet(el,acc);};
+  });
+
+  /* ── Tab-specific data loading ── */
+  if(S.accDetTab==='activity'){
+    (async function(){
+      var listEl=el.querySelector('#det-activity-list');
+      try{
+        var logs=await af('/warmup/log/'+acc.id+'?limit=20');
+        var items=logs.items||logs||[];
+        if(items.length>0){
+          listEl.innerHTML='<div class="tw"><table style="font-size:0.75rem"><thead><tr><th>\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u0435</th><th>\u0426\u0435\u043B\u044C</th><th>\u0420\u0435\u0437\u0443\u043B\u044C\u0442\u0430\u0442</th><th>\u0414\u0430\u0442\u0430</th></tr></thead><tbody>'+
+            items.map(function(l){
+              return '<tr><td>'+esc(l.action_type||l.action||'--')+'</td><td class="c-m">'+esc(l.target||l.target_entity||'--')+'</td><td>'+(l.success||l.status==='success'?'<span class="badge b-emerald b-ol">\u0423\u0441\u043F\u0435\u0445</span>':'<span class="badge b-red b-ol">\u041E\u0448\u0438\u0431\u043A\u0430</span>')+'</td><td class="c-m">'+fmtDT(l.created_at||l.date)+'</td></tr>';
+            }).join('')+'</tbody></table></div>';
+        }else{
+          listEl.innerHTML='<div class="txs c-m" style="text-align:center;padding:1.5rem 0">\u041D\u0435\u0442 \u0434\u0430\u043D\u043D\u044B\u0445 \u043E \u043F\u0440\u043E\u0433\u0440\u0435\u0432\u0435. \u0417\u0430\u043F\u0443\u0441\u0442\u0438\u0442\u0435 \u043F\u0440\u043E\u0433\u0440\u0435\u0432 \u0434\u043B\u044F \u044D\u0442\u043E\u0433\u043E \u0430\u043A\u043A\u0430\u0443\u043D\u0442\u0430.</div>';
+        }
+      }catch(e){
+        listEl.innerHTML='<div class="txs c-m" style="text-align:center;padding:1.5rem 0">\u041D\u0435\u0442 \u0434\u0430\u043D\u043D\u044B\u0445 \u043E \u043F\u0440\u043E\u0433\u0440\u0435\u0432\u0435. \u0417\u0430\u043F\u0443\u0441\u0442\u0438\u0442\u0435 \u043F\u0440\u043E\u0433\u0440\u0435\u0432 \u0434\u043B\u044F \u044D\u0442\u043E\u0433\u043E \u0430\u043A\u043A\u0430\u0443\u043D\u0442\u0430.</div>';
+      }
+    })();
+  }
+
+  if(S.accDetTab==='proxy'&&acc.proxy_id){
+    (async function(){
+      var detEl=el.querySelector('#det-proxy-detail');
+      try{
+        var p=await af('/proxies/'+acc.proxy_id);
+        var pt='--',pingColor='';if(p.last_latency_ms!=null){pt=p.last_latency_ms+'ms';pingColor=p.last_latency_ms<100?'var(--emerald-500)':p.last_latency_ms<=300?'var(--yellow-500)':'var(--red-500)';}
+        detEl.innerHTML=
+          '<div class="det-row"><span class="det-label">\u0425\u043E\u0441\u0442:\u041F\u043E\u0440\u0442</span><span class="det-value fmo">'+esc(p.host)+':'+p.port+'</span></div>'+
+          '<div class="det-row"><span class="det-label">\u0422\u0438\u043F</span><span class="det-value">'+ptBdg(p.type||p.scheme)+'</span></div>'+
+          '<div class="det-row"><span class="det-label">\u0421\u0442\u0430\u0442\u0443\u0441</span><span class="det-value">'+psBdg(p.status)+'</span></div>'+
+          '<div class="det-row"><span class="det-label">\u041F\u0438\u043D\u0433</span><span class="det-value">'+(p.last_latency_ms!=null?'<span style="color:'+pingColor+';font-weight:500">'+pt+'</span>':'<span class="c-m">--</span>')+'</span></div>'+
+          '<div class="det-row"><span class="det-label">\u0421\u0442\u0440\u0430\u043D\u0430</span><span class="det-value">'+esc(p.country||'--')+'</span></div>'+
+          '<div class="det-row"><span class="det-label">\u041F\u0440\u043E\u0432\u0430\u0439\u0434\u0435\u0440</span><span class="det-value">'+esc(p.provider||'--')+'</span></div>';
+      }catch(e){
+        detEl.innerHTML='<div class="txs c-m">\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044C \u0434\u0435\u0442\u0430\u043B\u0438 \u043F\u0440\u043E\u043A\u0441\u0438</div>';
+      }
+    })();
+  }
+
+  /* ── Overview tab bindings ── */
   el.querySelectorAll('.det-act').forEach(function(b){
     b.onclick=function(){
       var act=b.dataset.act;
@@ -1668,25 +1904,33 @@ function rAccDet(el,acc){
       else if(act==='edit'){mEdAcc(acc);}
       else if(act==='spamblock'){checkTelegram(acc.id);}
       else if(act==='delete'){
-        if(confirm('Удалить аккаунт '+esc(acc.phone)+'?')){
-          aD('/accounts/'+acc.id).then(function(){toast('Аккаунт удалён','success');S.accDetail=null;accLoaded=false;ldAcc().then(function(){rMain();});}).catch(function(e){toast(e.message,'error');});
+        if(confirm('\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0430\u043A\u043A\u0430\u0443\u043D\u0442 '+esc(acc.phone)+'?')){
+          aD('/accounts/'+acc.id).then(function(){toast('\u0410\u043A\u043A\u0430\u0443\u043D\u0442 \u0443\u0434\u0430\u043B\u0451\u043D','success');S.accDetail=null;accLoaded=false;ldAcc().then(function(){rMain();});}).catch(function(e){toast(e.message,'error');});
         }
       }
-      else if(act==='export'){toast('Экспорт пока не реализован','info');}
+      else if(act==='export'){toast('\u042D\u043A\u0441\u043F\u043E\u0440\u0442 \u043F\u043E\u043A\u0430 \u043D\u0435 \u0440\u0435\u0430\u043B\u0438\u0437\u043E\u0432\u0430\u043D','info');}
     };
   });
   var proxyBtn=el.querySelector('#det-proxy');
   if(proxyBtn)proxyBtn.onclick=function(){
-    var pid=prompt('Введите ID прокси (или пусто для отвязки):');
-    aP('/accounts/'+acc.id,{proxy_id:pid||null}).then(function(r){toast('Прокси обновлён','success');S.accDetail=r;rMain();accLoaded=false;ldAcc();}).catch(function(e){toast(e.message,'error');});
+    var pid=prompt('\u0412\u0432\u0435\u0434\u0438\u0442\u0435 ID \u043F\u0440\u043E\u043A\u0441\u0438 (\u0438\u043B\u0438 \u043F\u0443\u0441\u0442\u043E \u0434\u043B\u044F \u043E\u0442\u0432\u044F\u0437\u043A\u0438):');
+    aP('/accounts/'+acc.id,{proxy_id:pid||null}).then(function(r){toast('\u041F\u0440\u043E\u043A\u0441\u0438 \u043E\u0431\u043D\u043E\u0432\u043B\u0451\u043D','success');S.accDetail=r;rMain();accLoaded=false;ldAcc();}).catch(function(e){toast(e.message,'error');});
   };
   var saveNotes=el.querySelector('#det-save-notes');
   if(saveNotes)saveNotes.onclick=function(){
     var notes=el.querySelector('#det-notes').value;
     var newMeta=Object.assign({},meta,{notes:notes});
-    aP('/accounts/'+acc.id,{metadata:newMeta}).then(function(r){toast('Заметки сохранены','success');S.accDetail=r;}).catch(function(e){toast(e.message,'error');});
+    aP('/accounts/'+acc.id,{metadata:newMeta}).then(function(r){toast('\u0417\u0430\u043C\u0435\u0442\u043A\u0438 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u044B','success');S.accDetail=r;}).catch(function(e){toast(e.message,'error');});
   };
-  el.querySelectorAll('.wip-btn').forEach(function(b){b.onclick=wipToast;});
+
+  /* ── 2FA copy buttons ── */
+  el.querySelectorAll('.det-copy').forEach(function(b){
+    b.onclick=function(){
+      var val=b.dataset.copy;
+      if(navigator.clipboard){navigator.clipboard.writeText(val).then(function(){toast('\u0421\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u043D\u043E','success');});}
+      else{var t=document.createElement('textarea');t.value=val;document.body.appendChild(t);t.select();document.execCommand('copy');document.body.removeChild(t);toast('\u0421\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u043D\u043E','success');}
+    };
+  });
 }
 
 /* ── Create Account Modal ── */
@@ -2209,7 +2453,7 @@ function renderPhcResults(batch){
 }
 
 /* ── 9. AI Promoter ── */
-var promLoaded=false,promPersonas=[],promStats={},promTab='personas',promQueue=[];
+var promLoaded=false,promPersonas=[],promStats={},promTab='personas',promQueue=[],promMonitor=[];
 async function ldProm(){
   try{
     var r=await Promise.all([af('/ai-promoter/personas'),af('/ai-promoter/stats')]);
@@ -2217,6 +2461,7 @@ async function ldProm(){
   }catch(e){toast('Ошибка загрузки AI Промоутера: '+e.message,'error');promLoaded=true;}
 }
 async function ldPromQueue(){try{var r=await af('/ai-promoter/messages?status=PENDING');promQueue=r.items||[];}catch(e){promQueue=[];}}
+async function ldPromMonitor(){try{var r=await af('/ai-promoter/messages?limit=50');promMonitor=r.items||[];}catch(e){promMonitor=[];}}
 function rAiPromoter(el){
   if(!promLoaded){
     el.innerHTML='<div class="sy4">'+skel('3rem')+'<div class="g g4">'+[1,2,3,4].map(function(){return skel('5rem');}).join('')+'</div>'+skel('20rem')+'</div>';
@@ -2231,17 +2476,20 @@ function rAiPromoter(el){
       {v:st.total_personas||0,l:'Персон',bg:'rgba(59,130,246,0.12)',fg:'var(--blue-500)'},
       {v:st.active||0,l:'Активны',bg:'rgba(34,197,94,0.12)',fg:'var(--emerald-500)'},
       {v:st.messages_today||0,l:'Сообщ/сутки',bg:'rgba(168,85,247,0.12)',fg:'var(--purple-500)'},
-      {v:st.leads_found||0,l:'Лидов',bg:'rgba(249,115,22,0.12)',fg:'var(--orange-500)'}
+      {v:st.leads_found||0,l:'Лидов',bg:'rgba(249,115,22,0.12)',fg:'var(--orange-500)'},
+      {v:'$'+(st.ai_cost_month!=null?st.ai_cost_month:'0'),l:'Расход AI/мес',bg:'rgba(234,179,8,0.12)',fg:'var(--yellow-500)'}
     ])+
     '<div class="f g2x mb3">'+
       '<button class="btn btn-sm'+(promTab==='personas'?' btn-primary':'')+'" id="prom-tab-p">Персоны</button>'+
       '<button class="btn btn-sm'+(promTab==='queue'?' btn-primary':'')+'" id="prom-tab-q">Очередь одобрения'+(promQueue.length?' ('+promQueue.length+')':'')+'</button>'+
+      '<button class="btn btn-sm'+(promTab==='monitor'?' btn-primary':'')+'" id="prom-tab-m">Мониторинг</button>'+
     '</div>'+
-    (promTab==='personas'?rPromPersonas(stratCls,stratLbl):rPromQueue())+
+    (promTab==='personas'?rPromPersonas(stratCls,stratLbl):promTab==='queue'?rPromQueue():rPromMonitor())+
   '</div>';
   var addB=el.querySelector('#prom-add');if(addB)addB.onclick=function(){mCrProm();};
   var tabP=el.querySelector('#prom-tab-p');if(tabP)tabP.onclick=function(){promTab='personas';rAiPromoter(el);};
   var tabQ=el.querySelector('#prom-tab-q');if(tabQ)tabQ.onclick=function(){promTab='queue';ldPromQueue().then(function(){rAiPromoter(el);});};
+  var tabM=el.querySelector('#prom-tab-m');if(tabM)tabM.onclick=function(){promTab='monitor';ldPromMonitor().then(function(){rAiPromoter(el);});};
   el.querySelectorAll('.prom-toggle').forEach(function(b){
     b.onclick=async function(){
       var id=b.dataset.id,act=b.dataset.act;b.disabled=true;
@@ -2288,39 +2536,113 @@ function rPromQueue(){
     '</div></div><div class="txs mt2" style="white-space:pre-wrap;background:var(--muted-bg);padding:0.75rem;border-radius:var(--radius-md)">'+esc(m.text||m.content||'')+'</div></div>';
   }).join('')+'</div>';
 }
+function rPromMonitor(){
+  if(!promMonitor.length)return '<div class="card"><div class="card-head"><div class="f ac jb"><div class="card-title">Live-лента сообщений</div><div class="live-dot"></div></div></div><div class="card-body">'+esHtml('message','Нет сообщений','Сообщения появятся после активации персон')+'</div></div>';
+  return '<div class="card"><div class="card-head"><div class="f ac jb"><div class="card-title">Live-лента сообщений</div><div class="f ac g2x"><div class="live-dot"></div><span class="txs c-em">Live</span></div></div></div><div class="card-body flush"><div class="live-feed">'+
+    promMonitor.map(function(m){
+      var statusIcon=m.status==='APPROVED'||m.status==='SENT'?'<span class="c-em">&#10003;</span>':m.status==='REJECTED'?'<span class="c-rd">&#10007;</span>':m.status==='PENDING'?'<span class="c-yl">&#9679;</span>':'<span class="c-m">&#9679;</span>';
+      return '<div class="live-msg"><div class="f1 mw0"><div class="f ac jb"><span class="fmed">'+esc(m.persona_name||'Персона')+'</span><span class="txs c-m">'+fmtDT(m.created_at||m.timestamp)+'</span></div><div class="txs c-m mt0h">'+esc(m.target_channel||m.target||'')+'</div><div class="tsm mt1" style="white-space:pre-wrap;max-height:60px;overflow:hidden">'+esc(m.text||m.content||'')+'</div><div class="f ac g2x mt1">'+statusIcon+' <span class="txs c-m">'+esc(m.status||'--')+'</span></div></div></div>';
+    }).join('')+
+  '</div></div></div>';
+}
 function mCrProm(){
+  var step=1,maxStep=7;
+  var stepLabels=['Основное','Аккаунт','Стратегия','Характер','Промпт','Каналы','Обзор'];
+  var fd={name:'',account_id:'',niche:'',strategy:'soft',bio:'',personality:'',system_prompt:'',ai_model:'claude-haiku-4-5',target_channels:''};
   var models=['claude-haiku-4-5','claude-sonnet-4','claude-opus-4'];
   var strategies=['soft','medium','aggressive'];
+  var stratLabels={soft:'Soft-sell',medium:'Medium',aggressive:'Aggressive'};
   var accOpts='<option value="">-- выберите --</option>';
   if(S.acc&&S.acc.length)S.acc.forEach(function(a){accOpts+='<option value="'+a.id+'">'+esc(a.phone||a.username||a.id)+'</option>';});
-  var h='<div class="dlg-ov" id="mov"><div class="dlg dlg-wide">'+
-    '<div class="dlg-hd"><div class="dlg-tt">'+ic('plus')+' Создать персону</div></div>'+
-    '<form id="promf"><div class="dlg-bd sy3">'+
-      '<div class="g g2"><div><label class="lbl">Имя персоны *</label><input class="input tsm" name="name" placeholder="Алексей Крипто" autofocus></div>'+
-      '<div><label class="lbl">Аккаунт</label><div class="sel-w"><select class="sel" name="account_id">'+accOpts+'</select></div></div></div>'+
-      '<div class="g g2"><div><label class="lbl">Ниша</label><input class="input tsm" name="niche" placeholder="Крипто, Фитнес..."></div>'+
-      '<div><label class="lbl">Стратегия</label><div class="sel-w"><select class="sel" name="strategy">'+strategies.map(function(s){return '<option value="'+s+'">'+esc(s.charAt(0).toUpperCase()+s.slice(1))+'</option>';}).join('')+'</select></div></div></div>'+
-      '<div><label class="lbl">Био / описание</label><textarea class="ta" name="bio" placeholder="Описание персонажа..." style="min-height:60px"></textarea></div>'+
-      '<div><label class="lbl">Характер / стиль общения</label><input class="input tsm" name="personality" placeholder="Дружелюбный, экспертный..."></div>'+
-      '<div><label class="lbl">Системный промпт</label><textarea class="ta" name="system_prompt" placeholder="Ты - эксперт по..." style="min-height:80px"></textarea></div>'+
-      '<div class="g g2"><div><label class="lbl">AI Модель</label><div class="sel-w"><select class="sel" name="ai_model">'+models.map(function(m){return '<option value="'+m+'">'+esc(m)+'</option>';}).join('')+'</select></div></div>'+
-      '<div><label class="lbl">Целевые каналы (по строке)</label><textarea class="ta" name="target_channels" placeholder="@channel1\n@channel2" style="min-height:60px"></textarea></div></div>'+
-    '</div>'+
-    '<div class="dlg-ft"><button type="button" class="btn btn-sm" id="mcl">Отмена</button><button type="submit" class="btn btn-sm btn-primary" id="ms">Создать</button></div></form></div></div>';
-  document.body.insertAdjacentHTML('beforeend',h);mBind('mov','mcl');
-  document.getElementById('promf').onsubmit=async function(e){
-    e.preventDefault();var f=e.target;var name=f.name.value.trim();if(!name){toast('Введите имя','error');return;}
-    var sb=document.getElementById('ms');sb.disabled=true;sb.innerHTML='<span class="spin"></span> Создать';
-    var channels=f.target_channels.value.split('\n').map(function(s){return s.trim();}).filter(Boolean);
-    try{
-      await ap('/ai-promoter/personas',{name:name,account_id:f.account_id.value||undefined,niche:f.niche.value.trim(),bio:f.bio.value.trim(),personality:f.personality.value.trim(),strategy:f.strategy.value,system_prompt:f.system_prompt.value.trim(),ai_model:f.ai_model.value,target_channels:channels});
-      toast('Персона создана','success');mClose('mov');promLoaded=false;await ldProm();if(S.sec==='ai-promoter')rAiPromoter(document.getElementById('mc'));
-    }catch(er){toast(er.message,'error');sb.disabled=false;sb.innerHTML='Создать';}
-  };
+
+  function renderWizard(){
+    var stepsHtml='<div class="wiz-steps">';
+    for(var i=1;i<=maxStep;i++){
+      var cls=i<step?'wiz-done':i===step?'wiz-active':'wiz-pending';
+      stepsHtml+='<div class="wiz-step '+cls+'"><span class="wiz-num">'+(i<step?'&#10003;':i)+'</span><span class="wiz-label">'+stepLabels[i-1]+'</span></div>';
+    }
+    stepsHtml+='</div>';
+
+    var bodyHtml='<div class="wiz-body sy3">';
+    switch(step){
+      case 1: bodyHtml+='<div><label class="lbl">Имя персоны *</label><input class="input tsm" id="wiz-name" value="'+esc(fd.name)+'" placeholder="Алексей Крипто"></div><div><label class="lbl">Ниша</label><input class="input tsm" id="wiz-niche" value="'+esc(fd.niche)+'" placeholder="Крипто, DeFi, Фитнес..."></div>';break;
+      case 2: bodyHtml+='<div><label class="lbl">Аккаунт Telegram</label><div class="sel-w"><select class="sel" id="wiz-account">'+accOpts.replace('value="'+fd.account_id+'"','value="'+fd.account_id+'" selected')+'</select></div><div class="txs c-m mt1">Привяжите аккаунт, от имени которого будет общаться персона</div></div>';break;
+      case 3: bodyHtml+='<div><label class="lbl">Стратегия продвижения</label><div class="g g3 mt2">'+strategies.map(function(s){var cls=fd.strategy===s?'border-color:var(--blue-500);background:rgba(59,130,246,0.05)':'';return '<div class="card card-hv wiz-strat" data-val="'+s+'" style="cursor:pointer;padding:1rem;text-align:center;'+cls+'"><div class="tsm fbol">'+esc(stratLabels[s])+'</div><div class="txs c-m mt1">'+(s==='soft'?'Мягкое вовлечение, вопросы, помощь':s==='medium'?'Экспертность + нативная реклама':'Прямые предложения, CTA')+'</div></div>';}).join('')+'</div></div><div class="mt3"><label class="lbl">AI Модель</label><div class="sel-w"><select class="sel" id="wiz-model">'+models.map(function(m){return '<option value="'+m+'"'+(fd.ai_model===m?' selected':'')+'>'+esc(m)+'</option>';}).join('')+'</select></div></div>';break;
+      case 4: bodyHtml+='<div><label class="lbl">Био / описание персоны</label><textarea class="ta" id="wiz-bio" placeholder="Описание персонажа для Telegram профиля..." style="min-height:80px">'+esc(fd.bio)+'</textarea></div><div><label class="lbl">Характер / стиль общения</label><input class="input tsm" id="wiz-personality" value="'+esc(fd.personality)+'" placeholder="Дружелюбный, экспертный, с юмором..."></div>';break;
+      case 5: bodyHtml+='<div><label class="lbl">Системный промпт</label><textarea class="ta" id="wiz-prompt" placeholder="Ты - эксперт по криптовалютам и DeFi. Твоя задача - нативно продвигать продукт..." style="min-height:160px">'+esc(fd.system_prompt)+'</textarea><div class="txs c-m mt1">Детальная инструкция для AI. Опишите роль, стиль, ограничения и цели.</div></div>';break;
+      case 6: bodyHtml+='<div><label class="lbl">Целевые каналы (по одному на строку)</label><textarea class="ta" id="wiz-channels" placeholder="@crypto_chat\n@business_group\nhttps://t.me/channel123" style="min-height:120px">'+esc(fd.target_channels)+'</textarea><div class="txs c-m mt1">Укажите каналы, в которых персона будет работать</div></div>';break;
+      case 7:
+        var chCount=fd.target_channels?fd.target_channels.split('\n').filter(function(s){return s.trim();}).length:0;
+        bodyHtml+='<div class="txs fsem upc c-m tkw mb2">Обзор персоны</div>'+
+          '<div class="wiz-cost">'+
+            '<div class="wiz-cost-row"><span>Имя</span><span class="fbol">'+esc(fd.name||'--')+'</span></div>'+
+            '<div class="wiz-cost-row"><span>Ниша</span><span>'+esc(fd.niche||'--')+'</span></div>'+
+            '<div class="wiz-cost-row"><span>Стратегия</span><span class="badge '+(fd.strategy==='soft'?'b-emerald':fd.strategy==='medium'?'b-orange':'b-red')+'">'+esc(stratLabels[fd.strategy]||fd.strategy)+'</span></div>'+
+            '<div class="wiz-cost-row"><span>AI Модель</span><span>'+esc(fd.ai_model)+'</span></div>'+
+            '<div class="wiz-cost-row"><span>Каналов</span><span class="fbol">'+chCount+'</span></div>'+
+            '<div class="wiz-cost-row"><span>Аккаунт</span><span>'+esc(fd.account_id||'Не выбран')+'</span></div>'+
+          '</div>';
+        break;
+    }
+    bodyHtml+='</div>';
+
+    var footerHtml='<div class="dlg-ft">'+
+      (step>1?'<button class="btn btn-sm" id="wiz-prev">\u2190 Назад</button>':'<button class="btn btn-sm" id="mcl">Отмена</button>')+
+      (step<maxStep?'<button class="btn btn-sm btn-primary" id="wiz-next">Далее \u2192</button>':'<button class="btn btn-sm btn-primary" id="wiz-submit">\u25B6 Создать персону</button>')+
+    '</div>';
+
+    return stepsHtml+bodyHtml+footerHtml;
+  }
+
+  function saveStep(){
+    switch(step){
+      case 1: var n=document.getElementById('wiz-name');if(n)fd.name=n.value.trim();var ni=document.getElementById('wiz-niche');if(ni)fd.niche=ni.value.trim();break;
+      case 2: var a=document.getElementById('wiz-account');if(a)fd.account_id=a.value;break;
+      case 3: var m=document.getElementById('wiz-model');if(m)fd.ai_model=m.value;break;
+      case 4: var b=document.getElementById('wiz-bio');if(b)fd.bio=b.value.trim();var p=document.getElementById('wiz-personality');if(p)fd.personality=p.value.trim();break;
+      case 5: var pr=document.getElementById('wiz-prompt');if(pr)fd.system_prompt=pr.value.trim();break;
+      case 6: var ch=document.getElementById('wiz-channels');if(ch)fd.target_channels=ch.value;break;
+    }
+  }
+
+  function show(){
+    var h='<div class="dlg-ov" id="mov"><div class="dlg dlg-xl"><div class="dlg-hd"><div class="dlg-tt">'+ic('plus')+' Создать персону &mdash; шаг '+step+' из '+maxStep+'</div></div><div class="dlg-bd" id="wiz-content">'+renderWizard()+'</div></div></div>';
+    document.body.insertAdjacentHTML('beforeend',h);
+    bind();
+  }
+
+  function update(){
+    var c=document.getElementById('wiz-content');if(!c)return;
+    c.innerHTML=renderWizard();
+    bind();
+  }
+
+  function bind(){
+    var ov=document.getElementById('mov');if(!ov)return;
+    ov.onclick=function(e){if(e.target===ov)mClose('mov');};
+    var cl=document.getElementById('mcl');if(cl)cl.onclick=function(){mClose('mov');};
+    function ek(e){if(e.key==='Escape'){mClose('mov');document.removeEventListener('keydown',ek);}}
+    document.addEventListener('keydown',ek);
+    var prev=document.getElementById('wiz-prev');if(prev)prev.onclick=function(){saveStep();step--;update();};
+    var next=document.getElementById('wiz-next');if(next)next.onclick=function(){saveStep();if(step===1&&!fd.name){toast('Введите имя персоны','error');return;}step++;update();};
+    var sub=document.getElementById('wiz-submit');if(sub)sub.onclick=async function(){
+      sub.disabled=true;sub.innerHTML='<span class="spin"></span> Создание...';
+      var channels=fd.target_channels.split('\n').map(function(s){return s.trim();}).filter(Boolean);
+      try{
+        await ap('/ai-promoter/personas',{name:fd.name,account_id:fd.account_id||undefined,niche:fd.niche,bio:fd.bio,personality:fd.personality,strategy:fd.strategy,system_prompt:fd.system_prompt,ai_model:fd.ai_model,target_channels:channels});
+        toast('Персона создана','success');mClose('mov');promLoaded=false;await ldProm();if(S.sec==='ai-promoter')rAiPromoter(document.getElementById('mc'));
+      }catch(er){toast(er.message,'error');sub.disabled=false;sub.innerHTML='\u25B6 Создать персону';}
+    };
+    document.querySelectorAll('.wiz-strat').forEach(function(card){
+      card.onclick=function(){fd.strategy=card.dataset.val;update();};
+    });
+  }
+
+  show();
 }
 
 /* ── 10. AI Sales ── */
-var salesLoaded=false,salesScripts=[],salesStats={},salesTab='scripts',salesDialogs=[],salesDialogDetail=null;
+var salesLoaded=false,salesScripts=[],salesStats={},salesTab='scripts',salesDialogs=[],salesDialogDetail=null,salesKb=[];
 async function ldSales(){
   try{
     var r=await Promise.all([af('/ai-sales/scripts'),af('/ai-sales/stats')]);
@@ -2345,12 +2667,16 @@ function rAiSales(el){
     '<div class="f g2x mb3">'+
       '<button class="btn btn-sm'+(salesTab==='scripts'?' btn-primary':'')+'" id="sales-tab-s">Скрипты</button>'+
       '<button class="btn btn-sm'+(salesTab==='dialogs'?' btn-primary':'')+'" id="sales-tab-d">Диалоги</button>'+
+      '<button class="btn btn-sm'+(salesTab==='funnel'?' btn-primary':'')+'" id="sales-tab-f">Воронка</button>'+
+      '<button class="btn btn-sm'+(salesTab==='kb'?' btn-primary':'')+'" id="sales-tab-kb">База знаний</button>'+
     '</div>'+
-    (salesTab==='scripts'?rSalesScripts():rSalesDialogsList())+
+    (salesTab==='scripts'?rSalesScripts():salesTab==='funnel'?rSalesFunnel():salesTab==='kb'?rSalesKb():rSalesDialogsList())+
   '</div>';
   var addB=el.querySelector('#sales-add');if(addB)addB.onclick=function(){mCrSales();};
   var tabS=el.querySelector('#sales-tab-s');if(tabS)tabS.onclick=function(){salesTab='scripts';salesDialogDetail=null;rAiSales(el);};
   var tabD=el.querySelector('#sales-tab-d');if(tabD)tabD.onclick=function(){salesTab='dialogs';salesDialogDetail=null;ldSalesDialogs().then(function(){rAiSales(el);});};
+  var tabF=el.querySelector('#sales-tab-f');if(tabF)tabF.onclick=function(){salesTab='funnel';salesDialogDetail=null;rAiSales(el);};
+  var tabKb=el.querySelector('#sales-tab-kb');if(tabKb)tabKb.onclick=function(){salesTab='kb';salesDialogDetail=null;af('/ai-sales/knowledge-base').then(function(r){salesKb=r.items||[];}).catch(function(){salesKb=[];}).finally(function(){rAiSales(el);});};
   el.querySelectorAll('.sales-del').forEach(function(b){
     b.onclick=async function(){
       var id=b.dataset.id;if(!confirm('Удалить скрипт?'))return;b.disabled=true;
@@ -2364,6 +2690,12 @@ function rAiSales(el){
         var d=await af('/ai-sales/dialogs/'+id);
         salesDialogDetail=d;rAiSales(el);
       }catch(e){toast(e.message,'error');}
+    };
+  });
+  el.querySelectorAll('.col3-item[data-dlg-id]').forEach(function(item){
+    item.onclick=async function(){
+      var id=item.dataset.dlgId;
+      try{var d=await af('/ai-sales/dialogs/'+id);salesDialogDetail=d;rAiSales(el);}catch(e){toast(e.message,'error');}
     };
   });
   var backB=el.querySelector('#sales-dlg-back');if(backB)backB.onclick=function(){salesDialogDetail=null;rAiSales(el);};
@@ -2396,13 +2728,62 @@ function rSalesDialogsList(){
 }
 function rSalesDialogDetail(){
   var d=salesDialogDetail;var msgs=d.messages||[];
-  return '<div class="sy3"><div class="f ac g3x"><button class="btn btn-sm" id="sales-dlg-back">'+ic('back')+' Назад</button><h3 class="tsm fbol">Диалог: '+esc(d.contact_name||d.contact||d.id)+'</h3></div>'+
-    '<div class="card"><div class="card-body">'+
-      (msgs.length>0?'<div class="sy2">'+msgs.map(function(m){
-        var isAi=m.role==='assistant'||m.sender==='ai';
-        return '<div style="padding:0.5rem 0.75rem;border-radius:var(--radius-md);background:'+(isAi?'rgba(59,130,246,0.08)':'var(--muted-bg)')+'"><div class="f ac jb"><span class="txs fbol">'+(isAi?'AI':'Клиент')+'</span><span class="txs c-m">'+fmtDT(m.created_at||m.timestamp)+'</span></div><div class="tsm mt1" style="white-space:pre-wrap">'+esc(m.text||m.content||'')+'</div></div>';
-      }).join('')+'</div>':'<div class="txs c-m" style="text-align:center;padding:1.5rem 0">Нет сообщений</div>')+
-    '</div></div></div>';
+  return '<div class="sy3"><div class="f ac g3x"><button class="btn btn-sm" id="sales-dlg-back">'+ic('back')+' Назад</button><h3 class="tsm fbol">Диалог: '+esc(d.contact_name||d.contact||d.id)+'</h3><span class="badge b-blue b-ol">'+esc(d.current_stage||d.stage||'--')+'</span></div>'+
+    '<div class="col3-layout">'+
+      '<div class="col3-left"><div class="txs fsem upc c-m tkw" style="padding:0.75rem">Диалоги</div>'+
+        (salesDialogs.length>0?salesDialogs.map(function(dl){
+          var isAct=dl.id===d.id;
+          return '<div class="col3-item'+(isAct?' active':'')+'" data-dlg-id="'+dl.id+'"><div class="fmed">'+esc(dl.contact_name||dl.contact||dl.lead_name||'--')+'</div><div class="txs c-m mt0h">'+esc(dl.current_stage||dl.stage||'--')+' &middot; '+fmtDT(dl.updated_at)+'</div></div>';
+        }).join(''):'<div class="txs c-m" style="padding:1rem;text-align:center">Нет диалогов</div>')+
+      '</div>'+
+      '<div class="col3-center"><div class="sy2" style="display:flex;flex-direction:column;gap:0.75rem">'+
+        (msgs.length>0?msgs.map(function(m){
+          var isAi=m.role==='assistant'||m.sender==='ai';
+          return '<div><div class="chat-bubble '+(isAi?'chat-bubble-ai':'chat-bubble-user')+'">'+esc(m.text||m.content||'')+'</div><div class="chat-time" style="text-align:'+(isAi?'left':'right')+'">'+fmtDT(m.created_at||m.timestamp)+'</div></div>';
+        }).join(''):'<div class="txs c-m" style="text-align:center;padding:3rem 0">Нет сообщений</div>')+
+      '</div></div>'+
+      '<div class="col3-right"><div class="txs fsem upc c-m tkw mb3">Контекст</div>'+
+        '<div class="sy2h">'+
+          '<div class="det-row"><span class="det-label">Контакт</span><span class="det-value">'+esc(d.contact_name||d.contact||'--')+'</span></div>'+
+          '<div class="det-row"><span class="det-label">Скрипт</span><span class="det-value">'+esc(d.script_name||'--')+'</span></div>'+
+          '<div class="det-row"><span class="det-label">Этап</span><span class="det-value">'+esc(d.current_stage||d.stage||'--')+'</span></div>'+
+          '<div class="det-row"><span class="det-label">Сообщений</span><span class="det-value">'+(d.messages_count||msgs.length||0)+'</span></div>'+
+          '<div class="det-row"><span class="det-label">Статус</span><span class="det-value">'+(d.lead_status||d.status||'--')+'</span></div>'+
+          '<div class="det-row"><span class="det-label">Обновлён</span><span class="det-value">'+fmtDT(d.updated_at)+'</span></div>'+
+        '</div>'+
+        (d.notes?'<div class="mt3"><div class="txs fsem upc c-m tkw mb1">Заметки</div><div class="txs" style="white-space:pre-wrap">'+esc(d.notes)+'</div></div>':'')+
+      '</div>'+
+    '</div></div>';
+}
+function rSalesFunnel(){
+  var st=salesStats;var stages=st.funnel_stages||[
+    {name:'Знакомство',count:st.total||0,color:'var(--blue-500)'},
+    {name:'Квалификация',count:Math.round((st.total||0)*0.6),color:'var(--indigo-500)'},
+    {name:'Презентация',count:Math.round((st.total||0)*0.35),color:'var(--purple-500)'},
+    {name:'Переговоры',count:Math.round((st.total||0)*0.2),color:'var(--orange-500)'},
+    {name:'Закрытие',count:st.by_status&&(st.by_status.CLOSED||st.by_status.closed)||0,color:'var(--emerald-500)'}
+  ];
+  var maxCount=Math.max.apply(null,stages.map(function(s){return s.count||1;}))||1;
+  return '<div class="card"><div class="card-head"><div class="card-title">Воронка продаж</div></div><div class="card-body">'+
+    '<div class="funnel">'+stages.map(function(s,i){
+      var pct=Math.max(10,Math.round((s.count/maxCount)*100));
+      var convPct=i>0&&stages[i-1].count>0?Math.round(s.count/stages[i-1].count*100)+'%':'100%';
+      return '<div class="funnel-stage"><span class="txs fbol" style="width:100px;flex-shrink:0">'+esc(s.name)+'</span>'+
+        '<div class="f1"><div class="funnel-bar" style="width:'+pct+'%;background:'+s.color+'">'+s.count+'</div></div>'+
+        '<span class="txs c-m" style="width:50px;text-align:right;flex-shrink:0">'+convPct+'</span></div>';
+    }).join('')+'</div>'+
+    '<div class="f ac jb mt3"><span class="txs c-m">Общая конверсия</span><span class="tsm fbol c-em">'+(stages.length>1&&stages[0].count>0?Math.round(stages[stages.length-1].count/stages[0].count*100):0)+'%</span></div>'+
+  '</div></div>';
+}
+function rSalesKb(){
+  return '<div class="card"><div class="card-head"><div class="f ac jb"><div class="card-title">База знаний</div><button class="btn btn-sm wip-btn">'+ic('plus')+' Добавить документ</button></div></div><div class="card-body">'+
+    (salesKb.length>0
+      ?'<div class="sy2">'+salesKb.map(function(doc){
+        return '<div class="f ac g3x" style="padding:0.75rem;background:var(--muted-bg);border-radius:var(--radius-md)"><div class="sev sev-i">'+ic('info')+'</div><div class="f1 mw0"><div class="fmed txs">'+esc(doc.title||doc.name||'Документ')+'</div><div class="t10 c-m mt0h">'+esc(doc.description||'')+'</div></div><span class="txs c-m">'+fmtD(doc.created_at)+'</span></div>';
+      }).join('')+'</div>'
+      :'<div class="sy3" style="text-align:center;padding:2rem 0"><div class="txs c-m">База знаний используется AI Продажником для генерации контекстных ответов. Загрузите документы о вашем продукте, FAQ, прайс-листы.</div><button class="btn btn-sm btn-primary mt3 wip-btn">'+ic('upload')+' Загрузить первый документ</button></div>'
+    )+
+  '</div></div>';
 }
 function mCrSales(){
   var models=['claude-haiku-4-5','claude-sonnet-4','claude-opus-4'];
@@ -2479,34 +2860,76 @@ function rNeuroComment(el){
   });
 }
 function mCrNc(){
+  var step=1,maxStep=5;
+  var stepLabels=['Основное','Каналы','Режим','Промпт','Запуск'];
+  var fd={name:'',mode:'AI',trigger_type:'NEW_POST',target_channels:'',system_prompt:'',ai_model:'claude-haiku-4-5',keywords:'',delay_min:60,delay_max:300};
   var models=['claude-haiku-4-5','claude-sonnet-4','claude-opus-4'];
   var modes=['AI','Templates','Mixed'];
+  var modeDesc={AI:'AI генерирует уникальные комментарии',Templates:'Комментарии из готовых шаблонов',Mixed:'Комбинация AI + шаблонов'};
   var triggers=['NEW_POST','KEYWORD','SCHEDULE','ALL'];
-  var h='<div class="dlg-ov" id="mov"><div class="dlg dlg-wide">'+
-    '<div class="dlg-hd"><div class="dlg-tt">'+ic('plus')+' Новая задача комментинга</div></div>'+
-    '<form id="ncf"><div class="dlg-bd sy3">'+
-      '<div><label class="lbl">Название *</label><input class="input tsm" name="name" placeholder="Крипто-каналы комментинг" autofocus></div>'+
-      '<div class="g g2"><div><label class="lbl">Режим</label><div class="sel-w"><select class="sel" name="mode">'+modes.map(function(m){return '<option value="'+m+'">'+esc(m)+'</option>';}).join('')+'</select></div></div>'+
-      '<div><label class="lbl">Триггер</label><div class="sel-w"><select class="sel" name="trigger_type">'+triggers.map(function(t){return '<option value="'+t+'">'+esc(t)+'</option>';}).join('')+'</select></div></div></div>'+
-      '<div><label class="lbl">Целевые каналы (по строке)</label><textarea class="ta" name="target_channels" placeholder="@crypto_chat\n@business_group" style="min-height:80px"></textarea></div>'+
-      '<div><label class="lbl">Системный промпт</label><textarea class="ta" name="system_prompt" placeholder="Генерируй экспертные комментарии..." style="min-height:80px"></textarea></div>'+
-      '<div><label class="lbl">AI Модель</label><div class="sel-w"><select class="sel" name="ai_model">'+models.map(function(m){return '<option value="'+m+'">'+esc(m)+'</option>';}).join('')+'</select></div></div>'+
-    '</div>'+
-    '<div class="dlg-ft"><button type="button" class="btn btn-sm" id="mcl">Отмена</button><button type="submit" class="btn btn-sm btn-primary" id="ms">Создать</button></div></form></div></div>';
-  document.body.insertAdjacentHTML('beforeend',h);mBind('mov','mcl');
-  document.getElementById('ncf').onsubmit=async function(e){
-    e.preventDefault();var f=e.target;var name=f.name.value.trim();if(!name){toast('Введите название','error');return;}
-    var sb=document.getElementById('ms');sb.disabled=true;sb.innerHTML='<span class="spin"></span> Создать';
-    var channels=f.target_channels.value.split('\n').map(function(s){return s.trim();}).filter(Boolean);
-    try{
-      await ap('/commenting/tasks',{name:name,mode:f.mode.value,target_channels:channels,trigger_type:f.trigger_type.value,system_prompt:f.system_prompt.value.trim(),ai_model:f.ai_model.value});
-      toast('Задача создана','success');mClose('mov');ncLoaded=false;await ldNc();if(S.sec==='neuro-commenting')rNeuroComment(document.getElementById('mc'));
-    }catch(er){toast(er.message,'error');sb.disabled=false;sb.innerHTML='Создать';}
-  };
+  var trigDesc={NEW_POST:'Комментировать новые посты',KEYWORD:'По ключевым словам в посте',SCHEDULE:'По расписанию',ALL:'Все посты'};
+
+  function renderWizard(){
+    var stepsHtml='<div class="wiz-steps">';
+    for(var i=1;i<=maxStep;i++){var cls=i<step?'wiz-done':i===step?'wiz-active':'wiz-pending';stepsHtml+='<div class="wiz-step '+cls+'"><span class="wiz-num">'+(i<step?'&#10003;':i)+'</span><span class="wiz-label">'+stepLabels[i-1]+'</span></div>';}
+    stepsHtml+='</div>';
+    var bodyHtml='<div class="wiz-body sy3">';
+    switch(step){
+      case 1: bodyHtml+='<div><label class="lbl">Название задачи *</label><input class="input tsm" id="wiz-name" value="'+esc(fd.name)+'" placeholder="Крипто-каналы комментинг"></div><div><label class="lbl">Триггер</label><div class="g g2 mt2">'+triggers.map(function(t){var cls=fd.trigger_type===t?'border-color:var(--blue-500);background:rgba(59,130,246,0.05)':'';return '<div class="card card-hv ncwiz-trig" data-val="'+t+'" style="cursor:pointer;padding:0.75rem;'+cls+'"><div class="txs fbol">'+esc(t)+'</div><div class="t10 c-m mt0h">'+esc(trigDesc[t]||t)+'</div></div>';}).join('')+'</div></div>'+(fd.trigger_type==='KEYWORD'?'<div><label class="lbl">Ключевые слова (через запятую)</label><input class="input tsm" id="wiz-keywords" value="'+esc(fd.keywords)+'" placeholder="крипто, defi, заработок"></div>':'');break;
+      case 2: bodyHtml+='<div><label class="lbl">Целевые каналы (по одному на строку)</label><textarea class="ta" id="wiz-channels" placeholder="@crypto_chat\n@business_group\nhttps://t.me/channel123" style="min-height:160px">'+esc(fd.target_channels)+'</textarea><div class="txs c-m mt1">Укажите каналы, в которых нужно оставлять комментарии</div></div>';break;
+      case 3: bodyHtml+='<div><label class="lbl">Режим комментирования</label><div class="g g3 mt2">'+modes.map(function(m){var cls=fd.mode===m?'border-color:var(--blue-500);background:rgba(59,130,246,0.05)':'';return '<div class="card card-hv ncwiz-mode" data-val="'+m+'" style="cursor:pointer;padding:1rem;text-align:center;'+cls+'"><div class="tsm fbol">'+esc(m)+'</div><div class="txs c-m mt1">'+esc(modeDesc[m]||m)+'</div></div>';}).join('')+'</div></div><div class="mt3"><label class="lbl">AI Модель</label><div class="sel-w"><select class="sel" id="wiz-model">'+models.map(function(m){return '<option value="'+m+'"'+(fd.ai_model===m?' selected':'')+'>'+esc(m)+'</option>';}).join('')+'</select></div></div><div class="g g2 mt3"><div><label class="lbl">Задержка мин. (сек)</label><input class="input tsm" type="number" id="wiz-dmin" value="'+fd.delay_min+'"></div><div><label class="lbl">Задержка макс. (сек)</label><input class="input tsm" type="number" id="wiz-dmax" value="'+fd.delay_max+'"></div></div>';break;
+      case 4: bodyHtml+='<div><label class="lbl">Системный промпт</label><textarea class="ta" id="wiz-prompt" placeholder="Генерируй экспертные комментарии по теме поста. Стиль: профессиональный, с долей юмора. Не рекламируй напрямую." style="min-height:200px">'+esc(fd.system_prompt)+'</textarea><div class="txs c-m mt1">Инструкция для AI при генерации комментариев</div></div>';break;
+      case 5:
+        var chCount=fd.target_channels?fd.target_channels.split('\n').filter(function(s){return s.trim();}).length:0;
+        bodyHtml+='<div class="txs fsem upc c-m tkw mb2">Обзор задачи</div><div class="wiz-cost">'+
+          '<div class="wiz-cost-row"><span>Название</span><span class="fbol">'+esc(fd.name||'--')+'</span></div>'+
+          '<div class="wiz-cost-row"><span>Триггер</span><span>'+esc(fd.trigger_type)+'</span></div>'+
+          '<div class="wiz-cost-row"><span>Каналов</span><span class="fbol">'+chCount+'</span></div>'+
+          '<div class="wiz-cost-row"><span>Режим</span><span>'+esc(fd.mode)+'</span></div>'+
+          '<div class="wiz-cost-row"><span>Модель</span><span>'+esc(fd.ai_model)+'</span></div>'+
+          '<div class="wiz-cost-row"><span>Задержка</span><span>'+fd.delay_min+' - '+fd.delay_max+' сек</span></div>'+
+        '</div>';break;
+    }
+    bodyHtml+='</div>';
+    var footerHtml='<div class="dlg-ft">'+(step>1?'<button class="btn btn-sm" id="wiz-prev">\u2190 Назад</button>':'<button class="btn btn-sm" id="mcl">Отмена</button>')+(step<maxStep?'<button class="btn btn-sm btn-primary" id="wiz-next">Далее \u2192</button>':'<button class="btn btn-sm btn-primary" id="wiz-submit">\u25B6 Создать задачу</button>')+'</div>';
+    return stepsHtml+bodyHtml+footerHtml;
+  }
+  function saveStep(){
+    switch(step){
+      case 1:var n=document.getElementById('wiz-name');if(n)fd.name=n.value.trim();var kw=document.getElementById('wiz-keywords');if(kw)fd.keywords=kw.value.trim();break;
+      case 2:var ch=document.getElementById('wiz-channels');if(ch)fd.target_channels=ch.value;break;
+      case 3:var m=document.getElementById('wiz-model');if(m)fd.ai_model=m.value;var dm=document.getElementById('wiz-dmin');if(dm)fd.delay_min=parseInt(dm.value)||60;var dx=document.getElementById('wiz-dmax');if(dx)fd.delay_max=parseInt(dx.value)||300;break;
+      case 4:var pr=document.getElementById('wiz-prompt');if(pr)fd.system_prompt=pr.value.trim();break;
+    }
+  }
+  function show(){
+    var h='<div class="dlg-ov" id="mov"><div class="dlg dlg-xl"><div class="dlg-hd"><div class="dlg-tt">'+ic('plus')+' Новая задача &mdash; шаг '+step+' из '+maxStep+'</div></div><div class="dlg-bd" id="wiz-content">'+renderWizard()+'</div></div></div>';
+    document.body.insertAdjacentHTML('beforeend',h);bind();
+  }
+  function update(){var c=document.getElementById('wiz-content');if(!c)return;c.innerHTML=renderWizard();bind();}
+  function bind(){
+    var ov=document.getElementById('mov');if(!ov)return;
+    ov.onclick=function(e){if(e.target===ov)mClose('mov');};
+    var cl=document.getElementById('mcl');if(cl)cl.onclick=function(){mClose('mov');};
+    function ek(e){if(e.key==='Escape'){mClose('mov');document.removeEventListener('keydown',ek);}}document.addEventListener('keydown',ek);
+    var prev=document.getElementById('wiz-prev');if(prev)prev.onclick=function(){saveStep();step--;update();};
+    var next=document.getElementById('wiz-next');if(next)next.onclick=function(){saveStep();if(step===1&&!fd.name){toast('Введите название','error');return;}step++;update();};
+    document.querySelectorAll('.ncwiz-trig').forEach(function(c){c.onclick=function(){fd.trigger_type=c.dataset.val;update();};});
+    document.querySelectorAll('.ncwiz-mode').forEach(function(c){c.onclick=function(){fd.mode=c.dataset.val;update();};});
+    var sub=document.getElementById('wiz-submit');if(sub)sub.onclick=async function(){
+      sub.disabled=true;sub.innerHTML='<span class="spin"></span> Создание...';
+      var channels=fd.target_channels.split('\n').map(function(s){return s.trim();}).filter(Boolean);
+      try{
+        await ap('/commenting/tasks',{name:fd.name,mode:fd.mode,target_channels:channels,trigger_type:fd.trigger_type,system_prompt:fd.system_prompt,ai_model:fd.ai_model,config:{keywords:fd.keywords,delay_min:fd.delay_min,delay_max:fd.delay_max}});
+        toast('Задача создана','success');mClose('mov');ncLoaded=false;await ldNc();if(S.sec==='neuro-commenting')rNeuroComment(document.getElementById('mc'));
+      }catch(er){toast(er.message,'error');sub.disabled=false;sub.innerHTML='\u25B6 Создать задачу';}
+    };
+  }
+  show();
 }
 
 /* ── 12. Auto-replier ── */
-var arLoaded=false,arScenarios=[],arLog=[],arTab='scenarios';
+var arLoaded=false,arScenarios=[],arLog=[],arTab='scenarios',arTestResult=null;
 async function ldAr(){try{var r=await af('/auto-replier/scenarios');arScenarios=r.items||[];arLoaded=true;}catch(e){toast('Ошибка загрузки автоответчика: '+e.message,'error');arLoaded=true;}}
 async function ldArLog(){try{var r=await af('/auto-replier/log');arLog=r.items||r||[];}catch(e){arLog=[];}}
 function rAutoReplier(el){
@@ -2525,13 +2948,23 @@ function rAutoReplier(el){
     ])+
     '<div class="f g2x mb3">'+
       '<button class="btn btn-sm'+(arTab==='scenarios'?' btn-primary':'')+'" id="ar-tab-s">Сценарии</button>'+
+      '<button class="btn btn-sm'+(arTab==='triggers'?' btn-primary':'')+'" id="ar-tab-t">Конструктор триггеров</button>'+
+      '<button class="btn btn-sm'+(arTab==='tester'?' btn-primary':'')+'" id="ar-tab-test">Тестер</button>'+
       '<button class="btn btn-sm'+(arTab==='log'?' btn-primary':'')+'" id="ar-tab-l">Лог ответов</button>'+
     '</div>'+
-    (arTab==='scenarios'?rArScenarios():rArLog())+
+    (arTab==='scenarios'?rArScenarios():arTab==='triggers'?rArTriggers():arTab==='tester'?rArTester():rArLog())+
   '</div>';
   var addB=el.querySelector('#ar-add');if(addB)addB.onclick=function(){mCrAr();};
   var tabS=el.querySelector('#ar-tab-s');if(tabS)tabS.onclick=function(){arTab='scenarios';rAutoReplier(el);};
+  var tabT=el.querySelector('#ar-tab-t');if(tabT)tabT.onclick=function(){arTab='triggers';rAutoReplier(el);};
+  var tabTest=el.querySelector('#ar-tab-test');if(tabTest)tabTest.onclick=function(){arTab='tester';rAutoReplier(el);};
   var tabL=el.querySelector('#ar-tab-l');if(tabL)tabL.onclick=function(){arTab='log';ldArLog().then(function(){rAutoReplier(el);});};
+  var testBtn=el.querySelector('#ar-test-run');
+  if(testBtn)testBtn.onclick=async function(){
+    var inp=el.querySelector('#ar-test-input');if(!inp||!inp.value.trim()){toast('Введите тестовое сообщение','error');return;}
+    testBtn.disabled=true;testBtn.innerHTML='<span class="spin"></span> Проверка...';
+    try{var r=await ap('/auto-replier/test',{message:inp.value.trim()});arTestResult=r;rAutoReplier(el);}catch(e){arTestResult={matched:false,error:e.message};rAutoReplier(el);}
+  };
   el.querySelectorAll('.ar-toggle').forEach(function(b){
     b.onclick=async function(){
       var id=b.dataset.id,act=b.dataset.act;b.disabled=true;
@@ -2569,6 +3002,47 @@ function rArLog(){
       return '<tr><td class="txs c-m">'+fmtDT(l.created_at||l.timestamp)+'</td><td class="fmed txs">'+esc(l.scenario_name||'--')+'</td><td class="txs">'+esc(l.contact||l.from_user||'--')+'</td><td class="txs c-m">'+esc(l.trigger||l.trigger_type||'--')+'</td><td class="txs" style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(l.reply_text||l.response||'--')+'</td></tr>';
     }).join('')+
   '</tbody></table></div></div></div>';
+}
+function rArTriggers(){
+  var allTriggers=[];
+  arScenarios.forEach(function(s){
+    var trigs=[];try{trigs=Array.isArray(s.triggers)?s.triggers:JSON.parse(s.triggers||'[]');}catch(e){}
+    trigs.forEach(function(t,i){allTriggers.push({scenario:s.name||'--',priority:t.priority||(i+1),type:t.type||'unknown',value:t.value||t.keyword||'',action:t.action||s.default_behavior||'AI_REPLY',id:s.id+'_'+i});});
+  });
+  allTriggers.sort(function(a,b){return (a.priority||99)-(b.priority||99);});
+  var typeBdg={'first_message':'b-emerald','keyword':'b-blue','regex':'b-purple','contains':'b-orange','default':'b-muted'};
+  return '<div class="card"><div class="card-head"><div class="f ac jb"><div class="card-title">Конструктор триггеров</div><span class="txs c-m">Триггеры обрабатываются по приоритету (сверху вниз)</span></div></div><div class="card-body">'+
+    (allTriggers.length>0
+      ?'<div class="sy1h">'+allTriggers.map(function(t){
+        return '<div class="trigger-row"><span class="trigger-handle">\u2261</span><span class="trigger-priority">'+t.priority+'</span>'+
+          '<div class="f1 mw0"><div class="f ac g2x"><span class="badge '+(typeBdg[t.type]||'b-muted')+'">'+esc(t.type)+'</span>'+(t.value?'<span class="fmo txs">'+esc(t.value)+'</span>':'')+'</div><div class="txs c-m mt0h">Сценарий: '+esc(t.scenario)+' &rarr; '+esc(t.action)+'</div></div></div>';
+      }).join('')+'</div>'
+      :'<div class="txs c-m" style="text-align:center;padding:2rem 0">Нет триггеров. Создайте сценарий с триггерами для настройки автоответов.</div>'
+    )+
+    '<div class="ipn mt3"><div class="txs fbol">Порядок обработки:</div><div class="txs c-m mt1">1. Проверяется каждый триггер по приоритету<br>2. Первый сработавший триггер определяет ответ<br>3. Если ни один не сработал - используется поведение по умолчанию</div></div>'+
+  '</div></div>';
+}
+function rArTester(){
+  var resultHtml='';
+  if(arTestResult){
+    if(arTestResult.error){
+      resultHtml='<div class="mt3" style="padding:1rem;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);border-radius:var(--radius-md)"><div class="txs fbol c-rd">Ошибка</div><div class="txs mt1">'+esc(arTestResult.error)+'</div></div>';
+    } else if(arTestResult.matched){
+      resultHtml='<div class="mt3" style="padding:1rem;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.2);border-radius:var(--radius-md)"><div class="txs fbol c-em">Сработал триггер</div>'+
+        '<div class="det-row mt2"><span class="det-label">Сценарий</span><span class="det-value">'+esc(arTestResult.scenario_name||'--')+'</span></div>'+
+        '<div class="det-row"><span class="det-label">Триггер</span><span class="det-value">'+esc(arTestResult.trigger_type||'--')+'</span></div>'+
+        '<div class="det-row"><span class="det-label">Действие</span><span class="det-value">'+esc(arTestResult.action||'--')+'</span></div>'+
+        (arTestResult.response?'<div class="sep"></div><div class="txs fbol c-m mt2">Ответ:</div><div class="tsm mt1" style="white-space:pre-wrap;background:var(--muted-bg);padding:0.75rem;border-radius:var(--radius-md)">'+esc(arTestResult.response)+'</div>':'')+
+      '</div>';
+    } else {
+      resultHtml='<div class="mt3" style="padding:1rem;background:rgba(234,179,8,0.08);border:1px solid rgba(234,179,8,0.2);border-radius:var(--radius-md)"><div class="txs fbol c-yl">Ни один триггер не сработал</div><div class="txs c-m mt1">Сообщение не соответствует ни одному из настроенных триггеров.</div></div>';
+    }
+  }
+  return '<div class="card"><div class="card-head"><div class="card-title">Тестер автоответов</div></div><div class="card-body">'+
+    '<div class="txs c-m mb3">Введите тестовое сообщение, чтобы проверить какой триггер сработает и какой ответ будет отправлен.</div>'+
+    '<div class="f g2x ac"><input class="input tsm f1" id="ar-test-input" placeholder="Привет! Сколько стоит ваш продукт?"><button class="btn btn-sm btn-primary" id="ar-test-run">'+ic('play')+' Проверить</button></div>'+
+    resultHtml+
+  '</div></div>';
 }
 function mCrAr(){
   var behaviors=['AI_REPLY','TEMPLATE','FORWARD','IGNORE'];
@@ -2679,13 +3153,28 @@ function rDmCampaign(el){
 }
 function rDmcDetail(el){
   var info=dmcDetail.item||{};
-  el.innerHTML='<div class="sy4">'+skel('3rem')+skel('24rem')+'</div>';
+  el.innerHTML='<div class="sy4">'+skel('3rem')+skel('2.5rem')+skel('24rem')+'</div>';
   af('/dm-campaigns/'+dmcDetail.id+'/messages').then(function(r){
     var msgs=r.items||[];var total=r.total||0;
+    var sent=info.sent_count||0,replied=info.replied_count||0,totalAud=info.total_count||1;
+    var toSales=info.to_sales_count||0,accWorking=info.accounts_working||0,spamBlocks=info.spam_blocks||0;
+    var aiCost=info.ai_cost!=null?'$'+info.ai_cost:'$0';
+    var pct=totalAud>0?Math.round(sent/totalAud*100):0;
+    var etaText='';
+    if(info.config&&info.config.max_per_day&&accWorking>0){var remaining=totalAud-sent;var perDay=info.config.max_per_day*accWorking;var days=perDay>0?Math.ceil(remaining/perDay):0;etaText=days>0?'~'+days+' дн. осталось':'Завершена';}
     el.innerHTML='<div class="sy4">'+
       '<div class="f ac jb">'+
         '<div class="f ac g3x"><button class="btn btn-sm" id="dmc-back">'+ic('back')+' Назад</button><h2 class="tlg fxb">'+esc(info.name||'Кампания')+'</h2>'+dmcBdg(info.status)+'</div>'+
       '</div>'+
+      kpiHtml([
+        {v:sent,l:'Отправлено',bg:'rgba(34,197,94,0.12)',fg:'var(--emerald-500)'},
+        {v:replied,l:'Ответили',bg:'rgba(59,130,246,0.12)',fg:'var(--blue-500)'},
+        {v:toSales,l:'\u2192 Продажник',bg:'rgba(168,85,247,0.12)',fg:'var(--purple-500)'},
+        {v:accWorking,l:'Акк работают',bg:'rgba(249,115,22,0.12)',fg:'var(--orange-500)'},
+        {v:spamBlocks,l:'Спамблоки',bg:'rgba(239,68,68,0.12)',fg:'var(--red-500)'},
+        {v:aiCost,l:'AI расход',bg:'rgba(234,179,8,0.12)',fg:'var(--yellow-500)'}
+      ])+
+      '<div class="card" style="margin-bottom:1rem"><div class="card-body"><div class="f ac jb mb1"><span class="txs fmed">Прогресс: '+sent+' / '+totalAud+'</span><span class="txs c-m">'+pct+'%'+(etaText?' &middot; '+etaText:'')+'</span></div><div class="prog" style="height:8px"><div class="prog-fill" style="width:'+pct+'%;background:var(--blue-500)"></div></div></div></div>'+
       '<div class="card"><div class="card-head"><div class="card-title">Сообщения ('+total+')</div></div><div class="card-body flush">'+
       (msgs.length>0
         ?'<div class="tw"><table><thead><tr><th>Получатель</th><th>Текст</th><th>Статус</th><th>Отправлено</th></tr></thead><tbody>'+
@@ -2704,36 +3193,102 @@ function rDmcDetail(el){
   });
 }
 function mCrDmc(){
-  var audOpts='<option value="">-- выберите --</option>';
-  var tplOpts='<option value="">-- выберите --</option>';
+  var step=1,maxStep=6;
+  var stepLabels=['Аудитория','Сообщение','Аккаунты','Расписание','Safety','Запуск'];
+  var fd={name:'',audience_id:'',exclude_audience_id:'',filter_online:false,filter_username:false,filter_ai_score_min:0,template_id:'',ai_personalize:false,account_ids:'',distribution:'ROUND_ROBIN',max_per_day:30,delay_min:30,delay_max:180,start_type:'now',active_hours_start:10,active_hours_end:21,ramp_up:false,flood_behavior:'pause_24h',emergency_stop_pct:30,skip_list:true,connect_ai_sales:false};
+  var audOpts=[],tplOpts=[];
   var ready=0,total=2;
-  function tryRender(){ready++;if(ready<total)return;
-    var h='<div class="dlg-ov" id="mov"><div class="dlg dlg-wide">'+
-      '<div class="dlg-hd"><div class="dlg-tt">'+ic('plus')+' Новая DM кампания</div></div>'+
-      '<form id="dmcf"><div class="dlg-bd sy3">'+
-        '<div><label class="lbl">Название *</label><input class="input tsm" name="name" placeholder="Крипто-партнёрство Batch #1" autofocus></div>'+
-        '<div><label class="lbl">Аудитория *</label><div class="sel-w"><select class="sel" name="audience_id">'+audOpts+'</select></div></div>'+
-        '<div><label class="lbl">Шаблон *</label><div class="sel-w"><select class="sel" name="template_id">'+tplOpts+'</select></div></div>'+
-        '<div><label class="lbl">ID аккаунтов (по одному на строку)</label><textarea class="ta" name="account_ids" placeholder="acc-id-1\nacc-id-2" style="min-height:60px"></textarea></div>'+
-        '<div><label class="lbl">Распределение</label><div class="sel-w"><select class="sel" name="distribution"><option value="ROUND_ROBIN">Round Robin</option><option value="GEO_MATCHED">Geo Matched</option><option value="RANDOM">Random</option></select></div></div>'+
-      '</div>'+
-      '<div class="dlg-ft"><button type="button" class="btn btn-sm" id="mcl">Отмена</button><button type="submit" class="btn btn-sm btn-primary" id="ms">Создать</button></div></form></div></div>';
-    document.body.insertAdjacentHTML('beforeend',h);mBind('mov','mcl');
-    document.getElementById('dmcf').onsubmit=async function(e){
-      e.preventDefault();var f=e.target;
-      var name=f.name.value.trim();if(!name){toast('Введите название','error');return;}
-      if(!f.audience_id.value){toast('Выберите аудиторию','error');return;}
-      if(!f.template_id.value){toast('Выберите шаблон','error');return;}
-      var accIds=f.account_ids.value.trim().split('\n').map(function(s){return s.trim();}).filter(Boolean);
-      var sb=document.getElementById('ms');sb.disabled=true;sb.innerHTML='<span class="spin"></span> Создать';
+  function tryRender(){ready++;if(ready<total)return;show();}
+  af('/audiences').then(function(r){audOpts=r.items||[];tryRender();}).catch(function(){tryRender();});
+  af('/templates?category=DM').then(function(r){tplOpts=r.items||[];tryRender();}).catch(function(){tryRender();});
+
+  function renderWizard(){
+    var stepsHtml='<div class="wiz-steps">';
+    for(var i=1;i<=maxStep;i++){var cls=i<step?'wiz-done':i===step?'wiz-active':'wiz-pending';stepsHtml+='<div class="wiz-step '+cls+'"><span class="wiz-num">'+(i<step?'&#10003;':i)+'</span><span class="wiz-label">'+stepLabels[i-1]+'</span></div>';}
+    stepsHtml+='</div>';
+    var bodyHtml='<div class="wiz-body sy3">';
+    switch(step){
+      case 1:
+        bodyHtml+='<div><label class="lbl">Название кампании *</label><input class="input tsm" id="wiz-name" value="'+esc(fd.name)+'" placeholder="Крипто-партнёрство Batch #1"></div>'+
+          '<div><label class="lbl">Аудитория *</label><div class="sel-w"><select class="sel" id="wiz-aud"><option value="">-- выберите --</option>'+audOpts.map(function(a){return '<option value="'+a.id+'"'+(fd.audience_id===a.id?' selected':'')+'>'+esc(a.name)+' ('+esc(a.total_count||0)+')</option>';}).join('')+'</select></div></div>'+
+          '<div><label class="lbl">Исключить аудиторию</label><div class="sel-w"><select class="sel" id="wiz-excl"><option value="">Нет</option>'+audOpts.map(function(a){return '<option value="'+a.id+'"'+(fd.exclude_audience_id===a.id?' selected':'')+'>'+esc(a.name)+'</option>';}).join('')+'</select></div></div>'+
+          '<div class="txs fsem upc c-m tkw mt3">Фильтры</div>'+
+          '<div class="f g3x mt2"><label class="f ac g1h txs"><input type="checkbox" class="chk" id="wiz-fon"'+(fd.filter_online?' checked':'')+'> Только онлайн</label><label class="f ac g1h txs"><input type="checkbox" class="chk" id="wiz-fun"'+(fd.filter_username?' checked':'')+'> С юзернеймом</label></div>'+
+          '<div class="mt2"><label class="lbl">AI-score минимум</label><input class="input tsm" type="number" id="wiz-fscore" value="'+fd.filter_ai_score_min+'" min="0" max="100" style="width:8rem"></div>';
+        break;
+      case 2:
+        bodyHtml+='<div><label class="lbl">Шаблон сообщения *</label><div class="sel-w"><select class="sel" id="wiz-tpl"><option value="">-- выберите --</option>'+tplOpts.map(function(t){return '<option value="'+t.id+'"'+(fd.template_id===t.id?' selected':'')+'>'+esc(t.name)+'</option>';}).join('')+'</select></div></div>'+
+          '<div class="mt3"><label class="f ac g2x" style="cursor:pointer"><input type="checkbox" class="chk" id="wiz-aip"'+(fd.ai_personalize?' checked':'')+'><span class="tsm">AI-персонализация сообщения</span></label><div class="txs c-m mt1">AI адаптирует текст под каждого получателя на основе его профиля</div></div>'+
+          '<div class="mt3 ipn"><div class="txs fbol">Предпросмотр</div><div class="tsm mt2" style="white-space:pre-wrap" id="wiz-preview">'+(fd.template_id?'Выберите шаблон для предпросмотра':'Выберите шаблон выше...')+'</div></div>';
+        break;
+      case 3:
+        bodyHtml+='<div><label class="lbl">Аккаунты (ID по строке, или пусто = все активные)</label><textarea class="ta" id="wiz-acc" placeholder="Оставьте пустым для использования всех активных аккаунтов" style="min-height:80px">'+esc(fd.account_ids)+'</textarea></div>'+
+          '<div><label class="lbl">Распределение</label><div class="sel-w"><select class="sel" id="wiz-dist"><option value="ROUND_ROBIN"'+(fd.distribution==='ROUND_ROBIN'?' selected':'')+'>Round Robin</option><option value="GEO_MATCHED"'+(fd.distribution==='GEO_MATCHED'?' selected':'')+'>Geo Matched</option><option value="RANDOM"'+(fd.distribution==='RANDOM'?' selected':'')+'>Random</option></select></div></div>'+
+          '<div class="g g2 mt3"><div><label class="lbl">Макс. сообщений / акк / день</label><input class="input tsm" type="number" id="wiz-mpd" value="'+fd.max_per_day+'"></div><div><label class="lbl">Задержка мин-макс (сек)</label><div class="f g2x"><input class="input tsm" type="number" id="wiz-dmin" value="'+fd.delay_min+'" style="width:5rem"><span class="txs c-m" style="padding:0.5rem">-</span><input class="input tsm" type="number" id="wiz-dmax" value="'+fd.delay_max+'" style="width:5rem"></div></div></div>';
+        break;
+      case 4:
+        bodyHtml+='<div><label class="lbl">Начало</label><div class="f g3x mt2"><label class="f ac g1h tsm"><input type="radio" name="wiz-st" value="now"'+(fd.start_type==='now'?' checked':'')+'> Сразу</label><label class="f ac g1h tsm"><input type="radio" name="wiz-st" value="schedule"'+(fd.start_type==='schedule'?' checked':'')+'> По графику</label></div></div>'+
+          '<div class="g g2 mt3"><div><label class="lbl">Активные часы: начало</label><input class="input tsm" type="number" id="wiz-ahs" value="'+fd.active_hours_start+'" min="0" max="23"></div><div><label class="lbl">Активные часы: конец</label><input class="input tsm" type="number" id="wiz-ahe" value="'+fd.active_hours_end+'" min="0" max="23"></div></div>'+
+          '<div class="mt3"><label class="f ac g2x" style="cursor:pointer"><input type="checkbox" class="chk" id="wiz-ramp"'+(fd.ramp_up?' checked':'')+'><span class="tsm">Ramp-up (постепенное увеличение скорости)</span></label><div class="txs c-m mt1">Начать с малого количества и увеличивать в течение 3 дней</div></div>';
+        break;
+      case 5:
+        bodyHtml+='<div><label class="lbl">Поведение при FloodWait</label><div class="sel-w"><select class="sel" id="wiz-flood"><option value="pause_24h"'+(fd.flood_behavior==='pause_24h'?' selected':'')+'>Пауза 24ч</option><option value="pause_48h"'+(fd.flood_behavior==='pause_48h'?' selected':'')+'>Пауза 48ч</option><option value="switch_account"'+(fd.flood_behavior==='switch_account'?' selected':'')+'>Переключить аккаунт</option><option value="stop_campaign"'+(fd.flood_behavior==='stop_campaign'?' selected':'')+'>Остановить кампанию</option></select></div></div>'+
+          '<div class="mt3"><label class="lbl">Порог аварийной остановки (%)</label><input class="input tsm" type="number" id="wiz-estop" value="'+fd.emergency_stop_pct+'" min="1" max="100" style="width:8rem"><div class="txs c-m mt1">Если % неудачных отправок превысит это значение, кампания будет остановлена</div></div>'+
+          '<div class="mt3"><label class="f ac g2x" style="cursor:pointer"><input type="checkbox" class="chk" id="wiz-skip"'+(fd.skip_list?' checked':'')+'><span class="tsm">Skip-list (не писать повторно)</span></label></div>'+
+          '<div class="mt2"><label class="f ac g2x" style="cursor:pointer"><input type="checkbox" class="chk" id="wiz-aisales"'+(fd.connect_ai_sales?' checked':'')+'><span class="tsm">Подключить AI Продажник при ответе</span></label><div class="txs c-m mt1">Если получатель ответит, диалог автоматически передаётся AI Продажнику</div></div>';
+        break;
+      case 6:
+        var audName='--';audOpts.forEach(function(a){if(a.id===fd.audience_id)audName=a.name+' ('+a.total_count+')';});
+        var tplName='--';tplOpts.forEach(function(t){if(t.id===fd.template_id)tplName=t.name;});
+        var accCount=fd.account_ids?fd.account_ids.split('\n').filter(function(s){return s.trim();}).length:0;
+        var audSize=0;audOpts.forEach(function(a){if(a.id===fd.audience_id)audSize=a.total_count||0;});
+        var estDays=accCount>0&&fd.max_per_day>0?Math.ceil(audSize/(accCount*fd.max_per_day)):fd.max_per_day>0?Math.ceil(audSize/fd.max_per_day):'--';
+        bodyHtml+='<div class="txs fsem upc c-m tkw mb2">Стоимость и прогноз</div><div class="wiz-cost">'+
+          '<div class="wiz-cost-row"><span>Название</span><span class="fbol">'+esc(fd.name||'--')+'</span></div>'+
+          '<div class="wiz-cost-row"><span>Аудитория</span><span>'+esc(audName)+'</span></div>'+
+          '<div class="wiz-cost-row"><span>Шаблон</span><span>'+esc(tplName)+'</span></div>'+
+          '<div class="wiz-cost-row"><span>Аккаунтов</span><span class="fbol">'+(accCount||'все активные')+'</span></div>'+
+          '<div class="wiz-cost-row"><span>Сообщений/день</span><span>'+(accCount?accCount*fd.max_per_day:fd.max_per_day)+'</span></div>'+
+          '<div class="wiz-cost-row"><span>ETA</span><span class="fbol">~'+estDays+' дней</span></div>'+
+          (fd.ai_personalize?'<div class="wiz-cost-row"><span>AI расход (прогноз)</span><span class="c-yl fbol">~$'+(audSize*0.002).toFixed(2)+'/месяц</span></div>':'')+
+          '<div class="wiz-cost-row wiz-cost-total"><span>Размер аудитории</span><span>'+audSize+' получателей</span></div>'+
+        '</div>';
+        break;
+    }
+    bodyHtml+='</div>';
+    var footerHtml='<div class="dlg-ft">'+(step>1?'<button class="btn btn-sm" id="wiz-prev">\u2190 Назад</button>':'<button class="btn btn-sm" id="mcl">Отмена</button>')+(step<maxStep?'<button class="btn btn-sm btn-primary" id="wiz-next">Далее \u2192</button>':'<button class="btn btn-sm btn-primary" id="wiz-submit">\u25B6 Запустить</button>')+'</div>';
+    return stepsHtml+bodyHtml+footerHtml;
+  }
+  function saveStep(){
+    switch(step){
+      case 1:var n=document.getElementById('wiz-name');if(n)fd.name=n.value.trim();var a=document.getElementById('wiz-aud');if(a)fd.audience_id=a.value;var ex=document.getElementById('wiz-excl');if(ex)fd.exclude_audience_id=ex.value;var fo=document.getElementById('wiz-fon');if(fo)fd.filter_online=fo.checked;var fu=document.getElementById('wiz-fun');if(fu)fd.filter_username=fu.checked;var fs=document.getElementById('wiz-fscore');if(fs)fd.filter_ai_score_min=parseInt(fs.value)||0;break;
+      case 2:var t=document.getElementById('wiz-tpl');if(t)fd.template_id=t.value;var ai=document.getElementById('wiz-aip');if(ai)fd.ai_personalize=ai.checked;break;
+      case 3:var ac=document.getElementById('wiz-acc');if(ac)fd.account_ids=ac.value;var di=document.getElementById('wiz-dist');if(di)fd.distribution=di.value;var mp=document.getElementById('wiz-mpd');if(mp)fd.max_per_day=parseInt(mp.value)||30;var dm=document.getElementById('wiz-dmin');if(dm)fd.delay_min=parseInt(dm.value)||30;var dx=document.getElementById('wiz-dmax');if(dx)fd.delay_max=parseInt(dx.value)||180;break;
+      case 4:var st=document.querySelector('input[name="wiz-st"]:checked');if(st)fd.start_type=st.value;var ahs=document.getElementById('wiz-ahs');if(ahs)fd.active_hours_start=parseInt(ahs.value)||10;var ahe=document.getElementById('wiz-ahe');if(ahe)fd.active_hours_end=parseInt(ahe.value)||21;var rmp=document.getElementById('wiz-ramp');if(rmp)fd.ramp_up=rmp.checked;break;
+      case 5:var fl=document.getElementById('wiz-flood');if(fl)fd.flood_behavior=fl.value;var es=document.getElementById('wiz-estop');if(es)fd.emergency_stop_pct=parseInt(es.value)||30;var sk=document.getElementById('wiz-skip');if(sk)fd.skip_list=sk.checked;var ais=document.getElementById('wiz-aisales');if(ais)fd.connect_ai_sales=ais.checked;break;
+    }
+  }
+  function show(){
+    var h='<div class="dlg-ov" id="mov"><div class="dlg dlg-xl"><div class="dlg-hd"><div class="dlg-tt">'+ic('send')+' Новая DM кампания &mdash; шаг '+step+' из '+maxStep+'</div></div><div class="dlg-bd" id="wiz-content">'+renderWizard()+'</div></div></div>';
+    document.body.insertAdjacentHTML('beforeend',h);bind();
+  }
+  function update(){var c=document.getElementById('wiz-content');if(!c)return;c.innerHTML=renderWizard();bind();}
+  function bind(){
+    var ov=document.getElementById('mov');if(!ov)return;
+    ov.onclick=function(e){if(e.target===ov)mClose('mov');};
+    var cl=document.getElementById('mcl');if(cl)cl.onclick=function(){mClose('mov');};
+    function ek(e){if(e.key==='Escape'){mClose('mov');document.removeEventListener('keydown',ek);}}document.addEventListener('keydown',ek);
+    var prev=document.getElementById('wiz-prev');if(prev)prev.onclick=function(){saveStep();step--;update();};
+    var next=document.getElementById('wiz-next');if(next)next.onclick=function(){saveStep();if(step===1&&!fd.name){toast('Введите название','error');return;}if(step===1&&!fd.audience_id){toast('Выберите аудиторию','error');return;}if(step===2&&!fd.template_id){toast('Выберите шаблон','error');return;}step++;update();};
+    var sub=document.getElementById('wiz-submit');if(sub)sub.onclick=async function(){
+      sub.disabled=true;sub.innerHTML='<span class="spin"></span> Запуск...';
+      var accIds=fd.account_ids.trim().split('\n').map(function(s){return s.trim();}).filter(Boolean);
       try{
-        await ap('/dm-campaigns',{name:name,audience_id:f.audience_id.value,template_id:f.template_id.value,account_ids:accIds.length?accIds:undefined,distribution:f.distribution.value,config:{}});
+        await ap('/dm-campaigns',{name:fd.name,audience_id:fd.audience_id,template_id:fd.template_id,account_ids:accIds.length?accIds:undefined,distribution:fd.distribution,config:{exclude_audience_id:fd.exclude_audience_id||undefined,filter_online:fd.filter_online,filter_username:fd.filter_username,filter_ai_score_min:fd.filter_ai_score_min,ai_personalize:fd.ai_personalize,max_per_day:fd.max_per_day,delay_min:fd.delay_min,delay_max:fd.delay_max,start_type:fd.start_type,active_hours_start:fd.active_hours_start,active_hours_end:fd.active_hours_end,ramp_up:fd.ramp_up,flood_behavior:fd.flood_behavior,emergency_stop_pct:fd.emergency_stop_pct,skip_list:fd.skip_list,connect_ai_sales:fd.connect_ai_sales}});
         toast('Кампания создана','success');mClose('mov');dmcLoaded=false;await ldDmc();if(S.sec==='dm-campaign')rDmCampaign(document.getElementById('mc'));
-      }catch(er){toast(er.message,'error');sb.disabled=false;sb.innerHTML='Создать';}
+      }catch(er){toast(er.message,'error');sub.disabled=false;sub.innerHTML='\u25B6 Запустить';}
     };
   }
-  af('/audiences').then(function(r){(r.items||[]).forEach(function(a){audOpts+='<option value="'+a.id+'">'+esc(a.name)+' ('+esc(a.total_count||0)+')</option>';});tryRender();}).catch(function(){tryRender();});
-  af('/templates?category=DM').then(function(r){(r.items||[]).forEach(function(t){tplOpts+='<option value="'+t.id+'">'+esc(t.name)+'</option>';});tryRender();}).catch(function(){tryRender();});
 }
 
 /* ── 15. Chat Broadcast ── */
@@ -2822,34 +3377,84 @@ function rCbcDetail(el){
   });
 }
 function mCrCbc(){
-  var tplOpts='<option value="">-- выберите --</option>';
-  af('/templates?category=CHAT_POST').then(function(r){
-    (r.items||[]).forEach(function(t){tplOpts+='<option value="'+t.id+'">'+esc(t.name)+'</option>';});
-  }).catch(function(){}).finally(function(){
-    var h='<div class="dlg-ov" id="mov"><div class="dlg dlg-wide">'+
-      '<div class="dlg-hd"><div class="dlg-tt">'+ic('plus')+' Новая кампания по чатам</div></div>'+
-      '<form id="cbcf"><div class="dlg-bd sy3">'+
-        '<div><label class="lbl">Название *</label><input class="input tsm" name="name" placeholder="Бизнес-чаты прогрев" autofocus></div>'+
-        '<div><label class="lbl">Целевые каналы (по одному на строку) *</label><textarea class="ta" name="target_channels" placeholder="@crypto_chat\n@business_group\nhttps://t.me/channel123" style="min-height:100px"></textarea></div>'+
-        '<div><label class="lbl">Шаблон *</label><div class="sel-w"><select class="sel" name="template_id">'+tplOpts+'</select></div></div>'+
-        '<div><label class="lbl">ID аккаунтов (по одному на строку)</label><textarea class="ta" name="account_ids" placeholder="acc-id-1\nacc-id-2" style="min-height:60px"></textarea></div>'+
-      '</div>'+
-      '<div class="dlg-ft"><button type="button" class="btn btn-sm" id="mcl">Отмена</button><button type="submit" class="btn btn-sm btn-primary" id="ms">Создать</button></div></form></div></div>';
-    document.body.insertAdjacentHTML('beforeend',h);mBind('mov','mcl');
-    document.getElementById('cbcf').onsubmit=async function(e){
-      e.preventDefault();var f=e.target;
-      var name=f.name.value.trim();if(!name){toast('Введите название','error');return;}
-      var channels=f.target_channels.value.trim().split('\n').map(function(s){return s.trim();}).filter(Boolean);
-      if(!channels.length){toast('Укажите хотя бы один канал','error');return;}
-      if(!f.template_id.value){toast('Выберите шаблон','error');return;}
-      var accIds=f.account_ids.value.trim().split('\n').map(function(s){return s.trim();}).filter(Boolean);
-      var sb=document.getElementById('ms');sb.disabled=true;sb.innerHTML='<span class="spin"></span> Создать';
+  var step=1,maxStep=5;
+  var stepLabels=['Сообщение','Каналы','Аккаунты','Расписание','Safety'];
+  var fd={name:'',content_type:'post',template_id:'',slow_mode_behavior:'wait',target_channels:'',exclude_channels:'',distribution:'one_per_chat',posts_per_day:3,account_ids:'',start_type:'now',posting_time:'random',gap_24h:true,delete_detection:true,ban_auto_stop:true,notify:true};
+  var tplOpts=[];
+  af('/templates?category=CHAT_POST').then(function(r){tplOpts=r.items||[];}).catch(function(){}).finally(function(){show();});
+
+  function renderWizard(){
+    var stepsHtml='<div class="wiz-steps">';
+    for(var i=1;i<=maxStep;i++){var cls=i<step?'wiz-done':i===step?'wiz-active':'wiz-pending';stepsHtml+='<div class="wiz-step '+cls+'"><span class="wiz-num">'+(i<step?'&#10003;':i)+'</span><span class="wiz-label">'+stepLabels[i-1]+'</span></div>';}
+    stepsHtml+='</div>';
+    var bodyHtml='<div class="wiz-body sy3">';
+    switch(step){
+      case 1:
+        bodyHtml+='<div><label class="lbl">Название кампании *</label><input class="input tsm" id="wiz-name" value="'+esc(fd.name)+'" placeholder="Бизнес-чаты прогрев"></div>'+
+          '<div><label class="lbl">Тип контента</label><div class="f g3x mt2"><label class="f ac g1h tsm"><input type="radio" name="wiz-ct" value="post"'+(fd.content_type==='post'?' checked':'')+'> Пост</label><label class="f ac g1h tsm"><input type="radio" name="wiz-ct" value="reply"'+(fd.content_type==='reply'?' checked':'')+'> Reply</label><label class="f ac g1h tsm"><input type="radio" name="wiz-ct" value="thread"'+(fd.content_type==='thread'?' checked':'')+'> Тред</label></div></div>'+
+          '<div><label class="lbl">Шаблон *</label><div class="sel-w"><select class="sel" id="wiz-tpl"><option value="">-- выберите --</option>'+tplOpts.map(function(t){return '<option value="'+t.id+'"'+(fd.template_id===t.id?' selected':'')+'>'+esc(t.name)+'</option>';}).join('')+'</select></div></div>'+
+          '<div><label class="lbl">Поведение при slow-mode</label><div class="sel-w"><select class="sel" id="wiz-slow"><option value="wait"'+(fd.slow_mode_behavior==='wait'?' selected':'')+'>Ждать окончания</option><option value="skip"'+(fd.slow_mode_behavior==='skip'?' selected':'')+'>Пропустить</option><option value="next_account"'+(fd.slow_mode_behavior==='next_account'?' selected':'')+'>Другой аккаунт</option></select></div></div>';
+        break;
+      case 2:
+        bodyHtml+='<div><label class="lbl">Целевые каналы (по одному на строку) *</label><textarea class="ta" id="wiz-ch" placeholder="@crypto_chat\n@business_group\nhttps://t.me/channel123" style="min-height:140px">'+esc(fd.target_channels)+'</textarea></div>'+
+          '<div><label class="lbl">Исключить каналы</label><textarea class="ta" id="wiz-exch" placeholder="@exclude_channel" style="min-height:60px">'+esc(fd.exclude_channels)+'</textarea></div>';
+        break;
+      case 3:
+        bodyHtml+='<div><label class="lbl">Распределение аккаунтов</label><div class="sel-w"><select class="sel" id="wiz-dist"><option value="one_per_chat"'+(fd.distribution==='one_per_chat'?' selected':'')+'>1 чат = 1 аккаунт</option><option value="round_robin"'+(fd.distribution==='round_robin'?' selected':'')+'>Round-robin</option></select></div></div>'+
+          '<div><label class="lbl">Постов / аккаунт / день</label><input class="input tsm" type="number" id="wiz-ppd" value="'+fd.posts_per_day+'" style="width:8rem"></div>'+
+          '<div><label class="lbl">Аккаунты (ID по строке, пусто = все активные)</label><textarea class="ta" id="wiz-acc" placeholder="Оставьте пустым" style="min-height:80px">'+esc(fd.account_ids)+'</textarea></div>';
+        break;
+      case 4:
+        bodyHtml+='<div><label class="lbl">Начало</label><div class="f g3x mt2"><label class="f ac g1h tsm"><input type="radio" name="wiz-st" value="now"'+(fd.start_type==='now'?' checked':'')+'> Сразу</label><label class="f ac g1h tsm"><input type="radio" name="wiz-st" value="schedule"'+(fd.start_type==='schedule'?' checked':'')+'> По графику</label></div></div>'+
+          '<div><label class="lbl">Время постинга</label><div class="sel-w"><select class="sel" id="wiz-pt"><option value="ai"'+(fd.posting_time==='ai'?' selected':'')+'>AI-оптимальное</option><option value="random"'+(fd.posting_time==='random'?' selected':'')+'>Случайное</option><option value="specific"'+(fd.posting_time==='specific'?' selected':'')+'>Конкретное время</option></select></div></div>'+
+          '<div class="mt3"><label class="f ac g2x" style="cursor:pointer"><input type="checkbox" class="chk" id="wiz-gap"'+(fd.gap_24h?' checked':'')+'><span class="tsm">Гарантировать 24ч между постами в одном канале</span></label></div>';
+        break;
+      case 5:
+        var chCount=fd.target_channels?fd.target_channels.split('\n').filter(function(s){return s.trim();}).length:0;
+        bodyHtml+='<div class="sy2h"><label class="f ac g2x" style="cursor:pointer"><input type="checkbox" class="chk" id="wiz-deldet"'+(fd.delete_detection?' checked':'')+'><span class="tsm">Отслеживать удаление постов модераторами</span></label><label class="f ac g2x" style="cursor:pointer"><input type="checkbox" class="chk" id="wiz-banstop"'+(fd.ban_auto_stop?' checked':'')+'><span class="tsm">Автостоп при бане аккаунта из чата</span></label><label class="f ac g2x" style="cursor:pointer"><input type="checkbox" class="chk" id="wiz-notif"'+(fd.notify?' checked':'')+'><span class="tsm">Уведомления в TG-бот</span></label></div>'+
+          '<div class="sep"></div><div class="txs fsem upc c-m tkw mb2">Прогноз</div><div class="wiz-cost">'+
+            '<div class="wiz-cost-row"><span>Название</span><span class="fbol">'+esc(fd.name||'--')+'</span></div>'+
+            '<div class="wiz-cost-row"><span>Каналов</span><span class="fbol">'+chCount+'</span></div>'+
+            '<div class="wiz-cost-row"><span>Постов / день</span><span>'+fd.posts_per_day+'</span></div>'+
+            '<div class="wiz-cost-row"><span>Распределение</span><span>'+esc(fd.distribution)+'</span></div>'+
+          '</div>';
+        break;
+    }
+    bodyHtml+='</div>';
+    var footerHtml='<div class="dlg-ft">'+(step>1?'<button class="btn btn-sm" id="wiz-prev">\u2190 Назад</button>':'<button class="btn btn-sm" id="mcl">Отмена</button>')+(step<maxStep?'<button class="btn btn-sm btn-primary" id="wiz-next">Далее \u2192</button>':'<button class="btn btn-sm btn-primary" id="wiz-submit">\u25B6 Запустить</button>')+'</div>';
+    return stepsHtml+bodyHtml+footerHtml;
+  }
+  function saveStep(){
+    switch(step){
+      case 1:var n=document.getElementById('wiz-name');if(n)fd.name=n.value.trim();var ct=document.querySelector('input[name="wiz-ct"]:checked');if(ct)fd.content_type=ct.value;var t=document.getElementById('wiz-tpl');if(t)fd.template_id=t.value;var sl=document.getElementById('wiz-slow');if(sl)fd.slow_mode_behavior=sl.value;break;
+      case 2:var ch=document.getElementById('wiz-ch');if(ch)fd.target_channels=ch.value;var ex=document.getElementById('wiz-exch');if(ex)fd.exclude_channels=ex.value;break;
+      case 3:var di=document.getElementById('wiz-dist');if(di)fd.distribution=di.value;var pp=document.getElementById('wiz-ppd');if(pp)fd.posts_per_day=parseInt(pp.value)||3;var ac=document.getElementById('wiz-acc');if(ac)fd.account_ids=ac.value;break;
+      case 4:var st=document.querySelector('input[name="wiz-st"]:checked');if(st)fd.start_type=st.value;var pt=document.getElementById('wiz-pt');if(pt)fd.posting_time=pt.value;var g=document.getElementById('wiz-gap');if(g)fd.gap_24h=g.checked;break;
+      case 5:var dd=document.getElementById('wiz-deldet');if(dd)fd.delete_detection=dd.checked;var bs=document.getElementById('wiz-banstop');if(bs)fd.ban_auto_stop=bs.checked;var no=document.getElementById('wiz-notif');if(no)fd.notify=no.checked;break;
+    }
+  }
+  function show(){
+    var h='<div class="dlg-ov" id="mov"><div class="dlg dlg-xl"><div class="dlg-hd"><div class="dlg-tt">'+ic('send')+' Новая кампания по чатам &mdash; шаг '+step+' из '+maxStep+'</div></div><div class="dlg-bd" id="wiz-content">'+renderWizard()+'</div></div></div>';
+    document.body.insertAdjacentHTML('beforeend',h);bind();
+  }
+  function update(){var c=document.getElementById('wiz-content');if(!c)return;c.innerHTML=renderWizard();bind();}
+  function bind(){
+    var ov=document.getElementById('mov');if(!ov)return;
+    ov.onclick=function(e){if(e.target===ov)mClose('mov');};
+    var cl=document.getElementById('mcl');if(cl)cl.onclick=function(){mClose('mov');};
+    function ek(e){if(e.key==='Escape'){mClose('mov');document.removeEventListener('keydown',ek);}}document.addEventListener('keydown',ek);
+    var prev=document.getElementById('wiz-prev');if(prev)prev.onclick=function(){saveStep();step--;update();};
+    var next=document.getElementById('wiz-next');if(next)next.onclick=function(){saveStep();if(step===1&&!fd.name){toast('Введите название','error');return;}if(step===1&&!fd.template_id){toast('Выберите шаблон','error');return;}if(step===2){var chs=fd.target_channels.trim().split('\n').filter(function(s){return s.trim();});if(!chs.length){toast('Укажите каналы','error');return;}}step++;update();};
+    var sub=document.getElementById('wiz-submit');if(sub)sub.onclick=async function(){
+      saveStep();sub.disabled=true;sub.innerHTML='<span class="spin"></span> Запуск...';
+      var channels=fd.target_channels.trim().split('\n').map(function(s){return s.trim();}).filter(Boolean);
+      var accIds=fd.account_ids.trim().split('\n').map(function(s){return s.trim();}).filter(Boolean);
       try{
-        await ap('/chat-broadcasts',{name:name,template_id:f.template_id.value,target_channels:channels,account_ids:accIds.length?accIds:undefined,config:{}});
+        await ap('/chat-broadcasts',{name:fd.name,template_id:fd.template_id,target_channels:channels,account_ids:accIds.length?accIds:undefined,config:{content_type:fd.content_type,slow_mode_behavior:fd.slow_mode_behavior,exclude_channels:fd.exclude_channels.trim().split('\n').filter(function(s){return s.trim();}),distribution:fd.distribution,posts_per_day:fd.posts_per_day,start_type:fd.start_type,posting_time:fd.posting_time,gap_24h:fd.gap_24h,delete_detection:fd.delete_detection,ban_auto_stop:fd.ban_auto_stop,notify:fd.notify}});
         toast('Кампания создана','success');mClose('mov');cbcLoaded=false;await ldCbc();if(S.sec==='chat-broadcast')rChatBroadcast(document.getElementById('mc'));
-      }catch(er){toast(er.message,'error');sb.disabled=false;sb.innerHTML='Создать';}
+      }catch(er){toast(er.message,'error');sub.disabled=false;sub.innerHTML='\u25B6 Запустить';}
     };
-  });
+  }
 }
 
 /* ── 16. Inviting ── */
@@ -2917,13 +3522,24 @@ function rInviting(el){
 }
 function rInvDetail(el){
   var info=invDetail.item||{};
-  el.innerHTML='<div class="sy4">'+skel('3rem')+skel('24rem')+'</div>';
+  el.innerHTML='<div class="sy4">'+skel('3rem')+skel('2.5rem')+skel('24rem')+'</div>';
   af('/invite-campaigns/'+invDetail.id+'/attempts').then(function(r){
     var attempts=r.items||[];var total=r.total||0;
+    var successC=info.success_count||0,totalC=info.total_count||0;
+    var successRate=totalC>0?Math.round(successC/totalC*100):0;
+    var privacyBlock=info.privacy_block_count||0,notInTg=info.not_found_count||0,alreadyIn=info.already_count||0,spamBlock=info.spam_block_count||0;
     el.innerHTML='<div class="sy4">'+
       '<div class="f ac jb">'+
         '<div class="f ac g3x"><button class="btn btn-sm" id="inv-back">'+ic('back')+' Назад</button><h2 class="tlg fxb">'+esc(info.name||'Кампания')+'</h2>'+invBdg(info.status)+'</div>'+
       '</div>'+
+      kpiHtml([
+        {v:successC,l:'Успешно',bg:'rgba(34,197,94,0.12)',fg:'var(--emerald-500)'},
+        {v:successRate+'%',l:'Success rate',bg:'rgba(59,130,246,0.12)',fg:'var(--blue-500)'},
+        {v:privacyBlock,l:'Privacy block',bg:'rgba(234,179,8,0.12)',fg:'var(--yellow-500)'},
+        {v:notInTg,l:'Не в TG',bg:'rgba(168,85,247,0.12)',fg:'var(--purple-500)'},
+        {v:alreadyIn,l:'Уже в канале',bg:'var(--muted-bg)',fg:'var(--muted-text)'},
+        {v:spamBlock,l:'Спамблок акк',bg:'rgba(239,68,68,0.12)',fg:'var(--red-500)'}
+      ])+
       '<div class="card"><div class="card-head"><div class="card-title">Попытки ('+total+')</div></div><div class="card-body flush">'+
       (attempts.length>0
         ?'<div class="tw"><table><thead><tr><th>Пользователь</th><th>Username</th><th>Результат</th><th>Дата</th></tr></thead><tbody>'+
@@ -2943,34 +3559,88 @@ function rInvDetail(el){
   });
 }
 function mCrInv(){
-  var audOpts='<option value="">-- выберите --</option>';
-  af('/audiences').then(function(r){
-    (r.items||[]).forEach(function(a){audOpts+='<option value="'+a.id+'">'+esc(a.name)+' ('+esc(a.total_count||0)+')</option>';});
-  }).catch(function(){}).finally(function(){
-    var h='<div class="dlg-ov" id="mov"><div class="dlg dlg-wide">'+
-      '<div class="dlg-hd"><div class="dlg-tt">'+ic('plus')+' Новая инвайтинг-кампания</div></div>'+
-      '<form id="invf"><div class="dlg-bd sy3">'+
-        '<div><label class="lbl">Название *</label><input class="input tsm" name="name" placeholder="Инвайт в @my_channel" autofocus></div>'+
-        '<div><label class="lbl">Режим</label><div class="sel-w"><select class="sel" name="mode"><option value="DIRECT">Direct (напрямую)</option><option value="INVITE_LINK">Invite Link (по ссылке)</option></select></div></div>'+
-        '<div><label class="lbl">Целевой канал *</label><input class="input tsm" name="target_channel" placeholder="@my_promo_channel или ID канала"></div>'+
-        '<div><label class="lbl">Аудитория *</label><div class="sel-w"><select class="sel" name="audience_id">'+audOpts+'</select></div></div>'+
-        '<div><label class="lbl">ID аккаунтов (по одному на строку)</label><textarea class="ta" name="account_ids" placeholder="acc-id-1\nacc-id-2" style="min-height:60px"></textarea></div>'+
-      '</div>'+
-      '<div class="dlg-ft"><button type="button" class="btn btn-sm" id="mcl">Отмена</button><button type="submit" class="btn btn-sm btn-primary" id="ms">Создать</button></div></form></div></div>';
-    document.body.insertAdjacentHTML('beforeend',h);mBind('mov','mcl');
-    document.getElementById('invf').onsubmit=async function(e){
-      e.preventDefault();var f=e.target;
-      var name=f.name.value.trim();if(!name){toast('Введите название','error');return;}
-      var target=f.target_channel.value.trim();if(!target){toast('Укажите целевой канал','error');return;}
-      if(!f.audience_id.value){toast('Выберите аудиторию','error');return;}
-      var accIds=f.account_ids.value.trim().split('\n').map(function(s){return s.trim();}).filter(Boolean);
-      var sb=document.getElementById('ms');sb.disabled=true;sb.innerHTML='<span class="spin"></span> Создать';
+  var step=1,maxStep=5;
+  var stepLabels=['Целевой канал','Аудитория','Аккаунты','Safety','Запуск'];
+  var fd={name:'',target_channel:'',mode:'DIRECT',audience_id:'',filter_premium:false,filter_online:false,filter_ai_score_min:0,account_ids:'',flood_behavior:'pause_24h',privacy_threshold:20,emergency_stop_pct:30,ramp_up:false};
+  var audOpts=[];
+  af('/audiences').then(function(r){audOpts=r.items||[];}).catch(function(){}).finally(function(){show();});
+
+  function renderWizard(){
+    var stepsHtml='<div class="wiz-steps">';
+    for(var i=1;i<=maxStep;i++){var cls=i<step?'wiz-done':i===step?'wiz-active':'wiz-pending';stepsHtml+='<div class="wiz-step '+cls+'"><span class="wiz-num">'+(i<step?'&#10003;':i)+'</span><span class="wiz-label">'+stepLabels[i-1]+'</span></div>';}
+    stepsHtml+='</div>';
+    var bodyHtml='<div class="wiz-body sy3">';
+    switch(step){
+      case 1:
+        bodyHtml+='<div><label class="lbl">Название *</label><input class="input tsm" id="wiz-name" value="'+esc(fd.name)+'" placeholder="Инвайт в @my_channel"></div>'+
+          '<div><label class="lbl">Целевой канал * (где ваш аккаунт админ)</label><input class="input tsm" id="wiz-target" value="'+esc(fd.target_channel)+'" placeholder="@my_promo_channel или ID канала"></div>'+
+          '<div><label class="lbl">Режим</label><div class="f g3x mt2"><label class="f ac g1h tsm"><input type="radio" name="wiz-mode" value="DIRECT"'+(fd.mode==='DIRECT'?' checked':'')+'> Direct (напрямую)</label><label class="f ac g1h tsm"><input type="radio" name="wiz-mode" value="INVITE_LINK"'+(fd.mode==='INVITE_LINK'?' checked':'')+'> Invite Link</label></div></div>';
+        break;
+      case 2:
+        bodyHtml+='<div><label class="lbl">Аудитория *</label><div class="sel-w"><select class="sel" id="wiz-aud"><option value="">-- выберите --</option>'+audOpts.map(function(a){return '<option value="'+a.id+'"'+(fd.audience_id===a.id?' selected':'')+'>'+esc(a.name)+' ('+esc(a.total_count||0)+')</option>';}).join('')+'</select></div></div>'+
+          '<div class="txs fsem upc c-m tkw mt3">Фильтры</div>'+
+          '<div class="f g3x mt2"><label class="f ac g1h txs"><input type="checkbox" class="chk" id="wiz-fprem"'+(fd.filter_premium?' checked':'')+'> Только Premium</label><label class="f ac g1h txs"><input type="checkbox" class="chk" id="wiz-fonl"'+(fd.filter_online?' checked':'')+'> Только онлайн</label></div>'+
+          '<div class="mt2"><label class="lbl">AI-score минимум</label><input class="input tsm" type="number" id="wiz-fscore" value="'+fd.filter_ai_score_min+'" min="0" max="100" style="width:8rem"></div>';
+        break;
+      case 3:
+        bodyHtml+='<div><label class="lbl">Аккаунты (только ACTIVE, админ в целевом канале)</label><textarea class="ta" id="wiz-acc" placeholder="Оставьте пустым для авто-выбора всех подходящих аккаунтов" style="min-height:100px">'+esc(fd.account_ids)+'</textarea><div class="txs c-m mt1">Будут использованы только аккаунты со статусом ACTIVE, которые являются админами в указанном канале</div></div>';
+        break;
+      case 4:
+        bodyHtml+='<div><label class="lbl">Поведение при FloodWait</label><div class="sel-w"><select class="sel" id="wiz-flood"><option value="pause_24h"'+(fd.flood_behavior==='pause_24h'?' selected':'')+'>Пауза 24ч</option><option value="pause_48h"'+(fd.flood_behavior==='pause_48h'?' selected':'')+'>Пауза 48ч</option><option value="switch_account"'+(fd.flood_behavior==='switch_account'?' selected':'')+'>Переключить аккаунт</option></select></div></div>'+
+          '<div class="g g2 mt3"><div><label class="lbl">Порог PrivacyRestricted (%)</label><input class="input tsm" type="number" id="wiz-priv" value="'+fd.privacy_threshold+'" min="1" max="100"><div class="txs c-m mt1">Остановка если % приватных профилей превысит значение</div></div><div><label class="lbl">Порог аварийной остановки (%)</label><input class="input tsm" type="number" id="wiz-estop" value="'+fd.emergency_stop_pct+'" min="1" max="100"><div class="txs c-m mt1">Остановка при превышении % ошибок</div></div></div>'+
+          '<div class="mt3"><label class="f ac g2x" style="cursor:pointer"><input type="checkbox" class="chk" id="wiz-ramp"'+(fd.ramp_up?' checked':'')+'><span class="tsm">Ramp-up (постепенное увеличение)</span></label></div>';
+        break;
+      case 5:
+        var audName='--',audSize=0;audOpts.forEach(function(a){if(a.id===fd.audience_id){audName=a.name;audSize=a.total_count||0;}});
+        var accCount=fd.account_ids?fd.account_ids.split('\n').filter(function(s){return s.trim();}).length:0;
+        var attemptsPerDay=180;
+        var estDays=accCount>0?Math.ceil(audSize/(accCount*attemptsPerDay)):Math.ceil(audSize/attemptsPerDay);
+        var expSuccess=Math.round(audSize*0.6);
+        bodyHtml+='<div class="txs fsem upc c-m tkw mb2">Прогноз инвайтинга</div><div class="wiz-cost">'+
+          '<div class="wiz-cost-row"><span>Название</span><span class="fbol">'+esc(fd.name||'--')+'</span></div>'+
+          '<div class="wiz-cost-row"><span>Целевой канал</span><span>'+esc(fd.target_channel||'--')+'</span></div>'+
+          '<div class="wiz-cost-row"><span>Аудитория</span><span>'+esc(audName)+' ('+audSize+')</span></div>'+
+          '<div class="wiz-cost-row"><span>Кандидатов</span><span class="fbol">'+audSize+'</span></div>'+
+          '<div class="wiz-cost-row"><span>Аккаунтов</span><span>'+(accCount||'авто-выбор')+'</span></div>'+
+          '<div class="wiz-cost-row"><span>Попыток / день</span><span>~'+attemptsPerDay+'</span></div>'+
+          '<div class="wiz-cost-row"><span>ETA</span><span class="fbol">~'+estDays+' дней</span></div>'+
+          '<div class="wiz-cost-row wiz-cost-total"><span>Ожидаемый успех (~60%)</span><span>~'+expSuccess+'</span></div>'+
+        '</div>';
+        break;
+    }
+    bodyHtml+='</div>';
+    var footerHtml='<div class="dlg-ft">'+(step>1?'<button class="btn btn-sm" id="wiz-prev">\u2190 Назад</button>':'<button class="btn btn-sm" id="mcl">Отмена</button>')+(step<maxStep?'<button class="btn btn-sm btn-primary" id="wiz-next">Далее \u2192</button>':'<button class="btn btn-sm btn-primary" id="wiz-submit">\u25B6 Запустить</button>')+'</div>';
+    return stepsHtml+bodyHtml+footerHtml;
+  }
+  function saveStep(){
+    switch(step){
+      case 1:var n=document.getElementById('wiz-name');if(n)fd.name=n.value.trim();var t=document.getElementById('wiz-target');if(t)fd.target_channel=t.value.trim();var m=document.querySelector('input[name="wiz-mode"]:checked');if(m)fd.mode=m.value;break;
+      case 2:var a=document.getElementById('wiz-aud');if(a)fd.audience_id=a.value;var fp=document.getElementById('wiz-fprem');if(fp)fd.filter_premium=fp.checked;var fo=document.getElementById('wiz-fonl');if(fo)fd.filter_online=fo.checked;var fs=document.getElementById('wiz-fscore');if(fs)fd.filter_ai_score_min=parseInt(fs.value)||0;break;
+      case 3:var ac=document.getElementById('wiz-acc');if(ac)fd.account_ids=ac.value;break;
+      case 4:var fl=document.getElementById('wiz-flood');if(fl)fd.flood_behavior=fl.value;var pr=document.getElementById('wiz-priv');if(pr)fd.privacy_threshold=parseInt(pr.value)||20;var es=document.getElementById('wiz-estop');if(es)fd.emergency_stop_pct=parseInt(es.value)||30;var rp=document.getElementById('wiz-ramp');if(rp)fd.ramp_up=rp.checked;break;
+    }
+  }
+  function show(){
+    var h='<div class="dlg-ov" id="mov"><div class="dlg dlg-xl"><div class="dlg-hd"><div class="dlg-tt">'+ic('users')+' Новый инвайтинг &mdash; шаг '+step+' из '+maxStep+'</div></div><div class="dlg-bd" id="wiz-content">'+renderWizard()+'</div></div></div>';
+    document.body.insertAdjacentHTML('beforeend',h);bind();
+  }
+  function update(){var c=document.getElementById('wiz-content');if(!c)return;c.innerHTML=renderWizard();bind();}
+  function bind(){
+    var ov=document.getElementById('mov');if(!ov)return;
+    ov.onclick=function(e){if(e.target===ov)mClose('mov');};
+    var cl=document.getElementById('mcl');if(cl)cl.onclick=function(){mClose('mov');};
+    function ek(e){if(e.key==='Escape'){mClose('mov');document.removeEventListener('keydown',ek);}}document.addEventListener('keydown',ek);
+    var prev=document.getElementById('wiz-prev');if(prev)prev.onclick=function(){saveStep();step--;update();};
+    var next=document.getElementById('wiz-next');if(next)next.onclick=function(){saveStep();if(step===1&&!fd.name){toast('Введите название','error');return;}if(step===1&&!fd.target_channel){toast('Укажите целевой канал','error');return;}if(step===2&&!fd.audience_id){toast('Выберите аудиторию','error');return;}step++;update();};
+    var sub=document.getElementById('wiz-submit');if(sub)sub.onclick=async function(){
+      sub.disabled=true;sub.innerHTML='<span class="spin"></span> Запуск...';
+      var accIds=fd.account_ids.trim().split('\n').map(function(s){return s.trim();}).filter(Boolean);
       try{
-        await ap('/invite-campaigns',{name:name,mode:f.mode.value,target_channel_id:target,target_channel_title:target,audience_id:f.audience_id.value,account_ids:accIds.length?accIds:undefined,config:{}});
+        await ap('/invite-campaigns',{name:fd.name,mode:fd.mode,target_channel_id:fd.target_channel,target_channel_title:fd.target_channel,audience_id:fd.audience_id,account_ids:accIds.length?accIds:undefined,config:{filter_premium:fd.filter_premium,filter_online:fd.filter_online,filter_ai_score_min:fd.filter_ai_score_min,flood_behavior:fd.flood_behavior,privacy_threshold:fd.privacy_threshold,emergency_stop_pct:fd.emergency_stop_pct,ramp_up:fd.ramp_up}});
         toast('Кампания создана','success');mClose('mov');invLoaded=false;await ldInv();if(S.sec==='inviting')rInviting(document.getElementById('mc'));
-      }catch(er){toast(er.message,'error');sb.disabled=false;sb.innerHTML='Создать';}
+      }catch(er){toast(er.message,'error');sub.disabled=false;sub.innerHTML='\u25B6 Запустить';}
     };
-  });
+  }
 }
 
 /* ── 17. Templates ── */
@@ -3027,8 +3697,19 @@ function rTemplates(el){
     };
   });
 }
+function tplPreview(text){
+  if(!text)return '';
+  return text.replace(/\{first_name\}/g,'<span style="color:var(--blue-500);font-weight:600">Алексей</span>')
+    .replace(/\{last_name\}/g,'<span style="color:var(--blue-500);font-weight:600">Иванов</span>')
+    .replace(/\{username\}/g,'<span style="color:var(--blue-500);font-weight:600">@alexey_crypto</span>')
+    .replace(/\{full_name\}/g,'<span style="color:var(--blue-500);font-weight:600">Алексей Иванов</span>')
+    .replace(/\{channel_name\}/g,'<span style="color:var(--blue-500);font-weight:600">Crypto Chat RU</span>')
+    .replace(/\{date\}/g,'<span style="color:var(--blue-500);font-weight:600">'+new Date().toLocaleDateString('ru-RU')+'</span>')
+    .replace(/\{product\}/g,'<span style="color:var(--blue-500);font-weight:600">Atlas System</span>');
+}
 function rTplDetail(el){
   var t=tplDetail;var vars=t.variants||[];
+  var tplVars=['{first_name}','{last_name}','{username}','{full_name}','{channel_name}','{date}','{product}'];
   el.innerHTML='<div class="sy4">'+
     '<div class="f ac jb">'+
       '<div class="f ac g3x"><button class="btn btn-sm" id="tpl-back">'+ic('back')+' Назад</button><h2 class="tlg fxb">'+esc(t.name||'Шаблон')+'</h2>'+
@@ -3038,12 +3719,28 @@ function rTplDetail(el){
     '</div>'+
     (t.description?'<div class="txs c-m">'+esc(t.description)+'</div>':'')+
     (t.tags&&t.tags.length?'<div class="f g1h fw">'+t.tags.map(function(tg){return '<span class="badge b-muted">'+esc(tg)+'</span>';}).join('')+'</div>':'')+
+    '<div class="card"><div class="card-head"><div class="f ac jb"><div class="card-title">Переменные</div></div></div><div class="card-body"><div class="f g1h fw">'+
+      tplVars.map(function(v){return '<span class="badge b-blue" style="cursor:pointer;user-select:all" title="Нажмите для копирования">'+v+'</span>';}).join('')+
+    '</div><div class="txs c-m mt2">Используйте переменные в тексте шаблона. Они будут заменены реальными данными при отправке.</div></div></div>'+
     '<div class="card"><div class="card-head"><div class="card-title">Варианты ('+vars.length+')</div></div><div class="card-body">'+
       (vars.length>0
-        ?'<div class="sy2">'+vars.map(function(v,i){
-          return '<div class="f ac jb" style="padding:0.75rem;background:var(--muted-bg);border-radius:var(--radius-md)">'+
-            '<div class="f1 mw0"><div class="txs fbol c-m">Вариант '+(i+1)+'</div><div class="tsm mt1" style="white-space:pre-wrap">'+esc(v.text||v.content||'')+'</div></div>'+
-            '<button class="btn btn-sm btn-danger tpl-del-var" data-vid="'+v.id+'" style="flex-shrink:0;margin-left:0.75rem">'+ic('trash')+'</button>'+
+        ?'<div class="sy3">'+vars.map(function(v,i){
+          var text=v.text||v.content||'';
+          var hasVars=/\{[a-z_]+\}/.test(text);
+          var ctr=v.ctr!=null?v.ctr:v.click_rate!=null?v.click_rate:null;
+          var sent=v.sent_count!=null?v.sent_count:v.usage_count||0;
+          var replied=v.replied_count||0;
+          return '<div style="padding:1rem;background:var(--muted-bg);border-radius:var(--radius-md)">'+
+            '<div class="f ac jb mb2"><div class="f ac g2x"><span class="txs fbol c-m">Вариант '+(i+1)+'</span>'+(hasVars?'<span class="badge b-blue" style="font-size:0.6rem">переменные</span>':'')+'</div>'+
+              '<div class="f ac g2x">'+
+                (ctr!=null?'<span class="txs fbol" style="color:var(--emerald-500)">CTR '+ctr+'%</span>':'')+
+                '<span class="txs c-m">'+sent+' отпр.</span>'+
+                (replied?'<span class="txs c-m">'+replied+' отв.</span>':'')+
+                '<button class="btn btn-sm btn-danger tpl-del-var" data-vid="'+v.id+'" style="flex-shrink:0">'+ic('trash')+'</button>'+
+              '</div>'+
+            '</div>'+
+            '<div class="tsm" style="white-space:pre-wrap">'+esc(text)+'</div>'+
+            (hasVars?'<div class="sep"></div><div class="txs fsem upc c-m tkw mb1">Предпросмотр</div><div class="tsm" style="white-space:pre-wrap;padding:0.75rem;background:var(--card);border:1px solid var(--border);border-radius:var(--radius-md)">'+tplPreview(text)+'</div>':'')+
           '</div>';
         }).join('')+'</div>'
         :'<div class="txs c-m" style="text-align:center;padding:1.5rem 0">Нет вариантов. Добавьте первый вариант текста.</div>'
