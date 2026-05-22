@@ -4,7 +4,7 @@ import { withErrorHandler, ApiError } from "@/lib/api-error";
 import { checkMembership } from "@/lib/services/member.service";
 import { NextResponse } from "next/server";
 
-type Params = { params: { id: string; memberId: string } };
+type Params = { params: { id: string; userId: string } };
 
 export async function GET(request: Request, { params }: Params) {
   return withErrorHandler(async () => {
@@ -12,7 +12,7 @@ export async function GET(request: Request, { params }: Params) {
     if (!session) throw new ApiError("Не авторизован", "UNAUTHORIZED", 401);
 
     const workspaceId = params.id;
-    const memberId = params.memberId;
+    const memberId = params.userId;
 
     // Check requester is OWNER or ADMIN (only owners/admins can view member activity)
     const role = await checkMembership(workspaceId, session.user.id);
