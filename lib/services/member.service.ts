@@ -35,9 +35,14 @@ export async function addMember(
   requesterId: string,
 ): Promise<{ userId: string; login: string; email: string; role: MemberRole }> {
   const membership = await checkMembership(workspaceId, requesterId);
-  if (membership !== "OWNER") {
+  const requester = await db.user.findUnique({
+    where: { id: requesterId },
+    select: { role: true },
+  });
+  const isGlobalAdmin = requester?.role === "ADMIN";
+  if (membership !== "OWNER" && !isGlobalAdmin) {
     throw new ApiError(
-      "Только владелец может добавлять участников",
+      "Только владелец или админ может добавлять участников",
       "FORBIDDEN",
       403,
     );
@@ -124,9 +129,14 @@ export async function removeMember(
   requesterId: string,
 ): Promise<void> {
   const requesterMembership = await checkMembership(workspaceId, requesterId);
-  if (requesterMembership !== "OWNER") {
+  const requesterUser = await db.user.findUnique({
+    where: { id: requesterId },
+    select: { role: true },
+  });
+  const isGlobalAdmin = requesterUser?.role === "ADMIN";
+  if (requesterMembership !== "OWNER" && !isGlobalAdmin) {
     throw new ApiError(
-      "Только владелец может удалять участников",
+      "Только владелец или админ может удалять участников",
       "FORBIDDEN",
       403,
     );
