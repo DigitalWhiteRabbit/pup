@@ -1225,8 +1225,8 @@ export function getTelegramBot(): TelegramBot | null {
     return null;
   }
 
-  if (globalForBot.__tgBotInitialized && globalForBot.__tgBot) {
-    return globalForBot.__tgBot;
+  if (globalForBot.__tgBotInitialized) {
+    return globalForBot.__tgBot || null;
   }
 
   // Stop previous instance if exists (handles hot reload)
@@ -1239,8 +1239,9 @@ export function getTelegramBot(): TelegramBot | null {
     globalForBot.__tgBot = undefined;
   }
 
-  // Wait a bit so Telegram API releases the previous polling session
+  // Wait for Telegram API to release the previous polling session
   setTimeout(() => {
+    if (globalForBot.__tgBot) return; // already created by another call
     const bot = new TelegramBot(token!, { polling: { interval: 1000 } });
     globalForBot.__tgBot = bot;
     globalForBot.__tgBotInitialized = true;
