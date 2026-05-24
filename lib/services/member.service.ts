@@ -1,13 +1,22 @@
 import "server-only";
 import { db } from "@/lib/db";
 import { ApiError } from "@/lib/api-error";
-import { notify } from "./notification.service";
-import {
-  logActivity,
-  notifyCriticalEvent,
-  generateSummary,
-} from "./logger.service";
 import type { MemberRole } from "@prisma/client";
+
+// Dynamic imports to avoid webpack bundling telegram/mailparser chain
+// Hidden from webpack static analysis via Function constructor
+async function getLogger(): Promise<typeof import("./logger.service")> {
+  const p = "./logger.service";
+  return Function("p", "return import(p)")(p) as Promise<
+    typeof import("./logger.service")
+  >;
+}
+async function getNotifier(): Promise<typeof import("./notification.service")> {
+  const p = "./notification.service";
+  return Function("p", "return import(p)")(p) as Promise<
+    typeof import("./notification.service")
+  >;
+}
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -37,7 +46,7 @@ export async function addMember(
   const membership = await checkMembership(workspaceId, requesterId);
   const requester = await db.user.findUnique({
     where: { id: requesterId },
-    select: { role: true },
+    select: { role: true, login: true },
   });
   const isGlobalAdmin = requester?.role === "ADMIN";
   if (membership !== "OWNER" && !isGlobalAdmin) {
@@ -81,32 +90,38 @@ export async function addMember(
     data: { workspaceId, userId: user.id, role: "MEMBER" },
   });
 
-  // Auto-add to General chat channel
-  void import("./chat-internal/channel.service")
-    .then(({ addUserToGeneralChannel }) =>
+  // Auto-add to General chat channel (hidden from webpack)
+  void (
+    Function(
+      "p",
+      "return import(p)",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    )("./chat-internal/channel.service") as Promise<any>
+  )
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .then(({ addUserToGeneralChannel }: any) =>
       addUserToGeneralChannel(workspaceId, user.id),
     )
     .catch(() => {});
 
-  await notify({
+  await (
+    await getNotifier()
+  ).notify({
     type: "PROJECT_ADDED",
     recipientId: user.id,
     actorId: requesterId,
     workspaceId,
   });
 
-  const requester = await db.user.findUnique({
-    where: { id: requesterId },
-    select: { login: true },
-  });
-
-  await logActivity({
+  await (
+    await getLogger()
+  ).logActivity({
     workspaceId,
     actorId: requesterId,
     action: "MEMBER_ADDED",
     entityType: "User",
     entityId: user.id,
-    summary: generateSummary("MEMBER_ADDED", {
+    summary: (await getLogger()).generateSummary("MEMBER_ADDED", {
       actorLogin: requester?.login,
       targetLogin: user.login,
     }),
@@ -183,20 +198,22 @@ export async function removeMember(
     }),
   ]);
 
-  await logActivity({
+  await (
+    await getLogger()
+  ).logActivity({
     workspaceId,
     actorId: requesterId,
     action: "MEMBER_REMOVED",
     entityType: "User",
     entityId: targetUserId,
-    summary: generateSummary("MEMBER_REMOVED", {
+    summary: (await getLogger()).generateSummary("MEMBER_REMOVED", {
       actorLogin: requester?.login,
       targetLogin: targetUser?.login,
     }),
     metadata: { targetUserId, targetLogin: targetUser?.login },
   });
 
-  void notifyCriticalEvent({
+  void (await getLogger()).notifyCriticalEvent({
     action: "MEMBER_REMOVED",
     removedUserId: targetUserId,
     workspaceName: workspace?.name ?? "?",
@@ -339,13 +356,15 @@ export async function setMemberModuleAccess(
     }),
   ]);
 
-  await logActivity({
+  await (
+    await getLogger()
+  ).logActivity({
     workspaceId,
     actorId: requesterId,
     action: "MEMBER_ROLE_CHANGED",
     entityType: "User",
     entityId: targetUserId,
-    summary: generateSummary("MEMBER_ROLE_CHANGED", {
+    summary: (await getLogger()).generateSummary("MEMBER_ROLE_CHANGED", {
       actorLogin: requester?.login,
       targetLogin: targetUser?.login,
     }),
