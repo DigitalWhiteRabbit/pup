@@ -65,6 +65,23 @@ async function enrichLead(lead, db) {
         const videoCount = ch.statistics?.videoCount;
 
         updates.channel_about_text = about.slice(0, 2000);
+
+        // Re-extract contacts from about text if lead has none
+        if (!lead.email || !lead.telegram) {
+          const emailRx = /[\w.+\-]+@[\w\-]+\.[a-zA-Z]{2,}/g;
+          const tgLinkRx =
+            /(?:https?:\/\/)?(?:t(?:elegram)?\.me)\/([a-zA-Z0-9_]{3,})/gi;
+          const tgAtRx =
+            /(?:telegram|\btg\b)[\s\S]{0,30}?@([a-zA-Z0-9_]{3,})/gi;
+          const emails = about.match(emailRx) || [];
+          const tgHandles = [];
+          let mm;
+          while ((mm = tgLinkRx.exec(about)) !== null) tgHandles.push(mm[1]);
+          while ((mm = tgAtRx.exec(about)) !== null) tgHandles.push(mm[1]);
+          if (emails.length > 0 && !lead.email) updates.email = emails[0];
+          if (tgHandles.length > 0 && !lead.telegram)
+            updates.telegram = [...new Set(tgHandles)].join(";");
+        }
         if (keywords) updates.channel_tags = keywords.slice(0, 1000);
         if (topics) updates.main_category = topics.slice(0, 500);
         if (language && !lead.channel_language)

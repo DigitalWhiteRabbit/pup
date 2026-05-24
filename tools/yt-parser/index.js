@@ -295,6 +295,9 @@ function extractContacts(text) {
   const tgRx = /(?:https?:\/\/)?(?:t(?:elegram)?\.me)\/([a-zA-Z0-9_]{3,})/gi;
   let m;
   while ((m = tgRx.exec(text)) !== null) contacts.telegram.push(m[1]);
+  // Telegram: @username preceded by "telegram" / "tg" context (within 30 chars)
+  const tgAtRx = /(?:telegram|\btg\b)[\s\S]{0,30}?@([a-zA-Z0-9_]{3,})/gi;
+  while ((m = tgAtRx.exec(text)) !== null) contacts.telegram.push(m[1]);
   contacts.telegram = [...new Set(contacts.telegram)];
 
   // Instagram
