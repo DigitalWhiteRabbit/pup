@@ -2,9 +2,11 @@
  * Lead enrichment — fetch additional data from YouTube API before pitch generation.
  * Loads: last 10 videos (title, description, views, likes, tags, duration),
  * channel about, keywords, topicCategories.
- * Cost: ~3 API units per lead.
+ * Дополнительно: InnerTube API для извлечения ссылок из вкладки "О канале" (бесплатно).
+ * Cost: ~3 API units per lead + 1 InnerTube запрос.
  */
 const { google } = require("googleapis");
+const { fetchChannelAbout, extractContactsFromLinks } = require("./innertube");
 
 const API_KEY = process.env.YOUTUBE_API_KEY;
 
@@ -132,6 +134,60 @@ async function enrichLead(lead, db) {
           `[enrich] Loaded ${videos.length} videos for ${lead.channel_name}`,
         );
       }
+    }
+
+    // 3. InnerTube — ссылки из вкладки "О канале" (бесплатно, без квоты)
+    try {
+      const aboutData = await fetchChannelAbout(channelId);
+      if (aboutData && aboutData.links.length > 0) {
+        const contacts = extractContactsFromLinks(aboutData.links);
+
+        // Обновляем контакты только если пустые
+        if (contacts.telegram && !lead.telegram && !updates.telegram) {
+          updates.telegram = contacts.telegram;
+        }
+        if (contacts.email && !lead.email && !updates.email) {
+          updates.email = contacts.email;
+        }
+
+        // Обновляем страну если не задана
+        if (aboutData.country && !lead.country && !updates.country) {
+          updates.country = aboutData.country;
+        }
+
+        // Сохраняем все ссылки в raw_contacts (мержим с существующими)
+        let existingContacts = {};
+        try {
+          existingContacts = lead.raw_contacts
+            ? JSON.parse(lead.raw_contacts)
+            : {};
+        } catch {
+          /* невалидный JSON — перезаписываем */
+        }
+
+        const mergedContacts = {
+          ...existingContacts,
+          // Обновляем только пустые поля
+          telegram: existingContacts.telegram || contacts.telegram || "",
+          instagram: existingContacts.instagram || contacts.instagram || "",
+          twitter: existingContacts.twitter || contacts.twitter || "",
+          email: existingContacts.email || contacts.email || "",
+          website: existingContacts.website || contacts.website || "",
+          // Сырые ссылки из InnerTube
+          innertube_links: aboutData.links,
+        };
+        updates.raw_contacts = JSON.stringify(mergedContacts);
+
+        console.log(
+          `[innertube] Контакты для ${lead.channel_name}: tg=${contacts.telegram || "—"}, email=${contacts.email || "—"}, ig=${contacts.instagram || "—"}, tw=${contacts.twitter || "—"}, site=${contacts.website || "—"}`,
+        );
+      }
+    } catch (e) {
+      // InnerTube не должен ломать основной flow
+      console.error(
+        `[innertube] Ошибка обогащения для lead #${lead.id}:`,
+        e.message,
+      );
     }
 
     // Save to DB
