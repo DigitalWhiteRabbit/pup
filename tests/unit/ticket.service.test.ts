@@ -256,12 +256,42 @@ describe("createTicket", () => {
 });
 
 describe("changeTicketStatus", () => {
-  it("rejects invalid transition CLOSED → OPEN", async () => {
+  it("allows reopening CLOSED → OPEN", async () => {
+    mockTicketFindUnique
+      .mockResolvedValueOnce({ ...baseTicket, status: "CLOSED" })
+      .mockResolvedValueOnce({
+        ...baseTicket,
+        status: "OPEN",
+        closedAt: null,
+        resolvedAt: null,
+        resolvedById: null,
+        messages: [
+          {
+            id: "msg-s",
+            authorType: "SYSTEM",
+            content: "Статус изменён: CLOSED → OPEN",
+            systemAction: "STATUS_CHANGED",
+            createdAt: new Date(),
+            managerAuthor: null,
+            customerAuthor: null,
+          },
+        ],
+        collaborators: [],
+      });
+
+    const { changeTicketStatus } =
+      await import("@/lib/services/tickets/ticket.service");
+    const result = await changeTicketStatus("t-1", "OPEN", "user-1", "ADMIN");
+    expect(result.status).toBe("OPEN");
+    expect(mockTicketUpdate).toHaveBeenCalled();
+  });
+
+  it("rejects invalid transition CLOSED → IN_PROGRESS", async () => {
     mockTicketFindUnique.mockResolvedValue({ ...baseTicket, status: "CLOSED" });
     const { changeTicketStatus } =
       await import("@/lib/services/tickets/ticket.service");
     await expect(
-      changeTicketStatus("t-1", "OPEN", "user-1", "ADMIN"),
+      changeTicketStatus("t-1", "IN_PROGRESS", "user-1", "ADMIN"),
     ).rejects.toThrow();
   });
 

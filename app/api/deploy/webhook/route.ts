@@ -64,15 +64,17 @@ export async function POST(req: NextRequest) {
   const { onDeployStarted } = await import("@/lib/services/telegram/deploy");
   void onDeployStarted(commitSha, commitMsg, author);
 
-  // Trigger actual deploy via shell script
-  const { exec } = await import("child_process");
-  exec("/var/www/deploy.sh", { cwd: "/var/www/pup" }, (err, stdout, stderr) => {
-    if (err) {
-      console.error("[Deploy] deploy.sh failed:", stderr);
-    } else {
-      console.log("[Deploy] deploy.sh completed:", stdout.slice(-100));
-    }
+  // Trigger deploy via nohup detached process.
+  // deploy.sh MUST survive pup being stopped (pm2 stop pup happens inside deploy.sh).
+  // Using spawn with detached + unref so the child process is fully orphaned.
+  const { spawn } = await import("child_process");
+  const child = spawn("nohup", ["/var/www/deploy.sh"], {
+    cwd: "/var/www/pup",
+    detached: true,
+    stdio: "ignore",
   });
+  child.unref();
+  console.log(`[Deploy] deploy.sh spawned detached (pid ${child.pid})`);
 
   return NextResponse.json({ ok: true, commit: commitSha.slice(0, 7) });
 }
