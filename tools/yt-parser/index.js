@@ -874,6 +874,84 @@ async function processChannel(channelData, options = {}) {
   };
 }
 
+// ─── Проверка релевантности канала ключевому запросу ────────────────────────
+// Канал релевантен если хотя бы одно слово из запроса встречается
+// в тегах, заголовках видео, описании канала или описаниях видео.
+// Короткие слова (≤2 символа) и стоп-слова игнорируются.
+
+const RELEVANCE_STOP_WORDS = new Set([
+  "the",
+  "and",
+  "for",
+  "how",
+  "with",
+  "from",
+  "this",
+  "that",
+  "what",
+  "your",
+  "are",
+  "was",
+  "has",
+  "have",
+  "will",
+  "can",
+  "not",
+  "all",
+  "but",
+  "get",
+  "its",
+  "you",
+  "our",
+  "his",
+  "her",
+  "best",
+  "top",
+  "new",
+]);
+
+function checkKeywordRelevance(channel, keyword) {
+  if (!keyword) return true; // нет ключевого слова — пропускаем проверку
+
+  // Разбиваем запрос на значимые слова (>2 символов, не стоп-слова)
+  const terms = keyword
+    .toLowerCase()
+    .split(/[\s,;+]+/)
+    .filter((t) => t.length > 2 && !RELEVANCE_STOP_WORDS.has(t));
+
+  if (terms.length === 0) return true;
+
+  // Собираем весь текст канала для проверки
+  const haystack = [
+    channel.channel_name || "",
+    channel.category || "",
+    channel.description_snippet || "",
+    channel.channel_about_text || "",
+    channel.main_category || "",
+  ];
+
+  // Добавляем заголовки и описания видео
+  try {
+    const videos = JSON.parse(channel.last_videos_json || "[]");
+    for (const v of videos) {
+      if (v.title) haystack.push(v.title);
+      if (v.description) haystack.push(v.description);
+      if (v.tags) haystack.push(v.tags.join(" "));
+    }
+  } catch {
+    /* невалидный JSON */
+  }
+
+  const text = haystack.join(" ").toLowerCase();
+
+  // Считаем сколько терминов нашлось
+  const matchCount = terms.filter((t) => text.includes(t)).length;
+
+  // Требуем хотя бы 1 совпадение (или 2+ если терминов много)
+  const threshold = terms.length >= 3 ? 2 : 1;
+  return matchCount >= threshold;
+}
+
 // ─── Фильтрация ─────────────────────────────────────────────────────────────
 
 function applyFilters(channel, options) {
@@ -1230,6 +1308,7 @@ async function main() {
         merged.keyword = [...new Set([...existing, ...kws])].join(";");
       }
       if (!applyFilters(merged, opts)) continue;
+      if (!checkKeywordRelevance(merged, sourceQuery)) continue;
       if (opts.requireContacts && !hasAnyContact(merged)) continue;
       filtered.push(merged);
       added++;
@@ -1273,6 +1352,12 @@ async function main() {
         if (!applyFilters(processed, opts)) {
           console.log(
             `    ✗ filter: ${processed.channel_name} (subs=${processed.subscribers}, eng=${(processed.engagement_rate * 100).toFixed(1)}%)`,
+          );
+          continue;
+        }
+        if (!checkKeywordRelevance(processed, sourceQuery)) {
+          console.log(
+            `    ✗ irrelevant: ${processed.channel_name} (keyword: ${sourceQuery})`,
           );
           continue;
         }
