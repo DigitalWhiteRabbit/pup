@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -9,6 +9,10 @@ import {
   useSensor,
   useSensors,
   closestCorners,
+  pointerWithin,
+  rectIntersection,
+  getFirstCollision,
+  type CollisionDetection,
   type DragStartEvent,
   type DragEndEvent,
 } from "@dnd-kit/core";
@@ -72,6 +76,35 @@ export function Board({ initialData, workspaceId }: Props) {
       coordinateGetter: sortableKeyboardCoordinates,
     }),
   );
+
+  // Multi-container collision strategy:
+  // 1. pointerWithin — works on empty columns (precise target under cursor)
+  // 2. rectIntersection — fallback when pointer outside any droppable
+  // 3. closestCorners — final fallback for edge cases
+  // For task drags, prefer task collisions, but fall back to column collisions
+  // (otherwise dropping into an empty column gets stolen by a nearby filled column).
+  const collisionDetectionStrategy: CollisionDetection = useCallback((args) => {
+    const activeType = args.active.data.current?.type;
+
+    // Column-on-column reorder uses pure closestCorners (horizontal list)
+    if (activeType === "column") {
+      return closestCorners(args);
+    }
+
+    // Task drag: try pointerWithin first — catches empty columns precisely
+    const pointerCollisions = pointerWithin(args);
+    if (pointerCollisions.length > 0) {
+      const first = getFirstCollision(pointerCollisions);
+      if (first) return pointerCollisions;
+    }
+
+    // Pointer not inside any droppable — use rectIntersection
+    const rectCollisions = rectIntersection(args);
+    if (rectCollisions.length > 0) return rectCollisions;
+
+    // Edge case: nothing intersects — closest corner
+    return closestCorners(args);
+  }, []);
 
   // ─── Move task mutation (T046) ─────────────────────────────────────────────
   const moveTaskMutation = useMutation({
@@ -327,7 +360,7 @@ export function Board({ initialData, workspaceId }: Props) {
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={closestCorners}
+      collisionDetection={collisionDetectionStrategy}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >
