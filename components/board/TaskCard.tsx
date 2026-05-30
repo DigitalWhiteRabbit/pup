@@ -81,11 +81,13 @@ export function TaskCard({ task, columnId, onClick }: Props) {
     <div
       ref={setNodeRef}
       style={style}
-      className={`group rounded-lg border bg-card p-3 shadow-sm cursor-pointer hover:shadow-md transition-shadow select-none ${
-        isDragging ? "opacity-40 ring-2 ring-primary" : ""
+      {...attributes}
+      {...listeners}
+      className={`group rounded-lg border bg-card p-3 shadow-sm hover:shadow-md transition-shadow select-none ${
+        isDragging
+          ? "opacity-40 ring-2 ring-primary cursor-grabbing"
+          : "cursor-grab active:cursor-grabbing"
       }`}
-      role="button"
-      tabIndex={0}
       aria-label={`Задача: ${task.title}`}
       onClick={onClick}
       onKeyDown={(e) => {
@@ -96,13 +98,10 @@ export function TaskCard({ task, columnId, onClick }: Props) {
       }}
     >
       <div className="flex items-start gap-2">
-        {/* Drag handle */}
+        {/* Visual drag hint (icon only — actual drag is on the whole card) */}
         <div
-          {...attributes}
-          {...listeners}
-          className="mt-0.5 shrink-0 cursor-grab active:cursor-grabbing text-muted-foreground opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
-          aria-label={`Перетащить задачу: ${task.title}`}
-          onClick={(e) => e.stopPropagation()}
+          className="mt-0.5 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-60 transition-opacity"
+          aria-hidden="true"
         >
           <GripVertical className="h-4 w-4" />
         </div>
