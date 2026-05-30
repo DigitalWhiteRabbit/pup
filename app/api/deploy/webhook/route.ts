@@ -64,17 +64,19 @@ export async function POST(req: NextRequest) {
   const { onDeployStarted } = await import("@/lib/services/telegram/deploy");
   void onDeployStarted(commitSha, commitMsg, author);
 
-  // Trigger deploy via nohup detached process.
+  // Trigger deploy via setsid so the child becomes its own session leader.
   // deploy.sh MUST survive pup being stopped (pm2 stop pup happens inside deploy.sh).
-  // Using spawn with detached + unref so the child process is fully orphaned.
+  // nohup + detached:true is NOT enough — pm2 stop kills the whole process group,
+  // and "detached" in Node only puts the child in its own *group*, not session.
+  // setsid creates a brand-new session, immune to PM2's group-targeted SIGTERM.
   const { spawn } = await import("child_process");
-  const child = spawn("nohup", ["/var/www/deploy.sh"], {
+  const child = spawn("setsid", ["nohup", "/var/www/deploy.sh"], {
     cwd: "/var/www/pup",
     detached: true,
     stdio: "ignore",
   });
   child.unref();
-  console.log(`[Deploy] deploy.sh spawned detached (pid ${child.pid})`);
+  console.log(`[Deploy] deploy.sh spawned via setsid (pid ${child.pid})`);
 
   return NextResponse.json({ ok: true, commit: commitSha.slice(0, 7) });
 }
