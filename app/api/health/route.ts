@@ -1,6 +1,11 @@
 import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
 
+// Force per-request execution. Without this, Next.js statically caches this
+// GET handler at build time, freezing the timestamp and the DB check — the
+// probe would keep returning a stale "ok" even if the DB later goes down.
+export const dynamic = "force-dynamic";
+
 /**
  * GET /api/health
  *
