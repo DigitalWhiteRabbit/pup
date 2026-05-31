@@ -1,32 +1,26 @@
 import "server-only";
 import { db } from "@/lib/db";
 import { ApiError } from "@/lib/api-error";
-import {
-  logActivity,
-  notifyCriticalEvent,
-  generateSummary,
-} from "./logger.service";
-import { checkMembership } from "./member.service";
+import { checkMembership } from "./membership-check";
 import type { MemberRole } from "@prisma/client";
+
+// Dynamic imports to avoid webpack chain through telegram/mailparser
+async function getLogger() {
+  const p = "./logger.service";
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return Function("p", "return import(p)")(p) as any;
+}
 
 // ─── Re-exports for backward compatibility ───────────────────────────────────
 // Consumers can keep importing from workspace.service without changes.
 
-export { checkMembership } from "./member.service";
-export type { MembershipRole } from "./member.service";
-export { addMember, removeMember } from "./member.service";
-export {
-  getMemberModuleAccess,
-  canAccessModule,
-  checkModuleAccess,
-  setMemberModuleAccess,
-} from "./member.service";
-export {
-  createColumn,
-  renameColumn,
-  reorderColumn,
-  deleteColumn,
-} from "./column.service";
+export { checkMembership } from "./membership-check";
+export type { MembershipRole } from "./membership-check";
+// NOTE: addMember, removeMember, module access functions are in member.service.ts
+// Do NOT re-export them here — it creates a webpack chain through telegram/mailparser
+// Import directly from member.service.ts where needed (only in server-side code)
+// NOTE: column functions are in column.service.ts
+// Do NOT re-export — same webpack chain issue as member.service
 
 // ─── Slug generation ─────────────────────────────────────────────────────────
 
@@ -156,13 +150,15 @@ export async function createWorkspace(input: {
     return { workspace, columns };
   });
 
-  await logActivity({
+  await (
+    await getLogger()
+  ).logActivity({
     workspaceId: result.workspace.id,
     actorId: input.ownerId,
     action: "WORKSPACE_CREATED",
     entityType: "Workspace",
     entityId: result.workspace.id,
-    summary: generateSummary("WORKSPACE_CREATED", {
+    summary: (await getLogger()).generateSummary("WORKSPACE_CREATED", {
       workspaceName: result.workspace.name,
     }),
     metadata: { workspaceName: result.workspace.name },
@@ -356,13 +352,15 @@ export async function updateWorkspace(
     select: { id: true, name: true, description: true },
   });
 
-  await logActivity({
+  await (
+    await getLogger()
+  ).logActivity({
     workspaceId: id,
     actorId: userId,
     action: "WORKSPACE_UPDATED",
     entityType: "Workspace",
     entityId: id,
-    summary: generateSummary("WORKSPACE_UPDATED", {}),
+    summary: (await getLogger()).generateSummary("WORKSPACE_UPDATED", {}),
     metadata: { changes: data },
   });
 
@@ -405,7 +403,7 @@ export async function deleteWorkspace(
 
   await db.workspace.delete({ where: { id } });
 
-  void notifyCriticalEvent({
+  void (await getLogger()).notifyCriticalEvent({
     action: "WORKSPACE_DELETED",
     memberIds,
     workspaceName,
@@ -482,15 +480,20 @@ export async function setModuleEnabled(
     select: { login: true },
   });
 
-  await logActivity({
+  await (
+    await getLogger()
+  ).logActivity({
     workspaceId,
     actorId: userId,
     action: enabled ? "MODULE_ENABLED" : "MODULE_DISABLED",
     entityType: "WorkspaceModule",
-    summary: generateSummary(enabled ? "MODULE_ENABLED" : "MODULE_DISABLED", {
-      actorLogin: actor?.login,
-      moduleName: moduleKey,
-    }),
+    summary: (await getLogger()).generateSummary(
+      enabled ? "MODULE_ENABLED" : "MODULE_DISABLED",
+      {
+        actorLogin: actor?.login,
+        moduleName: moduleKey,
+      },
+    ),
     metadata: { moduleKey, enabled },
   });
 }

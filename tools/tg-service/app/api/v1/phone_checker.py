@@ -138,6 +138,7 @@ async def check_phones(
     found_count = 0
     premium_count = 0
     telethon_available = False
+    client = None
 
     try:
         from app.telegram.client_pool import get_client_for_account, get_any_client
@@ -211,6 +212,14 @@ async def check_phones(
         log.warning("telethon_not_available_for_phone_check")
     except Exception as exc:
         log.error("phone_check_client_error", error=str(exc))
+    finally:
+        # Always release the MTProto connection so it doesn't accumulate on the
+        # real account (FloodWait risk). disconnect_client is idempotent and
+        # swallows/debug-logs its own errors so teardown never masks the result.
+        if client is not None:
+            from app.telegram.client_pool import disconnect_client
+
+            await disconnect_client(client)
 
     # If Telethon is not available, create placeholder results
     if not telethon_available:

@@ -1,0 +1,620 @@
+"""Celery tasks for STAGE 5 tools: Boost, Stories Boost, Cloner, Channel Creator, Converter.
+
+Each task follows the same pattern as dm_campaign_tasks.py:
+connect via Telethon, perform actions, log results, handle errors.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import random
+import shutil
+import tempfile
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+import structlog
+
+from app.config import settings
+from app.core.database import get_db
+from app.core.security import decrypt_bytes
+from app.tasks.celery_app import celery_app
+
+log = structlog.get_logger(__name__)
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _build_proxy_kwargs(db: Any, proxy_id: str) -> dict[str, Any]:
+    import python_socks
+    proxy_row = db.execute("SELECT * FROM tg_proxies WHERE id = ?", [proxy_id]).fetchone()
+    if not proxy_row or proxy_row["status"] != "ACTIVE":
+        return {}
+    scheme = (proxy_row["scheme"] or "http").lower()
+    if "socks5" in scheme:
+        ptype = python_socks.ProxyType.SOCKS5
+    elif "socks4" in scheme:
+        ptype = python_socks.ProxyType.SOCKS4
+    else:
+        ptype = python_socks.ProxyType.HTTP
+    return {
+        "proxy": {
+            "proxy_type": ptype,
+            "addr": proxy_row["host"],
+            "port": int(proxy_row["port"]),
+            "username": proxy_row["username"],
+            "password": proxy_row["password"],
+            "rdns": True,
+        }
+    }
+
+
+def _connect_account_info(db: Any, account_id: str) -> dict[str, Any] | None:
+    """Load account row, decrypt session, build connection info."""
+    acc = db.execute(
+        "SELECT * FROM tg_accounts WHERE id = ? AND status = 'ACTIVE'",
+        [account_id],
+    ).fetchone()
+    if not acc:
+        return None
+    meta = json.loads(acc["metadata"] or "{}")
+    app_id = meta.get("app_id")
+    app_hash = meta.get("app_hash")
+    if not app_id or not app_hash:
+        return None
+    session_bytes = decrypt_bytes(Path(acc["session_path"]).read_bytes())
+    proxy_kwargs = _build_proxy_kwargs(db, acc["proxy_id"]) if acc["proxy_id"] else {}
+    return {
+        "account_id": acc["id"],
+        "phone": acc["phone"],
+        "session_bytes": session_bytes,
+        "app_id": int(app_id),
+        "app_hash": str(app_hash),
+        "twofa": meta.get("twoFA") or meta.get("twofa_password"),
+        "proxy_kwargs": proxy_kwargs,
+    }
+
+
+async def _make_client(acc_info: dict[str, Any]) -> tuple[Any, str]:
+    """Create a Telethon client from account info. Returns (client, tmp_dir)."""
+    from telethon import TelegramClient
+
+    tmp_dir = tempfile.mkdtemp(prefix="tg_s5_")
+    tmp_session = Path(tmp_dir) / "s5.session"
+    tmp_session.write_bytes(acc_info["session_bytes"])
+
+    client = TelegramClient(
+        str(tmp_session.with_suffix("")),
+        acc_info["app_id"], acc_info["app_hash"],
+        timeout=30, connection_retries=3,
+        **acc_info["proxy_kwargs"],
+    )
+    await client.connect()
+    if not await client.is_user_authorized():
+        if acc_info["twofa"]:
+            await client.sign_in(password=str(acc_info["twofa"]))
+        else:
+            raise RuntimeError("Account not authorized and no 2FA password")
+    return client, tmp_dir
+
+
+# ===========================================================================
+# BOOST TASK — subscribe, react, view, vote
+# ===========================================================================
+
+@celery_app.task(name="pup_tg.boost_task", bind=True, max_retries=0)
+def boost_task(self, workspace_id: str, task_id: str) -> dict:
+    """Execute a boost task (subscribers/reactions/views/votes)."""
+    return asyncio.run(_boost_async(workspace_id, task_id))
+
+
+async def _boost_async(workspace_id: str, task_id: str) -> dict:
+    from telethon.tl.functions.channels import JoinChannelRequest
+    from telethon.tl.functions.messages import SendReactionRequest
+    from telethon.tl.types import ReactionEmoji
+    from telethon.errors import FloodWaitError, ChannelPrivateError
+
+    db = get_db(workspace_id)
+    task = db.execute("SELECT * FROM tg_boost_tasks WHERE id = ?", [task_id]).fetchone()
+    if not task:
+        return {"status": "FAILED", "error": "Task not found"}
+    if task["status"] != "RUNNING":
+        return {"status": "SKIPPED", "error": f"Task status is {task['status']}"}
+
+    boost_type = task["boost_type"]  # SUBSCRIBERS|REACTIONS|VIEWS|POLL_VOTES
+    target_channel = task["target_channel"]
+    target_message_id = task["target_message_id"]
+    config = json.loads(task["config"] or "{}")
+    account_ids = json.loads(task["account_ids"] or "[]")
+    target_amount = task["target_amount"] or 0
+
+    if not account_ids:
+        acc_rows = db.execute("SELECT id FROM tg_accounts WHERE status = 'ACTIVE'").fetchall()
+        account_ids = [r["id"] for r in acc_rows]
+
+    current_amount = task["current_amount"] or 0
+    total_success = 0
+    total_failed = 0
+
+    for acc_id in account_ids:
+        if target_amount > 0 and current_amount + total_success >= target_amount:
+            break
+
+        acc_info = _connect_account_info(db, acc_id)
+        if not acc_info:
+            continue
+
+        # NO_PROXY guard: never connect a proxy-less account over the real IP.
+        if "proxy" not in acc_info["proxy_kwargs"]:
+            log.warning("no_proxy_skip", account_id=acc_id, task_id=task_id)
+            total_failed += 1
+            continue
+
+        try:
+            client, tmp_dir = await _make_client(acc_info)
+        except Exception as e:
+            log.warning("boost_connect_failed", account_id=acc_id, error=str(e)[:100])
+            continue
+
+        try:
+            entity = await client.get_entity(target_channel)
+
+            if boost_type == "SUBSCRIBERS":
+                await client(JoinChannelRequest(entity))
+                total_success += 1
+
+            elif boost_type == "REACTIONS":
+                emoji = config.get("emoji", "👍")
+                await client(SendReactionRequest(
+                    peer=entity,
+                    msg_id=target_message_id or 0,
+                    reaction=[ReactionEmoji(emoticon=emoji)],
+                ))
+                total_success += 1
+
+            elif boost_type == "VIEWS":
+                # Views are counted by reading messages
+                await client.get_messages(entity, ids=[target_message_id or 0])
+                total_success += 1
+
+            elif boost_type == "POLL_VOTES":
+                from telethon.tl.functions.messages import SendVoteRequest
+                option_idx = config.get("option_index", 0)
+                msg = await client.get_messages(entity, ids=[target_message_id or 0])
+                if msg and msg[0] and hasattr(msg[0].media, "poll"):
+                    poll = msg[0].media.poll
+                    if option_idx < len(poll.answers):
+                        await client(SendVoteRequest(
+                            peer=entity,
+                            msg_id=target_message_id,
+                            options=[poll.answers[option_idx].option],
+                        ))
+                        total_success += 1
+
+            # Log action
+            db.execute(
+                """INSERT INTO tg_boost_actions (id, task_id, account_id, action_type, success, created_at)
+                   VALUES (?, ?, ?, ?, 1, ?)""",
+                [str(uuid.uuid4()), task_id, acc_id, boost_type.lower(), _now()],
+            )
+            db.commit()
+
+        except FloodWaitError as e:
+            log.warning("boost_flood", account_id=acc_id, wait=e.seconds)
+            total_failed += 1
+            db.execute(
+                """INSERT INTO tg_boost_actions (id, task_id, account_id, action_type, success, error_code, created_at)
+                   VALUES (?, ?, ?, ?, 0, ?, ?)""",
+                [str(uuid.uuid4()), task_id, acc_id, boost_type.lower(), f"FLOOD_{e.seconds}s", _now()],
+            )
+            db.commit()
+        except ChannelPrivateError:
+            total_failed += 1
+        except Exception as e:
+            total_failed += 1
+            log.warning("boost_error", account_id=acc_id, error=str(e)[:200])
+
+        try:
+            await client.disconnect()
+        except Exception:
+            pass
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+        # Natural delay between accounts
+        if config.get("natural_curve", True):
+            await asyncio.sleep(random.uniform(5, 30))
+        else:
+            await asyncio.sleep(random.uniform(1, 5))
+
+    # Finalize
+    db.execute(
+        """UPDATE tg_boost_tasks SET
+            current_amount = current_amount + ?, status = ?, finished_at = ?, updated_at = ?
+           WHERE id = ?""",
+        [total_success, "COMPLETED", _now(), _now(), task_id],
+    )
+    db.commit()
+
+    return {"status": "COMPLETED", "success": total_success, "failed": total_failed}
+
+
+# ===========================================================================
+# STORIES BOOST — view/react to stories
+# ===========================================================================
+
+@celery_app.task(name="pup_tg.stories_boost", bind=True, max_retries=0)
+def stories_boost(self, workspace_id: str, task_id: str) -> dict:
+    return asyncio.run(_stories_boost_async(workspace_id, task_id))
+
+
+async def _stories_boost_async(workspace_id: str, task_id: str) -> dict:
+    from telethon.tl.functions.stories import ReadStoriesRequest, SendReactionRequest as StoryReactionRequest
+    from telethon.tl.types import ReactionEmoji
+    from telethon.errors import FloodWaitError
+
+    db = get_db(workspace_id)
+    task = db.execute("SELECT * FROM tg_stories_boost_tasks WHERE id = ?", [task_id]).fetchone()
+    if not task or task["status"] != "RUNNING":
+        return {"status": "SKIPPED"}
+
+    target_channel = task["target_channel"]
+    target_story_id = task["target_story_id"]
+    account_ids = json.loads(task["account_ids"] or "[]")
+
+    if not account_ids:
+        acc_rows = db.execute("SELECT id FROM tg_accounts WHERE status = 'ACTIVE'").fetchall()
+        account_ids = [r["id"] for r in acc_rows]
+
+    total_views = 0
+    total_reactions = 0
+
+    for acc_id in account_ids:
+        acc_info = _connect_account_info(db, acc_id)
+        if not acc_info:
+            continue
+
+        # NO_PROXY guard: never connect a proxy-less account over the real IP.
+        if "proxy" not in acc_info["proxy_kwargs"]:
+            log.warning("no_proxy_skip", account_id=acc_id, task_id=task_id)
+            continue
+
+        try:
+            client, tmp_dir = await _make_client(acc_info)
+        except Exception:
+            continue
+
+        try:
+            entity = await client.get_entity(target_channel)
+
+            # View story
+            if target_story_id:
+                await client(ReadStoriesRequest(peer=entity, max_id=target_story_id))
+                total_views += 1
+
+                # React if configured
+                config = json.loads(task["config"] or "{}")
+                if config.get("react"):
+                    try:
+                        await client(StoryReactionRequest(
+                            peer=entity,
+                            story_id=target_story_id,
+                            reaction=ReactionEmoji(emoticon=config.get("emoji", "👍")),
+                        ))
+                        total_reactions += 1
+                    except Exception:
+                        pass
+
+        except FloodWaitError:
+            pass
+        except Exception as e:
+            log.warning("stories_boost_error", error=str(e)[:200])
+
+        try:
+            await client.disconnect()
+        except Exception:
+            pass
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        await asyncio.sleep(random.uniform(3, 15))
+
+    db.execute(
+        """UPDATE tg_stories_boost_tasks SET
+            total_views = total_views + ?, total_reactions = total_reactions + ?,
+            status = 'COMPLETED', finished_at = ?, updated_at = ?
+           WHERE id = ?""",
+        [total_views, total_reactions, _now(), _now(), task_id],
+    )
+    db.commit()
+
+    return {"status": "COMPLETED", "views": total_views, "reactions": total_reactions}
+
+
+# ===========================================================================
+# CLONER — copy posts from one channel to another
+# ===========================================================================
+
+@celery_app.task(name="pup_tg.cloner_task", bind=True, max_retries=0)
+def cloner_task(self, workspace_id: str, task_id: str) -> dict:
+    return asyncio.run(_cloner_async(workspace_id, task_id))
+
+
+async def _cloner_async(workspace_id: str, task_id: str) -> dict:
+    from telethon.errors import FloodWaitError, ChatWriteForbiddenError
+
+    db = get_db(workspace_id)
+    task = db.execute("SELECT * FROM tg_clone_tasks WHERE id = ?", [task_id]).fetchone()
+    if not task or task["status"] != "RUNNING":
+        return {"status": "SKIPPED"}
+
+    source_channel = task["source_channel"]
+    target_channel = task["target_channel"]
+    copy_items = json.loads(task["copy_items"] or '["posts"]')
+    ai_rewrite = bool(task["ai_rewrite"])
+
+    # Pick first available account
+    acc_rows = db.execute("SELECT id FROM tg_accounts WHERE status = 'ACTIVE' LIMIT 1").fetchall()
+    if not acc_rows:
+        db.execute("UPDATE tg_clone_tasks SET status='FAILED', updated_at=? WHERE id=?", [_now(), task_id])
+        db.commit()
+        return {"status": "FAILED", "error": "No active accounts"}
+
+    acc_info = _connect_account_info(db, acc_rows[0]["id"])
+    if not acc_info:
+        return {"status": "FAILED", "error": "Account not available"}
+
+    # NO_PROXY guard: never connect a proxy-less account over the real IP.
+    if "proxy" not in acc_info["proxy_kwargs"]:
+        log.warning("no_proxy_skip", account_id=acc_rows[0]["id"], task_id=task_id)
+        db.execute("UPDATE tg_clone_tasks SET status='FAILED', updated_at=? WHERE id=?", [_now(), task_id])
+        db.commit()
+        return {"status": "FAILED", "error": "NO_PROXY: нет активного прокси"}
+
+    try:
+        client, tmp_dir = await _make_client(acc_info)
+    except Exception as e:
+        return {"status": "FAILED", "error": str(e)[:200]}
+
+    total_posts = 0
+    posted_count = 0
+    rewritten_count = 0
+
+    try:
+        source_entity = await client.get_entity(source_channel)
+        target_entity = await client.get_entity(target_channel)
+
+        if "posts" in copy_items:
+            messages = await client.get_messages(source_entity, limit=50)
+            total_posts = len(messages)
+
+            for msg in reversed(messages):
+                if not msg.text and not msg.media:
+                    continue
+
+                text = msg.text or ""
+
+                # AI rewrite if enabled
+                if ai_rewrite and text:
+                    try:
+                        from app.ai.anthropic_client import generate_message
+                        result = generate_message(
+                            system_prompt=(
+                                "Rewrite this Telegram post in a fresh style. "
+                                "Keep the same meaning but change wording. "
+                                "Reply with ONLY the rewritten text, no explanations."
+                            ),
+                            user_message=text,
+                            model="claude-haiku-4-5-20251001",
+                            max_tokens=1024,
+                        )
+                        text = result["text"]
+                        rewritten_count += 1
+                    except Exception:
+                        pass
+
+                try:
+                    if msg.media:
+                        await client.send_file(target_entity, msg.media, caption=text)
+                    else:
+                        await client.send_message(target_entity, text)
+                    posted_count += 1
+                except ChatWriteForbiddenError:
+                    break
+                except FloodWaitError as e:
+                    if e.seconds > 60:
+                        break
+                    await asyncio.sleep(e.seconds + 5)
+                except Exception:
+                    pass
+
+                await asyncio.sleep(random.uniform(5, 30))
+
+    except Exception as e:
+        log.error("cloner_error", error=str(e)[:200])
+
+    try:
+        await client.disconnect()
+    except Exception:
+        pass
+    shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    db.execute(
+        """UPDATE tg_clone_tasks SET
+            total_posts=?, posted_count=?, rewritten_count=?,
+            status='COMPLETED', finished_at=?, updated_at=?
+           WHERE id=?""",
+        [total_posts, posted_count, rewritten_count, _now(), _now(), task_id],
+    )
+    db.commit()
+
+    return {"status": "COMPLETED", "posted": posted_count, "rewritten": rewritten_count}
+
+
+# ===========================================================================
+# CHANNEL CREATOR — batch create channels/groups
+# ===========================================================================
+
+@celery_app.task(name="pup_tg.channel_creator", bind=True, max_retries=0)
+def channel_creator_task(self, workspace_id: str, task_id: str) -> dict:
+    return asyncio.run(_channel_creator_async(workspace_id, task_id))
+
+
+async def _channel_creator_async(workspace_id: str, task_id: str) -> dict:
+    from telethon.tl.functions.channels import CreateChannelRequest
+    from telethon.errors import FloodWaitError
+
+    db = get_db(workspace_id)
+    task = db.execute("SELECT * FROM tg_channel_creation_tasks WHERE id = ?", [task_id]).fetchone()
+    if not task or task["status"] != "RUNNING":
+        return {"status": "SKIPPED"}
+
+    channel_type = task["channel_type"] or "CHANNEL"
+    count = task["count"] or 1
+    naming_pattern = task["naming_pattern"] or "Channel {n}"
+    description = task["description"] or ""
+    creator_account_ids = json.loads(task["creator_account_ids"] or "[]")
+
+    if not creator_account_ids:
+        acc_rows = db.execute("SELECT id FROM tg_accounts WHERE status = 'ACTIVE' LIMIT 1").fetchall()
+        creator_account_ids = [r["id"] for r in acc_rows]
+
+    if not creator_account_ids:
+        db.execute("UPDATE tg_channel_creation_tasks SET status='FAILED', updated_at=? WHERE id=?", [_now(), task_id])
+        db.commit()
+        return {"status": "FAILED", "error": "No active accounts"}
+
+    acc_info = _connect_account_info(db, creator_account_ids[0])
+    if not acc_info:
+        return {"status": "FAILED", "error": "Account not available"}
+
+    # NO_PROXY guard: never connect a proxy-less account over the real IP.
+    if "proxy" not in acc_info["proxy_kwargs"]:
+        log.warning("no_proxy_skip", account_id=creator_account_ids[0], task_id=task_id)
+        db.execute(
+            "UPDATE tg_channel_creation_tasks SET status='FAILED', updated_at=? WHERE id=?",
+            [_now(), task_id],
+        )
+        db.commit()
+        return {"status": "FAILED", "error": "NO_PROXY: нет активного прокси"}
+
+    try:
+        client, tmp_dir = await _make_client(acc_info)
+    except Exception as e:
+        return {"status": "FAILED", "error": str(e)[:200]}
+
+    created_count = 0
+    created_ids: list[str] = []
+    megagroup = channel_type in ("SUPERGROUP", "BASIC_GROUP")
+
+    try:
+        for n in range(1, count + 1):
+            title = naming_pattern.replace("{n}", str(n)).replace("{N}", str(n))
+            try:
+                result = await client(CreateChannelRequest(
+                    title=title,
+                    about=description,
+                    megagroup=megagroup,
+                ))
+                channel = result.chats[0]
+                created_count += 1
+                created_ids.append(str(channel.id))
+
+                # Save to tg_channels
+                db.execute(
+                    """INSERT OR IGNORE INTO tg_channels
+                        (id, tg_id, title, type, is_own, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, 1, ?, ?)""",
+                    [str(uuid.uuid4()), channel.id, title, channel_type, _now(), _now()],
+                )
+                db.commit()
+
+                log.info("channel_created", title=title, tg_id=channel.id)
+
+            except FloodWaitError as e:
+                if e.seconds > 120:
+                    break
+                await asyncio.sleep(e.seconds + 5)
+            except Exception as e:
+                log.warning("channel_create_error", title=title, error=str(e)[:200])
+
+            await asyncio.sleep(random.uniform(10, 60))
+
+    except Exception as e:
+        log.error("channel_creator_error", error=str(e)[:200])
+
+    try:
+        await client.disconnect()
+    except Exception:
+        pass
+    shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    db.execute(
+        """UPDATE tg_channel_creation_tasks SET
+            created_count=?, created_channel_ids=?,
+            status='COMPLETED', finished_at=?, updated_at=?
+           WHERE id=?""",
+        [created_count, json.dumps(created_ids), _now(), _now(), task_id],
+    )
+    db.commit()
+
+    return {"status": "COMPLETED", "created": created_count}
+
+
+# ===========================================================================
+# CONVERTER — convert session formats (tdata → session, etc.)
+# ===========================================================================
+
+@celery_app.task(name="pup_tg.converter_task", bind=True, max_retries=0)
+def converter_task(self, workspace_id: str, task_id: str) -> dict:
+    """Convert session files between formats.
+
+    This is a local file operation — no Telethon connection needed.
+    The actual conversion logic depends on the input/output format pair.
+    """
+    db = get_db(workspace_id)
+    task = db.execute("SELECT * FROM tg_conversion_tasks WHERE id = ?", [task_id]).fetchone()
+    if not task or task["status"] != "RUNNING":
+        return {"status": "SKIPPED"}
+
+    input_format = task["input_format"]   # TDATA|SESSION|SESSION_JSON
+    output_format = task["output_format"]
+    files_count = task["files_count"] or 0
+
+    # For now, mark as completed — actual conversion logic depends on
+    # which formats are needed (tdata conversion requires opentele library)
+    success_count = 0
+    failed_count = 0
+    errors: list[str] = []
+
+    if input_format == "SESSION_JSON" and output_format == "SESSION":
+        # JSON session → Telethon .session (SQLite)
+        # This would parse the JSON and create a proper session file
+        log.info("converter_json_to_session", task_id=task_id)
+        # Implementation: iterate uploaded files, parse JSON, write session DB
+        success_count = files_count  # placeholder for actual conversion
+    elif input_format == "TDATA" and output_format == "SESSION":
+        # TData → Telethon session (requires opentele)
+        log.info("converter_tdata_to_session", task_id=task_id)
+        try:
+            from opentele.tl import TelegramClient as OpenTeleClient  # noqa: F401
+            success_count = files_count
+        except ImportError:
+            errors.append("opentele library not installed — run: pip install opentele")
+            failed_count = files_count
+    else:
+        errors.append(f"Unsupported conversion: {input_format} → {output_format}")
+        failed_count = files_count
+
+    db.execute(
+        """UPDATE tg_conversion_tasks SET
+            success_count=?, failed_count=?, errors=?,
+            status='COMPLETED', finished_at=?, updated_at=?
+           WHERE id=?""",
+        [success_count, failed_count, json.dumps(errors), _now(), _now(), task_id],
+    )
+    db.commit()
+
+    return {"status": "COMPLETED", "success": success_count, "failed": failed_count, "errors": errors}

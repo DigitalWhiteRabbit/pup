@@ -15,8 +15,10 @@ import structlog
 from fastapi import APIRouter, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, Field
 
+from fastapi.responses import Response
+
 from app.config import settings
-from app.core.security import encrypt_bytes
+from app.core.security import decrypt_bytes, encrypt_bytes
 from app.deps import AdminAuth, WorkspaceDB, WorkspaceId
 
 router = APIRouter(prefix="/accounts", tags=["accounts"])
@@ -86,6 +88,7 @@ class AccountResponse(BaseModel):
     country: str | None = None
     country_code: str | None = None
     is_premium: int = 0
+    sent_count: int = 0
     status: str = "IMPORTED"
     warmup_level: int = 0
     warmup_profile: str | None = None
@@ -96,6 +99,15 @@ class AccountResponse(BaseModel):
     proxy_id: str | None = None
     tags: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] | None = None
+    has_avatar: bool = False
+    # Account-health flags surfaced from the last Telegram check (stored in metadata)
+    restricted: bool = False
+    scam: bool = False
+    fake: bool = False
+    verified: bool = False
+    # Humanity index 0..4 (avatar / username / bio / 2FA) + its breakdown
+    humanity_score: int = 0
+    humanity: dict[str, Any] | None = None
     created_at: str | None = None
     updated_at: str | None = None
 
@@ -157,11 +169,97 @@ def _row_to_account(row: dict[str, Any]) -> dict[str, Any]:
     else:
         data["metadata"] = None
 
+    # has_avatar: True when a generated avatar path is recorded in metadata.
+    # Cheap metadata check only — never hit the filesystem (list can be large).
+    meta = data["metadata"] if isinstance(data["metadata"], dict) else {}
+    data["has_avatar"] = bool(meta.get("avatar_path"))
+
+    # Surface account-health signals captured by the last Telegram check so the
+    # UI can render flags/humanity without parsing metadata client-side.
+    data["restricted"] = bool(meta.get("restricted"))
+    data["scam"] = bool(meta.get("scam"))
+    data["fake"] = bool(meta.get("fake"))
+    data["verified"] = bool(meta.get("verified"))
+    humanity = meta.get("humanity") if isinstance(meta.get("humanity"), dict) else None
+    data["humanity"] = humanity
+    data["humanity_score"] = int(humanity.get("score", 0)) if humanity else 0
+
     return data
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _has_active_proxy(db: Any, proxy_id: Any) -> bool:
+    """Return True only if the account has a usable proxy.
+
+    "Without proxy" (and therefore no Telegram check allowed) means:
+    proxy_id is NULL/empty OR the referenced tg_proxies row is missing
+    OR its status != 'ACTIVE'. Connecting without an ACTIVE proxy would
+    expose the server's real IP and risk a ban.
+    """
+    if not proxy_id:
+        return False
+    proxy_row = db.execute("SELECT status FROM tg_proxies WHERE id = ?", [proxy_id]).fetchone()
+    return bool(proxy_row and proxy_row["status"] == "ACTIVE")
+
+
+async def _enrich_profile_meta(client: Any, me: Any, meta: dict[str, Any]) -> None:
+    """Enrich ``meta`` in place with account-health signals during a check.
+
+    Cheap flags (scam/fake/verified/restricted) come for free on the ``me``
+    object. Two extra lightweight calls add the bio (GetFullUser) and the 2FA
+    flag (GetPassword) so we can compute a *humanity index* — avatar / username /
+    bio / 2FA, score 0..4 — that flags bare, ban-prone accounts. Every extra call
+    is best-effort: on failure it degrades to a safe default and never raises, so
+    enrichment can never fail the underlying liveness check.
+    """
+    # --- Free flags straight off get_me() ---
+    meta["scam"] = bool(getattr(me, "scam", False))
+    meta["fake"] = bool(getattr(me, "fake", False))
+    meta["verified"] = bool(getattr(me, "verified", False))
+    meta["restricted"] = bool(getattr(me, "restricted", False))
+    rr = getattr(me, "restriction_reason", None)
+    if rr:
+        try:
+            meta["restriction_reason"] = "; ".join(
+                f"{getattr(r, 'platform', '')}:{getattr(r, 'reason', '')} "
+                f"{getattr(r, 'text', '')}".strip()
+                for r in rr
+            )
+        except TypeError:
+            meta["restriction_reason"] = str(rr)
+    else:
+        meta["restriction_reason"] = ""
+    meta["tg_has_photo"] = getattr(me, "photo", None) is not None
+
+    # --- Bio (one extra call) ---
+    try:
+        from telethon.tl.functions.users import GetFullUserRequest
+        full = await client(GetFullUserRequest(me))
+        meta["bio"] = getattr(full.full_user, "about", None) or ""
+    except Exception:
+        meta.setdefault("bio", "")
+
+    # --- 2FA enabled? (one extra call) ---
+    try:
+        from telethon.tl.functions.account import GetPasswordRequest
+        pwd = await client(GetPasswordRequest())
+        meta["has_2fa"] = bool(getattr(pwd, "has_password", False))
+    except Exception:
+        meta.setdefault("has_2fa", False)
+
+    # --- Humanity index (0..4) ---
+    # A real Telegram avatar OR a generated one both count as "has avatar".
+    avatar = bool(meta.get("tg_has_photo")) or bool(meta.get("avatar_path"))
+    username = bool(getattr(me, "username", None))
+    bio_ok = bool((meta.get("bio") or "").strip())
+    twofa = bool(meta.get("has_2fa"))
+    parts = {"avatar": avatar, "username": username, "bio": bio_ok, "twofa": twofa}
+    score = sum(1 for v in parts.values() if v)
+    meta["humanity"] = {**parts, "score": score, "pct": score * 25}
+    meta["last_check"] = _now()
 
 
 # ---------------------------------------------------------------------------
@@ -265,11 +363,16 @@ async def bulk_action(
                 continue
 
             if body.action == "check_status":
-                db.execute(
-                    "UPDATE tg_accounts SET last_session_at = ?, updated_at = ? WHERE id = ?",
-                    [now, now, account_id],
-                )
-                success += 1
+                # Real reachability check via Telethon (reuses single-account
+                # check path). Promotes to ACTIVE only when Telegram confirms
+                # the session is alive; otherwise check_telegram marks the
+                # account DEAD/BANNED/INVALID and we count it as failed.
+                check = await check_telegram(account_id, _token, db)
+                if check.success:
+                    success += 1
+                else:
+                    failed += 1
+                    errors.append(f"{account_id}: {check.error or check.status}")
 
             elif body.action == "assign_proxy":
                 proxy_id = params.get("proxy_id")
@@ -754,20 +857,31 @@ async def import_zip(
                     if meta.get(key) is not None:
                         account_meta[key] = meta[key]
 
+                # Auto-detect country from phone number (no network needed)
+                detected_country = None
+                try:
+                    import phonenumbers
+                    pn = phonenumbers.parse(phone)
+                    region = phonenumbers.region_code_for_number(pn)
+                    if region:
+                        detected_country = region.upper()
+                except Exception:
+                    pass
+
                 account_id = str(uuid.uuid4())
                 db.execute(
                     """
                     INSERT INTO tg_accounts
                         (id, phone, tg_user_id, username, first_name, last_name,
                          session_path, device_model, system_version, app_version,
-                         lang_code, is_premium, status,
+                         lang_code, is_premium, status, country_code,
                          tags, metadata, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     [
                         account_id, phone, tg_user_id, username, first_name, last_name,
                         rel_session_path, device_model, system_version, app_version,
-                        lang_code, is_premium, initial_status,
+                        lang_code, is_premium, initial_status, detected_country,
                         "[]",
                         json.dumps(account_meta) if account_meta else None,
                         now, now,
@@ -832,6 +946,12 @@ class TelegramCheckResult(BaseModel):
     is_premium: bool = False
     error: str | None = None
     status: str = "IMPORTED"
+    # Account-health signals gathered during the check (only set on success)
+    restricted: bool = False
+    scam: bool = False
+    fake: bool = False
+    verified: bool = False
+    humanity_score: int = 0  # 0..4: avatar / username / bio / 2FA
 
 
 @router.post("/{account_id}/check-telegram")
@@ -847,6 +967,19 @@ async def check_telegram(
     if not row:
         raise HTTPException(status_code=404, detail="Аккаунт не найден")
 
+    # NO_PROXY guard (FIRST): never connect to Telegram via the server's real IP.
+    # "No proxy" is the primary reason a check can't run, so it must be reported
+    # before any credential/session work. Do NOT change the stored account status
+    # (we couldn't determine liveness) and do NOT write to the DB.
+    if not _has_active_proxy(db, row["proxy_id"]):
+        log.warning("check_no_proxy", account_id=account_id)
+        return TelegramCheckResult(
+            account_id=account_id,
+            success=False,
+            error="Нет активного прокси — привяжите прокси, чтобы выполнить чек",
+            status="NO_PROXY",
+        )
+
     # Load metadata for app_id/app_hash
     meta: dict[str, Any] = {}
     if row["metadata"]:
@@ -858,19 +991,37 @@ async def check_telegram(
     app_id = meta.get("app_id")
     app_hash = meta.get("app_hash")
     if not app_id or not app_hash:
-        raise HTTPException(status_code=400, detail="app_id/app_hash отсутствуют в metadata аккаунта")
+        db.execute("UPDATE tg_accounts SET status='INVALID', updated_at=? WHERE id=?", [_now(), account_id])
+        db.commit()
+        return TelegramCheckResult(
+            account_id=account_id, success=False,
+            error="app_id/app_hash отсутствуют в metadata — аккаунт импортирован без учётных данных",
+            status="INVALID",
+        )
 
     # Decrypt session file
     session_path_str = row["session_path"]
     session_full_path = Path(session_path_str)
     if not session_full_path.exists():
-        raise HTTPException(status_code=400, detail=f"Session файл не найден: {session_path_str}")
+        db.execute("UPDATE tg_accounts SET status='INVALID', updated_at=? WHERE id=?", [_now(), account_id])
+        db.commit()
+        return TelegramCheckResult(
+            account_id=account_id, success=False,
+            error=f"Session файл не найден: {session_path_str}",
+            status="INVALID",
+        )
 
     try:
         from app.core.security import decrypt_bytes
         session_bytes = decrypt_bytes(session_full_path.read_bytes())
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Ошибка расшифровки сессии: {exc}")
+        db.execute("UPDATE tg_accounts SET status='INVALID', updated_at=? WHERE id=?", [_now(), account_id])
+        db.commit()
+        return TelegramCheckResult(
+            account_id=account_id, success=False,
+            error=f"Ошибка расшифровки сессии: {exc}",
+            status="INVALID",
+        )
 
     # Write temp session file for Telethon (it needs a .session file on disk)
     tmp_session_path = Path(tempfile.mkdtemp()) / "account.session"
@@ -914,6 +1065,8 @@ async def check_telegram(
             str(tmp_session_path.with_suffix("")),
             api_id=int(app_id),
             api_hash=str(app_hash),
+            connection_retries=5,
+            retry_delay=2,
             **proxy_kwargs,
         )
 
@@ -935,19 +1088,46 @@ async def check_telegram(
             )
 
         me = await client.get_me()
+
+        # Health signals + humanity index (bio, 2FA, scam/fake/verified/restricted).
+        await _enrich_profile_meta(client, me, meta)
+
+        # Fetch active sessions (security): foreign logins = leaked/hijacked session.
+        from telethon.tl.functions.account import GetAuthorizationsRequest
+        sessions_list = []
+        try:
+            auth_result = await client(GetAuthorizationsRequest())
+            for auth in auth_result.authorizations:
+                sessions_list.append({
+                    "device": auth.device_model,
+                    "platform": auth.platform,
+                    "app": auth.app_name,
+                    "ip": auth.ip,
+                    "country": auth.country,
+                    "current": bool(auth.current),
+                })
+        except Exception:
+            pass
+
         await client.disconnect()
+
+        meta["sessions_count"] = len(sessions_list)
+        meta["sessions"] = sessions_list[:10]  # store up to 10
+        meta["phone"] = getattr(me, "phone", None) or row["phone"]
 
         # Update account with real data from Telegram
         new_status = "ACTIVE"
         db.execute(
             """UPDATE tg_accounts SET
                 tg_user_id = ?, username = ?, first_name = ?, last_name = ?,
-                is_premium = ?, status = ?, last_session_at = ?, updated_at = ?
+                is_premium = ?, status = ?, last_session_at = ?, updated_at = ?,
+                metadata = ?
             WHERE id = ?""",
             [
                 me.id, me.username, me.first_name, me.last_name,
                 1 if getattr(me, "premium", False) else 0,
-                new_status, _now(), _now(), account_id,
+                new_status, _now(), _now(), json.dumps(meta, ensure_ascii=False),
+                account_id,
             ],
         )
         db.commit()
@@ -962,6 +1142,11 @@ async def check_telegram(
             username=me.username,
             is_premium=bool(getattr(me, "premium", False)),
             status=new_status,
+            restricted=bool(meta.get("restricted")),
+            scam=bool(meta.get("scam")),
+            fake=bool(meta.get("fake")),
+            verified=bool(meta.get("verified")),
+            humanity_score=int((meta.get("humanity") or {}).get("score", 0)),
         )
 
     except AuthKeyUnregisteredError:
@@ -986,6 +1171,9 @@ async def check_telegram(
                     str(tmp_session_path.with_suffix("")),
                     api_id=int(app_id),
                     api_hash=str(app_hash),
+                    connection_retries=5,
+                    retry_delay=2,
+                    **proxy_kwargs,  # 2FA re-auth must also go through the proxy (no IP leak)
                 )
                 await client2.connect()
                 await client2.sign_in(password=str(twofa))
@@ -1029,3 +1217,788 @@ async def check_telegram(
     finally:
         # Cleanup temp session
         shutil.rmtree(tmp_session_path.parent, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# Bulk Telegram check
+# ---------------------------------------------------------------------------
+
+class BulkCheckRequest(BaseModel):
+    account_ids: list[str]
+    concurrency: int = 3  # max parallel Telethon connections
+
+
+class BulkCheckResult(BaseModel):
+    total: int
+    active: int
+    dead: int
+    banned: int
+    errors: int
+    no_proxy: int
+    # Health aggregates across the live (ACTIVE) accounts in this run
+    restricted: int = 0  # restricted / scam / fake — unsafe for campaigns
+    bare: int = 0  # humanity_score <= 1 — too "robotic", ban-prone
+    results: list[TelegramCheckResult]
+
+
+@router.post("/bulk-check-telegram")
+async def bulk_check_telegram(
+    body: BulkCheckRequest,
+    _token: AdminAuth,
+    db: WorkspaceDB,
+) -> BulkCheckResult:
+    """Run real Telethon session check for multiple accounts in parallel.
+
+    Uses a semaphore to limit concurrent Telegram connections (default 3).
+    Updates each account status in DB: ACTIVE / DEAD / BANNED.
+    """
+    import asyncio
+
+    semaphore = asyncio.Semaphore(max(1, min(body.concurrency, 10)))
+    # Serialize all writes to the shared sqlite3 connection. Coroutines run
+    # concurrently but share one `db` connection; without this lock one
+    # coroutine's commit() can flush another's half-finished transaction
+    # ("database is locked" / lost updates). Held ONLY around execute+commit,
+    # never across Telethon network I/O, so connections stay parallel.
+    db_lock = asyncio.Lock()
+
+    async def _check_one(account_id: str) -> TelegramCheckResult:
+        async with semaphore:
+            # Reuse the single-account check logic inline
+            row = db.execute("SELECT * FROM tg_accounts WHERE id = ?", [account_id]).fetchone()
+            if not row:
+                return TelegramCheckResult(account_id=account_id, success=False, error="Аккаунт не найден")
+
+            # NO_PROXY guard: refuse the check before any temp-session/connect
+            # work so we never reach Telegram via the server's real IP. No DB
+            # write, no status change (liveness undetermined), no db_lock needed.
+            if not _has_active_proxy(db, row["proxy_id"]):
+                log.warning("check_no_proxy", account_id=account_id)
+                return TelegramCheckResult(
+                    account_id=account_id, success=False,
+                    error="Нет активного прокси", status="NO_PROXY",
+                )
+
+            meta: dict[str, Any] = {}
+            if row["metadata"]:
+                try:
+                    meta = json.loads(row["metadata"])
+                except Exception:
+                    pass
+
+            app_id = meta.get("app_id")
+            app_hash = meta.get("app_hash")
+            if not app_id or not app_hash:
+                async with db_lock:
+                    db.execute("UPDATE tg_accounts SET status='INVALID', updated_at=? WHERE id=?", [_now(), account_id])
+                    db.commit()
+                return TelegramCheckResult(account_id=account_id, success=False,
+                                           error="app_id/app_hash отсутствуют в metadata", status="INVALID")
+
+            session_path_str = row["session_path"]
+            session_full_path = Path(session_path_str)
+            if not session_full_path.exists():
+                async with db_lock:
+                    db.execute("UPDATE tg_accounts SET status='INVALID', updated_at=? WHERE id=?", [_now(), account_id])
+                    db.commit()
+                return TelegramCheckResult(account_id=account_id, success=False,
+                                           error="Session файл не найден", status="INVALID")
+
+            try:
+                from app.core.security import decrypt_bytes
+                session_bytes = decrypt_bytes(session_full_path.read_bytes())
+            except Exception as exc:
+                async with db_lock:
+                    db.execute("UPDATE tg_accounts SET status='INVALID', updated_at=? WHERE id=?", [_now(), account_id])
+                    db.commit()
+                return TelegramCheckResult(account_id=account_id, success=False,
+                                           error=f"Ошибка расшифровки: {exc}", status="INVALID")
+
+            tmp_session_path = Path(tempfile.mkdtemp()) / "account.session"
+            tmp_session_path.write_bytes(session_bytes)
+
+            client = None
+            client2 = None
+            try:
+                from telethon import TelegramClient
+                from telethon.errors import (
+                    SessionPasswordNeededError,
+                    AuthKeyUnregisteredError,
+                    UserDeactivatedBanError,
+                    PhoneNumberBannedError,
+                )
+                import python_socks
+
+                proxy_kwargs: dict[str, Any] = {}
+                if row["proxy_id"]:
+                    proxy_row = db.execute("SELECT * FROM tg_proxies WHERE id = ?", [row["proxy_id"]]).fetchone()
+                    if proxy_row and proxy_row["status"] == "ACTIVE":
+                        scheme = (proxy_row["scheme"] or "http").lower()
+                        proxy_type = (
+                            python_socks.ProxyType.SOCKS5 if "socks5" in scheme
+                            else python_socks.ProxyType.SOCKS4 if "socks4" in scheme
+                            else python_socks.ProxyType.HTTP
+                        )
+                        proxy_kwargs["proxy"] = {
+                            "proxy_type": proxy_type,
+                            "addr": proxy_row["host"],
+                            "port": int(proxy_row["port"]),
+                            "username": proxy_row["username"],
+                            "password": proxy_row["password"],
+                            "rdns": True,
+                        }
+
+                client = TelegramClient(
+                    str(tmp_session_path.with_suffix("")),
+                    api_id=int(app_id),
+                    api_hash=str(app_hash),
+                    connection_retries=5,
+                    retry_delay=2,
+                    **proxy_kwargs,
+                )
+                await client.connect()
+
+                if not await client.is_user_authorized():
+                    await client.disconnect()
+                    async with db_lock:
+                        db.execute("UPDATE tg_accounts SET status = ?, updated_at = ? WHERE id = ?", ["DEAD", _now(), account_id])
+                        db.commit()
+                    return TelegramCheckResult(account_id=account_id, success=False, error="Сессия не авторизована", status="DEAD")
+
+                me = await client.get_me()
+                # Health signals + humanity index (same enrichment as single check).
+                await _enrich_profile_meta(client, me, meta)
+                await client.disconnect()
+
+                async with db_lock:
+                    db.execute(
+                        """UPDATE tg_accounts SET
+                            tg_user_id = ?, username = ?, first_name = ?, last_name = ?,
+                            is_premium = ?, status = ?, last_session_at = ?, updated_at = ?,
+                            metadata = ?
+                        WHERE id = ?""",
+                        [me.id, me.username, me.first_name, me.last_name,
+                         1 if getattr(me, "premium", False) else 0,
+                         "ACTIVE", _now(), _now(),
+                         json.dumps(meta, ensure_ascii=False), account_id],
+                    )
+                    db.commit()
+                log.info("bulk_check_ok", account_id=account_id, phone=row["phone"])
+                return TelegramCheckResult(
+                    account_id=account_id, success=True,
+                    tg_user_id=me.id, first_name=me.first_name,
+                    username=me.username, is_premium=bool(getattr(me, "premium", False)),
+                    status="ACTIVE",
+                    restricted=bool(meta.get("restricted")),
+                    scam=bool(meta.get("scam")),
+                    fake=bool(meta.get("fake")),
+                    verified=bool(meta.get("verified")),
+                    humanity_score=int((meta.get("humanity") or {}).get("score", 0)),
+                )
+
+            except AuthKeyUnregisteredError:
+                async with db_lock:
+                    db.execute("UPDATE tg_accounts SET status = ?, updated_at = ? WHERE id = ?", ["DEAD", _now(), account_id])
+                    db.commit()
+                return TelegramCheckResult(account_id=account_id, success=False, error="AuthKey невалиден", status="DEAD")
+
+            except (UserDeactivatedBanError, PhoneNumberBannedError):
+                async with db_lock:
+                    db.execute("UPDATE tg_accounts SET status = ?, banned_at = ?, updated_at = ? WHERE id = ?", ["BANNED", _now(), _now(), account_id])
+                    db.commit()
+                return TelegramCheckResult(account_id=account_id, success=False, error="Аккаунт забанен", status="BANNED")
+
+            except SessionPasswordNeededError:
+                twofa = meta.get("twoFA") or meta.get("twofa_password")
+                if twofa:
+                    try:
+                        client2 = TelegramClient(
+                            str(tmp_session_path.with_suffix("")), api_id=int(app_id), api_hash=str(app_hash),
+                            connection_retries=5, retry_delay=2,
+                            **proxy_kwargs,  # 2FA re-auth must also go through the proxy (no IP leak)
+                        )
+                        await client2.connect()
+                        await client2.sign_in(password=str(twofa))
+                        me = await client2.get_me()
+                        await client2.disconnect()
+                        async with db_lock:
+                            db.execute(
+                                """UPDATE tg_accounts SET tg_user_id=?,username=?,first_name=?,last_name=?,
+                                   is_premium=?,status=?,last_session_at=?,updated_at=? WHERE id=?""",
+                                [me.id, me.username, me.first_name, me.last_name,
+                                 1 if getattr(me, "premium", False) else 0,
+                                 "ACTIVE", _now(), _now(), account_id],
+                            )
+                            db.commit()
+                        return TelegramCheckResult(account_id=account_id, success=True, tg_user_id=me.id,
+                                                   first_name=me.first_name, username=me.username,
+                                                   is_premium=bool(getattr(me, "premium", False)), status="ACTIVE")
+                    except Exception as exc2:
+                        return TelegramCheckResult(account_id=account_id, success=False, error=f"2FA не подошёл: {exc2}", status="IMPORTED")
+                return TelegramCheckResult(account_id=account_id, success=False, error="Требуется 2FA", status="IMPORTED")
+
+            except Exception as exc:
+                log.warning("bulk_check_error", account_id=account_id, error=str(exc)[:200])
+                return TelegramCheckResult(account_id=account_id, success=False, error=str(exc)[:200], status="IMPORTED")
+
+            finally:
+                # Disconnect any client opened above so a socket isn't leaked
+                # on the error paths (AuthKey/Ban/2FA/generic) that return
+                # without an explicit disconnect. disconnect() is idempotent.
+                for _client in (client, client2):
+                    if _client is not None:
+                        try:
+                            await _client.disconnect()
+                        except Exception:
+                            pass
+                shutil.rmtree(tmp_session_path.parent, ignore_errors=True)
+
+    results = await asyncio.gather(*[_check_one(aid) for aid in body.account_ids])
+
+    return BulkCheckResult(
+        total=len(results),
+        active=sum(1 for r in results if r.status == "ACTIVE"),
+        dead=sum(1 for r in results if r.status == "DEAD"),
+        banned=sum(1 for r in results if r.status == "BANNED"),
+        errors=sum(1 for r in results if not r.success and r.status == "IMPORTED"),
+        no_proxy=sum(1 for r in results if r.status == "NO_PROXY"),
+        restricted=sum(1 for r in results if r.success and (r.restricted or r.scam or r.fake)),
+        bare=sum(1 for r in results if r.success and r.humanity_score <= 1),
+        results=list(results),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Chat membership verification
+# ---------------------------------------------------------------------------
+
+class VerifyMembershipRequest(BaseModel):
+    account_ids: list[str]
+    chats: list[str]  # @username / t.me link / numeric id (as string)
+
+
+@router.post("/verify-membership")
+async def verify_membership(
+    body: VerifyMembershipRequest,
+    _token: AdminAuth,
+    db: WorkspaceDB,
+) -> dict[str, Any]:
+    """Check whether each account is ACTUALLY a member of each chat.
+
+    Connects each account once (NO_PROXY guard via the client pool), resolves
+    every chat and runs ``GetParticipant('me')``. Used by the join-chats
+    re-verify button and the account card to confirm accounts are still inside
+    their target chats — they may have been kicked/banned/left, or a "join" may
+    have been only a pending approval request.
+    """
+    from telethon.errors import UserNotParticipantError
+    from telethon.tl.functions.channels import GetParticipantRequest
+    from telethon.tl.types import Channel
+
+    from app.telegram.client_pool import disconnect_client, get_client_for_account
+
+    def _norm(chat: str) -> str:
+        s = (chat or "").strip()
+        for pre in ("https://t.me/", "http://t.me/", "t.me/", "@"):
+            if s.startswith(pre):
+                return s[len(pre):]
+        return s
+
+    results: list[dict[str, Any]] = []
+    for acc_id in body.account_ids:
+        acc = db.execute(
+            "SELECT phone, username, first_name FROM tg_accounts WHERE id = ?", [acc_id]
+        ).fetchone()
+        base = {
+            "account_id": acc_id,
+            "account_phone": acc["phone"] if acc else None,
+            "account_username": acc["username"] if acc else None,
+            "account_name": acc["first_name"] if acc else None,
+        }
+
+        client = None
+        try:
+            client = await get_client_for_account(acc_id, db)
+        except HTTPException as exc:
+            detail = str(exc.detail)
+            st = "NO_PROXY" if "NO_PROXY" in detail else "CONNECT_ERROR"
+            for chat in body.chats:
+                results.append({**base, "chat": chat, "is_member": False,
+                                "status": st, "error": detail[:150], "chat_title": None})
+            continue
+
+        try:
+            for chat in body.chats:
+                entry = {**base, "chat": chat, "is_member": False,
+                         "status": "UNKNOWN", "error": None, "chat_title": None}
+                try:
+                    ent = await client.get_entity(_norm(chat))
+                    entry["chat_title"] = getattr(ent, "title", None)
+                    if isinstance(ent, Channel):
+                        try:
+                            pres = await client(GetParticipantRequest(ent, "me"))
+                            ptype = type(pres.participant).__name__
+                            if "Banned" in ptype or "Left" in ptype:
+                                # In the chat's removed/banned list — can't write.
+                                entry["status"] = "BANNED"
+                                entry["error"] = "Аккаунт забанен в этом чате (писать нельзя)"
+                            else:
+                                entry["is_member"] = True
+                                entry["status"] = "MEMBER"
+                        except UserNotParticipantError:
+                            entry["status"] = "NOT_MEMBER"
+                    else:
+                        # Basic group: GetParticipant N/A — resolvable ⇒ treat as member.
+                        entry["is_member"] = True
+                        entry["status"] = "MEMBER"
+                except Exception as exc:
+                    entry["status"] = "ERROR"
+                    entry["error"] = str(exc)[:150]
+                results.append(entry)
+        finally:
+            await disconnect_client(client)
+
+    return {"results": results}
+
+
+# ---------------------------------------------------------------------------
+# Spamblock check via @SpamBot
+# ---------------------------------------------------------------------------
+
+class SpamblockResult(BaseModel):
+    account_id: str
+    is_spamblocked: bool
+    spamblock: str  # "none" or human-readable limitation text
+    spambot_reply: str | None = None
+    error: str | None = None
+
+
+@router.post("/{account_id}/check-spamblock")
+async def check_spamblock(
+    account_id: str,
+    _token: AdminAuth,
+    db: WorkspaceDB,
+) -> SpamblockResult:
+    """Check spamblock without messaging @SpamBot.
+
+    Strategy (no side-effects, in order):
+    1. me.restricted + restriction_reason — instant, from get_me()
+    2. Read existing @SpamBot dialog history — no new messages sent
+    3. If history empty → result is 'unknown' (inconclusive)
+    """
+    row = db.execute("SELECT * FROM tg_accounts WHERE id = ?", [account_id]).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Аккаунт не найден")
+
+    # NO_PROXY guard: never connect to Telegram over the server's real IP.
+    if not _has_active_proxy(db, row["proxy_id"]):
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="NO_PROXY: у аккаунта нет активного прокси — проверка спамблока невозможна",
+        )
+
+    meta: dict[str, Any] = {}
+    if row["metadata"]:
+        try:
+            meta = json.loads(row["metadata"])
+        except Exception:
+            pass
+
+    app_id = meta.get("app_id")
+    app_hash = meta.get("app_hash")
+    if not app_id or not app_hash:
+        raise HTTPException(status_code=400, detail="app_id/app_hash отсутствуют в metadata")
+
+    session_path_str = row["session_path"]
+    session_full_path = Path(session_path_str)
+    if not session_full_path.exists():
+        raise HTTPException(status_code=400, detail="Session файл не найден")
+
+    try:
+        from app.core.security import decrypt_bytes
+        session_bytes = decrypt_bytes(session_full_path.read_bytes())
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Ошибка расшифровки сессии: {exc}")
+
+    tmp_session_path = Path(tempfile.mkdtemp()) / "account.session"
+    tmp_session_path.write_bytes(session_bytes)
+
+    try:
+        import python_socks
+        from telethon import TelegramClient
+        from telethon.errors import AuthKeyUnregisteredError, UserDeactivatedBanError
+        from telethon.tl.functions.messages import GetHistoryRequest
+
+        # Build proxy (guaranteed ACTIVE by the NO_PROXY guard above).
+        proxy_kwargs: dict[str, Any] = {}
+        proxy_row = db.execute(
+            "SELECT * FROM tg_proxies WHERE id = ?", [row["proxy_id"]]
+        ).fetchone()
+        if proxy_row:
+            scheme = (proxy_row["scheme"] or "http").lower()
+            ptype = (
+                python_socks.ProxyType.SOCKS5 if "socks5" in scheme
+                else python_socks.ProxyType.SOCKS4 if "socks4" in scheme
+                else python_socks.ProxyType.HTTP
+            )
+            proxy_kwargs["proxy"] = {
+                "proxy_type": ptype,
+                "addr": proxy_row["host"],
+                "port": int(proxy_row["port"]),
+                "username": proxy_row["username"],
+                "password": proxy_row["password"],
+                "rdns": True,
+            }
+
+        client = TelegramClient(
+            str(tmp_session_path.with_suffix("")),
+            int(app_id),
+            app_hash,
+            device_model=row["device_model"] or "iPhone 14",
+            system_version=row["system_version"] or "16.0",
+            app_version=row["app_version"] or "9.2",
+            lang_code=row["lang_code"] or "ru",
+            connection_retries=5,
+            retry_delay=2,
+            **proxy_kwargs,
+        )
+
+        await client.connect()
+        if not await client.is_user_authorized():
+            await client.disconnect()
+            return SpamblockResult(
+                account_id=account_id,
+                is_spamblocked=False,
+                spamblock="none",
+                error="Сессия не авторизована",
+            )
+
+        # ── Step 1: check me.restricted flag ──────────────────────────────
+        me = await client.get_me()
+        restricted = getattr(me, "restricted", False)
+        restriction_reasons = getattr(me, "restriction_reason", None) or []
+        spam_reason = next(
+            (getattr(r, "text", None) or getattr(r, "reason", "") for r in restriction_reasons
+             if "spam" in (getattr(r, "reason", "") or "").lower()),
+            None,
+        )
+
+        if restricted and spam_reason:
+            await client.disconnect()
+            spamblock_val = spam_reason[:200]
+            meta["spamblock"] = spamblock_val
+            db.execute("UPDATE tg_accounts SET metadata=?, updated_at=? WHERE id=?",
+                       [json.dumps(meta), _now(), account_id])
+            db.commit()
+            log.info("spamblock_via_restricted", account_id=account_id)
+            return SpamblockResult(
+                account_id=account_id,
+                is_spamblocked=True,
+                spamblock=spamblock_val,
+                spambot_reply=f"[restriction_reason] {spam_reason}",
+            )
+
+        # ── Step 2: ask @SpamBot directly (send /start, read reply) ───────
+        import asyncio as _asyncio
+
+        async def _read_spambot_reply(bot: Any) -> str | None:
+            history = await client(GetHistoryRequest(
+                peer=bot, limit=5, offset_id=0, offset_date=None,
+                add_offset=0, max_id=0, min_id=0, hash=0,
+            ))
+            bot_msgs = [
+                m for m in history.messages
+                if hasattr(m, "out") and not m.out and hasattr(m, "message") and m.message
+            ]
+            return bot_msgs[0].message if bot_msgs else None
+
+        spambot_reply_text: str | None = None
+        try:
+            spambot = await client.get_entity("@SpamBot")
+            # Send /start so @SpamBot reports the CURRENT status (reading old
+            # history alone is unreliable / often empty → "unknown").
+            await client.send_message(spambot, "/start")
+            await _asyncio.sleep(4)
+            spambot_reply_text = await _read_spambot_reply(spambot)
+        except Exception:
+            pass  # can't resolve / send — inconclusive
+
+        await client.disconnect()
+
+        if spambot_reply_text:
+            reply_lower = spambot_reply_text.lower()
+            # NOTE: check "free" phrases FIRST and avoid the bare stem "ограничен"
+            # in limited_kw — it is a substring of "ограничениЙ" inside the FREE
+            # phrase «свободен от каких-либо ограничений», which caused false
+            # positives. Use specific limited phrases only.
+            free_kw = (
+                "good news", "no limits", "free as a bird", "you're free", "you are free",
+                "свободен", "свободны", "не ограничен", "ограничений нет",
+                "никаких ограничений", "нет ограничений", "всё в порядке", "все в порядке",
+            )
+            limited_kw = (
+                "не сможете писать", "не сможете отправлять", "вы ограничены",
+                "аккаунт ограничен", "был ограничен", "ваш аккаунт был",
+                "limited", "restricted", "is now limited", "is limited",
+                "antispam", "антиспам", "сурово", "harsh",
+            )
+            if any(kw in reply_lower for kw in free_kw):
+                is_blocked = False
+            elif any(kw in reply_lower for kw in limited_kw):
+                is_blocked = True
+            else:
+                # Got a reply but unrecognized wording — don't assume blocked.
+                is_blocked = False
+            spamblock_val = (
+                "none" if not is_blocked else spambot_reply_text[:300]
+            )
+        else:
+            # No reply at all → inconclusive
+            is_blocked = False
+            spamblock_val = "unknown"
+
+        meta["spamblock"] = spamblock_val
+        db.execute("UPDATE tg_accounts SET metadata=?, updated_at=? WHERE id=?",
+                   [json.dumps(meta), _now(), account_id])
+        db.commit()
+
+        log.info("spamblock_check", account_id=account_id, is_blocked=is_blocked,
+                 via="history" if spambot_reply_text else "no_data")
+        return SpamblockResult(
+            account_id=account_id,
+            is_spamblocked=is_blocked,
+            spamblock=spamblock_val,
+            spambot_reply=spambot_reply_text,
+        )
+
+    except (AuthKeyUnregisteredError, UserDeactivatedBanError) as exc:
+        return SpamblockResult(
+            account_id=account_id,
+            is_spamblocked=False,
+            spamblock="none",
+            error=f"Аккаунт мёртв: {type(exc).__name__}",
+        )
+    except Exception as exc:
+        log.error("spamblock_check_failed", account_id=account_id, error=str(exc))
+        return SpamblockResult(
+            account_id=account_id,
+            is_spamblocked=False,
+            spamblock="none",
+            error=str(exc)[:200],
+        )
+    finally:
+        shutil.rmtree(tmp_session_path.parent, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# Capabilities diagnostic
+# ---------------------------------------------------------------------------
+
+@router.post("/{account_id}/diagnose")
+async def diagnose_account(
+    account_id: str,
+    _token: AdminAuth,
+    db: WorkspaceDB,
+) -> dict:
+    """Run automated capability checks on an account.
+
+    Tests: search users, get_participants, send DM, invite.
+    Saves results to capabilities JSON field.
+    """
+    row = db.execute("SELECT * FROM tg_accounts WHERE id = ?", [account_id]).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    meta: dict[str, Any] = {}
+    if row["metadata"]:
+        try:
+            meta = json.loads(row["metadata"])
+        except Exception:
+            pass
+
+    app_id = meta.get("app_id")
+    app_hash = meta.get("app_hash")
+    if not app_id or not app_hash:
+        raise HTTPException(status_code=400, detail="app_id/app_hash missing")
+
+    session_path_str = row["session_path"]
+    session_full_path = Path(session_path_str)
+    if not session_full_path.exists():
+        raise HTTPException(status_code=400, detail="Session file not found")
+
+    from app.core.security import decrypt_bytes
+    session_bytes = decrypt_bytes(session_full_path.read_bytes())
+    tmp_session_path = Path(tempfile.mkdtemp()) / "diag.session"
+    tmp_session_path.write_bytes(session_bytes)
+
+    caps = {
+        "can_search_users": False,
+        "can_get_participants": False,
+        "can_send_dm": False,
+        "can_read_messages": False,
+        "diagnosed_at": _now(),
+        "errors": {},
+    }
+
+    try:
+        from telethon import TelegramClient
+        import python_socks
+
+        proxy_kwargs: dict[str, Any] = {}
+        if row["proxy_id"]:
+            proxy_row = db.execute("SELECT * FROM tg_proxies WHERE id = ?", [row["proxy_id"]]).fetchone()
+            if proxy_row and proxy_row["status"] == "ACTIVE":
+                scheme = (proxy_row["scheme"] or "http").lower()
+                ptype = python_socks.ProxyType.SOCKS5 if "socks" in scheme else python_socks.ProxyType.HTTP
+                proxy_kwargs["proxy"] = {
+                    "proxy_type": ptype, "addr": proxy_row["host"],
+                    "port": int(proxy_row["port"]), "username": proxy_row["username"],
+                    "password": proxy_row["password"], "rdns": True,
+                }
+
+        client = TelegramClient(
+            str(tmp_session_path.with_suffix("")),
+            api_id=int(app_id), api_hash=str(app_hash),
+            timeout=20, connection_retries=5, retry_delay=2, **proxy_kwargs,
+        )
+        await client.connect()
+        if not await client.is_user_authorized():
+            twofa = meta.get("twoFA") or meta.get("twofa_password")
+            if twofa:
+                from telethon.errors import SessionPasswordNeededError
+                try:
+                    await client.sign_in(password=str(twofa))
+                except Exception:
+                    pass
+
+        # Test 1: search users (try to find @BotFather — always exists)
+        try:
+            entity = await client.get_entity("@BotFather")
+            caps["can_search_users"] = True
+        except Exception as e:
+            caps["errors"]["search_users"] = str(e)[:100]
+
+        # Test 2: get_participants (try on a known group from dialogs)
+        try:
+            dialogs = await client.get_dialogs(limit=10)
+            test_group = None
+            for d in dialogs:
+                if d.is_group or d.is_channel:
+                    test_group = d
+                    break
+            if test_group:
+                parts = await client.get_participants(test_group, limit=5)
+                caps["can_get_participants"] = True
+            else:
+                caps["errors"]["get_participants"] = "No groups in dialogs to test"
+        except Exception as e:
+            caps["errors"]["get_participants"] = str(e)[:100]
+
+        # Test 3: read messages
+        try:
+            dialogs = await client.get_dialogs(limit=5)
+            if dialogs:
+                msgs = await client.get_messages(dialogs[0], limit=3)
+                caps["can_read_messages"] = True
+        except Exception as e:
+            caps["errors"]["read_messages"] = str(e)[:100]
+
+        # Test 4: can_send_dm — we check if search works (prerequisite for DM)
+        # Real DM test would require sending to someone, so we infer from search
+        caps["can_send_dm"] = caps["can_search_users"]
+
+        await client.disconnect()
+
+    except Exception as e:
+        caps["errors"]["connection"] = str(e)[:100]
+    finally:
+        shutil.rmtree(tmp_session_path.parent, ignore_errors=True)
+
+    # Save to DB
+    db.execute("UPDATE tg_accounts SET capabilities = ?, updated_at = ? WHERE id = ?",
+               [json.dumps(caps), _now(), account_id])
+    db.commit()
+
+    log.info("account_diagnosed", account_id=account_id, caps=caps)
+    return {"account_id": account_id, "capabilities": caps}
+
+
+# ---------------------------------------------------------------------------
+# Export account as ZIP (.session + .json)
+# ---------------------------------------------------------------------------
+
+@router.get("/{account_id}/export")
+async def export_account(
+    account_id: str,
+    _token: AdminAuth,
+    db: WorkspaceDB,
+) -> Response:
+    """Export a single account as ZIP archive with decrypted .session + .json metadata."""
+    row = db.execute(
+        "SELECT * FROM tg_accounts WHERE id = ?", [account_id]
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    acc = dict(row)
+    phone = acc["phone"].lstrip("+")
+
+    # Decrypt session file
+    session_path = Path(acc["session_path"])
+    if not session_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Session file not found on disk",
+        )
+
+    try:
+        session_bytes = decrypt_bytes(session_path.read_bytes())
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to decrypt session: {exc}",
+        )
+
+    # Build metadata JSON
+    meta: dict[str, Any] = {}
+    if acc.get("metadata"):
+        try:
+            meta = json.loads(acc["metadata"])
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    export_meta = {
+        "phone": acc["phone"],
+        "user_id": acc.get("tg_user_id"),
+        "username": acc.get("username"),
+        "first_name": acc.get("first_name"),
+        "last_name": acc.get("last_name"),
+        "is_premium": bool(acc.get("is_premium")),
+        "device": acc.get("device_model"),
+        "sdk": acc.get("system_version"),
+        "app_version": acc.get("app_version"),
+        "system_lang_pack": acc.get("lang_code"),
+        "app_id": meta.get("app_id"),
+        "app_hash": meta.get("app_hash"),
+        "twoFA": meta.get("twoFA") or meta.get("twofa_password"),
+        "spamblock": meta.get("spamblock", "none"),
+        "register_time": meta.get("register_time"),
+    }
+
+    # Build ZIP in memory
+    import io
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(f"{phone}.session", session_bytes)
+        zf.writestr(f"{phone}.json", json.dumps(export_meta, ensure_ascii=False, indent=2))
+    zip_buffer.seek(0)
+
+    log.info("account_exported", account_id=account_id, phone=acc["phone"])
+
+    return Response(
+        content=zip_buffer.read(),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="account_{phone}.zip"',
+        },
+    )

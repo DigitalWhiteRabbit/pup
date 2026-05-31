@@ -11,7 +11,7 @@ import structlog
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from app.deps import AdminAuth, WorkspaceDB
+from app.deps import AdminAuth, WorkspaceDB, WorkspaceId
 
 router = APIRouter(prefix="/chat-broadcasts", tags=["chat-broadcasts"])
 
@@ -228,8 +228,9 @@ async def start_broadcast(
     broadcast_id: str,
     _token: AdminAuth,
     db: WorkspaceDB,
+    workspace_id: WorkspaceId,
 ) -> dict[str, Any]:
-    """Set broadcast status to RUNNING."""
+    """Set broadcast status to RUNNING and dispatch Celery task."""
     row = db.execute(
         "SELECT * FROM tg_chat_broadcasts WHERE id = ?", [broadcast_id]
     ).fetchone()
@@ -254,6 +255,17 @@ async def start_broadcast(
     except Exception:
         db.rollback()
         raise
+
+    # Dispatch Celery chat broadcast task
+    try:
+        from app.tasks.celery_app import celery_app
+        celery_app.send_task(
+            "pup_tg.chat_broadcast",
+            args=[workspace_id, broadcast_id],
+            queue="pup_tg_default",
+        )
+    except Exception as exc:
+        log.warning("celery_dispatch_skipped", broadcast_id=broadcast_id, error=str(exc))
 
     row = db.execute(
         "SELECT * FROM tg_chat_broadcasts WHERE id = ?", [broadcast_id]

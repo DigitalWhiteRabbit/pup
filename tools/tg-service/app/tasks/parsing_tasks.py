@@ -8,11 +8,11 @@ Parsing modes:
     CHAT_MEMBERS   — GetParticipants (full member list)
     COMMENTERS     — Authors of post comments
     WRITERS        — Message authors in a chat
-    REACTIONS      — (placeholder) Users who reacted to posts
-    POLLS          — (placeholder) Poll voters
-    JOINERS        — (placeholder) Recent join events
-    TOPICS         — (placeholder) Forum topic participants
-    GLOBAL_SEARCH  — (placeholder) Telegram global search
+    REACTIONS      — Users who reacted to posts (GetMessageReactionsListRequest)
+    POLLS          — Poll voters (GetPollVotersRequest)
+    JOINERS        — Recent join events (service messages)
+    TOPICS         — Forum topic participants (GetForumTopicsRequest)
+    GLOBAL_SEARCH  — Telegram global user search (SearchRequest)
 """
 
 from __future__ import annotations
@@ -105,13 +105,16 @@ def _build_proxy_kwargs(db: Any, proxy_id: str) -> dict[str, Any]:
 
 
 def _pick_account(db: Any) -> dict[str, Any] | None:
-    """Pick an ACTIVE account, preferring those with a proxy assigned."""
+    """Pick an ACTIVE account that has a proxy assigned.
+
+    Accounts without a proxy_id are excluded entirely: a proxy-less account
+    must never connect over the server's real IP. The proxy must also be
+    ACTIVE — this is verified by the NO_PROXY guard at the connect site.
+    """
     row = db.execute(
         """SELECT * FROM tg_accounts
-           WHERE status = 'ACTIVE'
-           ORDER BY
-               CASE WHEN proxy_id IS NOT NULL THEN 0 ELSE 1 END,
-               RANDOM()
+           WHERE status = 'ACTIVE' AND proxy_id IS NOT NULL
+           ORDER BY RANDOM()
            LIMIT 1"""
     ).fetchone()
     return dict(row) if row else None
@@ -315,9 +318,51 @@ async def _parse_reactions(
     entity: Any,
     filters: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    """Mode: REACTIONS -- users who reacted to posts (placeholder)."""
-    log.warning("parse_mode_not_implemented", mode="REACTIONS")
-    return []
+    """Mode: REACTIONS -- users who reacted to recent posts."""
+    from telethon.tl.functions.messages import GetMessageReactionsListRequest
+    from telethon.tl.types import PeerUser
+
+    log.info("parse_mode_reactions", entity=str(entity))
+    users: dict[int, dict[str, Any]] = {}
+    post_count = 0
+
+    async for msg in client.iter_messages(entity, limit=50):
+        if not getattr(msg, "reactions", None):
+            continue
+        try:
+            offset = ""
+            while True:
+                result = await client(GetMessageReactionsListRequest(
+                    peer=entity,
+                    id=msg.id,
+                    limit=100,
+                    offset=offset,
+                ))
+                for reaction in result.reactions:
+                    # Skip anonymous/channel reactions (PeerChannel/PeerChat have no user_id)
+                    if not isinstance(reaction.peer_id, PeerUser):
+                        continue
+                    uid = reaction.peer_id.user_id
+                    if uid not in users:
+                        try:
+                            user = await client.get_entity(uid)
+                            if not getattr(user, "deleted", False):
+                                users[uid] = _user_to_dict(user)
+                        except Exception:
+                            pass
+                        await asyncio.sleep(random.uniform(0.3, 1.0))
+                if not result.next_offset:
+                    break
+                offset = result.next_offset
+                await asyncio.sleep(random.uniform(1.0, 3.0))
+        except Exception as exc:
+            log.debug("reactions_error", msg_id=msg.id, error=str(exc)[:200])
+
+        post_count += 1
+        if post_count % 5 == 0:
+            await asyncio.sleep(random.uniform(2.0, 5.0))
+
+    return _apply_filters(list(users.values()), filters)
 
 
 async def _parse_polls(
@@ -325,9 +370,44 @@ async def _parse_polls(
     entity: Any,
     filters: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    """Mode: POLLS -- poll voters (placeholder)."""
-    log.warning("parse_mode_not_implemented", mode="POLLS")
-    return []
+    """Mode: POLLS -- voters in polls found in recent messages."""
+    from telethon.tl.functions.messages import GetPollVotersRequest
+
+    log.info("parse_mode_polls", entity=str(entity))
+    users: dict[int, dict[str, Any]] = {}
+
+    async for msg in client.iter_messages(entity, limit=100):
+        if not getattr(msg, "media", None):
+            continue
+        poll = getattr(msg.media, "poll", None)
+        if not poll:
+            continue
+
+        for i, answer in enumerate(poll.answers):
+            try:
+                offset = ""
+                while True:
+                    result = await client(GetPollVotersRequest(
+                        peer=entity,
+                        id=msg.id,
+                        option=answer.option,
+                        limit=100,
+                        offset=offset,
+                    ))
+                    for voter in result.users:
+                        if voter.id not in users and not getattr(voter, "deleted", False):
+                            users[voter.id] = _user_to_dict(voter)
+                    if not result.next_offset:
+                        break
+                    offset = result.next_offset
+                    await asyncio.sleep(random.uniform(1.0, 2.0))
+            except Exception as exc:
+                log.debug("poll_voters_error", msg_id=msg.id, option=i, error=str(exc)[:200])
+
+            await asyncio.sleep(random.uniform(0.5, 1.5))
+        await asyncio.sleep(random.uniform(2.0, 5.0))
+
+    return _apply_filters(list(users.values()), filters)
 
 
 async def _parse_joiners(
@@ -335,9 +415,38 @@ async def _parse_joiners(
     entity: Any,
     filters: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    """Mode: JOINERS -- recent join events (placeholder)."""
-    log.warning("parse_mode_not_implemented", mode="JOINERS")
-    return []
+    """Mode: JOINERS -- users who recently joined (from service messages)."""
+    from telethon.tl.types import MessageActionChatAddUser, MessageActionChatJoinedByLink
+
+    log.info("parse_mode_joiners", entity=str(entity))
+    users: dict[int, dict[str, Any]] = {}
+
+    async for msg in client.iter_messages(entity, limit=1000):
+        action = getattr(msg, "action", None)
+        if not action:
+            continue
+
+        user_ids: list[int] = []
+        if isinstance(action, MessageActionChatAddUser):
+            user_ids = action.users
+        elif isinstance(action, MessageActionChatJoinedByLink):
+            if msg.sender_id:
+                user_ids = [msg.sender_id]
+
+        for uid in user_ids:
+            if uid not in users:
+                try:
+                    user = await client.get_entity(uid)
+                    if not getattr(user, "deleted", False):
+                        users[uid] = _user_to_dict(user)
+                except Exception:
+                    pass
+                await asyncio.sleep(random.uniform(0.3, 1.0))
+
+        if len(users) % 50 == 0 and len(users) > 0:
+            await asyncio.sleep(random.uniform(2.0, 5.0))
+
+    return _apply_filters(list(users.values()), filters)
 
 
 async def _parse_topics(
@@ -345,9 +454,42 @@ async def _parse_topics(
     entity: Any,
     filters: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    """Mode: TOPICS -- forum topic participants (placeholder)."""
-    log.warning("parse_mode_not_implemented", mode="TOPICS")
-    return []
+    """Mode: TOPICS -- participants of specific forum topics."""
+    from telethon.tl.functions.channels import GetForumTopicsRequest
+
+    log.info("parse_mode_topics", entity=str(entity))
+    users: dict[int, dict[str, Any]] = {}
+
+    try:
+        result = await client(GetForumTopicsRequest(
+            channel=entity,
+            offset_date=0,
+            offset_id=0,
+            offset_topic=0,
+            limit=100,
+        ))
+        topics = result.topics
+    except Exception as exc:
+        log.warning("topics_not_forum", error=str(exc)[:200])
+        return []
+
+    for topic in topics:
+        try:
+            async for msg in client.iter_messages(entity, reply_to=topic.id, limit=200):
+                if msg.sender_id and msg.sender_id not in users:
+                    try:
+                        user = await client.get_entity(msg.sender_id)
+                        if not getattr(user, "deleted", False):
+                            users[msg.sender_id] = _user_to_dict(user)
+                    except Exception:
+                        pass
+                    await asyncio.sleep(random.uniform(0.3, 1.0))
+        except Exception as exc:
+            log.debug("topic_parse_error", topic_id=topic.id, error=str(exc)[:200])
+
+        await asyncio.sleep(random.uniform(2.0, 5.0))
+
+    return _apply_filters(list(users.values()), filters)
 
 
 async def _parse_global_search(
@@ -355,9 +497,30 @@ async def _parse_global_search(
     entity: Any,
     filters: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    """Mode: GLOBAL_SEARCH -- Telegram global search (placeholder)."""
-    log.warning("parse_mode_not_implemented", mode="GLOBAL_SEARCH")
-    return []
+    """Mode: GLOBAL_SEARCH -- search Telegram for users/channels by keywords."""
+    from telethon.tl.functions.contacts import SearchRequest
+
+    log.info("parse_mode_global_search", entity=str(entity))
+    users: dict[int, dict[str, Any]] = {}
+
+    keywords = filters.get("keywords", [])
+    if isinstance(keywords, str):
+        keywords = [k.strip() for k in keywords.split(",") if k.strip()]
+    if not keywords:
+        keywords = [getattr(entity, "title", "") or getattr(entity, "username", "") or "telegram"]
+
+    for keyword in keywords[:10]:
+        try:
+            result = await client(SearchRequest(q=keyword, limit=100))
+            for user in result.users:
+                if user.id not in users and not getattr(user, "deleted", False) and not getattr(user, "bot", False):
+                    users[user.id] = _user_to_dict(user)
+        except Exception as exc:
+            log.debug("global_search_error", keyword=keyword, error=str(exc)[:200])
+
+        await asyncio.sleep(random.uniform(3.0, 8.0))
+
+    return _apply_filters(list(users.values()), filters)
 
 
 _MODE_HANDLERS: dict[str, Any] = {
@@ -527,6 +690,12 @@ async def _parse_audience_async(workspace_id: str, task_id: str) -> dict[str, An
     except Exception as exc:
         _fail_task(db, task_id, f"Session preparation failed: {exc}")
         return {"status": "FAILED", "error": f"Session preparation failed: {exc}"}
+
+    # ── NO_PROXY guard: never connect over the server's real IP ─────────
+    if "proxy" not in proxy_kwargs:
+        log.warning("no_proxy_skip", account_id=account["id"], task_id=task_id)
+        _fail_task(db, task_id, "NO_PROXY: нет активного прокси")
+        return {"status": "FAILED", "error": "NO_PROXY: нет активного прокси"}
 
     # ── Write temp session for Telethon ────────────────────────────────
     tmp_dir = tempfile.mkdtemp(prefix="tg_parse_")

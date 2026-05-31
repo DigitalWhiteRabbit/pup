@@ -11,7 +11,7 @@ import structlog
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from app.deps import AdminAuth, WorkspaceDB
+from app.deps import AdminAuth, WorkspaceDB, WorkspaceId
 
 router = APIRouter(prefix="/ai-sales", tags=["ai-sales"])
 
@@ -383,3 +383,148 @@ async def sales_stats(
         "total_scripts": total_scripts,
         "active_scripts": active_scripts,
     }
+
+
+# ---------------------------------------------------------------------------
+# Start / Stop / Monitor
+# ---------------------------------------------------------------------------
+
+@router.post("/scripts/{script_id}/start")
+async def start_script(
+    script_id: str,
+    _token: AdminAuth,
+    db: WorkspaceDB,
+    workspace_id: WorkspaceId,
+) -> dict[str, Any]:
+    """Set script status to ACTIVE and dispatch the AI sales monitor task."""
+    row = db.execute(
+        "SELECT * FROM tg_sales_scripts WHERE id = ?", [script_id]
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Script not found")
+
+    if row["status"] not in ("DRAFT", "PAUSED"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot start script in status '{row['status']}'.",
+        )
+
+    now = _now()
+    # Dispatch BEFORE commit: if the dispatch fails we roll back the UPDATE so
+    # the script is never left ACTIVE without a monitoring task running.
+    db.execute(
+        "UPDATE tg_sales_scripts SET status = ?, updated_at = ? WHERE id = ?",
+        ["ACTIVE", now, script_id],
+    )
+    try:
+        from app.tasks.celery_app import celery_app
+        celery_app.send_task(
+            "pup_tg.ai_sales_monitor",
+            args=[workspace_id],
+            queue="pup_tg_default",
+        )
+        db.commit()
+        log.info("ai_sales_monitor_dispatched", script_id=script_id)
+    except Exception as exc:
+        db.rollback()
+        log.error("ai_sales_monitor_dispatch_failed", script_id=script_id, error=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Failed to dispatch AI sales monitor task; script was not started.",
+        )
+
+    row = db.execute(
+        "SELECT * FROM tg_sales_scripts WHERE id = ?", [script_id]
+    ).fetchone()
+    log.info("sales_script_started", script_id=script_id)
+    return _row_to_script(row)
+
+
+@router.post("/scripts/{script_id}/stop")
+async def stop_script(
+    script_id: str,
+    _token: AdminAuth,
+    db: WorkspaceDB,
+) -> dict[str, Any]:
+    """Pause a sales script."""
+    row = db.execute(
+        "SELECT * FROM tg_sales_scripts WHERE id = ?", [script_id]
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Script not found")
+
+    now = _now()
+    try:
+        db.execute(
+            "UPDATE tg_sales_scripts SET status = ?, updated_at = ? WHERE id = ?",
+            ["PAUSED", now, script_id],
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    row = db.execute(
+        "SELECT * FROM tg_sales_scripts WHERE id = ?", [script_id]
+    ).fetchone()
+    log.info("sales_script_stopped", script_id=script_id)
+    return _row_to_script(row)
+
+
+@router.post("/monitor")
+async def trigger_monitor(
+    _token: AdminAuth,
+    workspace_id: WorkspaceId,
+) -> dict[str, Any]:
+    """Manually trigger the AI sales monitor cycle (scans all ACTIVE scripts for incoming DMs)."""
+    try:
+        from app.tasks.celery_app import celery_app
+        result = celery_app.send_task(
+            "pup_tg.ai_sales_monitor",
+            args=[workspace_id],
+            queue="pup_tg_default",
+        )
+        log.info("ai_sales_monitor_dispatched", celery_task_id=result.id)
+        return {"status": "dispatched", "celery_task_id": result.id}
+    except Exception as exc:
+        log.warning("ai_sales_monitor_dispatch_failed", error=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to dispatch monitor task: {exc}",
+        )
+
+
+@router.post("/dialogs/{dialog_id}/reply")
+async def trigger_reply(
+    dialog_id: str,
+    _token: AdminAuth,
+    db: WorkspaceDB,
+    workspace_id: WorkspaceId,
+) -> dict[str, Any]:
+    """Manually trigger an AI reply for a specific dialog."""
+    row = db.execute(
+        "SELECT * FROM tg_sales_dialogs WHERE id = ?", [dialog_id]
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Dialog not found")
+
+    terminal = {"CONVERTED", "LOST", "HANDED_OFF"}
+    if row["lead_status"] in terminal:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot reply to dialog in status '{row['lead_status']}'.",
+        )
+
+    try:
+        from app.tasks.celery_app import celery_app
+        result = celery_app.send_task(
+            "pup_tg.ai_sales_reply",
+            args=[workspace_id, dialog_id],
+            queue="pup_tg_default",
+        )
+        return {"status": "dispatched", "celery_task_id": result.id}
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to dispatch reply task: {exc}",
+        )

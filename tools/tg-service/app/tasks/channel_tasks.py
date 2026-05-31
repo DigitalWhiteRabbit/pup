@@ -64,13 +64,16 @@ def _build_proxy_kwargs(db: Any, proxy_id: str) -> dict[str, Any]:
 
 
 def _pick_account(db: Any) -> dict[str, Any] | None:
-    """Pick an ACTIVE account, preferring those with a proxy assigned."""
+    """Pick an ACTIVE account that has a proxy assigned.
+
+    Accounts without a proxy_id are excluded entirely: a proxy-less account
+    must never connect over the server's real IP. The proxy must also be
+    ACTIVE — this is verified by the NO_PROXY guard at the connect site.
+    """
     row = db.execute(
         """SELECT * FROM tg_accounts
-           WHERE status = 'ACTIVE'
-           ORDER BY
-               CASE WHEN proxy_id IS NOT NULL THEN 0 ELSE 1 END,
-               RANDOM()
+           WHERE status = 'ACTIVE' AND proxy_id IS NOT NULL
+           ORDER BY RANDOM()
            LIMIT 1"""
     ).fetchone()
     return dict(row) if row else None
@@ -148,6 +151,11 @@ async def _resolve_channel_async(workspace_id: str, link: str) -> dict[str, Any]
                 account_id=account["id"],
                 error=str(exc),
             )
+
+    # ── NO_PROXY guard: never connect over the server's real IP ─────────
+    if "proxy" not in proxy_kwargs:
+        log.warning("no_proxy_skip", account_id=account["id"], workspace_id=workspace_id)
+        return {"ok": False, "error": "NO_PROXY: нет активного прокси"}
 
     # ── Write temp session ─────────────────────────────────────────────
     tmp_dir = tempfile.mkdtemp(prefix="tg_resolve_")

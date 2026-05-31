@@ -1,9 +1,19 @@
 import "server-only";
 import { db } from "@/lib/db";
 import { ApiError } from "@/lib/api-error";
-import { handleColumnRename } from "./timer.service";
-import { logActivity, generateSummary } from "./logger.service";
-import { checkMembership } from "./member.service";
+import { checkMembership } from "./membership-check";
+
+// Dynamic imports to avoid webpack bundling telegram/mailparser chain
+async function getLogger() {
+  const p = "./logger.service";
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return Function("p", "return import(p)")(p) as any;
+}
+async function getTimer() {
+  const p = "./timer.service";
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return Function("p", "return import(p)")(p) as any;
+}
 
 // ─── Column service ──────────────────────────────────────────────────────────
 
@@ -38,14 +48,16 @@ export async function createColumn(input: {
     select: { login: true },
   });
 
-  await logActivity({
+  await (
+    await getLogger()
+  ).logActivity({
     workspaceId: input.workspaceId,
     actorId: input.requesterId,
     action: "COLUMN_CREATED",
     entityType: "Column",
     entityId: column.id,
     columnId: column.id,
-    summary: generateSummary("COLUMN_CREATED", {
+    summary: (await getLogger()).generateSummary("COLUMN_CREATED", {
       actorLogin: actor?.login,
       columnName: input.name,
     }),
@@ -86,7 +98,9 @@ export async function renameColumn(
       data: { name: newName },
     });
 
-    await handleColumnRename(tx, columnId, capturedOldName, newName);
+    await (
+      await getTimer()
+    ).handleColumnRename(tx, columnId, capturedOldName, newName);
 
     return {
       result: { id: columnId, name: newName },
@@ -99,14 +113,16 @@ export async function renameColumn(
     select: { login: true },
   });
 
-  await logActivity({
+  await (
+    await getLogger()
+  ).logActivity({
     workspaceId: columnCheck.workspaceId,
     actorId: requesterId,
     action: "COLUMN_RENAMED",
     entityType: "Column",
     entityId: columnId,
     columnId,
-    summary: generateSummary("COLUMN_RENAMED", {
+    summary: (await getLogger()).generateSummary("COLUMN_RENAMED", {
       actorLogin: actor?.login,
       columnNameOld: oldName,
       columnName: newName,
@@ -146,14 +162,16 @@ export async function deleteColumn(
     select: { login: true },
   });
 
-  await logActivity({
+  await (
+    await getLogger()
+  ).logActivity({
     workspaceId: column.workspaceId,
     actorId: requesterId,
     action: "COLUMN_DELETED",
     entityType: "Column",
     entityId: columnId,
     columnId,
-    summary: generateSummary("COLUMN_DELETED", {
+    summary: (await getLogger()).generateSummary("COLUMN_DELETED", {
       actorLogin: actor?.login,
       columnName: column.name,
     }),

@@ -11,7 +11,7 @@ import structlog
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from app.deps import AdminAuth, WorkspaceDB
+from app.deps import AdminAuth, WorkspaceDB, WorkspaceId
 
 router = APIRouter(prefix="/dm-campaigns", tags=["dm-campaigns"])
 
@@ -318,8 +318,9 @@ async def start_campaign(
     campaign_id: str,
     _token: AdminAuth,
     db: WorkspaceDB,
+    workspace_id: WorkspaceId,
 ) -> dict[str, Any]:
-    """Set campaign status to RUNNING."""
+    """Set campaign status to RUNNING and dispatch Celery task."""
     row = db.execute(
         "SELECT * FROM tg_dm_campaigns WHERE id = ?", [campaign_id]
     ).fetchone()
@@ -344,6 +345,18 @@ async def start_campaign(
     except Exception:
         db.rollback()
         raise
+
+    # Dispatch real DM campaign Celery task
+    try:
+        from app.tasks.celery_app import celery_app
+        celery_app.send_task(
+            "pup_tg.dm_campaign",
+            args=[workspace_id, campaign_id],
+            queue="pup_tg_default",
+        )
+        log.info("dm_campaign_dispatched", campaign_id=campaign_id)
+    except Exception as exc:
+        log.warning("celery_dispatch_skipped", campaign_id=campaign_id, error=str(exc))
 
     row = db.execute(
         "SELECT * FROM tg_dm_campaigns WHERE id = ?", [campaign_id]

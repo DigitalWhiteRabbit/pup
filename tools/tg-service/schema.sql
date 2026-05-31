@@ -39,6 +39,12 @@ CREATE TABLE IF NOT EXISTS tg_accounts (
   banned_at         TEXT,
   ban_reason        TEXT,
 
+  -- Stats
+  sent_count        INTEGER DEFAULT 0,                         -- total DMs sent from this account (across all campaigns)
+
+  -- Capabilities (auto-detected restrictions)
+  capabilities      TEXT DEFAULT '{}',                          -- JSON: {"can_send_dm":true,"can_search_users":true,"can_get_participants":true,"can_invite":true}
+
   -- Relations & metadata
   proxy_id          TEXT REFERENCES tg_proxies(id) ON DELETE SET NULL,
   tags              TEXT DEFAULT '[]',                          -- JSON array
@@ -58,7 +64,7 @@ CREATE INDEX IF NOT EXISTS idx_tg_accounts_warmup       ON tg_accounts(warmup_pr
 
 CREATE TABLE IF NOT EXISTS tg_proxies (
   id                TEXT PRIMARY KEY,                           -- UUID
-  provider          TEXT NOT NULL,                              -- e.g. 'proxy-seller', 'manual'
+  provider          TEXT NOT NULL,                              -- e.g. 'manual', 'proxy6'
   provider_order_id TEXT,
   type              TEXT NOT NULL,                              -- RESIDENTIAL|MOBILE|DATACENTER
   scheme            TEXT NOT NULL,                              -- http|socks5|mtproto
@@ -118,7 +124,6 @@ CREATE TABLE IF NOT EXISTS tg_settings (
 
   -- External API keys (stored encrypted at rest)
   anthropic_api_key             TEXT,
-  proxy_seller_api_key          TEXT,
 
   -- Notification preferences
   notify_on_emergency_stop      INTEGER DEFAULT 1,
@@ -175,6 +180,75 @@ CREATE TABLE IF NOT EXISTS tg_kb_chunks (
 
 CREATE INDEX IF NOT EXISTS idx_tg_kb_chunks_document ON tg_kb_chunks(document_id);
 CREATE INDEX IF NOT EXISTS idx_tg_kb_chunks_position ON tg_kb_chunks(document_id, position);
+
+-- ─── Knowledge Base Crawl Jobs (website crawler) ──────────────────────────
+
+CREATE TABLE IF NOT EXISTS tg_kb_crawl_jobs (
+  id                TEXT PRIMARY KEY,                           -- UUID
+  url               TEXT NOT NULL,                              -- start URL
+  status            TEXT DEFAULT 'PENDING',                     -- PENDING|RUNNING|DONE|FAILED
+  pages_found       INTEGER DEFAULT 0,                          -- queued + visited
+  pages_done        INTEGER DEFAULT 0,                          -- pages fetched/processed
+  documents_created INTEGER DEFAULT 0,                          -- KB docs saved
+  error             TEXT,                                       -- failure / safety-cap note
+  started_at        TEXT,
+  finished_at       TEXT,
+  created_at        TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_tg_kb_crawl_jobs_status ON tg_kb_crawl_jobs(status);
+
+-- ─── Knowledge Base Conflicts (consistency check) ─────────────────────────
+
+CREATE TABLE IF NOT EXISTS tg_kb_conflicts (
+  id            TEXT PRIMARY KEY,                           -- UUID
+  conflict_type TEXT NOT NULL,                              -- 'duplicate' | 'contradiction'
+  doc_a_id      TEXT,
+  doc_a_title   TEXT,
+  doc_b_id      TEXT,
+  doc_b_title   TEXT,
+  summary       TEXT,                                       -- short human description (RU)
+  quote_a       TEXT,                                       -- conflicting/duplicate snippet A
+  quote_b       TEXT,                                       -- conflicting/duplicate snippet B
+  conflict_field TEXT,                                      -- contradiction: differing field (RU), null for duplicates
+  value_a       TEXT,                                       -- contradiction: doc A's value, null for duplicates
+  value_b       TEXT,                                       -- contradiction: doc B's value, null for duplicates
+  status        TEXT DEFAULT 'open',                        -- open | resolved | dismissed
+  created_at    TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_tg_kb_conflicts_status ON tg_kb_conflicts(status);
+
+-- ─── Knowledge Base Test-Chat (RAG dialog history) ────────────────────────
+
+CREATE TABLE IF NOT EXISTS tg_kb_chat_messages (
+  id            TEXT PRIMARY KEY,                           -- UUID
+  role          TEXT NOT NULL,                              -- 'user' | 'assistant'
+  content       TEXT NOT NULL,
+  sources       TEXT,                                       -- JSON array (assistant): [{doc_id,title,url,snippet}]
+  mode          TEXT,                                       -- 'strict' | 'free' (mode used for the answer)
+  created_at    TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_tg_kb_chat_messages_created ON tg_kb_chat_messages(created_at);
+
+-- ─── Knowledge Base Self-Test (auto QA coverage runs) ─────────────────────
+
+CREATE TABLE IF NOT EXISTS tg_kb_selftest_runs (
+  id            TEXT PRIMARY KEY,                           -- UUID
+  status        TEXT DEFAULT 'PENDING',                     -- PENDING|RUNNING|DONE|FAILED
+  total         INTEGER DEFAULT 0,                          -- control questions generated
+  answered      INTEGER DEFAULT 0,                          -- questions answered from the base
+  gaps          INTEGER DEFAULT 0,                          -- total - answered
+  results       TEXT,                                       -- JSON: [{question,answer,answered,verdict}]
+  summary       TEXT,                                       -- short RU summary
+  error         TEXT,
+  started_at    TEXT,
+  finished_at   TEXT,
+  created_at    TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_tg_kb_selftest_runs_created ON tg_kb_selftest_runs(created_at);
 
 -- ─── Generic Key-Value Settings ───────────────────────────────────────────
 
@@ -334,23 +408,27 @@ CREATE TABLE IF NOT EXISTS tg_phone_check_results (
 
 CREATE INDEX IF NOT EXISTS idx_tg_phone_results_batch ON tg_phone_check_results(batch_id);
 
--- ─── AI Promoter Personas ────────────────────────────────────────────
+-- ─── AI Agent Personas ───────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS tg_ai_personas (
   id              TEXT PRIMARY KEY,
   name            TEXT NOT NULL,
-  account_id      TEXT REFERENCES tg_accounts(id) ON DELETE SET NULL,
+  account_ids     TEXT DEFAULT '[]',                              -- JSON array of account IDs (one persona → many accounts)
   niche           TEXT,
   bio             TEXT,
   personality     TEXT,
-  strategy        TEXT DEFAULT 'soft',  -- soft|medium|aggressive
+  strategy        TEXT DEFAULT 'soft',                            -- soft|medium|aggressive
   system_prompt   TEXT NOT NULL DEFAULT '',
   ai_model        TEXT DEFAULT 'claude-haiku-4-5',
   temperature     REAL DEFAULT 0.8,
-  target_channels TEXT DEFAULT '[]',  -- JSON array of channel IDs/usernames
-  schedule        TEXT DEFAULT '{}',  -- JSON: active_hours, max_messages_day
-  status          TEXT DEFAULT 'DRAFT',  -- DRAFT|ACTIVE|PAUSED
+  target_channels TEXT DEFAULT '[]',                              -- JSON array of channel IDs/usernames
+  rag_doc_ids     TEXT DEFAULT '[]',                              -- JSON array of KB document IDs for RAG
+  schedule        TEXT DEFAULT '{}',                              -- JSON: active_hours, max_messages_day
+  dm_enabled      INTEGER DEFAULT 1,                              -- 0/1: can agent initiate DMs from chat?
+  context_depth   INTEGER DEFAULT 50,                             -- how many chat messages to read for context
+  status          TEXT DEFAULT 'DRAFT',                           -- DRAFT|ACTIVE|PAUSED
   total_messages  INTEGER DEFAULT 0,
   total_leads     INTEGER DEFAULT 0,
+  total_dm_sent   INTEGER DEFAULT 0,
   created_at      TEXT DEFAULT (datetime('now')),
   updated_at      TEXT DEFAULT (datetime('now'))
 );
@@ -359,6 +437,7 @@ CREATE TABLE IF NOT EXISTS tg_ai_personas (
 CREATE TABLE IF NOT EXISTS tg_ai_messages (
   id              TEXT PRIMARY KEY,
   persona_id      TEXT REFERENCES tg_ai_personas(id) ON DELETE CASCADE,
+  arena_id        TEXT,  -- non-null when message was produced inside an Agent Arena (self-play)
   chat_id         TEXT,
   chat_title      TEXT,
   reply_to_msg_id INTEGER,
@@ -370,10 +449,38 @@ CREATE TABLE IF NOT EXISTS tg_ai_messages (
   tg_message_id   INTEGER,
   reactions_count INTEGER DEFAULT 0,
   leads_from_msg  INTEGER DEFAULT 0,
+  moderator_rating TEXT,  -- NULL|good|bad — human moderator feedback (self-learning)
+  moderator_note  TEXT,   -- optional moderator note (anti-pattern tip when 'bad')
   created_at      TEXT DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_tg_ai_msg_persona ON tg_ai_messages(persona_id);
 CREATE INDEX IF NOT EXISTS idx_tg_ai_msg_status ON tg_ai_messages(status);
+CREATE INDEX IF NOT EXISTS idx_tg_ai_msg_arena ON tg_ai_messages(arena_id);
+
+-- ─── Agent Arenas (multi-agent self-play → training corpus) ──────────
+-- N personas talk to each other in one real private TG group; moderator-
+-- approved (👍) snippets become style-bank training corpus. See ARENA_SPEC.md.
+CREATE TABLE IF NOT EXISTS tg_agent_arenas (
+  id              TEXT PRIMARY KEY,
+  name            TEXT NOT NULL,
+  chat_id         TEXT,                          -- TG group (Bruno provides id/@username/link → resolved)
+  chat_title      TEXT,
+  persona_ids     TEXT DEFAULT '[]',             -- JSON: 2–4 participating personas
+  mode            TEXT DEFAULT 'casual',         -- casual | sales
+  topic           TEXT,                          -- seed topic / scenario
+  sales_config    TEXT,                          -- JSON (sales mode): seller persona, lead personas, objections
+  cadence_sec     INTEGER DEFAULT 120,           -- pause between turns (ticks)
+  max_msgs_day    INTEGER DEFAULT 100,           -- daily message cap for the arena
+  turn_order      TEXT DEFAULT '[]',             -- JSON: round-robin persona order
+  next_turn_idx   INTEGER DEFAULT 0,             -- whose turn is next
+  status          TEXT DEFAULT 'DRAFT',          -- DRAFT | RUNNING | PAUSED | STOPPED
+  total_msgs      INTEGER DEFAULT 0,
+  total_harvested INTEGER DEFAULT 0,             -- snippets approved into the corpus
+  loop_token      TEXT,                          -- nonce minted on start; tick reschedules only if it still matches (kills duplicate loops)
+  created_at      TEXT DEFAULT (datetime('now')),
+  updated_at      TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_tg_arena_status ON tg_agent_arenas(status);
 
 -- ─── Sales Scripts ───────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS tg_sales_scripts (
@@ -428,6 +535,38 @@ CREATE TABLE IF NOT EXISTS tg_sales_messages (
 );
 CREATE INDEX IF NOT EXISTS idx_tg_sales_msg_dialog ON tg_sales_messages(dialog_id);
 
+-- ─── Universal DM Threads ────────────────────────────────────────────
+-- Per (account, peer) thread state for the universal AI secretary mode:
+-- agent reads ALL DMs of an account (not just sales leads), keeps a rolling
+-- summary so it always knows the gist of every conversation, and can be
+-- muted per-thread (whitelist of skips). Independent from tg_sales_dialogs:
+-- a thread can exist without a sales_dialog (universal mode) or alongside
+-- one (sales lead — sales-flow takes precedence, this row still tracks
+-- mute + summary for the messenger UI).
+CREATE TABLE IF NOT EXISTS tg_dm_threads (
+  id                       TEXT PRIMARY KEY,
+  account_id               TEXT NOT NULL REFERENCES tg_accounts(id) ON DELETE CASCADE,
+  peer_id                  INTEGER NOT NULL,           -- TG user id of the other side
+  peer_username            TEXT,
+  peer_name                TEXT,
+  summary                  TEXT,                       -- rolling, AI-generated gist of the conversation
+  last_summarized_msg_id   INTEGER,                    -- highest TG msg id already folded into summary
+  msgs_since_summary       INTEGER DEFAULT 0,          -- new incoming msgs since last summary refresh
+  last_replied_at          TEXT,                       -- when WE last replied
+  last_msg_at              TEXT,                       -- when the latest msg in this thread arrived
+  muted                    INTEGER DEFAULT 0,          -- 0/1: skip agent replies entirely
+  mute_reason              TEXT,
+  total_in                 INTEGER DEFAULT 0,
+  total_out                INTEGER DEFAULT 0,
+  metadata                 TEXT,                       -- JSON: tags, custom
+  created_at               TEXT DEFAULT (datetime('now')),
+  updated_at               TEXT DEFAULT (datetime('now')),
+  UNIQUE(account_id, peer_id)
+);
+CREATE INDEX IF NOT EXISTS idx_tg_dm_threads_account  ON tg_dm_threads(account_id);
+CREATE INDEX IF NOT EXISTS idx_tg_dm_threads_muted    ON tg_dm_threads(muted);
+CREATE INDEX IF NOT EXISTS idx_tg_dm_threads_lastmsg  ON tg_dm_threads(account_id, last_msg_at);
+
 -- ─── Commenting Tasks ────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS tg_commenting_tasks (
   id              TEXT PRIMARY KEY,
@@ -449,6 +588,29 @@ CREATE TABLE IF NOT EXISTS tg_commenting_tasks (
   created_at      TEXT DEFAULT (datetime('now')),
   updated_at      TEXT DEFAULT (datetime('now'))
 );
+
+-- ─── Commenting Log ─────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS tg_commenting_log (
+  id              TEXT PRIMARY KEY,
+  task_id         TEXT REFERENCES tg_commenting_tasks(id) ON DELETE CASCADE,
+  account_id      TEXT,
+  channel_id      TEXT,
+  channel_title   TEXT,
+  post_id         INTEGER,
+  post_text       TEXT,
+  comment_text    TEXT,
+  ai_model        TEXT,
+  tokens_in       INTEGER,
+  tokens_out      INTEGER,
+  cost_usd        REAL,
+  status          TEXT DEFAULT 'PENDING',  -- PENDING|SENT|FAILED|REJECTED
+  tg_message_id   INTEGER,
+  sent_at         TEXT,
+  created_at      TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_tg_comm_log_task ON tg_commenting_log(task_id);
+CREATE INDEX IF NOT EXISTS idx_tg_comm_log_account_date ON tg_commenting_log(account_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_tg_comm_log_status ON tg_commenting_log(status);
 
 -- ─── Auto-Replier Scenarios ──────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS tg_auto_replier_scenarios (
@@ -727,6 +889,57 @@ CREATE TABLE IF NOT EXISTS tg_conversion_tasks (
   created_at      TEXT DEFAULT (datetime('now')),
   updated_at      TEXT DEFAULT (datetime('now'))
 );
+
+-- ─── Join Chat Tasks ────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS tg_join_tasks (
+  id              TEXT PRIMARY KEY,
+  name            TEXT,
+  target_chats    TEXT NOT NULL DEFAULT '[]',   -- JSON array of chat links/usernames
+  account_ids     TEXT NOT NULL DEFAULT '[]',   -- JSON array of account IDs
+  join_interval_min INTEGER DEFAULT 30,         -- min seconds between joins
+  join_interval_max INTEGER DEFAULT 120,        -- max seconds between joins
+  status          TEXT DEFAULT 'PENDING',       -- PENDING|RUNNING|COMPLETED|FAILED|STOPPED
+  total_joins     INTEGER DEFAULT 0,
+  success_count   INTEGER DEFAULT 0,
+  failed_count    INTEGER DEFAULT 0,
+  results         TEXT DEFAULT '[]',            -- JSON array of {account_id, chat, status, error, chat_title, chat_about}
+  started_at      TEXT,
+  finished_at     TEXT,
+  created_at      TEXT DEFAULT (datetime('now')),
+  updated_at      TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_tg_join_tasks_status ON tg_join_tasks(status);
+
+-- ─── Warmup Scripts ─────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS tg_warmup_scripts (
+  id              TEXT PRIMARY KEY,
+  name            TEXT NOT NULL,
+  description     TEXT,
+  actions         TEXT NOT NULL DEFAULT '[]',   -- JSON array of action objects
+  target_channels TEXT DEFAULT '[]',            -- JSON array of channels for subscribe/react/comment actions
+  status          TEXT DEFAULT 'ACTIVE',        -- ACTIVE|ARCHIVED
+  total_runs      INTEGER DEFAULT 0,
+  created_at      TEXT DEFAULT (datetime('now')),
+  updated_at      TEXT DEFAULT (datetime('now'))
+);
+
+-- ─── Warmup Script Runs ─────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS tg_warmup_runs (
+  id              TEXT PRIMARY KEY,
+  script_id       TEXT REFERENCES tg_warmup_scripts(id) ON DELETE CASCADE,
+  account_ids     TEXT NOT NULL DEFAULT '[]',   -- JSON array of account IDs
+  status          TEXT DEFAULT 'PENDING',       -- PENDING|RUNNING|COMPLETED|FAILED
+  results         TEXT DEFAULT '[]',            -- JSON array of per-account results
+  total_actions   INTEGER DEFAULT 0,
+  success_count   INTEGER DEFAULT 0,
+  failed_count    INTEGER DEFAULT 0,
+  started_at      TEXT,
+  finished_at     TEXT,
+  created_at      TEXT DEFAULT (datetime('now')),
+  updated_at      TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_tg_warmup_runs_script ON tg_warmup_runs(script_id);
+CREATE INDEX IF NOT EXISTS idx_tg_warmup_runs_status ON tg_warmup_runs(status);
 
 -- ============================================================================
 -- Default data

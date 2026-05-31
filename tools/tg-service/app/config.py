@@ -32,6 +32,13 @@ class Settings(BaseSettings):
     # ── AI ───────────────────────────────────────────────────────────
     anthropic_api_key: str | None = None
 
+    # ── Admin notifications (Telegram bot) ───────────────────────────
+    # Optional. When both are set, the service DMs the admin on key events
+    # (join finished, account banned, agent auto-paused). Reuse PUP's admin
+    # bot if you like: set these to the same token / chat id. Unset = no-op.
+    notify_bot_token: str | None = None
+    notify_chat_id: str | None = None
+
     # ── Logging ──────────────────────────────────────────────────────
     log_level: str = "INFO"
 

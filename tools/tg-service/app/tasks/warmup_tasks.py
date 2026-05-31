@@ -398,6 +398,15 @@ async def _warmup_session_async(workspace_id: str, account_id: str) -> dict[str,
                     error=str(exc),
                 )
 
+        # ── NO_PROXY guard: never connect over the server's real IP ──
+        if "proxy" not in proxy_kwargs:
+            log.warning("no_proxy_skip", account_id=account_id)
+            return {
+                "actions_performed": 0,
+                "new_level": current_level,
+                "errors": ["NO_PROXY: нет активного прокси"],
+            }
+
         # ── Connect to Telegram ─────────────────────────────────────
         client = TelegramClient(
             str(tmp_session_path.with_suffix("")),

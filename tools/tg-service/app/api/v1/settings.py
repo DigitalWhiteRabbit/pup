@@ -35,7 +35,6 @@ class SettingsUpdate(BaseModel):
     telegram_app_id: int | None = None
     telegram_app_hash: str | None = None
     anthropic_api_key: str | None = None
-    proxy_seller_api_key: str | None = None
     notify_on_emergency_stop: int | None = None
     notify_on_spam_block: int | None = None
 

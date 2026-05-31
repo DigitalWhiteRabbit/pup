@@ -103,6 +103,10 @@ class BulkProxyCheckResult(BaseModel):
     results: list[ProxyCheckResult]
 
 
+class BulkProxyDeleteRequest(BaseModel):
+    ids: list[str] = Field(default_factory=list)
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -619,31 +623,96 @@ async def delete_proxy(
     _token: AdminAuth,
     db: WorkspaceDB,
 ) -> dict:
-    """Delete a proxy. Returns 409 if accounts still reference it."""
+    """Delete a proxy, cascade-unbinding any accounts that reference it.
+
+    Accounts referencing the proxy have their ``proxy_id`` set to NULL
+    (cascade-unbind) before the proxy row is deleted. Leaving an account
+    proxy-less is now safe: the NO_PROXY pre-connect guard refuses to
+    connect such accounts (flagged "needs proxy") instead of leaking the
+    server's real IP. Returns the number of detached accounts so the UI can
+    surface it. Returns 404 if the proxy does not exist.
+    """
     existing = db.execute(
         "SELECT id FROM tg_proxies WHERE id = ?", [proxy_id]
     ).fetchone()
     if not existing:
         raise HTTPException(status_code=404, detail="Proxy not found")
 
-    # Check for linked accounts
-    linked = db.execute(
-        "SELECT COUNT(*) AS cnt FROM tg_accounts WHERE proxy_id = ?", [proxy_id]
-    ).fetchone()
-    if linked and linked["cnt"] > 0:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Cannot delete: {linked['cnt']} account(s) still reference this proxy. "
-                   "Unlink them first or set their proxy_id to null.",
-        )
-
     try:
+        unbound = db.execute(
+            "SELECT COUNT(*) AS c FROM tg_accounts WHERE proxy_id = ?", [proxy_id]
+        ).fetchone()["c"]
+        db.execute(
+            "UPDATE tg_accounts SET proxy_id = NULL, updated_at = ? WHERE proxy_id = ?",
+            [_now(), proxy_id],
+        )
         db.execute("DELETE FROM tg_proxies WHERE id = ?", [proxy_id])
         db.commit()
     except Exception:
         db.rollback()
         raise
-    return {"status": "deleted", "id": proxy_id}
+
+    log.info("proxy_deleted", proxy_id=proxy_id, unbound_accounts=unbound)
+    return {"status": "deleted", "id": proxy_id, "unbound_accounts": unbound}
+
+
+@router.post("/bulk-delete")
+async def bulk_delete_proxies(
+    body: BulkProxyDeleteRequest,
+    _token: AdminAuth,
+    db: WorkspaceDB,
+) -> dict:
+    """Cascade-delete multiple proxies in a single atomic transaction.
+
+    For each id: accounts referencing it are cascade-unbound (``proxy_id``
+    set to NULL — safe via the NO_PROXY pre-connect guard) and the proxy row
+    is deleted. Unknown ids are reported in ``not_found`` rather than raising.
+    The whole batch commits once; on any error it rolls back and re-raises.
+
+    Returns ``{"success": True, "deleted": X, "unbound_accounts": Y,
+    "not_found": [...ids...]}``.
+    """
+    deleted = 0
+    unbound_total = 0
+    not_found: list[str] = []
+
+    try:
+        for proxy_id in body.ids:
+            existing = db.execute(
+                "SELECT id FROM tg_proxies WHERE id = ?", [proxy_id]
+            ).fetchone()
+            if not existing:
+                not_found.append(proxy_id)
+                continue
+
+            unbound = db.execute(
+                "SELECT COUNT(*) AS c FROM tg_accounts WHERE proxy_id = ?", [proxy_id]
+            ).fetchone()["c"]
+            db.execute(
+                "UPDATE tg_accounts SET proxy_id = NULL, updated_at = ? WHERE proxy_id = ?",
+                [_now(), proxy_id],
+            )
+            db.execute("DELETE FROM tg_proxies WHERE id = ?", [proxy_id])
+            deleted += 1
+            unbound_total += unbound
+
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    log.info(
+        "proxies_bulk_deleted",
+        deleted=deleted,
+        unbound_accounts=unbound_total,
+        not_found=len(not_found),
+    )
+    return {
+        "success": True,
+        "deleted": deleted,
+        "unbound_accounts": unbound_total,
+        "not_found": not_found,
+    }
 
 
 @router.post("/bulk-import")

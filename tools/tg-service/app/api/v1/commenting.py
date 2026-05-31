@@ -11,7 +11,7 @@ import structlog
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from app.deps import AdminAuth, WorkspaceDB
+from app.deps import AdminAuth, WorkspaceDB, WorkspaceId
 
 router = APIRouter(prefix="/commenting", tags=["commenting"])
 
@@ -269,8 +269,9 @@ async def start_task(
     task_id: str,
     _token: AdminAuth,
     db: WorkspaceDB,
+    workspace_id: WorkspaceId,
 ) -> dict[str, Any]:
-    """Activate a commenting task."""
+    """Activate a commenting task and dispatch Celery task."""
     row = db.execute(
         "SELECT * FROM tg_commenting_tasks WHERE id = ?", [task_id]
     ).fetchone()
@@ -293,6 +294,17 @@ async def start_task(
     except Exception:
         db.rollback()
         raise
+
+    # Dispatch Celery commenting task
+    try:
+        from app.tasks.celery_app import celery_app
+        celery_app.send_task(
+            "pup_tg.commenting_task",
+            args=[workspace_id, task_id],
+            queue="pup_tg_default",
+        )
+    except Exception as exc:
+        log.warning("celery_dispatch_skipped", task_id=task_id, error=str(exc))
 
     row = db.execute(
         "SELECT * FROM tg_commenting_tasks WHERE id = ?", [task_id]

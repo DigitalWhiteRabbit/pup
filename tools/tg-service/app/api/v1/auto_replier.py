@@ -11,7 +11,7 @@ import structlog
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from app.deps import AdminAuth, WorkspaceDB
+from app.deps import AdminAuth, WorkspaceDB, WorkspaceId
 
 router = APIRouter(prefix="/auto-replier", tags=["auto-replier"])
 
@@ -239,8 +239,9 @@ async def activate_scenario(
     scenario_id: str,
     _token: AdminAuth,
     db: WorkspaceDB,
+    workspace_id: WorkspaceId,
 ) -> dict[str, Any]:
-    """Start an auto-replier scenario."""
+    """Start an auto-replier scenario and dispatch Celery task."""
     row = db.execute(
         "SELECT * FROM tg_auto_replier_scenarios WHERE id = ?", [scenario_id]
     ).fetchone()
@@ -263,6 +264,18 @@ async def activate_scenario(
     except Exception:
         db.rollback()
         raise
+
+    # Dispatch auto-replier Celery task
+    try:
+        from app.tasks.celery_app import celery_app
+        celery_app.send_task(
+            "pup_tg.auto_replier",
+            args=[workspace_id, scenario_id],
+            queue="pup_tg_default",
+        )
+        log.info("auto_replier_dispatched", scenario_id=scenario_id)
+    except Exception as exc:
+        log.warning("celery_dispatch_skipped", scenario_id=scenario_id, error=str(exc))
 
     row = db.execute(
         "SELECT * FROM tg_auto_replier_scenarios WHERE id = ?", [scenario_id]
