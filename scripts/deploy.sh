@@ -34,7 +34,7 @@ cleanup() {
 
   # Always start services back
   pm2 start pup >> "$LOGFILE" 2>&1 || true
-  pm2 startOrRestart "$YT_DIR/ecosystem.config.js" >> "$LOGFILE" 2>&1 || true
+  pm2 delete yt-parser >> "$LOGFILE" 2>&1 || true; ( cd "$YT_DIR" && pm2 start ecosystem.config.js >> "$LOGFILE" 2>&1 ) || true
 
   # Wait a bit and verify they are running
   sleep 3
@@ -49,9 +49,10 @@ cleanup() {
     log "yt-parser: RUNNING (pid $(pm2 pid yt-parser))"
   else
     log "yt-parser: FAILED TO START — attempting restart"
-    ( cd "$YT_DIR" && pm2 startOrRestart ecosystem.config.js >> "$LOGFILE" 2>&1 ) || true
+    pm2 delete yt-parser >> "$LOGFILE" 2>&1 || true; ( cd "$YT_DIR" && pm2 start ecosystem.config.js >> "$LOGFILE" 2>&1 ) || true
   fi
 
+  pm2 save >> "$LOGFILE" 2>&1 || true
   if [ $exit_code -eq 0 ]; then
     log "DEPLOY FINISHED: OK"
   else
