@@ -217,9 +217,15 @@ export async function onDeployStarted(
   const startedAt = new Date();
   const text = buildMessage(commitSha, commitMsg, author, 0, startedAt);
 
+  const progressRecipients: Array<{ chatId: string; messageId: number }> = [];
   for (const recipient of recipients) {
     const sent = await tgSend(recipient.telegramChatId, text);
     if (!sent) continue;
+
+    progressRecipients.push({
+      chatId: recipient.telegramChatId,
+      messageId: sent.message_id,
+    });
 
     await db.deployMessage.create({
       data: {
@@ -231,54 +237,26 @@ export async function onDeployStarted(
     });
   }
 
-  // Live progress: tick every 10s, advance steps at thresholds
-  // Step thresholds (cumulative seconds from start)
-  const stepAt = [0, 8, 33, 48]; // clone, deps, build, container
-  const MAX_TICK = 600; // stop after 10 min (failsafe)
-
-  const interval = setInterval(async () => {
-    try {
-      const records = await db.deployMessage.findMany({
-        where: { commitSha, status: "building" },
-      });
-      if (records.length === 0) {
-        clearInterval(interval);
-        return;
-      }
-
-      const elapsed = Math.round(
-        (Date.now() - records[0]!.createdAt.getTime()) / 1000,
-      );
-
-      if (elapsed > MAX_TICK) {
-        clearInterval(interval);
-        return;
-      }
-
-      // Determine current step based on elapsed time
-      let currentStep = 0;
-      for (let i = stepAt.length - 1; i >= 0; i--) {
-        if (elapsed >= stepAt[i]!) {
-          currentStep = i;
-          break;
-        }
-      }
-
-      const msg = buildMessage(
+  // Hand off live progress to deploy.sh. It survives `pm2 stop pup` (which kills
+  // this process mid-deploy), so it — not an in-process timer — must drive the
+  // bar from here on. It reads this file and edits the messages at each real
+  // stage. See scripts/deploy-progress.js. (An in-process setInterval used to
+  // live here but always died at `pm2 stop pup`, freezing the bar.)
+  try {
+    const { writeFileSync } = await import("fs");
+    writeFileSync(
+      "/tmp/pup-deploy.json",
+      JSON.stringify({
         commitSha,
         commitMsg,
         author,
-        currentStep as StepIndex,
-        records[0]!.createdAt,
-      );
-
-      for (const record of records) {
-        await tgEdit(record.chatId, record.messageId, msg);
-      }
-    } catch (e) {
-      console.error("[Deploy TG] progress tick error:", e);
-    }
-  }, 10_000);
+        startedAt: startedAt.toISOString(),
+        recipients: progressRecipients,
+      }),
+    );
+  } catch (e) {
+    console.error("[Deploy] failed to write progress state file:", e);
+  }
 }
 
 /**

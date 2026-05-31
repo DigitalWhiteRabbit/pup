@@ -14,6 +14,16 @@ BUILD_TIMEOUT=300  # 5 minutes
 # --- Logging helpers ---
 log() { echo "$(date "+%Y-%m-%d %H:%M:%S") | $1" >> "$LOGFILE"; }
 
+# --- Telegram live progress ---
+# pup is stopped during the build, so deploy.sh (not an in-process timer) drives
+# the progress bar. pup's onDeployStarted wrote /tmp/pup-deploy.json with the
+# recipients; this edits those messages per real stage. See deploy-progress.js.
+TG_TOKEN=$(grep -E '^TELEGRAM_BOT_TOKEN=' "$PUP_DIR/.env" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"')
+tg_progress() {
+  [ -n "$TG_TOKEN" ] && TELEGRAM_BOT_TOKEN="$TG_TOKEN" \
+    node "$PUP_DIR/scripts/deploy-progress.js" "$1" >> "$LOGFILE" 2>&1 || true
+}
+
 # --- Lock: only one deploy at a time ---
 exec 9>"$LOCKFILE"
 if ! flock -n 9; then
@@ -32,6 +42,9 @@ cleanup() {
   local exit_code=$?
   log "Cleanup triggered (exit_code=$exit_code)"
 
+  # Progress: services coming back up (step 3 = "Запуск контейнера").
+  # Sent before pm2 start so it lands before pup's onDeployCompleted shows "done".
+  tg_progress 3
   # Always start services back
   pm2 start pup >> "$LOGFILE" 2>&1 || true
   pm2 delete yt-parser >> "$LOGFILE" 2>&1 || true; ( cd "$YT_DIR" && pm2 start ecosystem.config.js >> "$LOGFILE" 2>&1 ) || true
@@ -86,12 +99,14 @@ sleep 2
 
 # --- Step 4: Install deps + Prisma ---
 log "Step 4/6: pnpm install + prisma"
+tg_progress 1  # "Установка зависимостей"
 pnpm install --frozen-lockfile >> "$LOGFILE" 2>&1
 npx prisma generate >> "$LOGFILE" 2>&1
 npx prisma db push --accept-data-loss >> "$LOGFILE" 2>&1 || true
 
 # --- Step 5: Build with timeout ---
 log "Step 5/6: building (timeout=${BUILD_TIMEOUT}s)"
+tg_progress 2  # "Сборка проекта"
 rm -rf .next
 
 export NODE_OPTIONS="--max-old-space-size=3072"
