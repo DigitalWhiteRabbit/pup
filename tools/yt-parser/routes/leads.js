@@ -62,7 +62,11 @@ router.get("/", (req, res) => {
   const leads = req.stmts.listLeads.all({ status, stage, limit, offset });
   const counts = req.stmts.countLeads.get();
 
-  // Enrich each lead with last outgoing message open status
+  const hasDialogueStmt = req.db.prepare(
+    "SELECT 1 FROM dialogues WHERE lead_id = ? LIMIT 1",
+  );
+
+  // Enrich each lead with last outgoing message open status + dialogue presence
   for (const lead of leads) {
     try {
       const openInfo = req.stmts.getLastOutgoingMessageOpen.get(lead.id);
@@ -71,6 +75,11 @@ router.get("/", (req, res) => {
     } catch {
       lead.last_msg_opened_at = null;
       lead.last_msg_open_count = 0;
+    }
+    try {
+      lead.has_dialogue = !!hasDialogueStmt.get(lead.id);
+    } catch {
+      lead.has_dialogue = false;
     }
   }
 

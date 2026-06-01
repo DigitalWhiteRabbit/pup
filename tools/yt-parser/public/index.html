@@ -4889,6 +4889,9 @@ function renderLeadsTable() {
     tdAct.style.whiteSpace = 'nowrap';
     if (lead.lead_status === 'pending') {
       actionsHtml = `<button class="btn-primary btn-sm" onclick="setLeadStatus(${lead.id},'ready')" title="Перевести в ready">В работу</button><button class="btn-danger btn-sm" onclick="setLeadStatus(${lead.id},'rejected')" title="Отклонить">✕</button>`;
+    } else if (lead.has_dialogue) {
+      // Есть переписка — даём открыть диалог независимо от статуса (например, «Перешли в ТГ» со статусом ready)
+      actionsHtml = `<button class="btn-secondary btn-sm" onclick="openLeadDialog(${lead.id})" title="Открыть диалог">Диалог</button><button class="btn-danger btn-sm" onclick="deleteLead(${lead.id})" title="Удалить">🗑</button>`;
     } else if (lead.lead_status === 'ready') {
       actionsHtml = `<button class="btn-primary btn-sm" onclick="runLead(${lead.id})" title="Запустить AI-агента для этого лида">Запустить</button><button class="btn-danger btn-sm" onclick="deleteLead(${lead.id})" title="Удалить">🗑</button>`;
     } else if (lead.lead_status === 'in_work') {
