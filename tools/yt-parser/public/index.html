@@ -5905,6 +5905,7 @@ function renderPendingReplyCard(it) {
              <button class="btn-primary btn-sm" style="padding:8px 18px;font-size:13px;border-radius:8px" onclick="retryPendingReply(${it.id})">↻ Отправить повторно</button>`
           : ''}
         ${it.status === 'pending' ? `<button class="btn-primary btn-sm" style="padding:8px 20px;font-size:13px;border-radius:8px" onclick="approvePendingReply(${it.id})">✅ Одобрить и отправить</button>` : ''}
+        ${it.status === 'pending' ? `<button class="btn-secondary btn-sm" style="padding:8px 14px;font-size:13px;border-radius:8px" onclick="moveToTgFromReview(${it.id})" title="Снять письмо с очереди и пометить лида «Перешли в ТГ». В рассылку НЕ вернётся, AI перестанет ему писать.">📲 Перешли в ТГ</button>` : ''}
         ${it.status === 'pending' ? `<button class="btn-danger btn-sm" style="padding:8px 14px;font-size:13px;border-radius:8px" onclick="rejectPendingReply(${it.id})">✕ Отклонить</button>` : ''}
         <button class="btn-secondary btn-sm" style="padding:8px 14px;font-size:12px;border-radius:7px" onclick="regenField(${it.id},'both')">🔄 Перегенерировать всё</button>
         <button class="btn-secondary btn-sm" style="padding:8px 10px;font-size:12px;border-radius:7px;margin-left:auto" onclick="deletePendingReply(${it.id})" title="Удалить">🗑</button>
@@ -6078,6 +6079,18 @@ async function forceSendNow(id) {
     });
     const j = await r.json();
     if (j.success) { toast('Отправлено!', 'success'); loadPendingReplies(); }
+    else toast(j.error || 'Ошибка', 'error');
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function moveToTgFromReview(id) {
+  if (!await confirmDialog('Перешли в ТГ?', 'Письмо уйдёт из очереди, AI-агент перестанет писать этому лиду, а сам лид останется в базе со стадией «Перешли в ТГ». В рассылку он НЕ вернётся.')) return;
+  try {
+    const r = await fetch('/api/pending-replies/'+id+'/move-to-tg', {
+      method: 'POST', headers: {'Content-Type':'application/json'}
+    });
+    const j = await r.json();
+    if (j.success) { toast('Лид помечен «Перешли в ТГ»', 'success'); loadPendingReplies(); if (typeof loadLeads === 'function') loadLeads(); }
     else toast(j.error || 'Ошибка', 'error');
   } catch(e) { toast(e.message, 'error'); }
 }

@@ -153,6 +153,37 @@ router.post("/:id/reject", (req, res) => {
   res.json({ success: true });
 });
 
+// POST /api/pending-replies/:id/move-to-tg
+// Снять письмо с очереди и пометить лида «Перешли в ТГ». В отличие от reject —
+// НЕ возвращает лида в рассылку (lead_status не сбрасывается), а ставит стадию
+// moved_to_tg → AI-агент перестаёт писать этому лиду, лид остаётся в базе.
+router.post("/:id/move-to-tg", (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const item = req.stmts.getPendingReply.get(id);
+  if (!item)
+    return res.status(404).json({ success: false, error: "not found" });
+  if (item.status !== "pending")
+    return res.status(400).json({ success: false, error: "not pending" });
+
+  const now = new Date().toISOString();
+  // Снимаем письмо с очереди (rejected → уходит из «Ждут», воркер не сгенерит заново)
+  req.stmts.rejectPendingReply.run("Перешли в ТГ (снято вручную)", now, id);
+
+  // Помечаем лида «Перешли в ТГ»; в рассылку НЕ возвращаем (lead_status не трогаем)
+  if (item.lead_id) {
+    req.db
+      .prepare(
+        `UPDATE leads SET dialogue_stage = 'moved_to_tg', locked_until = NULL, updated_at = ? WHERE id = ?`,
+      )
+      .run(now, item.lead_id);
+  }
+
+  try {
+    worker.onPendingReplyRejected(id);
+  } catch {}
+  res.json({ success: true });
+});
+
 // DELETE /api/pending-replies/:id — удалить запись из очереди (независимо от статуса)
 router.delete("/:id", (req, res) => {
   const id = parseInt(req.params.id, 10);
