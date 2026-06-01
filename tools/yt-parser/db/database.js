@@ -619,7 +619,7 @@ function buildStmts(db) {
       JOIN dialogues d ON d.lead_id = l.id
       JOIN messages m ON m.dialogue_id = d.id
       WHERE l.lead_status IN ('ready','in_work')
-        AND l.dialogue_stage NOT IN ('won','lost','deal_pending')
+        AND l.dialogue_stage NOT IN ('won','lost','deal_pending','moved_to_tg')
         AND m.direction = 'in'
         AND m.created_at > COALESCE(
           (SELECT MAX(created_at) FROM messages WHERE dialogue_id = d.id AND direction = 'out'),
