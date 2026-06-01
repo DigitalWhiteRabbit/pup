@@ -1896,6 +1896,19 @@ window.fetch = function(url, opts) {
             <option value="won">Won</option>
             <option value="lost">Lost</option>
           </select>
+          <select id="lFilterContact" onchange="renderLeadsTable()" title="Фильтр по типу контакта у лида">
+            <option value="">Все контакты</option>
+            <option value="any">С любым контактом</option>
+            <option value="none">Без контактов</option>
+            <option value="email">Только Email</option>
+            <option value="telegram">Только Telegram</option>
+            <option value="email+telegram">Email + Telegram</option>
+            <option value="whatsapp">Только WhatsApp</option>
+            <option value="instagram">Только Instagram</option>
+            <option value="twitter">Только Twitter/X</option>
+            <option value="vk">Только VK</option>
+            <option value="website">Только Сайт</option>
+          </select>
         </div>
 
         <div class="table-wrap">
@@ -4760,14 +4773,42 @@ function renderLeadsKpis(counts) {
   document.getElementById('leadCountDone').textContent = (counts.done || 0) + (counts.rejected || 0);
 }
 
+// Собрать объект контактов лида (плоские поля + raw_contacts) — как в рендере бейджей
+function leadContactRow(lead) {
+  let extra = {};
+  try { if (lead.raw_contacts) extra = JSON.parse(lead.raw_contacts); } catch {}
+  return { email: lead.email, telegram: lead.telegram, whatsapp: lead.whatsapp, ...extra };
+}
+// Есть ли у лида контакт нужного типа (учитывает detailed-формат с массивами)
+function rowHasContact(row, field) {
+  if (row && row._detailed) {
+    const arr = row[field === 'email' ? 'emails' : field === 'website' ? 'websites' : field];
+    if (Array.isArray(arr) && arr.length) return true;
+  }
+  return !!(row && row[field] && String(row[field]).trim());
+}
+function leadMatchesContactFilter(lead, filter) {
+  if (!filter) return true;
+  const row = leadContactRow(lead);
+  if (filter === 'any') return CONTACT_FIELDS.some(f => rowHasContact(row, f));
+  if (filter === 'none') return !CONTACT_FIELDS.some(f => rowHasContact(row, f));
+  if (filter === 'email+telegram') return rowHasContact(row, 'email') && rowHasContact(row, 'telegram');
+  return rowHasContact(row, filter);
+}
+
 function renderLeadsTable() {
   const tbody = document.getElementById('leadsTableBody');
   tbody.innerHTML = '';
-  if (leadsData.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-dim);padding:30px">Нет лидов. Запусти парсер или нажми "Импорт из CSV".</td></tr>';
+  const contactFilter = (document.getElementById('lFilterContact') || {}).value || '';
+  const rows = leadsData.filter(l => leadMatchesContactFilter(l, contactFilter));
+  if (rows.length === 0) {
+    const msg = leadsData.length === 0
+      ? 'Нет лидов. Запусти парсер или нажми "Импорт из CSV".'
+      : 'Нет лидов с выбранным типом контакта.';
+    tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;color:var(--text-dim);padding:30px">${msg}</td></tr>`;
     return;
   }
-  leadsData.forEach(lead => {
+  rows.forEach(lead => {
     const tr = document.createElement('tr');
     if (leadsSelected.has(lead.id)) tr.style.background = 'var(--accent-soft)';
 
