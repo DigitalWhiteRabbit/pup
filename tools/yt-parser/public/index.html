@@ -1888,13 +1888,6 @@ window.fetch = function(url, opts) {
           </select>
           <select id="lFilterStage" onchange="loadLeads()">
             <option value="">Все стадии</option>
-            <option value="not_contacted">Not contacted</option>
-            <option value="contacted">Contacted</option>
-            <option value="replied">Replied</option>
-            <option value="negotiating">Negotiating</option>
-            <option value="deal_pending">Deal pending</option>
-            <option value="won">Won</option>
-            <option value="lost">Lost</option>
           </select>
           <select id="lFilterContact" onchange="renderLeadsTable()" title="Фильтр по типу контакта у лида">
             <option value="">Все контакты</option>
@@ -4739,7 +4732,23 @@ function stopLeadsAutoRefresh() {
   if (leadsAutoTimer) { clearInterval(leadsAutoTimer); leadsAutoTimer = null; }
 }
 
+// Заполнить фильтр стадий из того же источника, что и колонка DIALOGUE STAGE,
+// чтобы набор был полным и не расходился (включая «Перешли в ТГ» и будущие стадии)
+let _stageFilterReady = false;
+function populateStageFilter() {
+  const sel = document.getElementById('lFilterStage');
+  if (!sel || _stageFilterReady) return;
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">Все стадии</option>' +
+    Object.entries(DIALOGUE_STAGE_LABELS)
+      .map(([k, v]) => `<option value="${k}">${v}</option>`)
+      .join('');
+  if (cur) sel.value = cur;
+  _stageFilterReady = true;
+}
+
 async function loadLeads() {
+  populateStageFilter();
   try {
     const status = document.getElementById('lFilterStatus').value;
     const stage = document.getElementById('lFilterStage').value;
