@@ -5850,6 +5850,10 @@ function renderPendingReplyCard(it) {
                 : `<div style="font-size:12px;color:var(--text-dim)">&#10003; Не прочитано</div>`
             }`
           : ''}
+        ${it.status === 'failed'
+          ? `<div style="font-size:12px;color:var(--red);max-width:420px" title="${escapeHtml(it.admin_notes || '')}">⚠ Ошибка отправки${it.admin_notes ? ': ' + escapeHtml(String(it.admin_notes).slice(0, 140)) : ''}</div>
+             <button class="btn-primary btn-sm" style="padding:8px 18px;font-size:13px;border-radius:8px" onclick="retryPendingReply(${it.id})">↻ Отправить повторно</button>`
+          : ''}
         ${it.status === 'pending' ? `<button class="btn-primary btn-sm" style="padding:8px 20px;font-size:13px;border-radius:8px" onclick="approvePendingReply(${it.id})">✅ Одобрить и отправить</button>` : ''}
         ${it.status === 'pending' ? `<button class="btn-danger btn-sm" style="padding:8px 14px;font-size:13px;border-radius:8px" onclick="rejectPendingReply(${it.id})">✕ Отклонить</button>` : ''}
         <button class="btn-secondary btn-sm" style="padding:8px 14px;font-size:12px;border-radius:7px" onclick="regenField(${it.id},'both')">🔄 Перегенерировать всё</button>
@@ -6026,6 +6030,28 @@ async function forceSendNow(id) {
     if (j.success) { toast('Отправлено!', 'success'); loadPendingReplies(); }
     else toast(j.error || 'Ошибка', 'error');
   } catch(e) { toast(e.message, 'error'); }
+}
+
+async function retryPendingReply(id) {
+  const btn = event.target;
+  const origText = btn.textContent;
+  btn.textContent = '⏳ Отправляю...';
+  btn.disabled = true;
+  // Подхватываем возможные правки текста/темы из формы
+  const bodyEl = document.getElementById('prBody_'+id);
+  const subjEl = document.getElementById('prSubj_'+id);
+  const payload = {};
+  if (bodyEl) payload.edited_body = bodyEl.value;
+  if (subjEl) payload.edited_subject = subjEl.value;
+  try {
+    const r = await fetch('/api/pending-replies/'+id+'/retry', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const j = await r.json();
+    if (j.success) { toast('Отправлено повторно!', 'success'); loadPendingReplies(); }
+    else { toast(j.error || 'Ошибка', 'error'); btn.textContent = origText; btn.disabled = false; }
+  } catch(e) { toast(e.message, 'error'); btn.textContent = origText; btn.disabled = false; }
 }
 
 async function regenField(id, field) {

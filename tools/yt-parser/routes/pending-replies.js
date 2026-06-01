@@ -416,4 +416,47 @@ router.post("/:id/force-send", async (req, res) => {
   res.json({ success: true });
 });
 
+// POST /api/pending-replies/:id/retry — повторная отправка письма со статусом failed
+// { edited_body?, edited_subject? } — сохраняет правки из формы перед повтором
+router.post("/:id/retry", async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const item = req.db
+    .prepare("SELECT * FROM pending_replies WHERE id = ?")
+    .get(id);
+  if (!item)
+    return res.status(404).json({ success: false, error: "not found" });
+  if (item.status !== "failed")
+    return res.status(400).json({ success: false, error: "not failed" });
+
+  // Сохраняем возможные правки текста/темы из формы
+  const editedBody =
+    req.body.edited_body !== undefined
+      ? req.body.edited_body.toString().slice(0, 20000) || null
+      : item.edited_body;
+  const editedSubject =
+    req.body.edited_subject !== undefined
+      ? req.body.edited_subject.toString().slice(0, 500) || null
+      : item.edited_subject;
+
+  // Возвращаем в approved, чистим таймер и текст ошибки → уйдёт немедленно
+  const now = new Date().toISOString();
+  req.db
+    .prepare(
+      `UPDATE pending_replies
+       SET status = 'approved', send_after = NULL, admin_notes = NULL,
+           edited_body = ?, edited_subject = ?, decided_at = ?
+       WHERE id = ?`,
+    )
+    .run(editedBody, editedSubject, now, id);
+
+  const wsId = req.workspaceId;
+  setImmediate(() => {
+    worker
+      .processApprovedQueue(wsId)
+      .catch((err) => console.error("[retry] error:", err.message));
+  });
+
+  res.json({ success: true });
+});
+
 module.exports = router;
