@@ -334,6 +334,8 @@ router.delete("/all", (req, res) => {
   try {
     const tx = req.db.transaction(() => {
       req.db.prepare("DELETE FROM messages").run();
+      req.db.prepare("DELETE FROM pending_replies").run();
+      req.db.prepare("DELETE FROM lead_emails").run();
       req.db.prepare("DELETE FROM dialogues").run();
       req.db.prepare("DELETE FROM deals").run();
       req.db.prepare("DELETE FROM consultations").run();
@@ -405,6 +407,10 @@ router.delete("/:id", (req, res) => {
           "DELETE FROM messages WHERE dialogue_id IN (SELECT id FROM dialogues WHERE lead_id = ?)",
         )
         .run(leadId);
+      req.db
+        .prepare("DELETE FROM pending_replies WHERE lead_id = ?")
+        .run(leadId);
+      req.db.prepare("DELETE FROM lead_emails WHERE lead_id = ?").run(leadId);
       req.db.prepare("DELETE FROM deals WHERE lead_id = ?").run(leadId);
       req.db.prepare("DELETE FROM consultations WHERE lead_id = ?").run(leadId);
       req.db.prepare("DELETE FROM dialogues WHERE lead_id = ?").run(leadId);
