@@ -40,6 +40,7 @@ const VALID_DIALOGUE_STAGES = [
   "replied",
   "negotiating",
   "deal_pending",
+  "moved_to_tg",
   "won",
   "lost",
 ];
