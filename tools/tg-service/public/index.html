@@ -1508,6 +1508,31 @@ function rDash(el){
       '<div class="txs c-m" style="text-align:center;padding:2rem 0">\u041D\u0435\u0442 \u0434\u0430\u043D\u043D\u044B\u0445. \u0417\u0430\u043F\u0443\u0441\u0442\u0438\u0442\u0435 \u0437\u0430\u0434\u0430\u0447\u0438 \u0447\u0442\u043E\u0431\u044B \u0443\u0432\u0438\u0434\u0435\u0442\u044C \u0430\u043A\u0442\u0438\u0432\u043D\u043E\u0441\u0442\u044C.</div>'+
     '</div></div>'+
 
+
+    /* ── Row 2b: Parser / Checker / Audience mini-stats ── */
+    (function(){
+      var pm=d.parser_month||{};
+      var cm=d.checker_month||{};
+      var aud=d.audiences||{};
+      return '<div class="g g3" style="margin-bottom:0">'+
+      '<div class="card"><div class="card-body" style="padding:0.75rem 1rem">'+
+        '<div class="txs fbol upc c-m tkw mb1">Парсер — 30 дней</div>'+
+        '<div class="f ac jb"><span class="tlg fxb" style="color:var(--blue-500)">'+(pm.found||0).toLocaleString()+'</span><span class="txs c-m">контактов найдено</span></div>'+
+        '<div class="txs c-m mt0h">'+(pm.tasks||0)+' задач завершено</div>'+
+      '</div></div>'+
+      '<div class="card"><div class="card-body" style="padding:0.75rem 1rem">'+
+        '<div class="txs fbol upc c-m tkw mb1">Чекер — 30 дней</div>'+
+        '<div class="f ac jb"><span class="tlg fxb" style="color:var(--purple-500)">'+(cm.found||0).toLocaleString()+'</span><span class="txs c-m">в Telegram</span></div>'+
+        '<div class="txs c-m mt0h">'+(cm.checked||0).toLocaleString()+' номеров проверено</div>'+
+      '</div></div>'+
+      '<div class="card"><div class="card-body" style="padding:0.75rem 1rem">'+
+        '<div class="txs fbol upc c-m tkw mb1">Базы аудитории</div>'+
+        '<div class="f ac jb"><span class="tlg fxb" style="color:var(--emerald-500)">'+(aud.total_contacts||0).toLocaleString()+'</span><span class="txs c-m">контактов</span></div>'+
+        '<div class="txs c-m mt0h">'+(aud.total||0)+' баз</div>'+
+      '</div></div>'+
+      '</div>';
+    })()+
+
     /* ── Row 3: Parsers, Campaigns, Spending, Approval — real data ── */
     (function(){
       var parsers=d.parsers||[];
