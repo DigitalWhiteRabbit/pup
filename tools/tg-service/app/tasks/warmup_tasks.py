@@ -588,6 +588,27 @@ async def _warmup_session_async(workspace_id: str, account_id: str) -> dict[str,
             new_profile=new_profile,
             errors_count=len(errors),
         )
+
+        # Notify when account reaches fully warmed-up state (level 100 / EXPERIENCED)
+        if new_level == 100 and current_level < 100:
+            try:
+                from app.core.notify import notify_admin_pref
+
+                acc_row = db.execute(
+                    "SELECT phone, username FROM tg_accounts WHERE id = ?", [account_id]
+                ).fetchone()
+                label = (acc_row["phone"] if acc_row else account_id) or account_id
+                if acc_row and acc_row["username"]:
+                    label += f" (@{acc_row['username']})"
+                notify_admin_pref(
+                    db,
+                    "warmup_ready",
+                    f"✅ <b>Аккаунт прогрет</b> (уровень 100 / EXPERIENCED)\n"
+                    f"Аккаунт: {label}\n"
+                    f"Можно использовать для кампаний.",
+                )
+            except Exception:
+                pass  # notification failure must never abort the warmup task
     else:
         new_level = current_level
         db.execute(
