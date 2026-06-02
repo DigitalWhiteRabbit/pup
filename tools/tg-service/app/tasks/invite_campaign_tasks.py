@@ -370,31 +370,39 @@ async def _invite_campaign_async(workspace_id: str, campaign_id: str) -> dict:
                     raise ValueError(f"Cannot resolve user: user_id={user_id}, username={username}")
 
                 if mode == "DIRECT":
-                    # Direct invite to channel
+                    # Direct invite to channel — the user is actually added.
                     await client(InviteToChannelRequest(
                         channel=target_entity,
                         users=[user_entity],
                     ))
-                # INVITE_LINK mode: link was generated above, we track it but
-                # the actual sending of the link would be done via DM campaign
-                # For now, we log the attempt as a successful link generation
+                    result_code = "SUCCESS"
+                else:
+                    # INVITE_LINK mode: the link was generated once above, but
+                    # DELIVERING it to the user (a DM) is NOT performed here.
+                    # Record the attempt honestly as LINK_READY rather than
+                    # SUCCESS so reports don't show phantom invites. Actual
+                    # delivery is the DM campaign's job (see P1-10 / future work).
+                    result_code = "LINK_READY"
 
-                # Log success
+                # Log the attempt with its honest result code.
                 db.execute(
                     """INSERT INTO tg_invite_attempts
                         (id, campaign_id, account_id, invitee_user_id, invitee_username, result, created_at)
-                       VALUES (?, ?, ?, ?, ?, 'SUCCESS', ?)""",
-                    [attempt_id, campaign_id, acc_id, user_id, username, _now()],
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    [attempt_id, campaign_id, acc_id, user_id, username, result_code, _now()],
                 )
                 db.commit()
 
-                total_success += 1
+                # Only DIRECT invites count as real successes.
+                if result_code == "SUCCESS":
+                    total_success += 1
                 invited_this_account += 1
                 log.info(
-                    "invite_success",
+                    "invite_attempt_logged",
                     account=acc_info["phone"],
                     user=username or user_id,
                     mode=mode,
+                    result=result_code,
                     invited_this_acc=invited_this_account,
                 )
 

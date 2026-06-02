@@ -38,7 +38,7 @@
 - [x] **P1-07** · phone-checker · `b.total` → `b.input_count` (фолбэк на total). Совпадает со схемой бэка ✓. _(commit P1-06/07)_
 - [x] **P1-08** · converter · POST /converter/tasks теперь multipart (files+direction+options); `_parse_direction` → input/output*format, файлы сохраняются в data/converter/<id>/, files_count проставляется; UI «Старт» показывается и для DRAFT. Live: 201 (file сохранён), foo_bar→400 ✓. Реальная конвертация — P4-11. *(commit P1-08)\_
 - [x] **P1-09** · settings · Бридж UI↔колонки: `_ALIAS_TO_COL` (ai*model, daily*_, app_id/hash, notif_emergency_stop/spam_block, emergency/flood), active_hours_start/end↔active_hours, неизвестные UI-поля → новая колонка `extra_settings` (JSON). GET эхо-ит алиасы. Schema+ALTER ws-_.db. Live: PATCH UI-payload персистится (колонки+extra), ключ цел, restored ✓. _(commit P1-09)_
-- [ ] **P1-10** · inviting · Режим INVITE_LINK логирует ложный `SUCCESS`, ничего не отправив. Честно помечать (NOT_SENT/SKIPPED) или задизейблить режим в UI с пометкой. S-M · med (ложная отчётность)
+- [x] **P1-10** · inviting · INVITE*LINK больше не пишет ложный SUCCESS: результат `LINK_READY`, total_success не инкрементится; UI-tooltip честно поясняет (доставка ссылки — вручную/через ЛС). Syntax+worker-reload ✓ (полный live-инвайт отложен: нужны реальные аккаунты+группа, ban-risk). *(commit P1-10)\_
 - [ ] **P1-11** · ai-promoter · Удалить/задепрекейтить мёртвый `ai_promoter_tasks.py` (`pup_tg.ai_promoter`, нигде не диспатчится, баг `account_id`). S · low
 - [ ] **P1-12** · warmup · Подключить мок-экран `rWarmup` к реальному `/warmup/status` + `/warmup/log/{id}` + кнопки start/stop (убрать хардкод-номера). M · low (бэк готов, чистый фронт)
 
