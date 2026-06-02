@@ -36,6 +36,7 @@ from app.api.v1.arena import router as arena_router
 from app.api.v1.proxies import router as proxies_router
 from app.api.v1.settings import router as settings_router
 from app.api.v1.smoke import router as smoke_router
+from app.api.v1.system import router as system_router
 from app.api.v1.stories_boost import router as stories_boost_router
 from app.api.v1.templates import router as templates_router
 from app.api.v1.warmup import router as warmup_router
@@ -84,6 +85,7 @@ async def health() -> dict[str, str]:
 
 # ---------- API routes ----------
 app.include_router(smoke_router, prefix="/api/v1")
+app.include_router(system_router, prefix="/api/v1")
 app.include_router(accounts_router, prefix="/api/v1")
 app.include_router(account_profile_router, prefix="/api/v1")
 app.include_router(proxies_router, prefix="/api/v1")

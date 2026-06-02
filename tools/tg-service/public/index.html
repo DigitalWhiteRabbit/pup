@@ -535,6 +535,16 @@ html.dark .ipn { background: rgba(255,255,255,0.03); }
 
 /* ── Hidden ── */
 .hid { display: none !important; }
+.engine-banner {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
+  background: #f59e0b; color: #1a1a1a;
+  padding: 0.5rem 1rem; text-align: center;
+  font-size: 0.8125rem; font-weight: 500;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+}
+.engine-banner code {
+  background: rgba(0,0,0,0.15); padding: 0.05rem 0.35rem; border-radius: 4px;
+}
 
 /* ── KPI strip ── */
 .kpi-strip {
@@ -926,6 +936,11 @@ html:not(.dark) .live-log { background: #1a1a1a; }
 </style>
 </head>
 <body>
+
+<!-- ENGINE STATUS BANNER (показывается, когда фоновый воркер офлайн) -->
+<div id="engine-banner" class="engine-banner hid" role="alert">
+  &#x26A0;&#xFE0F; Фоновый воркер офлайн — задачи по кнопке «Старт» не будут исполняться. Запустите <code>./scripts/dev-up.sh</code>
+</div>
 
 <!-- APP -->
 <div id="app" class="app-shell">
@@ -7235,6 +7250,18 @@ async function chkH(){
   try{var d=await af('/health');S.online=d.status==='ok'||d.status==='healthy';}
   catch(e){S.online=false;}
   updH();
+  chkEngine();
+}
+
+/* Статус фонового движка (Celery worker): баннер, когда воркер офлайн. */
+async function chkEngine(){
+  var b=document.getElementById('engine-banner');
+  if(!b)return;
+  try{
+    var st=await af('/system/status');
+    if(st&&st.worker_online)b.classList.add('hid');
+    else b.classList.remove('hid');
+  }catch(e){/* не наводим панику на сетевых сбоях статуса */}
 }
 
 /* ====================================================================
