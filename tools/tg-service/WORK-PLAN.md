@@ -16,7 +16,7 @@
 | Фаза      | Тема                                            | Задач  | Статус   |
 | --------- | ----------------------------------------------- | ------ | -------- |
 | 1         | Починка сломанного + безопасность               | 12     | ✅ 12/12 |
-| 2         | «Фантомные» config-поля (подключить или скрыть) | 11     | ☐        |
+| 2         | «Фантомные» config-поля (подключить или скрыть) | 11     | ✅ 11/11 |
 | 3         | Quick wins по разделам (S/low)                  | 21     | ☐        |
 | 4         | Средние улучшения (M, low-med)                  | 28     | ☐        |
 | 5         | Сквозная инфраструктура (общие компоненты)      | 9      | ☐        |
@@ -62,7 +62,20 @@
 - [x] **P2-09** · channel-creator · Воркер применяет username*pattern (UpdateUsernameRequest, {n}-подстановка) + permissions (EditChatDefaultBannedRightsRequest, default banned rights). description уже работал (about). Аватара нет в схеме/модели — пропущено (нет поля). Бонус: UI слал `account_ids`, а модель ждала `creator_account_ids` → выбор аккаунтов молча терялся; добавлен alias. Live: create→username_pattern/permissions/creator_account_ids сохранены; dispatch с fake-acc → FAILED gracefully, 0 каналов, без краша. Реальное создание не тестировал (создаёт реальные TG-каналы). master_account/pinned_message/welcome_post UI шлёт, но их нет в схеме — нота для будущего (нужны колонки). *(commit P2-09)\_
 - [x] **P2-10** · settings · Механизм гейтинга: `notify_admin_pref(db, event_key, text)` в core/notify.py + `_EVENT_TO_PREF` (emergency*stop/spam_block → колонки, hot_lead/approval_queue/warmup_ready/daily_digest/ai_budget/long_task → extra_settings; default-on при неизвестном ключе/ошибке). Подключены low-risk call-sites: arena pause (long_task), beat membership auto-pause (spam_block), join_chats completion (long_task). Live: unit-тест \_pref_enabled (default True; disable extra/колонку → False; unknown → True; suppressed → лог+False), worker рестарт без ошибок. *(commit P2-10)\_
   - 🔸 **P2-10b (отложено, под-задача)**: 3 вызова notify_admin в `ai_agent_tasks.py` (1880/2114/2158 — hot_lead/approval_queue, живой движок) НЕ трогал, чтобы не рисковать регрессией live ai_agent. Адаптировать на notify_admin_pref отдельным заходом с осторожным live-прогоном.
-- [ ] **P2-11** · Сквозное · Зафиксировать в этом файле итог аудита «UI-поле → читается воркером»: что подключено, что скрыто. S · low
+- [x] **P2-11** · Сквозное · Итог аудита «UI-поле → воркер» (см. таблицу ниже). _(commit P2-11)_
+
+### Итог Фазы 2 — «UI-поле → читается воркером»
+
+| Раздел          | Подключено к воркеру                                                                                                     | Задизейблено в UI (нет данных) | Отложено (нужна инфра)                                                         |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------ | ------------------------------------------------------------------------------ |
+| dm-campaign     | active_hours, filter_username, filter_ai_score_min, exclude_audience_id, skip_list, max_per_day, distribution(RANDOM/RR) | filter_online                  | GEO_MATCHED (гео прокси P6-08), message-level interleave                       |
+| chat-broadcast  | exclude_channels, gap_24h, posts_per_day, ban_auto_stop, slow_mode_behavior, distribution(RR)                            | —                              | delete_detection→P4-22, drip/schedule→P5-04                                    |
+| inviting        | filter_premium, filter_ai_score_min, privacy_threshold                                                                   | filter_online                  | flood_behavior (покрыт глоб. настройками)                                      |
+| boost           | active_hours gate                                                                                                        | —                              | per-account дневные счётчики→P5-01, drip→P5-04                                 |
+| stories-boost   | active_hours gate                                                                                                        | —                              | AUTO_MONITOR→P4-06/P5-04                                                       |
+| cloner          | copy_items(posts/profile/avatar/pinned), replacements, max_posts_per_day, active_hours, delays                           | —                              | реальное клонирование не live-тестилось; mirror/schedule→P4-09                 |
+| channel-creator | username_pattern, permissions, description, account_ids(alias)                                                           | —                              | avatar (нет колонки), master_account/pinned_message/welcome_post (нет колонок) |
+| settings        | notify_admin_pref-гейтинг (arena/beat/join)                                                                              | —                              | ai_agent hot-path notify→P2-10b                                                |
 
 **Регресс Ф2:** полный прогон + чистка.
 
@@ -176,5 +189,5 @@ _(пусто — пополняется по ходу)_
 - Старт плана: база `fd240e1`.
 - **ФАЗА 1 завершена (12/12)** — commits P1-01..P1-12. Регресс 26/26 чисто, тестовые записи удалены (вкл. 3 старые test-аудитории), аккаунты 9 ACTIVE + 1 INVALID (без изменений), зависших WARMING нет. Следующий заход начинает с ФАЗЫ 2 (P2-01).
 - **ФАЗА 2 частично (7/11)** — commits P2-01..P2-07. Закрыты фантомные config-поля DM (фильтры/active_hours/distribution), chat-broadcast (exclude/gap_24h/posts_per_day/ban_auto_stop/slow_mode/distribution), inviting (filter_premium/ai_score/privacy_threshold), boost+stories (active-hours gate). Checkpoint-регресс 26/26 чисто; Atlas-персона возвращена в ACTIVE (временно ставилась PAUSED для чистоты live-тестов); тестовых записей нет; аккаунты 9 ACTIVE + 1 INVALID; WARMING 0.
-  - **Резюме-точка: ФАЗА 2 c P2-08** (cloner config). Остаются: P2-08 cloner, P2-09 channel-creator (username/permissions/avatar), P2-10 settings notify-привязка (требует gating notify*admin по notif*\* через extra_settings — затрагивает hot-path call-sites, скоупить аккуратно), P2-11 документация аудита полей.
+  - **ФАЗА 2 завершена (11/11)** — commits P2-01..P2-11. Регресс 26/26 чисто; тестовых записей нет (вкл. подчищенные m4-h3-recheck/m4-rotation/t3-503); аккаунты 9 ACTIVE + 1 INVALID; WARMING 0; settings/extra_settings восстановлены; Atlas → ACTIVE. Отложено: **P2-10b** (ai_agent hot-path notify). Следующий заход — **ФАЗА 3 (P3-01)**.
   - ⚠️ Для live-тестов воркера: Atlas-персона (ACTIVE) сильно загружает воркер (циклы по 192с, прокси в dev недоступен). На время тестов её можно временно ставить PAUSED и обязательно возвращать в ACTIVE. Рестарт воркера — только `./scripts/dev-down.sh` + kill celery, иначе старый код висит (порт 8001 = только API).
