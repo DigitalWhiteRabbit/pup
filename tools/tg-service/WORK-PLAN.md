@@ -31,8 +31,8 @@
 
 - [x] **P1-01** · settings · Замаскировать `anthropic_api_key` (+`telegram_app_hash`) в `GET /settings` (`sk-a…wwAA`); PATCH дропает маск-значения → не затирает ключ. Live ✓. _(commit P1-01)_
 - [x] **P1-02** · ai-sales · Добавлен `GET /ai-sales/knowledge-base` (read-only вид над tg*kb_documents, shape `{items}`). Live: 2 дока ✓. *(commit P1-02)\_
-- [ ] **P1-03** · parser · Синхронизировать режимы UI↔`VALID_MODES`: убрать из UI несуществующие (ACTIVE_ONLINE/SEARCH/NEARBY/PHONE_CONTACTS/GROUP_MEMBERS), добавить реальные (REACTIONS/POLLS/JOINERS/TOPICS/GLOBAL_SEARCH + CHAT_MEMBERS/COMMENTERS/WRITERS). S · low
-- [ ] **P1-04** · parser · Исправить поля found/filtered: UI читает `found_count`/`filtered_count`, бэк хранит `total_found`/`total_filtered` → колонки всегда 0. S · low
+- [x] **P1-03** · parser · UI-режимы синхронизированы с VALID*MODES (8 реальных). Live: REACTIONS→201, ACTIVE_ONLINE→400 ✓. *(commit P1-03/04)\_
+- [x] **P1-04** · parser · found*count/filtered_count → total_found/total_filtered (3 места в rParser). Live: поля присутствуют ✓. *(commit P1-03/04)\_
 - [ ] **P1-05** · channels · Согласовать роли/типы UI↔бэк (VALID_ROLES={SOURCE,TARGET,BOTH,NONE}, VALID_TYPES={CHANNEL,SUPERGROUP,BASIC_GROUP,FORUM}); вкладка «Мои»→is_own. S · low
 - [ ] **P1-06** · auto-replier · Синхронизировать поведения: заменить UI `FORWARD/IGNORE` на реальные `SILENCE/NOTIFY/HANDOFF_SALES` (бэк их валидирует). S · low
 - [ ] **P1-07** · phone-checker · Согласовать счётчики UI↔бэк: UI берёт `b.total`, которого нет (есть `input_count`). S · low

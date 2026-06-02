@@ -3228,14 +3228,14 @@ function rSet(el){
 /* ── 5. Parser ── */
 var prsLoaded=false,prsItems=[],prsTotal=0;
 async function ldPrs(){try{var r=await af('/parser/tasks');prsItems=r.items||[];prsTotal=r.total||0;prsLoaded=true;}catch(e){toast('Ошибка загрузки парсера: '+e.message,'error');}}
-var PRS_MODE={'CHAT_MEMBERS':'b-blue','COMMENTERS':'b-purple','WRITERS':'b-orange','ACTIVE_ONLINE':'b-teal','SEARCH':'b-indigo','NEARBY':'b-pink','PHONE_CONTACTS':'b-sky','GROUP_MEMBERS':'b-yellow'};
-var PRS_MODE_LABEL={'CHAT_MEMBERS':'Участники чата','COMMENTERS':'Комментаторы','WRITERS':'Авторы постов','ACTIVE_ONLINE':'Активные онлайн','SEARCH':'Поиск','NEARBY':'Рядом','PHONE_CONTACTS':'По номерам','GROUP_MEMBERS':'Участники группы'};
+var PRS_MODE={'CHAT_MEMBERS':'b-blue','COMMENTERS':'b-purple','WRITERS':'b-orange','REACTIONS':'b-teal','POLLS':'b-indigo','JOINERS':'b-pink','TOPICS':'b-sky','GLOBAL_SEARCH':'b-yellow'};
+var PRS_MODE_LABEL={'CHAT_MEMBERS':'Участники чата','COMMENTERS':'Комментаторы','WRITERS':'Авторы постов','REACTIONS':'Поставившие реакции','POLLS':'Голосовавшие в опросах','JOINERS':'Вступившие в чат','TOPICS':'Участники тем (форум)','GLOBAL_SEARCH':'Глобальный поиск'};
 var PRS_STATUS={'PENDING':'b-muted b-ol','RUNNING':'b-blue b-ol','COMPLETED':'b-emerald b-ol','FAILED':'b-red b-ol','CANCELLED':'b-muted b-ol'};
 var PRS_STATUS_LABEL={'PENDING':'Ожидание','RUNNING':'В процессе','COMPLETED':'Завершён','FAILED':'Ошибка','CANCELLED':'Отменён'};
 function rParser(el){
   if(!prsLoaded){el.innerHTML='<div class="sy4">'+skel('3rem')+skel('2.5rem')+skel('24rem')+'</div>';ldPrs().then(function(){if(S.sec==='parser')rParser(el);});return;}
   var totalTasks=prsTotal,completed=0,running=0,totalFound=0;
-  prsItems.forEach(function(t){if(t.status==='COMPLETED')completed++;if(t.status==='RUNNING')running++;totalFound+=(t.found_count||0);});
+  prsItems.forEach(function(t){if(t.status==='COMPLETED')completed++;if(t.status==='RUNNING')running++;totalFound+=(t.total_found||0);});
   el.innerHTML='<div class="sy4">'+
     pageHead('Парсер аудитории','8 режимов сбора','<button class="btn btn-sm btn-primary" id="prs-add">'+ic('plus')+' Новый парсинг</button>')+
     kpiHtml([
@@ -3253,8 +3253,8 @@ function rParser(el){
           var stCls=PRS_STATUS[(t.status||'').toUpperCase()]||'b-muted b-ol';
           var stLbl=PRS_STATUS_LABEL[(t.status||'').toUpperCase()]||t.status||'--';
           var sources=(t.config&&t.config.sources)?t.config.sources.length:0;
-          var found=t.found_count||0;
-          var filtered=t.filtered_count||0;
+          var found=t.total_found||0;
+          var filtered=t.total_filtered||0;
           var pct=t.progress||0;
           var progHtml=(t.status||'').toUpperCase()==='RUNNING'?'<div class="mprog"><div class="mprog-bar"><div class="mprog-fill" style="width:'+pct+'%;background:var(--blue-500)"></div></div><span class="t10 c-m">'+pct+'%</span></div>':'<span class="txs c-m">'+(pct>0?pct+'%':'\u2014')+'</span>';
           var statusHtml='<span class="badge '+stCls+'"'+(((t.status||'').toUpperCase()==='RUNNING')?' style="animation:pulse-dot 2s infinite"':'')+'>'+esc(stLbl)+'</span>';
@@ -3276,7 +3276,7 @@ function rParser(el){
   el.querySelectorAll('.prs-del').forEach(function(b){b.onclick=async function(){if(!confirm('Удалить задачу парсинга?'))return;b.disabled=true;try{await aD('/parser/tasks/'+b.dataset.id);toast('Задача удалена','success');prsLoaded=false;await ldPrs();if(S.sec==='parser')rParser(document.getElementById('mc'));}catch(e){toast(e.message,'error');b.disabled=false;}};});
 }
 function mCrParser(prefillSrc){
-  var modes=['CHAT_MEMBERS','COMMENTERS','WRITERS','ACTIVE_ONLINE','SEARCH','NEARBY','PHONE_CONTACTS','GROUP_MEMBERS'];
+  var modes=['CHAT_MEMBERS','COMMENTERS','WRITERS','REACTIONS','POLLS','JOINERS','TOPICS','GLOBAL_SEARCH'];
   var preName=prefillSrc?'Участники: '+prefillSrc:'';
   var h='<div class="dlg-ov" id="mov"><div class="dlg dlg-wide">'+
     '<div class="dlg-hd"><div class="dlg-tt">'+ic('plus')+' Новый парсинг</div></div>'+
