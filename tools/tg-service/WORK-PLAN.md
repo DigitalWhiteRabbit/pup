@@ -83,7 +83,7 @@
 
 ## ФАЗА 3 — Quick wins по разделам (S, low risk)
 
-- [ ] **P3-01** · accounts · Колонка + фильтр по «здоровью» (humanity/restricted/scam уже в ответе). S · low
+- [x] **P3-01** · accounts · Бейджи здоровья уже были в колонке Статус (healthBadges). Добавлен фильтр `accHealthF` (Ограничен/scam/fake · Без профиля · Низкий humanity) + сброс. Live playwright: ALL=10, RESTRICTED=0, NOPROFILE=5, reset виден, без console-ошибок. _(commit P3-01)_
 - [ ] **P3-02** · account_profile · Загрузка своего аватара (upload) + seed/несколько источников. S · low
 - [ ] **P3-03** · account_profile · Предпросмотр «как увидят аккаунт» перед apply. S · low
 - [ ] **P3-04** · account_profile · Pre-check занятости username (CheckUsername) до apply. S · low-med

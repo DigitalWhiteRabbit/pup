@@ -1111,7 +1111,7 @@ var S={
   sec:'dashboard',ws:null,tok:null,online:false,
   dStats:null,aStats:null,
   acc:[],accT:0,accP:0,accF:'ALL',accQ:'',accSel:{},accDetail:null,accDetTab:'overview',
-  accCountryF:'ALL',accProxyF:'ALL',accPremF:'ALL',accTagF:'ALL',
+  accCountryF:'ALL',accProxyF:'ALL',accPremF:'ALL',accTagF:'ALL',accHealthF:'ALL',
   prx:[],prxT:0,prxP:0,prxSF:'ALL',prxTF:'ALL',prxQ:'',prxSel:{},prxStats:null,
   arena:[],
   cfg:null,cfgF:null
@@ -1639,6 +1639,9 @@ function rAcc(el){
   else if(S.accProxyF==='WITHOUT'){fAcc=fAcc.filter(function(a){return !a.proxy_id;});}
   if(S.accPremF==='PREMIUM'){fAcc=fAcc.filter(function(a){return !!a.is_premium;});}
   else if(S.accPremF==='REGULAR'){fAcc=fAcc.filter(function(a){return !a.is_premium;});}
+  if(S.accHealthF==='RESTRICTED'){fAcc=fAcc.filter(function(a){return !!(a.restricted||a.scam||a.fake);});}
+  else if(S.accHealthF==='NOPROFILE'){fAcc=fAcc.filter(function(a){return !(a.first_name||a.last_name||a.username)||!a.has_avatar;});}
+  else if(S.accHealthF==='LOWHUMAN'){fAcc=fAcc.filter(function(a){return a.humanity_score!=null&&a.humanity_score<=1;});}
   if(S.accTagF&&S.accTagF!=='ALL'){fAcc=fAcc.filter(function(a){return Array.isArray(a.tags)&&a.tags.indexOf(S.accTagF)>-1;});}
 
   var kpis=[
@@ -1684,11 +1687,17 @@ function rAcc(el){
         '<option value="PREMIUM"'+(S.accPremF==='PREMIUM'?' selected':'')+'>\u2B50 Premium</option>'+
         '<option value="REGULAR"'+(S.accPremF==='REGULAR'?' selected':'')+'>\u041E\u0431\u044B\u0447\u043D\u044B\u0435</option>'+
       '</select></div>'+
+      '<div class="sel-w"><select class="sel" id="a-hf" style="width:11rem" title="\u0424\u0438\u043B\u044C\u0442\u0440 \u043F\u043E \u0437\u0434\u043E\u0440\u043E\u0432\u044C\u044E \u0430\u043A\u043A\u0430\u0443\u043D\u0442\u0430">'+
+        '<option value="ALL"'+(S.accHealthF==='ALL'?' selected':'')+'>\u0417\u0434\u043E\u0440\u043E\u0432\u044C\u0435: \u0412\u0441\u0435</option>'+
+        '<option value="RESTRICTED"'+(S.accHealthF==='RESTRICTED'?' selected':'')+'>\u26A0 \u041E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D/scam/fake</option>'+
+        '<option value="NOPROFILE"'+(S.accHealthF==='NOPROFILE'?' selected':'')+'>\uD83D\uDC64 \u0411\u0435\u0437 \u043F\u0440\u043E\u0444\u0438\u043B\u044F</option>'+
+        '<option value="LOWHUMAN"'+(S.accHealthF==='LOWHUMAN'?' selected':'')+'>\uD83D\uDCC9 \u041D\u0438\u0437\u043A\u0438\u0439 humanity</option>'+
+      '</select></div>'+
       (function(){var allTags={};(S.acc||[]).forEach(function(a){if(Array.isArray(a.tags))a.tags.forEach(function(t){allTags[t]=1;});});var tagList=Object.keys(allTags).sort();return tagList.length>0?'<div class="sel-w"><select class="sel" id="a-tf" style="width:9rem"><option value="ALL"'+(S.accTagF==='ALL'?' selected':'')+'>\u0422\u0435\u0433: \u0412\u0441\u0435</option>'+tagList.map(function(t){return '<option value="'+esc(t)+'"'+(S.accTagF===t?' selected':'')+'>'+esc(t)+'</option>';}).join('')+'</select></div>':'';})()+
       '<div class="srch">'+ic('search')+
         '<input class="input input-pl tsm" id="a-q" placeholder="Поиск по телефону, юзернейму..." value="'+esc(S.accQ)+'">'+
       '</div>'+
-      (S.accCountryF!=='ALL'||S.accProxyF!=='ALL'||S.accPremF!=='ALL'||S.accTagF!=='ALL'?'<button class="btn btn-sm" id="a-reset-f" style="white-space:nowrap">\u2715 \u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C</button>':'')+
+      (S.accCountryF!=='ALL'||S.accProxyF!=='ALL'||S.accPremF!=='ALL'||S.accTagF!=='ALL'||S.accHealthF!=='ALL'?'<button class="btn btn-sm" id="a-reset-f" style="white-space:nowrap">\u2715 \u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C</button>':'')+
       '<div class="txs c-m mla">'+S.accT+' \u0430\u043A\u043A\u0430\u0443\u043D\u0442\u043E\u0432</div>'+
     '</div>'+
 
@@ -1806,7 +1815,8 @@ function rAcc(el){
   var pxfEl=el.querySelector('#a-pxf');if(pxfEl)pxfEl.onchange=function(e){S.accProxyF=e.target.value;rAcc(el);};
   var pmfEl=el.querySelector('#a-pmf');if(pmfEl)pmfEl.onchange=function(e){S.accPremF=e.target.value;rAcc(el);};
   var tfEl=el.querySelector('#a-tf');if(tfEl)tfEl.onchange=function(e){S.accTagF=e.target.value;rAcc(el);};
-  var resetFBtn=el.querySelector('#a-reset-f');if(resetFBtn)resetFBtn.onclick=function(){S.accCountryF='ALL';S.accProxyF='ALL';S.accPremF='ALL';S.accTagF='ALL';rAcc(el);};
+  var hfEl=el.querySelector('#a-hf');if(hfEl)hfEl.onchange=function(e){S.accHealthF=e.target.value;rAcc(el);};
+  var resetFBtn=el.querySelector('#a-reset-f');if(resetFBtn)resetFBtn.onclick=function(){S.accCountryF='ALL';S.accProxyF='ALL';S.accPremF='ALL';S.accTagF='ALL';S.accHealthF='ALL';rAcc(el);};
   var qt;
   el.querySelector('#a-q').oninput=function(e){
     S.accQ=e.target.value;S.accP=0;
