@@ -3426,18 +3426,38 @@ function mCrParser(prefillSrc){
       '<div><label class="lbl">Название *</label><input class="input tsm" name="name" value="'+esc(preName)+'" placeholder="Крипто-чаты RU" autofocus></div>'+
       '<div><label class="lbl">Режим сбора'+tip('Способ сбора аудитории: участники группы, авторы сообщений, комментаторы, онлайн и т.д.')+'</label><div class="sel-w"><select class="sel" name="mode">'+modes.map(function(m){return '<option value="'+m+'"'+((prefillSrc&&m==='CHAT_MEMBERS')?' selected':'')+'>'+esc(PRS_MODE_LABEL[m]||m)+'</option>';}).join('')+'</select></div></div>'+
       '<div><label class="lbl">Источники (по одному на строку)'+tip('Список чатов/каналов для парсинга. По одному на строку. Поддерживает @username и ссылки t.me/')+'</label><textarea class="ta" name="sources" placeholder="@crypto_chat\n@business_group\nhttps://t.me/channel123" style="min-height:100px">'+esc(prefillSrc||'')+'</textarea></div>'+
-      '<div class="sy2"><div class="txs fsem upc c-m tkw">Фильтры</div><div class="f g3x mt2"><label class="f ac g1h txs"><input type="checkbox" class="chk" name="has_avatar"> С аватаром'+tip('Оставить только пользователей у которых установлена фотография профиля')+'</label><label class="f ac g1h txs"><input type="checkbox" class="chk" name="has_username"> С юзернеймом'+tip('Оставить только пользователей у которых есть @username')+'</label><label class="f ac g1h txs"><input type="checkbox" class="chk" name="no_bots"> Без ботов'+tip('Исключить всех ботов из результатов')+'</label></div></div>'+
-      '<div><label class="lbl">Название аудитории (куда сохранить)</label><input class="input tsm" name="audience_name" placeholder="Крипто-аудитория"></div>'+
+      '<div class="sy2"><div class="txs fsem upc c-m tkw">Фильтры</div><div class="f g3x fw mt2"><label class="f ac g1h txs"><input type="checkbox" class="chk" name="has_avatar"> С аватаром'+tip('Оставить только пользователей у которых установлена фотография профиля')+'</label><label class="f ac g1h txs"><input type="checkbox" class="chk" name="has_username"> С юзернеймом'+tip('Оставить только пользователей у которых есть @username')+'</label><label class="f ac g1h txs"><input type="checkbox" class="chk" name="no_bots"> Без ботов'+tip('Исключить всех ботов из результатов')+'</label><label class="f ac g1h txs"><input type="checkbox" class="chk" name="premium_only"> Только Premium'+tip('Собирать только Telegram Premium-пользователей')+'</label></div></div>'+
+      '<div><label class="lbl">Сохранить в аудиторию</label><div class="sel-w"><select class="sel tsm" name="audience_dest" id="prs-aud-dest"><option value="new">Создать новую…</option><option value="none">Не сохранять</option></select></div></div>'+
+      '<div id="prs-aud-name-wrap"><label class="lbl">Название новой аудитории</label><input class="input tsm" name="audience_name" placeholder="Крипто-аудитория"></div>'+
     '</div>'+
     '<div class="dlg-ft"><button type="button" class="btn btn-sm" id="mcl">Отмена</button><button type="submit" class="btn btn-sm btn-primary" id="ms">Создать</button></div></form></div></div>';
   document.body.insertAdjacentHTML('beforeend',h);mBind('mov','mcl');
+  /* Load existing audiences into the dropdown */
+  (async function(){
+    try{
+      var r=await af('/audiences?limit=100');
+      var sel=document.getElementById('prs-aud-dest');
+      if(sel&&r.items&&r.items.length){
+        r.items.forEach(function(a){
+          var o=document.createElement('option');o.value=a.id;o.textContent=esc(a.name)+' ('+(a.total_count||0)+')';sel.appendChild(o);
+        });
+      }
+    }catch(e){}
+  })();
+  /* Toggle audience name field based on selection */
+  (function(){
+    var sel=document.getElementById('prs-aud-dest');
+    var wrap=document.getElementById('prs-aud-name-wrap');
+    if(sel&&wrap){sel.onchange=function(){wrap.style.display=(sel.value==='new')?'':'none';};}
+  })();
   document.getElementById('prsf').onsubmit=async function(e){
     e.preventDefault();var f=e.target;var name=f.name.value.trim();if(!name){toast('Введите название','error');return;}
     var sb=document.getElementById('ms');sb.disabled=true;sb.innerHTML='<span class="spin"></span> Создать';
     var sources=f.sources.value.split('\n').map(function(s){return s.trim();}).filter(Boolean);
-    var filters={};if(f.has_avatar.checked)filters.has_avatar=true;if(f.has_username.checked)filters.has_username=true;if(f.no_bots.checked)filters.no_bots=true;
+    var filters={};if(f.has_avatar.checked)filters.has_avatar=true;if(f.has_username.checked)filters.has_username=true;if(f.no_bots.checked)filters.no_bots=true;if(f.premium_only.checked)filters.premium_only=true;
+    var audDest=f.audience_dest.value;
     try{
-      await ap('/parser/tasks',{name:name,mode:f.mode.value,config:{sources:sources,filters:filters,audience_name:f.audience_name.value.trim()||undefined}});
+      await ap('/parser/tasks',{name:name,mode:f.mode.value,config:{sources:sources,filters:filters,save_to_audience:audDest,audience_name:(audDest==='new'?f.audience_name.value.trim()||undefined:undefined)}});
       toast('Задача создана','success');mClose('mov');prsLoaded=false;await ldPrs();if(S.sec==='parser')rParser(document.getElementById('mc'));
     }catch(er){toast(er.message,'error');sb.disabled=false;sb.innerHTML='Создать';}
   };
