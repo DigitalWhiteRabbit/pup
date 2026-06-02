@@ -120,6 +120,38 @@ def _pick_account(db: Any) -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
+def _pick_accounts(db: Any, limit: int) -> list[dict[str, Any]]:
+    """Pick up to *limit* ACTIVE accounts with a proxy, to rotate across sources.
+
+    Spreading sources over several accounts cuts per-account load (and thus
+    FloodWait / ban risk). Same proxy-only rule as :func:`_pick_account`.
+    """
+    rows = db.execute(
+        """SELECT * FROM tg_accounts
+           WHERE status = 'ACTIVE' AND proxy_id IS NOT NULL
+           ORDER BY RANDOM()
+           LIMIT ?""",
+        [max(1, limit)],
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def _select_account(
+    accounts: list[dict[str, Any]], dead: set[str], idx: int
+) -> dict[str, Any] | None:
+    """Round-robin pick the next still-alive account for source *idx*.
+
+    Skips accounts dropped from rotation (banned / dead / no-proxy). Returns
+    None only when every account has been exhausted.
+    """
+    n = len(accounts)
+    for k in range(n):
+        acc = accounts[(idx + k) % n]
+        if acc["id"] not in dead:
+            return acc
+    return None
+
+
 def _update_task_progress(
     db: Any,
     task_id: str,
@@ -681,9 +713,9 @@ async def _parse_audience_async(workspace_id: str, task_id: str) -> dict[str, An
         )
         db.commit()
 
-    # ── Pick an account ────────────────────────────────────────────────
-    account = _pick_account(db)
-    if not account:
+    # ── Pick accounts (rotated across sources to spread load / cut ban risk) ──
+    accounts = _pick_accounts(db, max(1, min(len(sources), 5)))
+    if not accounts:
         _fail_task(db, task_id, "No ACTIVE Telegram accounts available")
         return {"status": "FAILED", "error": "No active accounts"}
 
@@ -693,56 +725,64 @@ async def _parse_audience_async(workspace_id: str, task_id: str) -> dict[str, An
         task_id=task_id,
         mode=mode,
         sources_count=len(sources),
-        account_id=account["id"],
+        accounts_count=len(accounts),
     )
-
-    # ── Decrypt session & prepare client ───────────────────────────────
-    try:
-        app_id, app_hash = _get_api_credentials(account)
-    except ValueError as exc:
-        _fail_task(db, task_id, str(exc))
-        return {"status": "FAILED", "error": str(exc)}
-
-    try:
-        session_bytes, proxy_kwargs = _prepare_session(db, account)
-    except Exception as exc:
-        _fail_task(db, task_id, f"Session preparation failed: {exc}")
-        return {"status": "FAILED", "error": f"Session preparation failed: {exc}"}
-
-    # ── NO_PROXY guard: never connect over the server's real IP ─────────
-    if "proxy" not in proxy_kwargs:
-        log.warning("no_proxy_skip", account_id=account["id"], task_id=task_id)
-        _fail_task(db, task_id, "NO_PROXY: нет активного прокси")
-        return {"status": "FAILED", "error": "NO_PROXY: нет активного прокси"}
-
-    # ── Write temp session for Telethon ────────────────────────────────
-    tmp_dir = tempfile.mkdtemp(prefix="tg_parse_")
-    tmp_session_path = Path(tmp_dir) / "parse.session"
-    tmp_session_path.write_bytes(session_bytes)
 
     total_found = 0
     total_filtered = 0
     source_errors: list[str] = []
     control_stop: str | None = None  # set to PAUSED/CANCELLED if stopped mid-run
     idx = 0
+    account = accounts[0]  # current rotated account; always valid (non-empty list)
 
-    try:
-        client = TelegramClient(
-            str(tmp_session_path.with_suffix("")),
-            api_id=app_id,
-            api_hash=app_hash,
+    # Lazily-connected Telethon clients, cached per account and reused across
+    # sources. Each account connects through its own proxy; all closed in the
+    # finally block. ``dead`` holds accounts dropped from rotation.
+    clients: dict[str, Any] = {}
+    tmp_dirs: list[str] = []
+    dead: set[str] = set()
+
+    async def _ensure_client(acc: dict[str, Any]) -> Any:
+        """Connect once and cache a Telethon client for *acc*; None if unusable."""
+        aid = acc["id"]
+        if aid in clients:
+            return clients[aid]
+        try:
+            c_app_id, c_app_hash = _get_api_credentials(acc)
+            session_bytes, proxy_kwargs = _prepare_session(db, acc)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("parse_account_prep_failed", account_id=aid, error=str(exc)[:200])
+            clients[aid] = None
+            return None
+        # NO_PROXY guard: never connect over the server's real IP.
+        if "proxy" not in proxy_kwargs:
+            log.warning("no_proxy_skip", account_id=aid, task_id=task_id)
+            clients[aid] = None
+            return None
+        a_tmp = tempfile.mkdtemp(prefix="tg_parse_")
+        tmp_dirs.append(a_tmp)
+        a_session = Path(a_tmp) / "parse.session"
+        a_session.write_bytes(session_bytes)
+        c = TelegramClient(
+            str(a_session.with_suffix("")),
+            api_id=c_app_id,
+            api_hash=c_app_hash,
             **proxy_kwargs,
         )
-        await client.connect()
-
-        if not await client.is_user_authorized():
+        await c.connect()
+        if not await c.is_user_authorized():
             db.execute(
                 "UPDATE tg_accounts SET status = 'DEAD', updated_at = ? WHERE id = ?",
-                [_now(), account["id"]],
+                [_now(), aid],
             )
             db.commit()
-            _fail_task(db, task_id, "Account session not authorized -- marked DEAD")
-            return {"status": "FAILED", "error": "Session not authorized"}
+            log.warning("parse_account_unauthorized", account_id=aid)
+            clients[aid] = None
+            return None
+        clients[aid] = c
+        return c
+
+    try:
 
         # ── Iterate sources ────────────────────────────────────────────
         for idx, source in enumerate(sources):
@@ -757,6 +797,32 @@ async def _parse_audience_async(workspace_id: str, task_id: str) -> dict[str, An
                     of=len(sources),
                 )
                 break
+
+            # Rotate accounts across sources (spread load / reduce ban risk).
+            account = _select_account(accounts, dead, idx)
+            if account is None:
+                _fail_task(db, task_id, "All accounts exhausted (banned/dead/no-proxy)")
+                return {
+                    "status": "FAILED",
+                    "error": "No usable accounts left",
+                    "total_found": total_found,
+                    "total_filtered": total_filtered,
+                }
+            client = await _ensure_client(account)
+            if client is None:
+                dead.add(account["id"])
+                source_errors.append(f"Account {account['id']} unusable for '{source}'")
+                _update_task_progress(
+                    db, task_id,
+                    progress=int(((idx + 1) / len(sources)) * 100),
+                    total_found=total_found,
+                    total_filtered=total_filtered,
+                )
+                continue
+            log.info(
+                "parse_source_account",
+                task_id=task_id, source=source, account_id=account["id"], idx=idx,
+            )
 
             source_label = source.strip().lstrip("@").replace("https://t.me/", "")
             log.info(
@@ -802,25 +868,21 @@ async def _parse_audience_async(workspace_id: str, task_id: str) -> dict[str, An
                     account_id=account["id"],
                 )
                 if wait_seconds > 300:
-                    # Severe flood -- pause the account and fail the task
+                    # Severe flood -- drop this account from rotation and keep
+                    # going with the others (one bad account no longer kills the task).
                     db.execute(
                         "UPDATE tg_accounts SET status = 'FLOOD_WAIT', updated_at = ? WHERE id = ?",
                         [_now(), account["id"]],
                     )
                     db.commit()
-                    _fail_task(
-                        db, task_id,
-                        f"FloodWait {wait_seconds}s on source '{source}' -- account paused",
+                    dead.add(account["id"])
+                    source_errors.append(
+                        f"FloodWait {wait_seconds}s on '{source}' -- account dropped"
                     )
-                    return {
-                        "status": "FAILED",
-                        "error": f"FloodWait {wait_seconds}s",
-                        "total_found": total_found,
-                        "total_filtered": total_filtered,
-                    }
-                # Short flood wait -- sleep and continue to next source
-                await asyncio.sleep(min(wait_seconds + 5, 120))
-                source_errors.append(f"FloodWait {wait_seconds}s on '{source}'")
+                else:
+                    # Short flood wait -- sleep and continue to next source
+                    await asyncio.sleep(min(wait_seconds + 5, 120))
+                    source_errors.append(f"FloodWait {wait_seconds}s on '{source}'")
 
             except AuthKeyUnregisteredError:
                 db.execute(
@@ -828,8 +890,10 @@ async def _parse_audience_async(workspace_id: str, task_id: str) -> dict[str, An
                     [_now(), account["id"]],
                 )
                 db.commit()
-                _fail_task(db, task_id, "AuthKey unregistered -- account marked DEAD")
-                return {"status": "FAILED", "error": "AuthKey unregistered"}
+                dead.add(account["id"])
+                source_errors.append(
+                    f"AuthKey unregistered on '{source}' -- account dropped"
+                )
 
             except UserDeactivatedBanError as exc:
                 db.execute(
@@ -839,8 +903,10 @@ async def _parse_audience_async(workspace_id: str, task_id: str) -> dict[str, An
                     [_now(), str(exc)[:200], _now(), account["id"]],
                 )
                 db.commit()
-                _fail_task(db, task_id, f"Account banned: {exc}")
-                return {"status": "FAILED", "error": f"Account banned: {exc}"}
+                dead.add(account["id"])
+                source_errors.append(
+                    f"Account banned on '{source}': {str(exc)[:120]} -- account dropped"
+                )
 
             except Exception as exc:
                 err = f"Error parsing source '{source}': {str(exc)[:200]}"
@@ -860,8 +926,13 @@ async def _parse_audience_async(workspace_id: str, task_id: str) -> dict[str, An
             if idx < len(sources) - 1:
                 await asyncio.sleep(random.uniform(2.0, 5.0))
 
-        # ── Disconnect ─────────────────────────────────────────────────
-        await client.disconnect()
+        # ── Disconnect all rotated clients ─────────────────────────────
+        for _c in clients.values():
+            if _c is not None:
+                try:
+                    await _c.disconnect()
+                except Exception:  # noqa: BLE001
+                    pass
 
     except FloodWaitError as exc:
         wait_seconds = getattr(exc, "seconds", 0)
@@ -900,7 +971,8 @@ async def _parse_audience_async(workspace_id: str, task_id: str) -> dict[str, An
         return {"status": "FAILED", "error": f"Unexpected: {str(exc)[:300]}"}
 
     finally:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
+        for _d in tmp_dirs:
+            shutil.rmtree(_d, ignore_errors=True)
 
     # ── Cooperative stop (pause/cancel mid-run) ────────────────────────
     # Persist partial results but DO NOT mark COMPLETED — the API already set
