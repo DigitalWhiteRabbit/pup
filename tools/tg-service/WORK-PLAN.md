@@ -33,7 +33,7 @@
 - [x] **P1-02** · ai-sales · Добавлен `GET /ai-sales/knowledge-base` (read-only вид над tg*kb_documents, shape `{items}`). Live: 2 дока ✓. *(commit P1-02)\_
 - [x] **P1-03** · parser · UI-режимы синхронизированы с VALID*MODES (8 реальных). Live: REACTIONS→201, ACTIVE_ONLINE→400 ✓. *(commit P1-03/04)\_
 - [x] **P1-04** · parser · found*count/filtered_count → total_found/total_filtered (3 места в rParser). Live: поля присутствуют ✓. *(commit P1-03/04)\_
-- [ ] **P1-05** · channels · Согласовать роли/типы UI↔бэк (VALID_ROLES={SOURCE,TARGET,BOTH,NONE}, VALID_TYPES={CHANNEL,SUPERGROUP,BASIC_GROUP,FORUM}); вкладка «Мои»→is_own. S · low
+- [x] **P1-05** · channels · Тип→{CHANNEL,SUPERGROUP,BASIC*GROUP,FORUM}, роль→{SOURCE,TARGET,BOTH,NONE}, чекбокс «мой канал»→is_own, вкладки/бейджи переведены на is_own+BOTH, resolve-маппинг типов. Live: SUPERGROUP/BOTH/is_own→201, 'channel'→400 ✓. *(commit P1-05)\_
 - [ ] **P1-06** · auto-replier · Синхронизировать поведения: заменить UI `FORWARD/IGNORE` на реальные `SILENCE/NOTIFY/HANDOFF_SALES` (бэк их валидирует). S · low
 - [ ] **P1-07** · phone-checker · Согласовать счётчики UI↔бэк: UI берёт `b.total`, которого нет (есть `input_count`). S · low
 - [ ] **P1-08** · converter · Починить контракт UI↔API: эндпоинт принимает JSON, UI шлёт multipart (files/direction/options) → 422. Принять UploadFile + распарсить direction→input/output_format. M · med

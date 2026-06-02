@@ -3382,12 +3382,12 @@ async function ldCh(){try{var r=await af('/channels');chItems=r.items||[];chTota
 function rChannels(el){
   if(!chLoaded){el.innerHTML='<div class="sy4">'+skel('3rem')+skel('2.5rem')+skel('24rem')+'</div>';ldCh().then(function(){if(S.sec==='channels')rChannels(el);});return;}
   var filtered=chItems;
-  if(chTab==='SOURCE')filtered=chItems.filter(function(c){return (c.role||'').toUpperCase()==='SOURCE';});
-  else if(chTab==='TARGET')filtered=chItems.filter(function(c){return (c.role||'').toUpperCase()==='TARGET';});
-  else if(chTab==='OWN')filtered=chItems.filter(function(c){return (c.role||'').toUpperCase()==='OWN';});
-  var srcC=chItems.filter(function(c){return (c.role||'').toUpperCase()==='SOURCE';}).length;
-  var tgtC=chItems.filter(function(c){return (c.role||'').toUpperCase()==='TARGET';}).length;
-  var ownC=chItems.filter(function(c){return (c.role||'').toUpperCase()==='OWN';}).length;
+  if(chTab==='SOURCE')filtered=chItems.filter(function(c){var r=(c.role||'').toUpperCase();return r==='SOURCE'||r==='BOTH';});
+  else if(chTab==='TARGET')filtered=chItems.filter(function(c){var r=(c.role||'').toUpperCase();return r==='TARGET'||r==='BOTH';});
+  else if(chTab==='OWN')filtered=chItems.filter(function(c){return !!c.is_own;});
+  var srcC=chItems.filter(function(c){var r=(c.role||'').toUpperCase();return r==='SOURCE'||r==='BOTH';}).length;
+  var tgtC=chItems.filter(function(c){var r=(c.role||'').toUpperCase();return r==='TARGET'||r==='BOTH';}).length;
+  var ownC=chItems.filter(function(c){return !!c.is_own;}).length;
   el.innerHTML='<div class="sy4">'+
     pageHead('База каналов и групп',chTotal+' каналов','<button class="btn btn-sm btn-primary" id="ch-add">'+ic('plus')+' Добавить канал</button>')+
     '<div class="tab-bar"><button class="tab-item'+(chTab==='ALL'?' active':'')+'" data-chtab="ALL">Все ('+chTotal+')</button><button class="tab-item'+(chTab==='SOURCE'?' active':'')+'" data-chtab="SOURCE">Источники ('+srcC+')</button><button class="tab-item'+(chTab==='TARGET'?' active':'')+'" data-chtab="TARGET">Цели ('+tgtC+')</button><button class="tab-item'+(chTab==='OWN'?' active':'')+'" data-chtab="OWN">Мои ('+ownC+')</button></div>'+
@@ -3395,8 +3395,10 @@ function rChannels(el){
     (filtered.length>0
       ?'<div class="tw"><table><thead><tr><th>Канал</th><th>Тип</th><th>Участников</th><th>Категория</th><th>Роль</th><th>Действия</th></tr></thead><tbody>'+
         filtered.map(function(c){
-          var roleCls=(c.role||'').toUpperCase()==='SOURCE'?'b-blue b-ol':(c.role||'').toUpperCase()==='TARGET'?'b-purple b-ol':(c.role||'').toUpperCase()==='OWN'?'b-emerald b-ol':'b-muted b-ol';
-          var roleLbl=(c.role||'').toUpperCase()==='SOURCE'?'Источник':(c.role||'').toUpperCase()==='TARGET'?'Цель':(c.role||'').toUpperCase()==='OWN'?'Мой':c.role||'--';
+          var rUp=(c.role||'').toUpperCase();
+          var roleCls=rUp==='SOURCE'?'b-blue b-ol':rUp==='TARGET'?'b-purple b-ol':rUp==='BOTH'?'b-indigo b-ol':'b-muted b-ol';
+          var roleLbl=rUp==='SOURCE'?'Источник':rUp==='TARGET'?'Цель':rUp==='BOTH'?'Ист.+Цель':rUp==='NONE'?'—':c.role||'--';
+          if(c.is_own)roleLbl='<span class="badge b-emerald b-ol">Мой</span> '+roleLbl;
           var typeLbl=c.type||'--';
           return '<tr><td class="fmed c-bl">'+esc(c.username?'@'+c.username:c.title||'--')+'</td><td><span class="badge b-muted b-ol">'+esc(typeLbl)+'</span></td><td class="fmo">'+(c.members_count!=null?c.members_count:'\u2014')+'</td><td class="txs c-m">'+esc(c.category||'--')+'</td><td><span class="badge '+roleCls+'">'+esc(roleLbl)+'</span></td><td><button class="btn btn-ghost btn-icon btn-danger ch-del" data-id="'+c.id+'" title="Удалить">'+ic('trash')+'</button></td></tr>';
         }).join('')+
@@ -3416,8 +3418,9 @@ function mCrChannel(){
     '<div class="dlg-bd sy3">'+
       '<div><label class="lbl">Ссылка или @username</label><div class="f g2x"><input class="input tsm f1" id="ch-link" placeholder="@channel_name или https://t.me/..."><button class="btn btn-sm" id="ch-resolve">Проверить</button></div></div>'+
       '<div id="ch-preview" style="display:none"></div>'+
-      '<div class="g g2"><div><label class="lbl">Тип</label><div class="sel-w"><select class="sel" id="ch-type"><option value="channel">Канал</option><option value="group">Группа</option><option value="supergroup">Супергруппа</option></select></div></div><div><label class="lbl">Роль</label><div class="sel-w"><select class="sel" id="ch-role"><option value="SOURCE">Источник</option><option value="TARGET">Цель</option><option value="OWN">Мой</option></select></div></div></div>'+
+      '<div class="g g2"><div><label class="lbl">Тип</label><div class="sel-w"><select class="sel" id="ch-type"><option value="CHANNEL">Канал</option><option value="BASIC_GROUP">Группа</option><option value="SUPERGROUP">Супергруппа</option><option value="FORUM">Форум</option></select></div></div><div><label class="lbl">Роль</label><div class="sel-w"><select class="sel" id="ch-role"><option value="SOURCE">Источник</option><option value="TARGET">Цель</option><option value="BOTH">Источник и цель</option><option value="NONE">Без роли</option></select></div></div></div>'+
       '<div><label class="lbl">Категория</label><input class="input tsm" id="ch-cat" placeholder="Крипто, Бизнес, Фитнес..."></div>'+
+      '<label class="f ac g2x txs"><input type="checkbox" id="ch-own"> Это мой канал</label>'+
     '</div>'+
     '<div class="dlg-ft"><button type="button" class="btn btn-sm" id="mcl">Отмена</button><button class="btn btn-sm btn-primary" id="ch-submit" disabled>Добавить</button></div></div></div>';
   document.body.insertAdjacentHTML('beforeend',h);mBind('mov','mcl');
@@ -3431,7 +3434,7 @@ function mCrChannel(){
       resolved=r;
       prev.style.display='block';
       prev.innerHTML='<div style="padding:0.75rem;background:var(--muted-bg);border-radius:var(--radius-md)"><div class="fmed">'+esc(r.title||r.username||'--')+'</div><div class="txs c-m">'+(r.username?'@'+esc(r.username):'')+' &middot; '+(r.members_count||0)+' участников &middot; '+(r.type||'--')+'</div></div>';
-      if(r.type){var ts=document.getElementById('ch-type');if(r.type.toLowerCase().indexOf('group')>-1)ts.value='group';else if(r.type.toLowerCase().indexOf('super')>-1)ts.value='supergroup';else ts.value='channel';}
+      if(r.type){var ts=document.getElementById('ch-type');var rt=r.type.toLowerCase();if(rt.indexOf('forum')>-1)ts.value='FORUM';else if(rt.indexOf('super')>-1||rt.indexOf('mega')>-1)ts.value='SUPERGROUP';else if(rt.indexOf('group')>-1||rt.indexOf('chat')>-1)ts.value='BASIC_GROUP';else ts.value='CHANNEL';}
       document.getElementById('ch-submit').disabled=false;
     }catch(e){prev.style.display='block';prev.innerHTML='<span class="badge b-red">Ошибка: '+esc(e.message)+'</span>';resolved=null;document.getElementById('ch-submit').disabled=true;}
     btn.disabled=false;btn.innerHTML='Проверить';
@@ -3441,7 +3444,7 @@ function mCrChannel(){
     var username=resolved?resolved.username:document.getElementById('ch-link').value.trim().replace(/^@/,'').replace(/^https?:\/\/t\.me\//,'');
     var title=resolved?resolved.title:username;
     try{
-      await ap('/channels',{username:username,title:title,type:document.getElementById('ch-type').value,role:document.getElementById('ch-role').value,category:document.getElementById('ch-cat').value.trim()||undefined});
+      await ap('/channels',{username:username,title:title,type:document.getElementById('ch-type').value,role:document.getElementById('ch-role').value,is_own:document.getElementById('ch-own').checked?1:0,category:document.getElementById('ch-cat').value.trim()||undefined});
       toast('Канал добавлен','success');mClose('mov');chLoaded=false;await ldCh();if(S.sec==='channels')rChannels(document.getElementById('mc'));
     }catch(er){toast(er.message,'error');sb.disabled=false;sb.innerHTML='Добавить';}
   };
