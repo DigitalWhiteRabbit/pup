@@ -23,16 +23,15 @@ def _dispatch_conflict_check(workspace_id: str, doc_id: str | None) -> None:
     Never raises — a failed dispatch (e.g. Redis down) must not break the
     upload / create response.
     """
-    try:
-        from app.tasks.celery_app import celery_app
+    # Best-effort: reuse the shared fail-fast dispatch (so a dead broker fails in
+    # ~3s instead of hanging the upload), but swallow its 503 — this must never
+    # break the upload / create response.
+    from app.tasks.dispatch import dispatch_task
 
-        celery_app.send_task(
-            "pup_tg.kb_check_conflicts",
-            args=[workspace_id, doc_id],
-            queue="pup_tg_default",
-        )
+    try:
+        dispatch_task("pup_tg.kb_check_conflicts", args=[workspace_id, doc_id])
         log.info("kb_conflict_check_dispatched", workspace_id=workspace_id, doc_id=doc_id)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         log.warning(
             "kb_conflict_check_dispatch_failed",
             workspace_id=workspace_id,
@@ -902,26 +901,21 @@ async def start_crawl(
         [job_id, url, _now()],
     )
 
-    try:
-        from app.tasks.celery_app import celery_app
+    # Reuse the shared fail-fast dispatch; on failure flip the job to FAILED so
+    # we never leave a PENDING crawl no worker will pick up.
+    from app.tasks.dispatch import dispatch_task
 
-        celery_app.send_task(
-            "pup_tg.kb_crawl",
-            args=[workspace_id, job_id, url],
-            queue="pup_tg_default",
-        )
-    except Exception as exc:
+    try:
+        dispatch_task("pup_tg.kb_crawl", args=[workspace_id, job_id, url])
+    except HTTPException:
         db.execute(
             """UPDATE tg_kb_crawl_jobs
                SET status = 'FAILED', error = ?, finished_at = ? WHERE id = ?""",
-            [f"Dispatch failed: {str(exc)[:300]}", _now(), job_id],
+            ["Dispatch failed: engine unavailable", _now(), job_id],
         )
         db.commit()
-        log.warning("kb_crawl_dispatch_failed", job_id=job_id, error=str(exc)[:300])
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Crawl queue unavailable — try again later",
-        ) from exc
+        log.warning("kb_crawl_dispatch_failed", job_id=job_id)
+        raise
 
     db.commit()
     log.info("kb_crawl_dispatched", job_id=job_id, url=url, workspace_id=workspace_id)
@@ -988,25 +982,10 @@ async def check_conflicts(
     If ``doc_id`` is given, that document is compared against all others;
     otherwise the whole base is checked. Dispatch-failure tolerant.
     """
-    try:
-        from app.tasks.celery_app import celery_app
+    # Reuse the shared fail-fast dispatch (raises 503 if the engine is down).
+    from app.tasks.dispatch import dispatch_task
 
-        celery_app.send_task(
-            "pup_tg.kb_check_conflicts",
-            args=[workspace_id, body.doc_id],
-            queue="pup_tg_default",
-        )
-    except Exception as exc:
-        log.warning(
-            "kb_check_conflicts_dispatch_failed",
-            workspace_id=workspace_id,
-            doc_id=body.doc_id,
-            error=str(exc)[:300],
-        )
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Conflict-check queue unavailable — try again later",
-        ) from exc
+    dispatch_task("pup_tg.kb_check_conflicts", args=[workspace_id, body.doc_id])
 
     log.info(
         "kb_check_conflicts_dispatched",
@@ -1504,26 +1483,21 @@ async def kb_self_test_start(
         [run_id, _now()],
     )
 
-    try:
-        from app.tasks.celery_app import celery_app
+    # Reuse the shared fail-fast dispatch; on failure flip the run to FAILED so
+    # we never leave a PENDING run no worker will pick up.
+    from app.tasks.dispatch import dispatch_task
 
-        celery_app.send_task(
-            "pup_tg.kb_self_test",
-            args=[workspace_id, run_id],
-            queue="pup_tg_default",
-        )
-    except Exception as exc:
+    try:
+        dispatch_task("pup_tg.kb_self_test", args=[workspace_id, run_id])
+    except HTTPException:
         db.execute(
             """UPDATE tg_kb_selftest_runs
                SET status = 'FAILED', error = ?, finished_at = ? WHERE id = ?""",
-            [f"Dispatch failed: {str(exc)[:300]}", _now(), run_id],
+            ["Dispatch failed: engine unavailable", _now(), run_id],
         )
         db.commit()
-        log.warning("kb_self_test_dispatch_failed", run_id=run_id, error=str(exc)[:300])
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Self-test queue unavailable — try again later",
-        ) from exc
+        log.warning("kb_self_test_dispatch_failed", run_id=run_id)
+        raise
 
     db.commit()
     log.info("kb_self_test_dispatched", run_id=run_id, workspace_id=workspace_id)

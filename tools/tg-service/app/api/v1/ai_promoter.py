@@ -330,25 +330,22 @@ async def activate_persona(
     )
     db.commit()
 
+    # Reuse the shared fail-fast dispatch. The persona is committed ACTIVE first
+    # (deliberately — see above) so on a dispatch failure we compensate back to
+    # PAUSED and re-raise the 503 rather than leaving it falsely ACTIVE.
+    from app.tasks.dispatch import dispatch_task
+
     try:
-        from app.tasks.celery_app import celery_app
-        celery_app.send_task(
-            "pup_tg.ai_agent",
-            args=[workspace_id, persona_id, loop_token],
-            queue="pup_tg_default",
-        )
+        dispatch_task("pup_tg.ai_agent", args=[workspace_id, persona_id, loop_token])
         log.info("ai_agent_dispatched", persona_id=persona_id)
-    except Exception as exc:
+    except HTTPException:
         db.execute(
             "UPDATE tg_ai_personas SET status = ?, updated_at = ? WHERE id = ?",
             ["PAUSED", _now(), persona_id],
         )
         db.commit()
-        log.error("ai_agent_dispatch_failed", persona_id=persona_id, error=str(exc))
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Failed to dispatch AI agent task; persona was not activated.",
-        )
+        log.error("ai_agent_dispatch_failed", persona_id=persona_id)
+        raise
 
     row = db.execute(
         "SELECT * FROM tg_ai_personas WHERE id = ?", [persona_id]

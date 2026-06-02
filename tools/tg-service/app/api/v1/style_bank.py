@@ -313,18 +313,9 @@ async def style_import_hf(
     workspace_id: WorkspaceId,
 ) -> dict[str, Any]:
     """Dispatch a background import of N informal-RU dialogue snippets from HF."""
-    try:
-        from app.tasks.celery_app import celery_app
-        celery_app.send_task(
-            "pup_tg.style_import_hf",
-            args=[workspace_id, body.count, body.topic],
-            queue="pup_tg_default",
-        )
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Не удалось запустить импорт: {exc}",
-        ) from exc
+    from app.tasks.dispatch import dispatch_task
+
+    dispatch_task("pup_tg.style_import_hf", args=[workspace_id, body.count, body.topic])
     return {"success": True, "message": f"Импорт {body.count} примеров запущен (тема: {body.topic})"}
 
 
@@ -335,18 +326,12 @@ async def style_scrape_chat(
     workspace_id: WorkspaceId,
 ) -> dict[str, Any]:
     """Dispatch a background scrape of a real chat into on-topic style snippets."""
-    try:
-        from app.tasks.celery_app import celery_app
-        celery_app.send_task(
-            "pup_tg.style_scrape_chat",
-            args=[workspace_id, body.account_id, body.chat, body.topic, body.limit],
-            queue="pup_tg_default",
-        )
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Не удалось запустить скрейп: {exc}",
-        ) from exc
+    from app.tasks.dispatch import dispatch_task
+
+    dispatch_task(
+        "pup_tg.style_scrape_chat",
+        args=[workspace_id, body.account_id, body.chat, body.topic, body.limit],
+    )
     return {"success": True, "message": f"Скрейп чата запущен (тема: {body.topic}). Аккаунт должен быть участником чата."}
 
 

@@ -416,22 +416,18 @@ async def start_script(
         "UPDATE tg_sales_scripts SET status = ?, updated_at = ? WHERE id = ?",
         ["ACTIVE", now, script_id],
     )
+    # Reuse the shared fail-fast dispatch; the UPDATE is rolled back on failure
+    # so the script is never left ACTIVE without a monitor task running.
+    from app.tasks.dispatch import dispatch_task
+
     try:
-        from app.tasks.celery_app import celery_app
-        celery_app.send_task(
-            "pup_tg.ai_sales_monitor",
-            args=[workspace_id],
-            queue="pup_tg_default",
-        )
+        dispatch_task("pup_tg.ai_sales_monitor", args=[workspace_id])
         db.commit()
         log.info("ai_sales_monitor_dispatched", script_id=script_id)
-    except Exception as exc:
+    except HTTPException:
         db.rollback()
-        log.error("ai_sales_monitor_dispatch_failed", script_id=script_id, error=str(exc))
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Failed to dispatch AI sales monitor task; script was not started.",
-        )
+        log.error("ai_sales_monitor_dispatch_failed", script_id=script_id)
+        raise
 
     row = db.execute(
         "SELECT * FROM tg_sales_scripts WHERE id = ?", [script_id]
@@ -477,21 +473,11 @@ async def trigger_monitor(
     workspace_id: WorkspaceId,
 ) -> dict[str, Any]:
     """Manually trigger the AI sales monitor cycle (scans all ACTIVE scripts for incoming DMs)."""
-    try:
-        from app.tasks.celery_app import celery_app
-        result = celery_app.send_task(
-            "pup_tg.ai_sales_monitor",
-            args=[workspace_id],
-            queue="pup_tg_default",
-        )
-        log.info("ai_sales_monitor_dispatched", celery_task_id=result.id)
-        return {"status": "dispatched", "celery_task_id": result.id}
-    except Exception as exc:
-        log.warning("ai_sales_monitor_dispatch_failed", error=str(exc))
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to dispatch monitor task: {exc}",
-        )
+    from app.tasks.dispatch import dispatch_task
+
+    celery_task_id = dispatch_task("pup_tg.ai_sales_monitor", args=[workspace_id])
+    log.info("ai_sales_monitor_dispatched", celery_task_id=celery_task_id)
+    return {"status": "dispatched", "celery_task_id": celery_task_id}
 
 
 @router.post("/dialogs/{dialog_id}/reply")
@@ -515,16 +501,7 @@ async def trigger_reply(
             detail=f"Cannot reply to dialog in status '{row['lead_status']}'.",
         )
 
-    try:
-        from app.tasks.celery_app import celery_app
-        result = celery_app.send_task(
-            "pup_tg.ai_sales_reply",
-            args=[workspace_id, dialog_id],
-            queue="pup_tg_default",
-        )
-        return {"status": "dispatched", "celery_task_id": result.id}
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to dispatch reply task: {exc}",
-        )
+    from app.tasks.dispatch import dispatch_task
+
+    celery_task_id = dispatch_task("pup_tg.ai_sales_reply", args=[workspace_id, dialog_id])
+    return {"status": "dispatched", "celery_task_id": celery_task_id}
