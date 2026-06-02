@@ -30,6 +30,29 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _settings_active_now(db: Any) -> bool:
+    """True if the current UTC hour is within tg_settings.active_hours
+    ("HH:00-HH:00"). Missing/unparseable settings → always active (no gate)."""
+    row = db.execute("SELECT active_hours FROM tg_settings WHERE id = 'default'").fetchone()
+    if not row or not row["active_hours"]:
+        return True
+    s = row["active_hours"]
+    if "-" not in s:
+        return True
+    try:
+        start_s, end_s = s.split("-", 1)
+        h_start = int(start_s.split(":")[0]) % 24
+        h_end = int(end_s.split(":")[0]) % 24
+    except (ValueError, IndexError):
+        return True
+    if h_start == h_end:
+        return True
+    cur = datetime.now(timezone.utc).hour
+    if h_start < h_end:
+        return h_start <= cur < h_end
+    return cur >= h_start or cur < h_end
+
+
 def _build_proxy_kwargs(db: Any, proxy_id: str) -> dict[str, Any]:
     import python_socks
     proxy_row = db.execute("SELECT * FROM tg_proxies WHERE id = ?", [proxy_id]).fetchone()
@@ -125,6 +148,15 @@ async def _boost_async(workspace_id: str, task_id: str) -> dict:
         return {"status": "FAILED", "error": "Task not found"}
     if task["status"] != "RUNNING":
         return {"status": "SKIPPED", "error": f"Task status is {task['status']}"}
+
+    # Active-hours gate (P2-06): respect global settings.active_hours — don't
+    # run boost outside the configured window (anti-ban). Pause for a later run.
+    if not _settings_active_now(db):
+        db.execute("UPDATE tg_boost_tasks SET status='PAUSED', updated_at=? WHERE id=?",
+                   [_now(), task_id])
+        db.commit()
+        log.info("boost_outside_active_hours", task_id=task_id)
+        return {"status": "PAUSED", "reason": "outside active hours"}
 
     boost_type = task["boost_type"]  # SUBSCRIBERS|REACTIONS|VIEWS|POLL_VOTES
     target_channel = task["target_channel"]
@@ -261,6 +293,14 @@ async def _stories_boost_async(workspace_id: str, task_id: str) -> dict:
     task = db.execute("SELECT * FROM tg_stories_boost_tasks WHERE id = ?", [task_id]).fetchone()
     if not task or task["status"] != "RUNNING":
         return {"status": "SKIPPED"}
+
+    # Active-hours gate (P2-07): respect global settings.active_hours.
+    if not _settings_active_now(db):
+        db.execute("UPDATE tg_stories_boost_tasks SET status='PAUSED', updated_at=? WHERE id=?",
+                   [_now(), task_id])
+        db.commit()
+        log.info("stories_outside_active_hours", task_id=task_id)
+        return {"status": "PAUSED", "reason": "outside active hours"}
 
     target_channel = task["target_channel"]
     target_story_id = task["target_story_id"]
