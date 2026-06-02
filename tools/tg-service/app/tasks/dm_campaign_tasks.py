@@ -228,6 +228,18 @@ async def _dm_campaign_async(workspace_id: str, campaign_id: str) -> dict:
         db.commit()
         return {"status": "FAILED", "error": "No active accounts"}
 
+    # Account distribution (P2-02). Each account is independently capped at
+    # effective_limit/run, so no single account is overloaded regardless of mode;
+    # distribution controls *which* accounts get used when recipients < capacity.
+    #   RANDOM       → shuffle order so the same account isn't always first.
+    #   ROUND_ROBIN  → declared order (sequential rotation as each hits its cap).
+    #   GEO_MATCHED  → needs per-proxy geo (not yet populated, see P6-08) → treated
+    #                  as ROUND_ROBIN for now.
+    distribution = (camp["distribution"] or "ROUND_ROBIN").upper()
+    if distribution == "RANDOM":
+        random.shuffle(account_ids)
+    log.info("dm_distribution", mode=distribution, accounts=len(account_ids))
+
     # Per-account base limit: the smaller of the global setting and the
     # campaign's max_per_day override (P2-01). Ramp-up scales this base.
     base_limit = daily_limit
