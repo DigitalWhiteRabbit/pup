@@ -1339,7 +1339,7 @@ function rSide(){
   n.querySelectorAll('.nav-btn').forEach(function(b){
     b.onclick=function(){
       S.sec=b.dataset.s;S.accDetail=null;bstDetail=null;sbstDetail=null;clnDetail=null;cchDetail=null;cnvDetail=null;
-      msgClearPoll();
+      msgClearPoll();prsStopPoll();
       location.hash=b.dataset.s;
       rSide();rMain();
     };
@@ -3351,8 +3351,19 @@ function rSet(el){
    ==================================================================== */
 
 /* ── 5. Parser ── */
-var prsLoaded=false,prsItems=[],prsTotal=0;
+var prsLoaded=false,prsItems=[],prsTotal=0,prsPoller=null;
 async function ldPrs(){try{var r=await af('/parser/tasks');prsItems=r.items||[];prsTotal=r.total||0;prsLoaded=true;}catch(e){toast('Ошибка загрузки парсера: '+e.message,'error');}}
+function prsStopPoll(){if(prsPoller){clearInterval(prsPoller);prsPoller=null;}}
+function prsStartPoll(){
+  if(prsPoller)return;
+  prsPoller=setInterval(async function(){
+    if(S.sec!=='parser'){prsStopPoll();return;}
+    var hasRunning=prsItems.some(function(t){return (t.status||'').toUpperCase()==='RUNNING';});
+    if(!hasRunning){prsStopPoll();return;}
+    try{var r=await af('/parser/tasks');prsItems=r.items||[];prsTotal=r.total||0;}catch(e){return;}
+    if(S.sec==='parser'){var mc=document.getElementById('mc');if(mc)rParser(mc);}
+  },5000);
+}
 var PRS_MODE={'CHAT_MEMBERS':'b-blue','COMMENTERS':'b-purple','WRITERS':'b-orange','REACTIONS':'b-teal','POLLS':'b-indigo','JOINERS':'b-pink','TOPICS':'b-sky','GLOBAL_SEARCH':'b-yellow'};
 var PRS_MODE_LABEL={'CHAT_MEMBERS':'Участники чата','COMMENTERS':'Комментаторы','WRITERS':'Авторы постов','REACTIONS':'Поставившие реакции','POLLS':'Голосовавшие в опросах','JOINERS':'Вступившие в чат','TOPICS':'Участники тем (форум)','GLOBAL_SEARCH':'Глобальный поиск'};
 var PRS_STATUS={'PENDING':'b-muted b-ol','RUNNING':'b-blue b-ol','COMPLETED':'b-emerald b-ol','FAILED':'b-red b-ol','CANCELLED':'b-muted b-ol'};
@@ -3399,6 +3410,8 @@ function rParser(el){
   el.querySelectorAll('.prs-start').forEach(function(b){b.onclick=async function(){b.disabled=true;b.innerHTML='<span class="spin"></span>';try{await ap('/parser/tasks/'+b.dataset.id+'/start');toast('Парсинг запущен','success');prsLoaded=false;await ldPrs();if(S.sec==='parser')rParser(document.getElementById('mc'));}catch(e){toast(e.message,'error');b.disabled=false;b.innerHTML=ic('play')+' Запустить';}};});
   el.querySelectorAll('.prs-cancel').forEach(function(b){b.onclick=async function(){b.disabled=true;b.innerHTML='<span class="spin"></span>';try{await ap('/parser/tasks/'+b.dataset.id+'/cancel');toast('Парсинг отменён','success');prsLoaded=false;await ldPrs();if(S.sec==='parser')rParser(document.getElementById('mc'));}catch(e){toast(e.message,'error');b.disabled=false;b.innerHTML=ic('pause')+' Отмена';}};});
   el.querySelectorAll('.prs-del').forEach(function(b){b.onclick=async function(){if(!confirm('Удалить задачу парсинга?'))return;b.disabled=true;try{await aD('/parser/tasks/'+b.dataset.id);toast('Задача удалена','success');prsLoaded=false;await ldPrs();if(S.sec==='parser')rParser(document.getElementById('mc'));}catch(e){toast(e.message,'error');b.disabled=false;}};});
+  /* Auto-poll while RUNNING tasks exist */
+  if(running>0){prsStartPoll();}else{prsStopPoll();}
 }
 function mCrParser(prefillSrc){
   var modes=['CHAT_MEMBERS','COMMENTERS','WRITERS','REACTIONS','POLLS','JOINERS','TOPICS','GLOBAL_SEARCH'];
