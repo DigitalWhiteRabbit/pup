@@ -17,7 +17,7 @@
 | --------- | ----------------------------------------------- | ------ | -------- |
 | 1         | Починка сломанного + безопасность               | 12     | ✅ 12/12 |
 | 2         | «Фантомные» config-поля (подключить или скрыть) | 11     | ✅ 11/11 |
-| 3         | Quick wins по разделам (S/low)                  | 21     | ☐        |
+| 3         | Quick wins по разделам (S/low)                  | 21     | ✅ 21/21 |
 | 4         | Средние улучшения (M, low-med)                  | 28     | ☐        |
 | 5         | Сквозная инфраструктура (общие компоненты)      | 9      | ☐        |
 | 6         | Крупные/стратегические (L, med+)                | 11     | ☐        |
@@ -41,20 +41,20 @@
 - [x] **P3-07** · dashboard · Полнота словарей статусов/типов (INVALID, ISP). S · low. Live: ISP/RESIDENTIAL в диалоге ✓, INVALID/NO*PROXY в pool дашборда, без JS-ошибок. *(commit 21e1d66)\_
 - [x] **P3-08** · dashboard · Виджеты парсера/чекера/аудиторий (найдено за месяц, размер баз). S · low. Live: 3 виджета в дашборде, API возвращает поля ✓. _(commit 81113e0)_
 - [x] **P3-09** · dashboard · Кэш агрегата 15-30с. S · low. DASH*TTL=20s + stale-check, refresh сбрасывает таймер. *(commit 96b8f07)\_
-- [ ] **P3-10** · parser · Авто-поллинг прогресса RUNNING-задач. S · low
-- [ ] **P3-11** · parser · Пауза/возобновление в UI (бэк умеет PAUSED→start). S · low
-- [ ] **P3-12** · parser · Выбор существующей аудитории + premium_only в UI-модалке. S · low
-- [ ] **P3-13** · audiences · Кнопка экспорта/скачивания (CSV/JSON, бэк /export готов). S · low
-- [ ] **P3-14** · audiences · Фильтры/поиск + пагинация в детальной странице. S · low
-- [ ] **P3-15** · channels · Инлайн-редактирование роли/категории (PATCH готов). S · low
-- [ ] **P3-16** · channels · Сохранять about/members_count при resolve→POST. S · low
-- [ ] **P3-17** · channels · Кнопка «Спарсить» из строки канала (→parser). S · low
-- [ ] **P3-18** · phone-checker · Сохранение найденных в аудиторию. S · low
-- [ ] **P3-19** · phone-checker · Импорт номеров из файла + экспорт результатов. S · low
-- [ ] **P3-20** · ai-promoter · Экспорт 👍-реплик в Style Bank/Arena-корпус. S · low
-- [ ] **P3-21** · style_bank · Привязка topic стиль-банка к персоне (поле в персоне). S · low
+- [x] **P3-10** · parser · Авто-поллинг прогресса RUNNING-задач. S · low. prsStartPoll/prsStopPoll, 5s, авто-стоп при nav-away. _(commit bee6f3c)_
+- [x] **P3-11** · parser · Пауза/возобновление в UI (бэк умеет PAUSED→start). S · low. RUNNING→Пауза(/pause), PAUSED→Продолжить(/start), Cancel-иконка для non-terminal. _(commit b2ad86d)_
+- [x] **P3-12** · parser · Выбор существующей аудитории + premium*only в UI-модалке. S · low. Dropdown с существующими аудиториями + Не сохранять + premium_only checkbox. *(commit 5bfea9a)\_
+- [x] **P3-13** · audiences · Кнопка экспорта/скачивания (CSV/JSON, бэк /export готов). S · low. ↓JSON / ↓CSV кнопки, blob-download на клиенте. _(commit 7853ede)_
+- [x] **P3-14** · audiences · Фильтры/поиск + пагинация в детальной странице. S · low. Поиск 350ms debounce + Пред/След (50/стр). _(commit df78245)_
+- [x] **P3-15** · channels · Инлайн-редактирование роли/категории (PATCH готов). S · low. Inline select/input, PATCH on change/debounce. _(commit e88c84f)_
+- [x] **P3-16** · channels · Сохранять about/members*count при resolve→POST. S · low. *(commit e88c84f)\_
+- [x] **P3-17** · channels · Кнопка «Спарсить» из строки канала (→parser). S · low. _(commit e88c84f)_
+- [x] **P3-18** · phone-checker · Сохранение найденных в аудиторию. S · low. add-members endpoint + UI диалог. _(commit aea25ac)_
+- [x] **P3-19** · phone-checker · Импорт номеров из файла + экспорт результатов. S · low. FileReader import + CSV blob download. _(commit aea25ac)_
+- [x] **P3-20** · ai-promoter · Экспорт 👍-реплик в Style Bank/Arena-корпус. S · low. Кнопка «📚 В Стиль-банк» в learning tab. _(commit edcb4c7)_
+- [x] **P3-21** · style*bank · Привязка topic стиль-банка к персоне (поле в персоне). S · low. style_topic колонка + wizard шаг 4. *(commit edcb4c7)\_
 
-**Регресс Ф3:** полный прогон + чистка.
+**Регресс Ф3:** `scripts/regression_screens.py` → 26/26 чисто. Тестовых записей нет. Аккаунты 9 ACTIVE + 1 INVALID. WARMING 0.
 
 ---
 
