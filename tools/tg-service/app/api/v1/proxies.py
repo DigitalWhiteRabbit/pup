@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import socket
 import time
 import uuid
@@ -107,6 +108,10 @@ class BulkProxyDeleteRequest(BaseModel):
     ids: list[str] = Field(default_factory=list)
 
 
+class BulkProxyCreateRequest(BaseModel):
+    proxies: list[ProxyCreate] = Field(default_factory=list)
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -128,19 +133,69 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _parse_proxy_line(line: str) -> tuple[str, int, str | None, str | None]:
-    """Parse a proxy line in host:port:user:pass or host:port format.
+_URI_RE = re.compile(
+    r"^(?P<scheme>socks5|socks4|http|https)://"
+    r"(?:(?P<user>[^:@/]*)(?::(?P<pass>[^@/]*))?@)?"
+    r"(?P<host>[^:/]+):(?P<port>\d+)",
+    re.IGNORECASE,
+)
+_ROT_RE = re.compile(r"^https?://", re.IGNORECASE)
 
-    Returns (host, port, username, password).
+
+def _parse_proxy_line(line: str) -> dict[str, Any]:
+    """Parse a proxy line into a dict of proxy fields.
+
+    Supported formats:
+    - ``host:port``
+    - ``host:port:user:pass``
+    - ``socks5://[user:pass@]host:port``
+    - ``http://[user:pass@]host:port``
+    - ``https://...`` URL without host:port → stored as rotation_url
     """
-    parts = line.strip().split(":")
+    line = line.strip()
+
+    # URI format: scheme://[user:pass@]host:port
+    m = _URI_RE.match(line)
+    if m:
+        scheme = m.group("scheme").lower()
+        if scheme == "https":
+            scheme = "http"
+        return {
+            "host": m.group("host"),
+            "port": int(m.group("port")),
+            "username": m.group("user") or None,
+            "password": m.group("pass") or None,
+            "scheme": scheme,
+            "rotation_url": None,
+        }
+
+    # Rotation URL: bare https?:// endpoint (no parseable host:port at end)
+    if _ROT_RE.match(line):
+        return {
+            "host": "rotating",
+            "port": 0,
+            "username": None,
+            "password": None,
+            "scheme": "http",
+            "rotation_url": line,
+        }
+
+    # Legacy: host:port[:user[:pass]]
+    parts = line.split(":")
     if len(parts) < 2:
-        raise ValueError(f"Invalid proxy format: {line}")
-    host = parts[0]
-    port = int(parts[1])
-    username = parts[2] if len(parts) > 2 else None
-    password = parts[3] if len(parts) > 3 else None
-    return host, port, username, password
+        raise ValueError(f"Invalid proxy format: {line!r}")
+    try:
+        port = int(parts[1])
+    except ValueError as exc:
+        raise ValueError(f"Invalid port in: {line!r}") from exc
+    return {
+        "host": parts[0],
+        "port": port,
+        "username": parts[2] if len(parts) > 2 else None,
+        "password": parts[3] if len(parts) > 3 else None,
+        "scheme": None,
+        "rotation_url": None,
+    }
 
 
 def _check_proxy_connectivity(host: str, port: int, timeout: float = 10.0) -> tuple[bool, int, str | None]:
@@ -656,6 +711,59 @@ async def delete_proxy(
     return {"status": "deleted", "id": proxy_id, "unbound_accounts": unbound}
 
 
+@router.post("/bulk", status_code=status.HTTP_201_CREATED)
+async def bulk_create_proxies(
+    body: BulkProxyCreateRequest,
+    _token: AdminAuth,
+    db: WorkspaceDB,
+) -> BulkProxyImportResult:
+    """Bulk-create proxies from a JSON list of ProxyCreate objects.
+
+    Used by the UI «Массовый импорт» dialog. Duplicates (host+port) are silently
+    skipped; the response includes counts of imported, skipped, and any errors.
+    """
+    now = _now()
+    imported = 0
+    skipped = 0
+    errors: list[str] = []
+
+    for proxy in body.proxies:
+        proxy_id = str(uuid.uuid4())
+        metadata_json = json.dumps(proxy.metadata) if proxy.metadata else None
+        try:
+            db.execute(
+                """
+                INSERT INTO tg_proxies
+                    (id, provider, provider_order_id, type, scheme,
+                     host, port, username, password, country, city,
+                     expires_at, rotation_url, metadata,
+                     created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    proxy_id, proxy.provider, proxy.provider_order_id, proxy.type,
+                    proxy.scheme, proxy.host, proxy.port, proxy.username, proxy.password,
+                    proxy.country, proxy.city, proxy.expires_at, proxy.rotation_url,
+                    metadata_json, now, now,
+                ],
+            )
+            imported += 1
+        except Exception as exc:
+            if "UNIQUE constraint failed" in str(exc):
+                skipped += 1
+            else:
+                errors.append(f"{proxy.host}:{proxy.port}: {exc}")
+
+    try:
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        errors.append(f"commit failed: {exc}")
+
+    log.info("proxies_bulk_created", imported=imported, skipped=skipped, errors=len(errors))
+    return BulkProxyImportResult(imported=imported, skipped=skipped, errors=errors)
+
+
 @router.post("/bulk-delete")
 async def bulk_delete_proxies(
     body: BulkProxyDeleteRequest,
@@ -728,8 +836,11 @@ async def bulk_import_proxies(
     """Bulk-import proxies from a text block (one per line).
 
     Formats accepted:
-    - host:port
-    - host:port:username:password
+    - ``host:port``
+    - ``host:port:username:password``
+    - ``socks5://[user:pass@]host:port``
+    - ``http://[user:pass@]host:port``
+    - ``https://rotation-endpoint/...`` (stored as rotation_url)
     """
     imported = 0
     skipped = 0
@@ -740,24 +851,28 @@ async def bulk_import_proxies(
 
     for idx, line in enumerate(lines):
         try:
-            host, port, username, password = _parse_proxy_line(line)
+            parsed = _parse_proxy_line(line)
         except (ValueError, IndexError) as exc:
             errors.append(f"[{idx}] {line}: {exc}")
             continue
 
+        eff_scheme = parsed["scheme"] or scheme
         proxy_id = str(uuid.uuid4())
         try:
             db.execute(
                 """
                 INSERT INTO tg_proxies
                     (id, provider, type, scheme, host, port,
-                     username, password, country,
+                     username, password, country, rotation_url,
                      created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
-                    proxy_id, provider, type_, scheme, host, port,
-                    username, password, country, now, now,
+                    proxy_id, provider, type_, eff_scheme,
+                    parsed["host"], parsed["port"],
+                    parsed["username"], parsed["password"],
+                    country, parsed["rotation_url"],
+                    now, now,
                 ],
             )
             imported += 1
