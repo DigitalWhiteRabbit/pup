@@ -7077,6 +7077,8 @@ function rConverter(el){
     '<div class="fmt-card"><div class="fmt-card-title">Session</div><div class="fmt-card-desc">Telethon .session \u0444\u0430\u0439\u043B (SQLite)</div></div>'+
     '<div class="fmt-card"><div class="fmt-card-title">Session+JSON</div><div class="fmt-card-desc">Session + \u043C\u0435\u0442\u0430\u0434\u0430\u043D\u043D\u044B\u0435 (.json \u0441 app_id, device \u0438 \u043F\u0440.)</div></div>'+
   '</div>';
+  /* Phone→Country mini-tool */
+  var phoneCntryHtml='<div class="card mt3"><div class="card-head"><div class="card-title">Страна по номеру</div></div><div class="card-body"><div class="f g2x" style="align-items:center"><input class="input f1" id="cnv-phone-inp" placeholder="+79001234567"><button class="btn btn-sm" id="cnv-phone-check">Проверить</button></div><div id="cnv-phone-res" class="txs c-m mt2"></div></div></div>';
   /* All 6 direction pairs */
   var directions=[
     {v:'tdata_to_session_json',l:'TData \u2192 Session+JSON'},
@@ -7088,7 +7090,7 @@ function rConverter(el){
   ];
   el.innerHTML='<div class="sy4">'+
     pageHead('\u041A\u043E\u043D\u0432\u0435\u0440\u0442\u0435\u0440 \u0444\u043E\u0440\u043C\u0430\u0442\u043E\u0432','session \u2194 tdata','<button class="btn btn-sm btn-primary" id="cnv-add">'+ic('refresh')+' \u041A\u043E\u043D\u0432\u0435\u0440\u0442\u0438\u0440\u043E\u0432\u0430\u0442\u044C</button>')+
-    fmtCards+
+    fmtCards+phoneCntryHtml+
     '<div class="g g2">'+
       '<div class="card"><div class="card-head"><div class="card-title">\u041D\u043E\u0432\u0430\u044F \u043A\u043E\u043D\u0432\u0435\u0440\u0442\u0430\u0446\u0438\u044F</div></div><div class="card-body sy3">'+
         '<div><label class="lbl">\u041D\u0430\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u0438\u0435</label><div class="sel-w"><select class="sel" id="cnv-dir">'+directions.map(function(d){return '<option value="'+d.v+'">'+esc(d.l)+'</option>';}).join('')+'</select></div></div>'+
@@ -7131,6 +7133,9 @@ function rConverter(el){
       :esHtml('refresh','\u041D\u0435\u0442 \u0440\u0435\u0437\u0443\u043B\u044C\u0442\u0430\u0442\u043E\u0432','\u0417\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u0435 \u0444\u0430\u0439\u043B\u044B \u0438 \u0437\u0430\u043F\u0443\u0441\u0442\u0438\u0442\u0435 \u043A\u043E\u043D\u0432\u0435\u0440\u0442\u0430\u0446\u0438\u044E')
     )+'</div></div>'+
   '</div>';
+  /* Phone→Country check */
+  var phoneChkBtn=el.querySelector('#cnv-phone-check'),phoneInp=el.querySelector('#cnv-phone-inp'),phoneRes=el.querySelector('#cnv-phone-res');
+  if(phoneChkBtn&&phoneInp)phoneChkBtn.onclick=async function(){var ph=phoneInp.value.trim();if(!ph){toast('Введите номер','error');return;}phoneChkBtn.disabled=true;phoneChkBtn.innerHTML='<span class="spin"></span>';try{var d=await af('/converter/phone-country?phone='+encodeURIComponent(ph));var txt=(d.country||'')+(d.country_code?' ('+d.country_code+')':'')+(d.carrier?' · '+d.carrier:'')+(d.valid?'':' · ⚠️ Невалидный');if(phoneRes)phoneRes.textContent=txt;}catch(e){if(phoneRes)phoneRes.textContent='Ошибка: '+(e.message||'');}finally{phoneChkBtn.disabled=false;phoneChkBtn.innerHTML='Проверить';}};
   /* Drop zone */
   var dropZ=document.getElementById('cnv-drop-zone'),fileInp=document.getElementById('cnv-file-input'),dropLbl=document.getElementById('cnv-drop-label'),fileListEl=document.getElementById('cnv-file-list'),subBtn=document.getElementById('cnv-submit');
   var cnvFiles=[];

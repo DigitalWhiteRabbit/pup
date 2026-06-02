@@ -282,6 +282,38 @@ async def start_task(
     return _row_to_dict(row)
 
 
+@router.get("/phone-country")
+async def phone_country(
+    phone: str,
+    _token: AdminAuth,
+) -> dict:
+    """Return country code + name for a phone number (phonenumbers library)."""
+    ph = phone.strip()
+    if not ph.startswith("+"):
+        ph = "+" + ph
+    try:
+        import phonenumbers
+        from phonenumbers import geocoder, carrier
+
+        parsed = phonenumbers.parse(ph)
+        region = phonenumbers.region_code_for_number(parsed)
+        country = geocoder.description_for_number(parsed, "ru") or region or "Unknown"
+        carrier_name = carrier.name_for_number(parsed, "ru")
+        valid = phonenumbers.is_valid_number(parsed)
+        return {
+            "phone": ph,
+            "country_code": region,
+            "country": country,
+            "carrier": carrier_name or None,
+            "valid": valid,
+        }
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot parse phone number: {exc}",
+        ) from exc
+
+
 @router.get("/tasks/{task_id}/download")
 async def download_task_files(
     task_id: str,
