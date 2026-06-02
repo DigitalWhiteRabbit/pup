@@ -149,6 +149,24 @@ def _fail_task(db: Any, task_id: str, error_message: str) -> None:
     db.commit()
 
 
+def _control_status(db: Any, task_id: str) -> str | None:
+    """Re-read task status for cooperative pause/cancel mid-run.
+
+    ``celery_app.control.revoke(terminate=True)`` cannot kill a task running in
+    the threads pool (you can't terminate a thread), so the worker must poll the
+    DB and stop itself. The API writes PAUSED/CANCELLED from a separate
+    connection; ``commit()`` here ends any open read snapshot so the WAL read
+    sees that latest commit. Returns 'PAUSED'/'CANCELLED' or None.
+    """
+    db.commit()
+    row = db.execute(
+        "SELECT status FROM tg_parsing_tasks WHERE id = ?", [task_id]
+    ).fetchone()
+    if row and row["status"] in ("PAUSED", "CANCELLED"):
+        return row["status"]
+    return None
+
+
 def _complete_task(db: Any, task_id: str, total_found: int, total_filtered: int) -> None:
     """Mark a parsing task as COMPLETED."""
     db.execute(
@@ -705,6 +723,8 @@ async def _parse_audience_async(workspace_id: str, task_id: str) -> dict[str, An
     total_found = 0
     total_filtered = 0
     source_errors: list[str] = []
+    control_stop: str | None = None  # set to PAUSED/CANCELLED if stopped mid-run
+    idx = 0
 
     try:
         client = TelegramClient(
@@ -726,6 +746,18 @@ async def _parse_audience_async(workspace_id: str, task_id: str) -> dict[str, An
 
         # ── Iterate sources ────────────────────────────────────────────
         for idx, source in enumerate(sources):
+            # Cooperative pause/cancel: stop before touching the next source.
+            control_stop = _control_status(db, task_id)
+            if control_stop:
+                log.info(
+                    "parse_control_stop",
+                    task_id=task_id,
+                    status=control_stop,
+                    at_source=idx,
+                    of=len(sources),
+                )
+                break
+
             source_label = source.strip().lstrip("@").replace("https://t.me/", "")
             log.info(
                 "parse_source_starting",
@@ -869,6 +901,33 @@ async def _parse_audience_async(workspace_id: str, task_id: str) -> dict[str, An
 
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    # ── Cooperative stop (pause/cancel mid-run) ────────────────────────
+    # Persist partial results but DO NOT mark COMPLETED — the API already set
+    # the status to PAUSED/CANCELLED, and _update_task_progress leaves it intact.
+    if control_stop:
+        _update_audience_counts(db, audience_id)
+        _update_task_progress(
+            db, task_id,
+            progress=int((idx / len(sources)) * 100) if sources else 0,
+            total_found=total_found,
+            total_filtered=total_filtered,
+        )
+        log.info(
+            "parse_audience_stopped",
+            task_id=task_id,
+            status=control_stop,
+            sources_done=idx,
+            total_found=total_found,
+            total_filtered=total_filtered,
+        )
+        return {
+            "status": control_stop,
+            "stopped": True,
+            "sources_done": idx,
+            "total_found": total_found,
+            "total_filtered": total_filtered,
+        }
 
     # ── Finalize ───────────────────────────────────────────────────────
     _update_audience_counts(db, audience_id)
