@@ -128,6 +128,12 @@ async def _invite_campaign_async(workspace_id: str, campaign_id: str) -> dict:
     delay_max = config.get("delay_max", 120)
     emergency_threshold = config.get("emergency_stop_ratio", 0.30)
     ramp_up = config.get("ramp_up", False)
+    # Phantom-config fields now honored (P2-05):
+    filter_premium = config.get("filter_premium", False)
+    filter_ai_score_min = config.get("filter_ai_score_min") or 0
+    # privacy_threshold is a PERCENT (UI default 20): once the share of
+    # privacy-restricted results exceeds it, the audience is a bad fit → stop.
+    privacy_threshold = config.get("privacy_threshold")
 
     log.info(
         "invite_campaign_started",
@@ -159,6 +165,13 @@ async def _invite_campaign_async(workspace_id: str, campaign_id: str) -> dict:
         if (r["tg_user_id"] or r["username"])
         and (r["tg_user_id"] or 0) not in already_invited
     ]
+    # ── Recipient filters (P2-05: previously-ignored UI config) ──────────────
+    if filter_premium:
+        recipients = [r for r in recipients if r["is_premium"]]
+    if filter_ai_score_min:
+        recipients = [r for r in recipients if (r["ai_score"] or 0) >= filter_ai_score_min]
+    log.info("invite_recipients_filtered", count=len(recipients),
+             filter_premium=filter_premium, ai_score_min=filter_ai_score_min)
 
     if not recipients:
         db.execute(
@@ -347,6 +360,27 @@ async def _invite_campaign_async(workspace_id: str, campaign_id: str) -> dict:
                         "failed": total_failed,
                         "flood_blocks": flood_blocks,
                         "reason": f"Flood ratio {flood_ratio:.0%} exceeded threshold {emergency_threshold:.0%}",
+                    }
+
+            # Privacy-wall auto-stop (P2-05): too many privacy-restricted results
+            # means the audience can't be invited — stop instead of burning quota.
+            if privacy_threshold and total_attempts >= 10:
+                privacy_pct = total_privacy / total_attempts * 100
+                if privacy_pct > float(privacy_threshold):
+                    log.error("invite_privacy_stop", privacy_pct=round(privacy_pct, 1),
+                              threshold=privacy_threshold, total_privacy=total_privacy)
+                    db.execute(
+                        "UPDATE tg_invite_campaigns SET status='EMERGENCY_STOPPED', updated_at=? WHERE id=?",
+                        [_now(), campaign_id],
+                    )
+                    db.commit()
+                    await client.disconnect()
+                    shutil.rmtree(tmp_dir, ignore_errors=True)
+                    return {
+                        "status": "EMERGENCY_STOPPED",
+                        "success": total_success,
+                        "privacy": total_privacy,
+                        "reason": f"Privacy-restricted {privacy_pct:.0f}% exceeded threshold {privacy_threshold}%",
                     }
 
             rcpt = recipients[recipient_idx]

@@ -5759,7 +5759,7 @@ function mCrInv(){
       case 2:
         bodyHtml+='<div><label class="lbl">Аудитория *</label><div class="sel-w"><select class="sel" id="wiz-aud"><option value="">-- выберите --</option>'+audOpts.map(function(a){return '<option value="'+a.id+'"'+(fd.audience_id===a.id?' selected':'')+'>'+esc(a.name)+' ('+esc(a.total_count||0)+')</option>';}).join('')+'</select></div></div>'+
           '<div class="txs fsem upc c-m tkw mt3">Фильтры</div>'+
-          '<div class="f g3x mt2"><label class="f ac g1h txs"><input type="checkbox" class="chk" id="wiz-fprem"'+(fd.filter_premium?' checked':'')+'> Только Premium'+tip('Оставить только пользователей с Telegram Premium подпиской')+'</label><label class="f ac g1h txs"><input type="checkbox" class="chk" id="wiz-fonl"'+(fd.filter_online?' checked':'')+'> Только онлайн'+tip('Оставить только пользователей которые сейчас онлайн')+'</label></div>'+
+          '<div class="f g3x mt2"><label class="f ac g1h txs"><input type="checkbox" class="chk" id="wiz-fprem"'+(fd.filter_premium?' checked':'')+'> Только Premium'+tip('Оставить только пользователей с Telegram Premium подпиской')+'</label><label class="f ac g1h txs"><input type="checkbox" class="chk" id="wiz-fonl" disabled> Только онлайн (недоступно)'+tip('Онлайн-статус не хранится в базах аудитории — фильтр недоступен')+'</label></div>'+
           '<div class="mt2"><label class="lbl">AI-score минимум</label><input class="input tsm" type="number" id="wiz-fscore" value="'+fd.filter_ai_score_min+'" min="0" max="100" style="width:8rem"></div>';
         break;
       case 3:
