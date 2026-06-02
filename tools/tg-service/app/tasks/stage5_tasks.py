@@ -197,13 +197,28 @@ async def _boost_async(workspace_id: str, task_id: str) -> dict:
     boost_type = task["boost_type"]  # SUBSCRIBERS|REACTIONS|VIEWS|POLL_VOTES
     target_channel = task["target_channel"]
     target_message_id = task["target_message_id"]
-    config = json.loads(task["config"] or "{}")
     account_ids = json.loads(task["account_ids"] or "[]")
     target_amount = task["target_amount"] or 0
 
     if not account_ids:
-        acc_rows = db.execute("SELECT id FROM tg_accounts WHERE status = 'ACTIVE'").fetchall()
+        # Health-sorted: prefer accounts with higher warmup level (more trustworthy)
+        acc_rows = db.execute(
+            """SELECT id FROM tg_accounts WHERE status = 'ACTIVE'
+               ORDER BY warmup_level DESC NULLS LAST, updated_at ASC"""
+        ).fetchall()
         account_ids = [r["id"] for r in acc_rows]
+
+    # Round-robin rotation: advance cursor each run so different accounts go first
+    config = json.loads(task["config"] or "{}")
+    cursor = int(config.get("rotation_cursor", 0)) % max(len(account_ids), 1)
+    if account_ids:
+        account_ids = account_ids[cursor:] + account_ids[:cursor]
+        config["rotation_cursor"] = (cursor + 1) % len(account_ids)
+        db.execute(
+            "UPDATE tg_boost_tasks SET config=?, updated_at=? WHERE id=?",
+            [json.dumps(config, ensure_ascii=False), _now(), task_id],
+        )
+        db.commit()
 
     current_amount = task["current_amount"] or 0
     total_success = 0
