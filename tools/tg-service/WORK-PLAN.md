@@ -52,7 +52,7 @@
 
 - [x] **P2-01** · dm-campaign · Воркер теперь чтит: active*hours (вне окна → PAUSED), filter_username, filter_ai_score_min, exclude_audience_id, skip_list (дедуп по всем кампаниям), max_per_day (cap на base_limit). `filter_online` задизейблен в UI (нет данных онлайн-статуса в аудитории). Live: A→PAUSED (dm_outside_active_hours), B total_recipients 3→2 (filter_username), 0 реальных DMs (fake-acc). *(commit P2-01)\_
 - [x] **P2-02** · dm-campaign · Воркер читает `distribution`: RANDOM → shuffle порядка аккаунтов; ROUND*ROBIN → последовательная ротация (каждый акк независимо ограничен effective_limit, перегруза нет); GEO_MATCHED → требует гео прокси (P6-08), пока = ROUND_ROBIN (отмечено в UI-tooltip). Полный message-level interleave (мульти-клиент) отложен как hot-path рерайт. Live: dm_distribution mode=RANDOM accounts=3, 0 DMs. *(commit P2-02)\_
-- [ ] **P2-03** · chat-broadcast · Подключить exclude_channels + gap_24h (не постить в один чат чаще раза/сутки) + posts_per_day + ban_auto_stop. M · med
+- [x] **P2-03** · chat-broadcast · Воркер чтит exclude*channels (фильтр целей), gap_24h (дроп каналов с постом за 24ч по всем рассылкам), posts_per_day (cap на daily_limit), ban_auto_stop (вкл/выкл аварийный стоп по бан-ratio). Live: chatbr_channels_filtered total=3 remaining=2 excluded=1, 0 постов (fake-acc). *(commit P2-03)\_
 - [ ] **P2-04** · chat-broadcast · slow_mode_behavior + distribution — применить в воркере. S-M · med
 - [ ] **P2-05** · inviting · Подключить filter_premium/online/ai_score_min + privacy_threshold (авто-стоп при высоком % privacy) + flood_behavior. M · med
 - [ ] **P2-06** · boost · Уважение дневных лимитов из `tg_settings` (limits\_\*\_per_day) + активные часы перед каждым действием. M · med

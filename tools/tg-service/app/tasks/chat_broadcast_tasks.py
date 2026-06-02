@@ -14,7 +14,7 @@ import random
 import shutil
 import tempfile
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -104,6 +104,11 @@ async def _chat_broadcast_async(workspace_id: str, broadcast_id: str) -> dict:
     delay_min = config.get("delay_min", 60)
     delay_max = config.get("delay_max", 300)
     emergency_threshold = config.get("emergency_stop_ratio", 0.30)
+    # Phantom-config fields now honored (P2-03):
+    exclude_channels = config.get("exclude_channels") or []
+    gap_24h = config.get("gap_24h", False)
+    posts_per_day = config.get("posts_per_day")
+    ban_auto_stop = config.get("ban_auto_stop", True)
 
     log.info("chat_broadcast_started", broadcast_id=broadcast_id, workspace_id=workspace_id,
              targets=len(target_channels), accounts=len(account_ids))
@@ -148,6 +153,25 @@ async def _chat_broadcast_async(workspace_id: str, broadcast_id: str) -> dict:
 
     remaining_channels = [ch for ch in target_channels if ch not in already_posted]
 
+    # ── Channel filters (P2-03: previously-ignored UI config) ────────────────
+    if exclude_channels:
+        excl = set(exclude_channels)
+        remaining_channels = [ch for ch in remaining_channels if ch not in excl]
+    if gap_24h:
+        # Don't post to a channel posted to (in any broadcast) within the last 24h.
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+        recent_rows = db.execute(
+            "SELECT DISTINCT channel_id FROM tg_chat_broadcast_posts "
+            "WHERE status = 'POSTED' AND posted_at >= ?",
+            [cutoff],
+        ).fetchall()
+        recent = {r["channel_id"] for r in recent_rows}
+        if recent:
+            remaining_channels = [ch for ch in remaining_channels if ch not in recent]
+
+    log.info("chatbr_channels_filtered", total=len(target_channels),
+             remaining=len(remaining_channels), excluded=len(exclude_channels), gap_24h=gap_24h)
+
     if not remaining_channels:
         db.execute("UPDATE tg_chat_broadcasts SET status='COMPLETED', finished_at=?, updated_at=? WHERE id=?",
                    [now, now, broadcast_id])
@@ -164,9 +188,14 @@ async def _chat_broadcast_async(workspace_id: str, broadcast_id: str) -> dict:
         db.commit()
         return {"status": "FAILED", "error": "No ACTIVE accounts available"}
 
-    # Load settings for per-account daily limit
+    # Load settings for per-account daily limit; campaign posts_per_day caps it (P2-03).
     stg = db.execute("SELECT * FROM tg_settings WHERE id = 'default'").fetchone()
     daily_limit = (stg["limits_chat_posts_per_day"] if stg else 3)
+    if posts_per_day:
+        try:
+            daily_limit = min(daily_limit, int(posts_per_day))
+        except (TypeError, ValueError):
+            pass
 
     # Execute posts
     total_posted = 0
@@ -248,9 +277,10 @@ async def _chat_broadcast_async(workspace_id: str, broadcast_id: str) -> dict:
         posted_this_account = 0
 
         while channel_idx < len(remaining_channels) and posted_this_account < daily_limit:
-            # Emergency stop check: >30% of attempts resulted in bans
+            # Emergency stop check: >30% of attempts resulted in bans.
+            # ban_auto_stop (P2-03) lets the operator disable this safety net.
             total_attempts = total_posted + total_failed + total_banned + total_slow_mode
-            if total_attempts > 0:
+            if ban_auto_stop and total_attempts > 0:
                 ban_ratio = total_banned / total_attempts
                 if ban_ratio > emergency_threshold and total_banned >= 3:
                     log.error("chatbr_emergency_stop", ratio=ban_ratio, threshold=emergency_threshold)
