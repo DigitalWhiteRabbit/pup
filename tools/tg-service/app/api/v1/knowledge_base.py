@@ -40,6 +40,44 @@ def _dispatch_conflict_check(workspace_id: str, doc_id: str | None) -> None:
         )
 
 
+def _maybe_trigger_self_test(workspace_id: str, db: Any) -> None:
+    """Auto-trigger a KB self-test after upload if conditions are met (P4-27).
+
+    Conditions: ≥3 documents AND no self-test run in the last 6 hours.
+    Best-effort — never raises.
+    """
+    try:
+        doc_count = db.execute("SELECT COUNT(*) AS c FROM tg_kb_documents").fetchone()["c"]
+        if doc_count < 3:
+            return
+        last_run = db.execute(
+            "SELECT created_at FROM tg_kb_selftest_runs ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()
+        if last_run:
+            from datetime import datetime, timezone, timedelta
+            try:
+                last_dt = datetime.fromisoformat(last_run["created_at"].replace("Z", "+00:00"))
+                if (datetime.now(timezone.utc) - last_dt) < timedelta(hours=6):
+                    return  # recent run exists
+            except Exception:
+                pass
+
+        import uuid as _uuid
+        from app.tasks.dispatch import dispatch_task
+
+        run_id = str(_uuid.uuid4())
+        now = datetime.now(timezone.utc).isoformat() if "datetime" in dir() else __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
+        db.execute(
+            "INSERT INTO tg_kb_selftest_runs (id, status, created_at) VALUES (?, 'PENDING', ?)",
+            [run_id, now],
+        )
+        db.commit()
+        dispatch_task("pup_tg.kb_self_test", args=[workspace_id, run_id])
+        log.info("kb_auto_self_test_triggered", workspace_id=workspace_id, run_id=run_id)
+    except Exception as exc:
+        log.warning("kb_auto_self_test_failed", error=str(exc)[:200])
+
+
 log = structlog.get_logger(__name__)
 
 # Chunking defaults
@@ -494,6 +532,8 @@ async def upload_document(
 
     # Best-effort consistency check against the rest of the base.
     _dispatch_conflict_check(workspace_id, doc["id"])
+    # Auto self-test if KB is large enough (P4-27)
+    _maybe_trigger_self_test(workspace_id, db)
 
     return {
         **doc,

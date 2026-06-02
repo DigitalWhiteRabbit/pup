@@ -1300,6 +1300,7 @@ var NAV=[
   {k:'ai-promoter',l:'AI \u0410\u0433\u0435\u043D\u0442',e:'\uD83E\uDD16'},
   {k:'arena',l:'\u0410\u0440\u0435\u043D\u0430 \u0430\u0433\u0435\u043D\u0442\u043E\u0432',e:'\uD83C\uDFAD'},
   {k:'knowledge-base',l:'\u0411\u0430\u0437\u0430 \u0437\u043D\u0430\u043D\u0438\u0439',e:'\uD83D\uDCDA'},
+  {k:'style-bank',l:'\u0421\u0442\u0438\u043B\u044C-\u0431\u0430\u043D\u043A',e:'\uD83D\uDCDA'},
   {k:'ai-sales',l:'\u0414\u0438\u0430\u043B\u043E\u0433\u0438 \u041B\u0421',e:'\uD83D\uDCB0'},
   {k:'neuro-commenting',l:'Нейрокомментинг',e:'\uD83D\uDCAC'},
   {k:'auto-replier',l:'Автоответчик',e:'\uD83D\uDCE8'},
@@ -1371,6 +1372,7 @@ function rMain(){
     case 'ai-promoter':rAiPromoter(el);break;
     case 'arena':rArena(el);break;
     case 'knowledge-base':rKb(el);break;
+    case 'style-bank':rStyleBankPage(el);break;
     case 'ai-sales':rAiSales(el);break;
     case 'neuro-commenting':rNeuroComment(el);break;
     case 'auto-replier':rAutoReplier(el);break;
@@ -3984,6 +3986,15 @@ function rPromReplies(){
   return head+learnPanel+list;
 }
 /* Стиль-банк: обучение агента на реальных переписках (few-shot). */
+function rStyleBankPage(el){
+  el.innerHTML='<div class="sy4">'+pageHead('Стиль-банк','Корпус обучения AI-агентов','<button class="btn btn-sm btn-primary" id="sb-open">📚 Открыть стиль-банк</button>')+'<div id="sb-page-body" class="txs c-m" style="text-align:center;padding:2rem 0">Загрузка статистики...</div></div>';
+  var openBtn=el.querySelector('#sb-open');if(openBtn)openBtn.onclick=function(){mStyleBank();};
+  (async function(){
+    try{var s=await af('/style/stats');var topics=(s.by_topic||[]).map(function(t){return '<span class="badge b-blue b-ol" style="margin:2px">'+esc(t.topic)+': '+t.count+'</span>';}).join('')||'<span class="txs c-m">пусто</span>';
+    el.querySelector('#sb-page-body').innerHTML='<div class="card" style="max-width:520px;margin:0 auto"><div class="card-body sy3"><div class="txs fsem upc c-m tkw">Всего примеров</div><div class="t3x fxb" style="color:var(--blue-500)">'+(s.total||0)+'</div><div class="txs fsem upc c-m tkw mt3">Темы</div><div class="f fw g1h mt1">'+topics+'</div><div class="mt4"><button class="btn btn-sm btn-primary" id="sb-open2">📚 Управление стиль-банком</button></div></div></div>';
+    var ob2=el.querySelector('#sb-open2');if(ob2)ob2.onclick=function(){mStyleBank();};}catch(e){el.querySelector('#sb-page-body').innerHTML='<span class="c-rd">Ошибка: '+esc(e.message)+'</span>';}
+  })();
+}
 async function mStyleBank(){
   var stats={total:0,by_topic:[]},accs=[];
   try{stats=await af('/style/stats');}catch(e){}
@@ -5233,6 +5244,7 @@ function rNeuroComment(el){
             (isRunning
               ?'<button class="btn btn-sm nc-stop" data-id="'+t.id+'">'+ic('pause')+' Стоп</button>'
               :'<button class="btn btn-sm btn-primary nc-start" data-id="'+t.id+'">'+ic('play')+' Запуск</button>')+
+            '<button class="btn btn-sm nc-log" data-id="'+t.id+'" title="История комментариев (дедуп)">📋</button>'+
             '<button class="btn btn-sm btn-danger nc-del" data-id="'+t.id+'">'+ic('trash')+'</button>'+
           '</div></div>';
       }).join('')+'</div>'
@@ -5248,6 +5260,17 @@ function rNeuroComment(el){
   });
   el.querySelectorAll('.nc-del').forEach(function(b){
     b.onclick=async function(){if(!confirm('Удалить задачу?'))return;b.disabled=true;try{await aD('/commenting/tasks/'+b.dataset.id);toast('Задача удалена','success');ncLoaded=false;await ldNc();if(S.sec==='neuro-commenting')rNeuroComment(el);}catch(e){toast(e.message,'error');b.disabled=false;}};
+  });
+  el.querySelectorAll('.nc-log').forEach(function(b){
+    b.onclick=async function(){var id=b.dataset.id;b.disabled=true;b.innerHTML='<span class="spin"></span>';try{
+      var r=await af('/commenting/tasks/'+id+'/log?limit=50');
+      var items=r.items||[];
+      var h='<div class="dlg-ov" id="nclog-dlg"><div class="dlg dlg-xl"><div class="dlg-hd"><div class="dlg-tt">📋 История комментариев ('+r.total+')</div><button class="btn btn-sm" id="nclog-cl">✕</button></div>'+
+        '<div class="dlg-bd" style="padding:0"><div class="tw" style="max-height:70vh;overflow-y:auto"><table><thead><tr><th>Канал</th><th>Пост</th><th>Комментарий</th><th>Статус</th><th>Дата</th></tr></thead><tbody>'+
+        (items.length?items.map(function(l){var stCls=l.status==='SENT'?'b-emerald b-ol':l.status==='FAILED'?'b-red b-ol':'b-muted b-ol';return '<tr><td class="txs">'+esc(l.channel_title||l.channel_id||'--')+'</td><td class="txs fmo">#'+esc(String(l.post_id||'--'))+'</td><td class="txs" style="max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(l.comment_text||'--')+'</td><td><span class="badge '+stCls+'">'+esc(l.status||'--')+'</span></td><td class="txs c-m">'+fmtDT(l.sent_at||l.created_at)+'</td></tr>';}).join(''):'<tr><td colspan="5" class="txs c-m" style="text-align:center;padding:1.5rem">Нет истории</td></tr>')+
+        '</tbody></table></div></div><div class="dlg-ft"><button class="btn btn-sm" id="nclog-cl2">Закрыть</button></div></div></div>';
+      document.body.insertAdjacentHTML('beforeend',h);mBind('nclog-dlg','nclog-cl');document.getElementById('nclog-cl2').onclick=function(){document.getElementById('nclog-dlg').remove();};
+    }catch(e){toast(e.message,'error');}b.disabled=false;b.innerHTML='📋';};
   });
 }
 function mCrNc(){
@@ -6254,7 +6277,7 @@ function rTplDetail(el){
       '<div class="f ac g3x"><button class="btn btn-sm" id="tpl-back">'+ic('back')+' Назад</button><h2 class="tlg fxb">'+esc(t.name||'Шаблон')+'</h2>'+
         (t.category?'<span class="badge b-blue b-ol">'+esc(TPL_CAT_LABELS[t.category]||t.category)+'</span>':'')+
       '</div>'+
-      '<button class="btn btn-sm btn-primary" id="tpl-add-var">'+ic('plus')+' Добавить вариант</button>'+
+      '<div class="f g1h"><button class="btn btn-sm" id="tpl-ai-var" title="Сгенерировать варианты через AI">🤖 AI-варианты</button><button class="btn btn-sm btn-primary" id="tpl-add-var">'+ic('plus')+' Добавить вариант</button></div>'+
     '</div>'+
     (t.description?'<div class="txs c-m">'+esc(t.description)+'</div>':'')+
     (t.tags&&t.tags.length?'<div class="f g1h fw">'+t.tags.map(function(tg){return '<span class="badge b-muted">'+esc(tg)+'</span>';}).join('')+'</div>':'')+
@@ -6288,6 +6311,7 @@ function rTplDetail(el){
   '</div>';
   el.querySelector('#tpl-back').onclick=function(){tplDetail=null;rTemplates(el);};
   var addVar=el.querySelector('#tpl-add-var');if(addVar)addVar.onclick=function(){mAddTplVar(t.id,el);};
+  var aiVar=el.querySelector('#tpl-ai-var');if(aiVar)aiVar.onclick=async function(){aiVar.disabled=true;aiVar.innerHTML='<span class="spin"></span> Генерация…';try{var r=await ap('/templates/'+t.id+'/generate-variants?count=3');toast('Сгенерировано '+r.generated+' вариантов','success');var updated=await af('/templates/'+t.id);tplDetail=updated;rTemplates(el);}catch(e){toast(e.message,'error');aiVar.disabled=false;aiVar.innerHTML='🤖 AI-варианты';};};
   el.querySelectorAll('.tpl-del-var').forEach(function(b){
     b.onclick=async function(){if(!confirm('Удалить вариант?'))return;b.disabled=true;
       try{await aD('/templates/'+t.id+'/variants/'+b.dataset.vid);toast('Вариант удалён','success');var updated=await af('/templates/'+t.id);tplDetail=updated;rTemplates(el);}catch(e){toast(e.message,'error');b.disabled=false;}

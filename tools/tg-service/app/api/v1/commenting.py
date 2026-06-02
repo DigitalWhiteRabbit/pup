@@ -346,3 +346,35 @@ async def stop_task(
 
     log.info("commenting_task_stopped", task_id=task_id)
     return _row_to_task(row)
+
+
+@router.get("/tasks/{task_id}/log")
+async def get_commenting_log(
+    task_id: str,
+    _token: AdminAuth,
+    db: WorkspaceDB,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+) -> dict:
+    """Get commenting history (dedup log) for a task (P4-25)."""
+    existing = db.execute(
+        "SELECT id FROM tg_commenting_tasks WHERE id = ?", [task_id]
+    ).fetchone()
+    if not existing:
+        raise HTTPException(status_code=404, detail="Commenting task not found")
+
+    total_row = db.execute(
+        "SELECT COUNT(*) AS total FROM tg_commenting_log WHERE task_id = ?", [task_id]
+    ).fetchone()
+    total = total_row["total"] if total_row else 0
+
+    rows = db.execute(
+        """SELECT id, account_id, channel_id, channel_title, post_id,
+                  comment_text, status, sent_at, created_at
+           FROM tg_commenting_log WHERE task_id = ?
+           ORDER BY created_at DESC LIMIT ? OFFSET ?""",
+        [task_id, limit, offset],
+    ).fetchall()
+
+    items = [dict(r) for r in rows]
+    return {"items": items, "total": total, "limit": limit, "offset": offset}
