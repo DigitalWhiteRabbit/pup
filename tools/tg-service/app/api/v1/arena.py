@@ -340,6 +340,7 @@ async def start_arena(
     turn_order = arena.get("turn_order") or persona_ids
 
     loop_token = str(uuid.uuid4())
+    prior_status = arena_row["status"]
 
     try:
         db.execute(
@@ -353,26 +354,27 @@ async def start_arena(
         db.rollback()
         raise
 
-    # Kick the loop. Celery is best-effort here: if the broker is down the
-    # status is RUNNING but no tick fires — the next start (or a reaper added
-    # in Phase 5) revives it.
-    kicked = False
+    # Kick the loop through the shared fail-fast dispatch. The arena is committed
+    # RUNNING first (a separate worker process must see it on disk); if the broker
+    # is down dispatch_task raises 503 — compensate the status back to its prior
+    # value rather than leaving it falsely RUNNING with no tick ever firing.
+    from app.tasks.dispatch import dispatch_task
+
     try:
-        from app.tasks.arena_tasks import arena_tick
-
-        arena_tick.apply_async(
-            args=[workspace_id, arena_id, loop_token],
-            countdown=0,
-            queue="pup_tg_default",
-        )
-        kicked = True
+        dispatch_task("pup_tg.arena_tick", args=[workspace_id, arena_id, loop_token])
         log.info("arena_started", arena_id=arena_id, loop_token=loop_token[:8])
-    except Exception as exc:  # noqa: BLE001
-        log.warning(
-            "arena_start_dispatch_failed", arena_id=arena_id, error=str(exc)[:160]
+    except HTTPException:
+        db.execute(
+            "UPDATE tg_agent_arenas SET status=?, updated_at=? WHERE id=?",
+            [prior_status, _now(), arena_id],
         )
+        db.commit()
+        log.error(
+            "arena_start_dispatch_failed", arena_id=arena_id, reverted_to=prior_status
+        )
+        raise
 
-    return {"status": "RUNNING", "id": arena_id, "loop_token": loop_token, "kicked": kicked}
+    return {"status": "RUNNING", "id": arena_id, "loop_token": loop_token, "kicked": True}
 
 
 @router.post("/{arena_id}/stop")
