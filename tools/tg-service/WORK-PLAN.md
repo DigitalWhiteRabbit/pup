@@ -30,7 +30,7 @@
 Делаем ПЕРВОЙ. Всё, что «UI дёргает несуществующее / падает 400/422 / показывает 0 / течёт секрет / ложная отчётность».
 
 - [x] **P1-01** · settings · Замаскировать `anthropic_api_key` (+`telegram_app_hash`) в `GET /settings` (`sk-a…wwAA`); PATCH дропает маск-значения → не затирает ключ. Live ✓. _(commit P1-01)_
-- [ ] **P1-02** · ai-sales · Добавить отсутствующий `GET /ai-sales/knowledge-base` (прокси к `/kb/documents`), который UI уже дёргает. S · low
+- [x] **P1-02** · ai-sales · Добавлен `GET /ai-sales/knowledge-base` (read-only вид над tg*kb_documents, shape `{items}`). Live: 2 дока ✓. *(commit P1-02)\_
 - [ ] **P1-03** · parser · Синхронизировать режимы UI↔`VALID_MODES`: убрать из UI несуществующие (ACTIVE_ONLINE/SEARCH/NEARBY/PHONE_CONTACTS/GROUP_MEMBERS), добавить реальные (REACTIONS/POLLS/JOINERS/TOPICS/GLOBAL_SEARCH + CHAT_MEMBERS/COMMENTERS/WRITERS). S · low
 - [ ] **P1-04** · parser · Исправить поля found/filtered: UI читает `found_count`/`filtered_count`, бэк хранит `total_found`/`total_filtered` → колонки всегда 0. S · low
 - [ ] **P1-05** · channels · Согласовать роли/типы UI↔бэк (VALID_ROLES={SOURCE,TARGET,BOTH,NONE}, VALID_TYPES={CHANNEL,SUPERGROUP,BASIC_GROUP,FORUM}); вкладка «Мои»→is_own. S · low

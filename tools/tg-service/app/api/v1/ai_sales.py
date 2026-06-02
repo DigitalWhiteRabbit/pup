@@ -385,6 +385,48 @@ async def sales_stats(
     }
 
 
+@router.get("/knowledge-base")
+async def sales_knowledge_base(
+    _token: AdminAuth,
+    db: WorkspaceDB,
+    limit: int = Query(100, ge=1, le=1000),
+) -> dict[str, Any]:
+    """List KB documents available to AI Sales scripts (RAG corpus).
+
+    The AI Sales UI has a "База знаний" tab that fetches this; it is a thin
+    read-only view over the same ``tg_kb_documents`` the ``/kb`` router owns.
+    Returns ``{items: [...]}`` shaped like the KB documents list so the existing
+    UI render (title/description/created_at) works unchanged.
+    """
+    rows = db.execute(
+        """SELECT id, title, path, metadata, chunks_count, created_at, updated_at
+           FROM tg_kb_documents
+           ORDER BY created_at DESC LIMIT ?""",
+        [limit],
+    ).fetchall()
+
+    items: list[dict[str, Any]] = []
+    for r in rows:
+        meta: dict[str, Any] = {}
+        if r["metadata"]:
+            try:
+                meta = json.loads(r["metadata"])
+            except (json.JSONDecodeError, TypeError):
+                meta = {}
+        items.append(
+            {
+                "id": r["id"],
+                "title": r["title"],
+                "path": r["path"],
+                "description": meta.get("source") or meta.get("url") or r["path"] or "",
+                "chunks_count": r["chunks_count"],
+                "created_at": r["created_at"],
+            }
+        )
+
+    return {"items": items, "total": len(items)}
+
+
 # ---------------------------------------------------------------------------
 # Start / Stop / Monitor
 # ---------------------------------------------------------------------------
