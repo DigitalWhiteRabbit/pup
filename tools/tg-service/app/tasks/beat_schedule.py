@@ -292,6 +292,50 @@ async def _membership_check_async() -> dict:
     return {"checked": checked, "paused": paused}
 
 
+@shared_task(name="pup_tg.proxy_expiry_check")
+def proxy_expiry_check() -> dict:
+    """Mark proxies whose ``expires_at`` has passed as EXPIRED.
+
+    Runs across all workspace DBs. Only transitions ACTIVE/PAUSED/DEAD proxies
+    that have a non-null ``expires_at`` in the past; already-EXPIRED proxies
+    are left alone.
+    """
+    from app.core.database import get_db
+
+    total_expired = 0
+
+    for workspace_id in _iter_workspace_ids():
+        try:
+            db = get_db(workspace_id)
+        except Exception:  # noqa: BLE001
+            log.warning("proxy_expiry_db_open_failed", workspace_id=workspace_id, exc_info=True)
+            continue
+
+        try:
+            result = db.execute(
+                """
+                UPDATE tg_proxies
+                   SET status = 'EXPIRED', updated_at = datetime('now')
+                 WHERE expires_at IS NOT NULL
+                   AND expires_at < datetime('now')
+                   AND status != 'EXPIRED'
+                """,
+            )
+            count = result.rowcount
+            if count:
+                db.commit()
+                total_expired += count
+                log.info(
+                    "proxy_expiry_expired",
+                    workspace_id=workspace_id,
+                    count=count,
+                )
+        except Exception:  # noqa: BLE001
+            log.warning("proxy_expiry_update_failed", workspace_id=workspace_id, exc_info=True)
+
+    return {"expired": total_expired}
+
+
 # ── Schedule registry ────────────────────────────────────────────────────────
 
 BEAT_SCHEDULE: dict[str, dict[str, object]] = {
@@ -315,6 +359,12 @@ BEAT_SCHEDULE: dict[str, dict[str, object]] = {
     "membership-check-every-3h": {
         "task": "pup_tg.membership_check",
         "schedule": 10800.0,  # every 3 hours
+        "options": {"queue": "pup_tg_default"},
+    },
+    # Auto-expire proxies whose expires_at has passed.
+    "proxy-expiry-check-every-hour": {
+        "task": "pup_tg.proxy_expiry_check",
+        "schedule": 3600.0,  # every hour
         "options": {"queue": "pup_tg_default"},
     },
 }
