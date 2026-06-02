@@ -183,6 +183,10 @@ async def _join_chats_async(workspace_id: str, task_id: str) -> dict:
     account_ids = json.loads(task["account_ids"] or "[]")
     interval_min = task["join_interval_min"] or 30
     interval_max = task["join_interval_max"] or 120
+    # P4-13/14 config
+    task_cfg = json.loads(task["config"] or "{}")
+    daily_limit_per_account: int = int(task_cfg.get("daily_limit", 50))
+    ban_auto_stop_count: int = int(task_cfg.get("ban_auto_stop_count", 3))
 
     if not target_chats or not account_ids:
         db.execute(
@@ -210,6 +214,7 @@ async def _join_chats_async(workspace_id: str, task_id: str) -> dict:
     results: list[dict[str, Any]] = []
     success_count = 0
     failed_count = 0
+    consecutive_banned = 0  # P4-14: tracks consecutive BANNED_AFTER_JOIN
 
     for acc_id in account_ids:
         # Check if task was stopped externally
@@ -349,6 +354,25 @@ async def _join_chats_async(workspace_id: str, task_id: str) -> dict:
 
         log.info("join_account_connected", account_id=acc_id, phone=acc_info["phone"])
 
+        # P4-13: count today's joins for this account across all tasks
+        today_joins = 0
+        try:
+            from datetime import date
+            today_str = date.today().isoformat()
+            existing_results = json.loads(
+                (db.execute(
+                    "SELECT results FROM tg_join_tasks WHERE id = ?", [task_id]
+                ).fetchone() or {}).get("results", "[]") or "[]"
+            )
+            today_joins = sum(
+                1 for r in existing_results
+                if r.get("account_id") == acc_id and r.get("status") in ("JOINED", "ALREADY")
+            )
+        except Exception:
+            pass
+
+        acc_joins_this_run = 0
+
         for chat_idx, chat in enumerate(target_chats):
             # Re-check stop status between each chat
             task_check = db.execute(
@@ -356,6 +380,21 @@ async def _join_chats_async(workspace_id: str, task_id: str) -> dict:
             ).fetchone()
             if task_check and task_check["status"] == "STOPPED":
                 log.info("join_chats_stopped_mid_loop", task_id=task_id)
+                break
+
+            # P4-13: daily limit per account
+            if daily_limit_per_account > 0 and (today_joins + acc_joins_this_run) >= daily_limit_per_account:
+                log.info("join_daily_limit_reached", account_id=acc_id, limit=daily_limit_per_account)
+                break
+
+            # P4-14: auto-stop on consecutive bans
+            if ban_auto_stop_count > 0 and consecutive_banned >= ban_auto_stop_count:
+                log.warning("join_ban_auto_stop", consecutive=consecutive_banned, task_id=task_id)
+                db.execute(
+                    "UPDATE tg_join_tasks SET status='STOPPED', updated_at=? WHERE id=?",
+                    [_now(), task_id],
+                )
+                db.commit()
                 break
 
             result_entry: dict[str, Any] = {
@@ -459,12 +498,18 @@ async def _join_chats_async(workspace_id: str, task_id: str) -> dict:
 
                 if result_entry["status"] in ("JOINED", "ALREADY"):
                     success_count += 1
+                    acc_joins_this_run += 1
+                    consecutive_banned = 0  # P4-14: reset on success
                     # Save/update channel info
                     try:
                         _save_or_update_channel(db, entity, chat_about)
                     except Exception as ch_err:
                         log.warning("join_channel_save_error", chat=chat, error=str(ch_err)[:100])
+                elif result_entry["status"] == "BANNED_AFTER_JOIN":
+                    consecutive_banned += 1  # P4-14
+                    failed_count += 1
                 else:
+                    consecutive_banned = 0
                     failed_count += 1
 
                 log.info(

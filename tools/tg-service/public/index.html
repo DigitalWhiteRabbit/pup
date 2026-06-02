@@ -4892,11 +4892,15 @@ function rJoinChats(el){
     '</div></div>'+
     '<div id="jc-status"></div>'+
     (jcItems.length?'<div class="card"><div class="card-head"><div class="card-title">Последние задачи</div></div><div class="card-body flush"><div class="tw"><table><thead><tr><th>Задача</th><th>Статус</th><th>Успешно</th><th>Ошибок</th><th>Создана</th><th></th></tr></thead><tbody>'+
-      jcItems.map(function(t){return '<tr><td class="fmed tsm">'+esc(t.name||t.id)+'</td><td>'+jcStatusBdg(t.status)+'</td><td class="fmo c-em">'+(t.success_count||0)+'</td><td class="fmo c-rd">'+(t.failed_count||0)+'</td><td class="txs c-m">'+fmtDT(t.created_at)+'</td><td><button class="btn btn-ghost btn-sm jc-verify" data-id="'+esc(t.id)+'" title="Перепроверить, что аккаунты всё ещё в чатах">🔁 Проверить</button></td></tr>';}).join('')+
+      jcItems.map(function(t){var hasFailed=(t.failed_count||0)>0;return '<tr><td class="fmed tsm">'+esc(t.name||t.id)+'</td><td>'+jcStatusBdg(t.status)+'</td><td class="fmo c-em">'+(t.success_count||0)+'</td><td class="fmo c-rd">'+(t.failed_count||0)+'</td><td class="txs c-m">'+fmtDT(t.created_at)+'</td><td><div class="f g1h">'+
+        (hasFailed?'<button class="btn btn-ghost btn-sm jc-retry" data-id="'+esc(t.id)+'" title="Повторить только FAILED чаты">↻ Retry FAILED</button>':'')+
+        '<button class="btn btn-ghost btn-sm jc-verify" data-id="'+esc(t.id)+'" title="Перепроверить членство">🔁</button>'+
+      '</div></td></tr>';}).join('')+
       '</tbody></table></div></div></div>':'')+
   '</div>';
   el.querySelectorAll('.jc-acc').forEach(function(c){c.onchange=function(){jcSel[c.value]=c.checked;};});
   el.querySelectorAll('.jc-verify').forEach(function(b){b.onclick=async function(){var id=b.dataset.id;b.disabled=true;var old=b.innerHTML;b.innerHTML='<span class="spin"></span>';try{var t=await af('/join-chats/'+id);await verifyMembershipUI(t.account_ids||[],t.target_chats||[],t.name||'Проверка членства');}catch(e){toast(e.message,'error');}b.disabled=false;b.innerHTML=old;};});
+  el.querySelectorAll('.jc-retry').forEach(function(b){b.onclick=async function(){b.disabled=true;b.innerHTML='<span class="spin"></span>';try{var nr=await ap('/join-chats/'+b.dataset.id+'/retry-failed');toast('Retry задача создана ('+nr.name+')','success');jcLoaded=false;await ldJc();if(S.sec==='join-chats')rJoinChats(el);}catch(e){toast(e.message,'error');}b.disabled=false;b.innerHTML='↻ Retry FAILED';};});
   el.querySelector('#jc-run').onclick=async function(){
     var chats=document.getElementById('jc-chats').value.split('\n').map(function(s){return s.trim();}).filter(Boolean);
     if(!chats.length){toast('Укажите целевые чаты','error');return;}

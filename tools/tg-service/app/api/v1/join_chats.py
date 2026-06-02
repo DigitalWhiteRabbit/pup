@@ -339,3 +339,65 @@ async def delete_task(
 
     log.info("join_task_deleted", task_id=task_id)
     return {"status": "deleted", "id": task_id}
+
+
+@router.post("/{task_id}/retry-failed", status_code=status.HTTP_201_CREATED)
+async def retry_failed_chats(
+    task_id: str,
+    _token: AdminAuth,
+    db: WorkspaceDB,
+    workspace_id: WorkspaceId,
+) -> dict:
+    """Create a new task with only the FAILED chats from the given task.
+
+    Copies account_ids, intervals, and config; sets target_chats to the
+    distinct set of chats that got FAILED status in the original task results.
+    """
+    import json as _json
+
+    row = db.execute("SELECT * FROM tg_join_tasks WHERE id = ?", [task_id]).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Join task not found")
+
+    results = _json.loads(row["results"] or "[]")
+    failed_chats = list({
+        r["chat"]
+        for r in results
+        if r.get("status") == "FAILED" and r.get("chat")
+    })
+
+    if not failed_chats:
+        raise HTTPException(
+            status_code=400,
+            detail="No FAILED chats found in this task to retry",
+        )
+
+    import uuid as _uuid
+    now = _now()
+    new_id = str(_uuid.uuid4())
+    new_name = (row["name"] or "retry") + " [retry]"
+
+    try:
+        db.execute(
+            """INSERT INTO tg_join_tasks
+               (id, name, target_chats, account_ids, join_interval_min,
+                join_interval_max, config, status, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?)""",
+            [
+                new_id, new_name,
+                _json.dumps(failed_chats),
+                row["account_ids"] or "[]",
+                row["join_interval_min"] or 30,
+                row["join_interval_max"] or 120,
+                row["config"] or "{}",
+                now, now,
+            ],
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    log.info("join_task_retry_created", original_id=task_id, new_id=new_id, chats=len(failed_chats))
+    new_row = db.execute("SELECT * FROM tg_join_tasks WHERE id = ?", [new_id]).fetchone()
+    return _row_to_dict(new_row)

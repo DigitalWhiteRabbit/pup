@@ -904,6 +904,7 @@ CREATE TABLE IF NOT EXISTS tg_join_tasks (
   account_ids     TEXT NOT NULL DEFAULT '[]',   -- JSON array of account IDs
   join_interval_min INTEGER DEFAULT 30,         -- min seconds between joins
   join_interval_max INTEGER DEFAULT 120,        -- max seconds between joins
+  config          TEXT DEFAULT '{}',            -- JSON: daily_limit, ban_auto_stop_count, etc.
   status          TEXT DEFAULT 'PENDING',       -- PENDING|RUNNING|COMPLETED|FAILED|STOPPED
   total_joins     INTEGER DEFAULT 0,
   success_count   INTEGER DEFAULT 0,
