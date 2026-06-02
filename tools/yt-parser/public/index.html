@@ -5510,6 +5510,7 @@ async function loadDialogues() {
       <div class="dlg-item ${currentDialogueId===d.id?'active':''}" onclick="openDialogue(${d.id})">
         <div class="dlg-item-name">
           <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(d.channel_name||'?')}</span>
+          ${d.notes && d.notes.trim() ? `<span title="${escapeHtml(d.notes)}" style="flex:none">📝</span>` : ''}
           <span class="dialogue-stage-pill ${DIALOGUE_STAGE_KINDS[d.dialogue_stage]||'neutral'}">${DIALOGUE_STAGE_LABELS[d.dialogue_stage]||d.dialogue_stage}</span>
         </div>
         <div class="dlg-item-preview">${escapeHtml((d.last_message||'').slice(0,80))}</div>
@@ -5548,6 +5549,14 @@ async function openDialogue(id) {
             : `<button class="btn-secondary btn-sm" onclick="moveLeadToTg(${j.lead.id})" title="Перевести в статус «Перешли в ТГ» и поставить AI-агента на паузу для этого лида">→ Перешли в ТГ</button>`}
           <a href="${escapeHtml(j.lead.channel_url||'#')}" target="_blank" class="btn-secondary btn-sm" style="text-decoration:none">Канал ↗</a>
         </div>
+      </div>
+      <div style="padding:8px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px">
+        <span style="font-size:13px" title="Заметка для себя по этому лиду">📝</span>
+        <input id="dlgNote" value="${escapeHtml(j.lead.notes||'')}"
+          placeholder="Заметка по лиду (напр.: связаться в WhatsApp)…"
+          onkeydown="if(event.key==='Enter')this.blur()"
+          onchange="saveDialogNote(${j.lead.id}, this.value, this)"
+          style="flex:1;font-size:12px;padding:6px 10px;border-radius:7px;border:1px solid var(--border);background:var(--bg-elev);color:var(--text)">
       </div>
       <div class="dlg-messages" id="dlgMessages"></div>
       <div class="dlg-input-row">
@@ -5597,6 +5606,22 @@ async function sendAdminMessage() {
 }
 
 // Перевод лида в «Перешли в ТГ» (ставит AI-агента на паузу для этого лида)
+// Сохранить заметку по лиду из шапки диалога
+async function saveDialogNote(leadId, value, el) {
+  try {
+    const r = await fetch('/api/leads/' + leadId, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ notes: value })
+    });
+    const j = await r.json();
+    if (j.success) {
+      toast('Заметка сохранена', 'success');
+      if (el) { el.style.borderColor = 'var(--green)'; setTimeout(() => { el.style.borderColor = ''; }, 1200); }
+      if (typeof loadDialogues === 'function') loadDialogues();
+    } else toast(j.error || 'Ошибка', 'error');
+  } catch (e) { toast(e.message, 'error'); }
+}
+
 async function moveLeadToTg(leadId) {
   if (!await confirmDialog('Перешли в ТГ?', 'Лид получит статус «Перешли в ТГ», и AI-агент перестанет ему писать. Вернуть можно кнопкой «Вернуть AI».')) return;
   await fetch('/api/leads/' + leadId, {
@@ -5837,6 +5862,7 @@ function renderPendingReplyCard(it) {
             <div style="display:flex;align-items:center;gap:10px">
               <span style="font-weight:700;font-size:15px;color:var(--text)">${escapeHtml(it.channel_name || 'Без лида')}</span>
               <button class="btn-secondary btn-sm" style="font-size:10px;padding:3px 10px;border-radius:6px" onclick="showLeadContext(${it.id})" title="Что AI знает о блогере">📋 Сводка</button>
+              <button class="btn-secondary btn-sm" style="font-size:10px;padding:3px 10px;border-radius:6px" onclick="showConversationHistory(${it.id})" title="Вся история переписки (оригинал + перевод)">📜 История</button>
             </div>
             <div style="font-size:12px;color:var(--text-dim);margin-top:2px">
               → <span style="color:var(--accent);font-weight:500">${escapeHtml(it.recipient || '')}</span>
@@ -5915,6 +5941,59 @@ function renderPendingReplyCard(it) {
       </div>
     </div>
   `;
+}
+
+async function showConversationHistory(pendingId) {
+  // Открываем модалку сразу с лоадером
+  const bd = document.createElement('div');
+  bd.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)';
+  bd.onclick = (e) => { if (e.target === bd) bd.remove(); };
+  const box = document.createElement('div');
+  box.style.cssText = 'background:var(--bg-elev);border:1px solid var(--border);border-radius:14px;padding:24px;width:90vw;max-width:920px;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.4)';
+  box.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+    <div id="convHistTitle" style="font-size:14px;font-weight:700;color:var(--text)">📜 История переписки</div>
+    <button onclick="this.closest('div[style*=fixed]').remove()" style="background:none;border:none;color:var(--text-dim);font-size:18px;cursor:pointer">✕</button>
+  </div><div id="convHistBody" style="overflow-y:auto;color:var(--text-dim);text-align:center;padding:30px">⏳ Загружаю историю и перевод…</div>`;
+  bd.appendChild(box);
+  document.body.appendChild(bd);
+
+  try {
+    const r = await fetch('/api/pending-replies/' + pendingId + '/history');
+    const j = await r.json();
+    const body = box.querySelector('#convHistBody');
+    if (!body) return; // модалку закрыли
+    if (!j.success) { body.innerHTML = '<div style="color:var(--red)">Ошибка: ' + escapeHtml(j.error || '') + '</div>'; return; }
+    if (!j.messages || j.messages.length === 0) {
+      body.innerHTML = '<div style="color:var(--text-dim)">Пока нет истории переписки с этим лидом.</div>';
+      return;
+    }
+    const titleEl = box.querySelector('#convHistTitle');
+    if (titleEl) titleEl.textContent = '📜 История · ' + (j.channel_name || '');
+    let html = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:8px;position:sticky;top:0">
+      <div style="font-size:10px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:1px">Оригинал</div>
+      <div style="font-size:10px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:1px">Перевод на русский</div>
+    </div>`;
+    for (const m of j.messages) {
+      const isIn = m.direction === 'in';
+      const who = isIn ? 'Блогер' : (m.sender === 'admin' ? 'Админ' : 'AI агент');
+      const tint = isIn ? 'rgba(59,130,246,0.06)' : 'rgba(255,255,255,0.04)';
+      const accent = isIn ? 'var(--blue)' : 'var(--accent)';
+      html += `<div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:12px;background:${tint}">
+        <div style="font-size:11px;font-weight:600;color:${accent};margin-bottom:8px">${who} · <span style="color:var(--text-dim);font-weight:400">${new Date(m.created_at).toLocaleString('ru')}</span></div>
+        ${m.subject ? `<div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:8px">✉ ${escapeHtml(m.subject)}</div>` : ''}
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div style="font-size:12px;line-height:1.6;color:var(--text);white-space:pre-wrap">${escapeHtml(m.content || '')}</div>
+          <div style="font-size:12px;line-height:1.6;color:var(--text-mid);white-space:pre-wrap;border-left:1px solid var(--border);padding-left:12px">${escapeHtml(m.content_ru || '—')}</div>
+        </div>
+      </div>`;
+    }
+    body.style.textAlign = 'left';
+    body.style.color = 'var(--text)';
+    body.innerHTML = html;
+  } catch (e) {
+    const body = box.querySelector('#convHistBody');
+    if (body) body.innerHTML = '<div style="color:var(--red)">Ошибка: ' + escapeHtml(e.message) + '</div>';
+  }
 }
 
 async function showLeadContext(pendingId) {

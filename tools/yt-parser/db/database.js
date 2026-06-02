@@ -162,6 +162,9 @@ function getDb(workspaceId = "default") {
     safeExec(`ALTER TABLE leads ADD COLUMN scored_at TEXT`);
   if (!columnExists("leads", "opted_out"))
     safeExec(`ALTER TABLE leads ADD COLUMN opted_out INTEGER DEFAULT 0`);
+  // Кэш русского перевода сообщения (для просмотра истории на «На проверке»)
+  if (!columnExists("messages", "content_ru"))
+    safeExec(`ALTER TABLE messages ADD COLUMN content_ru TEXT`);
   safeExec(
     `CREATE INDEX IF NOT EXISTS idx_leads_score ON leads(lead_score DESC)`,
   );
@@ -536,7 +539,7 @@ function buildStmts(db) {
       `UPDATE dialogues SET external_thread_id = ? WHERE id = ?`,
     ),
     listAllDialogues: db.prepare(`
-      SELECT d.*, l.channel_name, l.country, l.subscribers, l.lead_status, l.dialogue_stage,
+      SELECT d.*, l.channel_name, l.country, l.subscribers, l.lead_status, l.dialogue_stage, l.notes,
              (SELECT content FROM messages WHERE dialogue_id = d.id ORDER BY created_at DESC LIMIT 1) AS last_message,
              (SELECT created_at FROM messages WHERE dialogue_id = d.id ORDER BY created_at DESC LIMIT 1) AS last_message_at,
              (SELECT COUNT(*) FROM messages WHERE dialogue_id = d.id) AS message_count,
