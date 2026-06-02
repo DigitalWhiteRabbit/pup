@@ -6472,7 +6472,7 @@ function mCrBst(){
       '<div class="sep"></div>'+
       '<div class="txs fsem upc c-m tkw">\u0420\u0430\u0441\u043F\u0440\u0435\u0434\u0435\u043B\u0435\u043D\u0438\u0435</div>'+
       '<div class="mt2"><label class="lbl">\u0421\u0442\u0440\u0430\u0442\u0435\u0433\u0438\u044F'+tip('\u0418\u043C\u0438\u0442\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0435\u0441\u0442\u0435\u0441\u0442\u0432\u0435\u043D\u043D\u044B\u0439 \u0440\u043E\u0441\u0442 (\u0441 \u043F\u0430\u0443\u0437\u0430\u043C\u0438 \u043C\u0435\u0436\u0434\u0443 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F\u043C\u0438) \u0438\u043B\u0438 \u0440\u0430\u0432\u043D\u043E\u043C\u0435\u0440\u043D\u043E')+'</label><div class="sel-w"><select class="sel" name="distribution"><option value="natural">\u0415\u0441\u0442\u0435\u0441\u0442\u0432\u0435\u043D\u043D\u0430\u044F \u043A\u0440\u0438\u0432\u0430\u044F (Natural curve)</option><option value="even">\u0420\u0430\u0432\u043D\u043E\u043C\u0435\u0440\u043D\u043E</option><option value="front">\u0411\u043E\u043B\u044C\u0448\u0435 \u0432\u043D\u0430\u0447\u0430\u043B\u0435 (Front-loaded)</option></select></div></div>'+
-      '<div id="bst-emoji-section" style="display:none" class="mt3"><label class="lbl">\u042D\u043C\u043E\u0434\u0437\u0438 \u0434\u043B\u044F \u0440\u0435\u0430\u043A\u0446\u0438\u0439</label><div class="f g2x mt1">'+emojis.map(function(e){return '<button type="button" class="emo-btn bst-emo" data-emo="'+e+'">'+e+'</button>';}).join('')+'</div><input type="hidden" name="emoji" value="\uD83D\uDC4D"></div>'+
+      '<div id="bst-emoji-section" style="display:none" class="mt3"><label class="lbl">\u042D\u043C\u043E\u0434\u0437\u0438 (\u0432\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u043D\u0435\u0441\u043A\u043E\u043B\u044C\u043A\u043E)</label><div class="f fw g1h mt1">'+emojis.map(function(e){return '<button type="button" class="emo-btn bst-emo" data-emo="'+e+'" title="\u041F\u0435\u0440\u0435\u043A\u043B\u044E\u0447\u0438\u0442\u044C">'+e+'</button>';}).join('')+'</div><div class="txs c-m mt1" id="bst-emo-hint">\u0412\u044B\u0431\u0440\u0430\u043D\u043E: \uD83D\uDC4D</div><input type="hidden" name="emojis" value="\uD83D\uDC4D"></div>'+
       '<div class="sep"></div>'+
       '<div class="txs fsem upc c-m tkw">\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438</div>'+
       '<div class="g g2 mt2"><div><label class="lbl">\u0417\u0430\u0434\u0435\u0440\u0436\u043A\u0430 \u043C\u0438\u043D. (\u0441\u0435\u043A)</label><input class="input tsm" type="number" name="delay_min" value="5" min="1"></div><div><label class="lbl">\u0417\u0430\u0434\u0435\u0440\u0436\u043A\u0430 \u043C\u0430\u043A\u0441. (\u0441\u0435\u043A)</label><input class="input tsm" type="number" name="delay_max" value="30" min="1"></div></div>'+
@@ -6488,10 +6488,11 @@ function mCrBst(){
   /* Toggle emoji section for REACTIONS */
   var typeSel=document.getElementById('bst-type-sel'),emoSec=document.getElementById('bst-emoji-section');
   if(typeSel)typeSel.onchange=function(){emoSec.style.display=typeSel.value==='REACTIONS'?'':'none';updBstCost();};
-  /* Emoji select */
-  var selEmo='\uD83D\uDC4D';
-  document.querySelectorAll('.bst-emo').forEach(function(b){b.onclick=function(){selEmo=b.dataset.emo;document.querySelector('[name="emoji"]').value=selEmo;document.querySelectorAll('.bst-emo').forEach(function(x){x.classList.remove('emo-active');});b.classList.add('emo-active');};});
-  document.querySelector('.bst-emo').classList.add('emo-active');
+  /* Emoji multi-select (P4-08) */
+  var selEmos=['\uD83D\uDC4D'];
+  function updateEmoHint(){var hint=document.getElementById('bst-emo-hint');if(hint)hint.textContent='\u0412\u044B\u0431\u0440\u0430\u043D\u043E: '+(selEmos.length?selEmos.join(' '):'\u043D\u0435\u0442');document.querySelector('[name="emojis"]').value=selEmos.join(',');}
+  document.querySelectorAll('.bst-emo').forEach(function(b){b.onclick=function(){var e=b.dataset.emo;var idx=selEmos.indexOf(e);if(idx>=0){selEmos.splice(idx,1);b.classList.remove('emo-active');}else{selEmos.push(e);b.classList.add('emo-active');}updateEmoHint();};});
+  document.querySelector('.bst-emo').classList.add('emo-active');/* default \uD83D\uDC4D active */
   /* Cost preview updater */
   var tgtInp=document.getElementById('bst-target-inp');
   function updBstCost(){var v=parseInt(tgtInp.value)||0;document.getElementById('bst-cost-target').textContent=v>0?v+' '+((typeSel.value||'').toLowerCase()==='subscribers'?'\u043F\u043E\u0434\u043F\u0438\u0441\u0447\u0438\u043A\u043E\u0432':'\u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0439'):'--';var accs=v>0?Math.max(3,Math.ceil(v/50)):0;document.getElementById('bst-cost-accs').textContent=accs>0?'~'+accs:'--';var days=accs>0?Math.max(1,Math.ceil(v/accs/50)):0;document.getElementById('bst-cost-days').textContent=days>0?'~'+days+'-'+(days+2)+' \u0434\u043D\u0435\u0439':'--';}
@@ -6504,7 +6505,7 @@ function mCrBst(){
     var accIds=f.account_ids.value.trim().split('\n').map(function(s){return s.trim();}).filter(Boolean);
     var dist=f.distribution.value;
     try{
-      await ap('/boost/tasks',{name:name,boost_type:f.boost_type.value,target_channel:f.target_channel.value.trim(),target_amount:parseInt(f.target_amount.value),account_ids:accIds.length?accIds:undefined,config:{natural_curve:dist==='natural',distribution:dist,delay_min:parseInt(f.delay_min.value)||5,delay_max:parseInt(f.delay_max.value)||30,emoji:f.boost_type.value==='REACTIONS'?selEmo:undefined}});
+      await ap('/boost/tasks',{name:name,boost_type:f.boost_type.value,target_channel:f.target_channel.value.trim(),target_amount:parseInt(f.target_amount.value),account_ids:accIds.length?accIds:undefined,config:{natural_curve:dist==='natural',distribution:dist,delay_min:parseInt(f.delay_min.value)||5,delay_max:parseInt(f.delay_max.value)||30,emojis:f.boost_type.value==='REACTIONS'?(selEmos.length?selEmos:['👍']):undefined}});
       toast('\u0417\u0430\u0434\u0430\u0447\u0430 \u0441\u043E\u0437\u0434\u0430\u043D\u0430','success');mClose('mov');bstLoaded=false;await ldBst();if(S.sec==='boost')rBoost(document.getElementById('mc'));
     }catch(er){toast(er.message,'error');sb.disabled=false;sb.innerHTML='\u0421\u043E\u0437\u0434\u0430\u0442\u044C';}
   };

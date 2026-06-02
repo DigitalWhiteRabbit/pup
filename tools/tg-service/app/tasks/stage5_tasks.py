@@ -252,7 +252,13 @@ async def _boost_async(workspace_id: str, task_id: str) -> dict:
                 total_success += 1
 
             elif boost_type == "REACTIONS":
-                emoji = config.get("emoji", "👍")
+                # Support multiple emojis with random pick (P4-08)
+                emoji_pool = config.get("emojis") or []
+                if isinstance(emoji_pool, str):
+                    emoji_pool = [e.strip() for e in emoji_pool.split(",") if e.strip()]
+                if not emoji_pool:
+                    emoji_pool = [config.get("emoji", "👍")]
+                emoji = random.choice(emoji_pool)
                 await client(SendReactionRequest(
                     peer=entity,
                     msg_id=target_message_id or 0,
