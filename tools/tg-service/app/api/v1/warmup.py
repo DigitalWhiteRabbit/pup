@@ -167,8 +167,33 @@ async def start_warmup(
         db.rollback()
         raise
 
-    # Dispatch first warmup session immediately
-    task_id = _dispatch_warmup_session(workspace_id, account_id)
+    # Dispatch first warmup session immediately. The account is committed WARMING
+    # first (a separate worker process must see it on disk), so if the broker is
+    # down dispatch_task raises 503 — compensate the status back to its pre-warmup
+    # value rather than leaving the account falsely stuck in WARMING.
+    try:
+        task_id = _dispatch_warmup_session(workspace_id, account_id)
+    except HTTPException:
+        db.execute(
+            "UPDATE tg_accounts SET status = ?, updated_at = ? WHERE id = ?",
+            [current_status, _now(), account_id],
+        )
+        db.execute(
+            """
+            INSERT INTO tg_audit_logs (event_type, severity, entity_type, entity_id, message)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            ["account.warmup_start_failed", "WARNING", "account", account_id,
+             f"Warmup dispatch failed for {existing['phone']}; reverted to {current_status}"],
+        )
+        db.commit()
+        log.error(
+            "warmup_dispatch_failed",
+            account_id=account_id,
+            phone=existing["phone"],
+            reverted_to=current_status,
+        )
+        raise
 
     log.info(
         "warmup_started",
@@ -290,21 +315,17 @@ async def warmup_log(
 # Internal: dispatch Celery warmup task
 # ---------------------------------------------------------------------------
 
-def _dispatch_warmup_session(workspace_id: str, account_id: str) -> str | None:
-    """Dispatch a warmup_session Celery task, return task ID or None on failure."""
-    try:
-        from app.tasks.warmup_tasks import warmup_session
+def _dispatch_warmup_session(workspace_id: str, account_id: str) -> str:
+    """Dispatch a warmup_session Celery task (fail-fast → 503 if broker is down).
 
-        result = warmup_session.apply_async(
-            args=[workspace_id, account_id],
-            queue="pup_tg_default",
-        )
-        return result.id
-    except Exception as exc:
-        log.warning(
-            "warmup_dispatch_failed",
-            workspace_id=workspace_id,
-            account_id=account_id,
-            error=str(exc),
-        )
-        return None
+    Reuses the shared :func:`dispatch_task` helper instead of calling
+    ``apply_async`` directly, so a dead broker surfaces as HTTP 503 rather than a
+    silent success that leaves the account stuck in WARMING. Returns the
+    dispatched task id; raises ``HTTPException(503)`` if the broker is unreachable.
+    """
+    from app.tasks.dispatch import dispatch_task
+
+    return dispatch_task(
+        "pup_tg.warmup_session",
+        args=[workspace_id, account_id],
+    )
