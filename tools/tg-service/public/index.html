@@ -5663,6 +5663,7 @@ function rDmCampaign(el){
             (u==='DRAFT'||u==='PAUSED'?'<button class="btn btn-sm dmc-start" data-id="'+c.id+'">'+ic('play')+' Старт</button>':'')+
             (u==='RUNNING'?'<button class="btn btn-sm dmc-pause" data-id="'+c.id+'">'+ic('pause')+' Пауза</button>':'')+
             (u==='RUNNING'||u==='PAUSED'?'<button class="btn btn-sm btn-danger dmc-stop" data-id="'+c.id+'">'+ic('xcircle')+' Стоп</button>':'')+
+            (u==='COMPLETED'||u==='STOPPED'?'<button class="btn btn-sm dmc-chk-replies" data-id="'+c.id+'" title="Проверить ответы получателей через TG">💬 Ответы</button>':'')+
             '<button class="btn btn-ghost btn-icon btn-danger dmc-del" data-id="'+c.id+'" title="Удалить">'+ic('trash')+'</button>'+
           '</div>'+
         '</div>';
@@ -5680,6 +5681,7 @@ function rDmCampaign(el){
   el.querySelectorAll('.dmc-start').forEach(function(b){b.onclick=async function(e){e.stopPropagation();b.disabled=true;b.innerHTML='<span class="spin"></span>';try{await ap('/dm-campaigns/'+b.dataset.id+'/start');toast('Кампания запущена','success');dmcLoaded=false;await ldDmc();if(S.sec==='dm-campaign')rDmCampaign(document.getElementById('mc'));}catch(er){toast(er.message,'error');b.disabled=false;b.innerHTML=ic('play')+' Старт';}};});
   el.querySelectorAll('.dmc-pause').forEach(function(b){b.onclick=async function(e){e.stopPropagation();b.disabled=true;b.innerHTML='<span class="spin"></span>';try{await ap('/dm-campaigns/'+b.dataset.id+'/pause');toast('Кампания приостановлена','success');dmcLoaded=false;await ldDmc();if(S.sec==='dm-campaign')rDmCampaign(document.getElementById('mc'));}catch(er){toast(er.message,'error');b.disabled=false;b.innerHTML=ic('pause')+' Пауза';}};});
   el.querySelectorAll('.dmc-stop').forEach(function(b){b.onclick=async function(e){e.stopPropagation();b.disabled=true;b.innerHTML='<span class="spin"></span>';try{await ap('/dm-campaigns/'+b.dataset.id+'/stop');toast('Кампания остановлена','success');dmcLoaded=false;await ldDmc();if(S.sec==='dm-campaign')rDmCampaign(document.getElementById('mc'));}catch(er){toast(er.message,'error');b.disabled=false;b.innerHTML=ic('xcircle')+' Стоп';}};});
+  el.querySelectorAll('.dmc-chk-replies').forEach(function(b){b.onclick=async function(e){e.stopPropagation();b.disabled=true;b.innerHTML='<span class="spin"></span>';try{var r=await ap('/dm-campaigns/'+b.dataset.id+'/check-replies');toast('Проверено: '+r.checked+', новых ответов: '+r.newly_replied,'success');if(r.newly_replied>0){dmcLoaded=false;await ldDmc();if(S.sec==='dm-campaign')rDmCampaign(document.getElementById('mc'));}}catch(er){toast(er.message,'error');}b.disabled=false;b.innerHTML='💬 Ответы';};});
   el.querySelectorAll('.dmc-del').forEach(function(b){b.onclick=async function(e){e.stopPropagation();if(!confirm('Удалить кампанию?'))return;b.disabled=true;try{await aD('/dm-campaigns/'+b.dataset.id);toast('Кампания удалена','success');dmcLoaded=false;await ldDmc();if(S.sec==='dm-campaign')rDmCampaign(document.getElementById('mc'));}catch(er){toast(er.message,'error');b.disabled=false;}};});
 }
 function rDmcDetail(el){
