@@ -8,9 +8,10 @@ from datetime import datetime, timezone
 from typing import Any
 
 import structlog
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel
 
+from app.config import settings
 from app.deps import AdminAuth, WorkspaceDB, WorkspaceId
 
 router = APIRouter(prefix="/converter", tags=["converter"])
@@ -19,6 +20,40 @@ log = structlog.get_logger(__name__)
 
 VALID_FORMATS = {"TDATA", "SESSION", "SESSION_JSON"}
 VALID_STATUSES = {"DRAFT", "RUNNING", "COMPLETED", "FAILED"}
+
+# UI direction tokens (e.g. "tdata_to_session_json") → (input_format, output_format).
+# Order matters: "session_json" must be checked before "session".
+_DIRECTION_TOKENS = (
+    ("session_json", "SESSION_JSON"),
+    ("tdata", "TDATA"),
+    ("session", "SESSION"),
+)
+
+
+def _token_to_format(token: str) -> str | None:
+    for tok, fmt in _DIRECTION_TOKENS:
+        if token == tok:
+            return fmt
+    return None
+
+
+def _parse_direction(direction: str) -> tuple[str, str]:
+    """Parse a UI direction string like ``tdata_to_session_json`` into
+    ``(input_format, output_format)``. Raises HTTP 400 on an unknown shape."""
+    parts = direction.split("_to_")
+    if len(parts) != 2:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid direction '{direction}'. Expected '<input>_to_<output>'.",
+        )
+    in_fmt = _token_to_format(parts[0])
+    out_fmt = _token_to_format(parts[1])
+    if not in_fmt or not out_fmt:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid direction '{direction}'. Unknown format token.",
+        )
+    return in_fmt, out_fmt
 
 
 # ---------------------------------------------------------------------------
@@ -95,39 +130,60 @@ async def list_tasks(
 
 @router.post("/tasks", status_code=status.HTTP_201_CREATED)
 async def create_task(
-    body: ConversionTaskCreate,
     _token: AdminAuth,
     db: WorkspaceDB,
+    workspace_id: WorkspaceId,
+    files: list[UploadFile] = File(default=[]),
+    direction: str = Form(...),
+    options: str = Form(default="{}"),
 ) -> dict[str, Any]:
-    """Create a new conversion task."""
-    if body.input_format not in VALID_FORMATS:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid input_format '{body.input_format}'. Must be one of: {', '.join(sorted(VALID_FORMATS))}",
-        )
+    """Create a conversion task from a multipart upload.
 
-    if body.output_format not in VALID_FORMATS:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid output_format '{body.output_format}'. Must be one of: {', '.join(sorted(VALID_FORMATS))}",
-        )
-
-    if body.input_format == body.output_format:
+    The UI posts ``files`` + ``direction`` (e.g. ``tdata_to_session_json``) +
+    ``options`` (JSON). We parse the direction into input/output formats, persist
+    the uploaded files under ``data/converter/<task_id>/`` for the worker to pick
+    up, and create the task in DRAFT. (Actual format conversion is performed by
+    the worker — see P4-11 for the real opentele-backed implementation.)
+    """
+    input_format, output_format = _parse_direction(direction)
+    if input_format == output_format:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="input_format and output_format must be different.",
         )
 
+    try:
+        opts = json.loads(options) if options else {}
+        if not isinstance(opts, dict):
+            opts = {}
+    except (json.JSONDecodeError, TypeError):
+        opts = {}
+
     now = _now()
     task_id = str(uuid.uuid4())
+
+    # Persist uploaded files so the worker can convert them later.
+    work_dir = (settings.data_dir / "converter" / task_id).resolve()
+    work_dir.mkdir(parents=True, exist_ok=True)
+    saved = 0
+    for up in files:
+        if not up.filename:
+            continue
+        safe_name = up.filename.replace("/", "_").replace("\\", "_")
+        dest = work_dir / safe_name
+        content = await up.read()
+        dest.write_bytes(content)
+        saved += 1
+
+    name = opts.get("name") or f"{input_format}→{output_format}"
 
     try:
         db.execute(
             """INSERT INTO tg_conversion_tasks
-                (id, name, input_format, output_format, status, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (id, name, input_format, output_format, files_count, status, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             [
-                task_id, body.name, body.input_format, body.output_format,
+                task_id, name, input_format, output_format, saved,
                 "DRAFT", now, now,
             ],
         )
@@ -143,8 +199,9 @@ async def create_task(
     log.info(
         "conversion_task_created",
         task_id=task_id,
-        input_format=body.input_format,
-        output_format=body.output_format,
+        input_format=input_format,
+        output_format=output_format,
+        files=saved,
     )
     return _row_to_dict(row)
 

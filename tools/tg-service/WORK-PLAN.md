@@ -36,7 +36,7 @@
 - [x] **P1-05** · channels · Тип→{CHANNEL,SUPERGROUP,BASIC*GROUP,FORUM}, роль→{SOURCE,TARGET,BOTH,NONE}, чекбокс «мой канал»→is_own, вкладки/бейджи переведены на is_own+BOTH, resolve-маппинг типов. Live: SUPERGROUP/BOTH/is_own→201, 'channel'→400 ✓. *(commit P1-05)\_
 - [x] **P1-06** · auto-replier · UI-поведения → AI*REPLY/TEMPLATE/SILENCE/NOTIFY/HANDOFF_SALES + tooltip. Live: NOTIFY→201, FORWARD→400 ✓. *(commit P1-06/07)\_
 - [x] **P1-07** · phone-checker · `b.total` → `b.input_count` (фолбэк на total). Совпадает со схемой бэка ✓. _(commit P1-06/07)_
-- [ ] **P1-08** · converter · Починить контракт UI↔API: эндпоинт принимает JSON, UI шлёт multipart (files/direction/options) → 422. Принять UploadFile + распарсить direction→input/output_format. M · med
+- [x] **P1-08** · converter · POST /converter/tasks теперь multipart (files+direction+options); `_parse_direction` → input/output*format, файлы сохраняются в data/converter/<id>/, files_count проставляется; UI «Старт» показывается и для DRAFT. Live: 201 (file сохранён), foo_bar→400 ✓. Реальная конвертация — P4-11. *(commit P1-08)\_
 - [ ] **P1-09** · settings · Синхронизировать имена полей формы UI↔API (ai*model↔ai_default_model, daily_dm_limit↔limits_dm_per_day, active_hours_start/end↔active_hours, app_id, dm_delay*\_, notif\_\_). Почти вся форма сейчас молча не сохраняется. M · med
 - [ ] **P1-10** · inviting · Режим INVITE_LINK логирует ложный `SUCCESS`, ничего не отправив. Честно помечать (NOT_SENT/SKIPPED) или задизейблить режим в UI с пометкой. S-M · med (ложная отчётность)
 - [ ] **P1-11** · ai-promoter · Удалить/задепрекейтить мёртвый `ai_promoter_tasks.py` (`pup_tg.ai_promoter`, нигде не диспатчится, баг `account_id`). S · low

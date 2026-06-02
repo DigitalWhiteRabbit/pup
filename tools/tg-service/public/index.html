@@ -6733,7 +6733,7 @@ function rConverter(el){
           if(!dirLbl)dirLbl=(t.direction||'').replace('session_to_tdata','Session \u2192 TData').replace('tdata_to_session','TData \u2192 Session').replace('tdata_to_session_json','TData \u2192 Session+JSON').replace('session_json_to_tdata','Session+JSON \u2192 TData').replace('session_to_session_json','Session \u2192 Session+JSON').replace('session_json_to_session','Session+JSON \u2192 Session')||'--';
           var statusU=(t.status||'').toUpperCase();
           return '<tr class="clk" data-cnv-id="'+t.id+'"><td class="txs c-m">'+fmtDT(t.created_at)+'</td><td class="tsm fmed">'+esc(dirLbl)+'</td><td class="fmo">'+(t.files_count||0)+'</td><td class="fmo" style="color:var(--emerald-500)">'+(t.success_count||0)+'</td><td class="fmo" style="color:var(--red-500)">'+(t.failed_count||0)+'</td><td>'+cnvBdg(t.status)+'</td><td><div class="f g1h">'+
-            (statusU==='PENDING'?'<button class="btn btn-sm cnv-start" data-id="'+t.id+'">'+ic('play')+' \u0421\u0442\u0430\u0440\u0442</button>':'')+
+            (statusU==='PENDING'||statusU==='DRAFT'?'<button class="btn btn-sm cnv-start" data-id="'+t.id+'">'+ic('play')+' \u0421\u0442\u0430\u0440\u0442</button>':'')+
             '<button class="btn btn-ghost btn-icon btn-danger cnv-del" data-id="'+t.id+'" title="\u0423\u0434\u0430\u043B\u0438\u0442\u044C">'+ic('trash')+'</button>'+
           '</div></td></tr>';
         }).join('')+
