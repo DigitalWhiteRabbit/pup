@@ -188,18 +188,9 @@ def _register_auto_replier_tasks() -> None:
 _register_auto_replier_tasks()
 
 
-# ── Auto-discover AI promoter tasks ──────────────────────────────────────
-def _register_ai_promoter_tasks() -> None:
-    """Import ai_promoter_tasks so its @celery_app.task decorators register."""
-    try:
-        import app.tasks.ai_promoter_tasks  # noqa: F401, WPS433
-
-        log.info("celery_ai_promoter_tasks_registered")
-    except Exception:  # noqa: BLE001
-        log.warning("celery_ai_promoter_tasks_import_failed", exc_info=True)
-
-
-_register_ai_promoter_tasks()
+# NOTE: the legacy ``ai_promoter_tasks`` module (task ``pup_tg.ai_promoter``) was
+# removed — it was never dispatched (the real engine is ``ai_agent_tasks`` →
+# ``pup_tg.ai_agent``) and read a non-existent ``account_id`` field. See P1-11.
 
 
 # ── Auto-discover unified AI agent tasks ──────────────────────────────────
