@@ -2,9 +2,10 @@
 #
 # dev-up.sh — поднять TG Service локально БЕЗ Redis.
 #
-# Запускает два процесса:
+# Запускает три процесса:
 #   1. FastAPI (uvicorn :8001)
 #   2. Celery worker — на filesystem-брокере (очередь в data/broker/, Redis не нужен)
+#   3. Celery beat   — планировщик периодических задач (heartbeat, reaper, ...)
 #
 # Это закрывает главную проблему локалки: без воркера кнопки «Старт» переводят
 # задачу в ACTIVE, но никто её не исполняет. Здесь воркер реально крутится.
@@ -53,6 +54,19 @@ else
     >"$ROOT/logs/worker.log" 2>&1 &
   echo $! >"$WORKER_PID"
   echo "• Worker запущен (pid $(cat "$WORKER_PID")), брокер: $CELERY_BROKER_URL"
+fi
+
+# ── Celery beat (периодический планировщик) ──────────────────────────────────
+BEAT_PID="$RUN_DIR/beat.pid"
+if is_running "$BEAT_PID"; then
+  echo "• Beat уже запущен (pid $(cat "$BEAT_PID"))"
+else
+  # schedule-файл держим в gitignored data/run/, чтобы не мусорить в cwd
+  "$VENV/celery" -A app.tasks.celery_app beat \
+    --loglevel=info --schedule "$RUN_DIR/celerybeat-schedule" \
+    >"$ROOT/logs/beat.log" 2>&1 &
+  echo $! >"$BEAT_PID"
+  echo "• Beat запущен (pid $(cat "$BEAT_PID"))"
 fi
 
 sleep 2

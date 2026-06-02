@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# dev-down.sh — остановить процессы, поднятые dev-up.sh (API + Celery worker).
+# dev-down.sh — остановить процессы, поднятые dev-up.sh (API + Celery worker + beat).
 #
 set -euo pipefail
 
@@ -18,5 +18,6 @@ stop() {
   rm -f "$pidfile"
 }
 
+stop "Beat" "$RUN_DIR/beat.pid"
 stop "Worker" "$RUN_DIR/worker.pid"
 stop "API" "$RUN_DIR/api.pid"
