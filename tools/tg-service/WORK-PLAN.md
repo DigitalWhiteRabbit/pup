@@ -40,7 +40,7 @@
 - [x] **P1-09** · settings · Бридж UI↔колонки: `_ALIAS_TO_COL` (ai*model, daily*_, app_id/hash, notif_emergency_stop/spam_block, emergency/flood), active_hours_start/end↔active_hours, неизвестные UI-поля → новая колонка `extra_settings` (JSON). GET эхо-ит алиасы. Schema+ALTER ws-_.db. Live: PATCH UI-payload персистится (колонки+extra), ключ цел, restored ✓. _(commit P1-09)_
 - [x] **P1-10** · inviting · INVITE*LINK больше не пишет ложный SUCCESS: результат `LINK_READY`, total_success не инкрементится; UI-tooltip честно поясняет (доставка ссылки — вручную/через ЛС). Syntax+worker-reload ✓ (полный live-инвайт отложен: нужны реальные аккаунты+группа, ban-risk). *(commit P1-10)\_
 - [x] **P1-11** · ai-promoter · Удалён мёртвый `ai_promoter_tasks.py` + его регистрация в celery*app. Реальный движок `pup_tg.ai_agent` цел и работает (live в логах воркера). Worker рестарт без ошибок ✓. *(commit P1-11)\_
-- [ ] **P1-12** · warmup · Подключить мок-экран `rWarmup` к реальному `/warmup/status` + `/warmup/log/{id}` + кнопки start/stop (убрать хардкод-номера). M · low (бэк готов, чистый фронт)
+- [x] **P1-12** · warmup · `rWarmup` переписан на реальные `/warmup/status` + `/accounts`; убраны хардкод-номера; таблица из живых данных + Стоп по строке + «Запустить прогрев» (мульти-пикер аккаунтов, частично закрывает P4-01) + refresh. Live: playwright без ошибок (10 eligible), start→status→stop на disposable-акке ✓. _(commit P1-12)_
 
 **Регресс Ф1:** `scripts/regression_screens.py` → 26/26, чистка тестовых записей.
 

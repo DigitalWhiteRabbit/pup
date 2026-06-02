@@ -5214,24 +5214,61 @@ function mCrAr(){
 }
 
 /* ── 13. Warmup ── */
+var wmpLoaded=false,wmpRows=[],wmpAccts=[];
+var WMP_PROFILE_CLS={FRESH:'b-emerald',BEGINNER:'b-blue',ACTIVE:'b-orange',EXPERIENCED:'b-purple'};
+async function ldWmp(){
+  try{var r=await af('/warmup/status');wmpRows=r.accounts||[];}catch(e){wmpRows=[];}
+  try{var a=await af('/accounts?limit=500');wmpAccts=a.items||[];}catch(e){wmpAccts=[];}
+  wmpLoaded=true;
+}
 function rWarmup(el){
+  if(!wmpLoaded){el.innerHTML='<div class="sy4">'+skel('3rem')+skel('6rem')+skel('20rem')+'</div>';ldWmp().then(function(){if(S.sec==='warmup')rWarmup(el);});return;}
   var profiles=[
-    {emoji:'\uD83C\uDF31',name:'FRESH',desc:'Новый аккаунт. Минимальная активность, подписки на каналы.',actions:'3-5 действий/день',color:'var(--emerald-500)'},
-    {emoji:'\uD83C\uDF3F',name:'BEGINNER',desc:'Начальный прогрев. Чтение постов, реакции, редкие сообщения.',actions:'10-15 действий/день',color:'var(--blue-500)'},
-    {emoji:'\uD83C\uDF3E',name:'ACTIVE',desc:'Активная фаза. Сообщения в чатах, комментарии, инвайты.',actions:'25-35 действий/день',color:'var(--orange-500)'},
-    {emoji:'\uD83C\uDF33',name:'EXPERIENCED',desc:'Полная активность. Все функции разблокированы.',actions:'50+ действий/день',color:'var(--purple-500)'}
+    {emoji:'🌱',name:'FRESH',desc:'Новый аккаунт. Минимальная активность, подписки на каналы.',actions:'3-5 действий/день',color:'var(--emerald-500)'},
+    {emoji:'🌿',name:'BEGINNER',desc:'Начальный прогрев. Чтение постов, реакции, редкие сообщения.',actions:'10-15 действий/день',color:'var(--blue-500)'},
+    {emoji:'🌾',name:'ACTIVE',desc:'Активная фаза. Сообщения в чатах, комментарии, инвайты.',actions:'25-35 действий/день',color:'var(--orange-500)'},
+    {emoji:'🌳',name:'EXPERIENCED',desc:'Полная активность. Все функции разблокированы.',actions:'50+ действий/день',color:'var(--purple-500)'}
   ];
+  var rowsHtml=wmpRows.length>0?wmpRows.map(function(a){
+    var prof=(a.warmup_profile||'FRESH').toUpperCase();var pcls=WMP_PROFILE_CLS[prof]||'b-muted';
+    return '<tr><td class="fmed fmo">'+esc(a.phone||a.account_id||'--')+'</td>'+
+      '<td><span class="badge '+pcls+'">'+esc(prof)+'</span></td>'+
+      '<td>'+wuBar(a.warmup_level||0)+'</td>'+
+      '<td class="fmo">'+(a.actions_count||0)+'</td>'+
+      '<td class="txs c-m">'+(a.last_action_at?fmtDT(a.last_action_at):'—')+'</td>'+
+      '<td><button class="btn btn-sm btn-danger wmp-stop" data-id="'+a.account_id+'">'+ic('pause')+' Стоп</button></td></tr>';
+  }).join(''):'<tr><td colspan="6" class="txs c-m" style="text-align:center;padding:2rem 0">Нет аккаунтов на прогреве. Нажмите «Запустить прогрев».</td></tr>';
   el.innerHTML='<div class="sy4">'+
-    pageHead('Прогрев аккаунтов','','<button class="btn btn-sm btn-primary wip-btn">'+ic('plus')+' Новый профиль</button>','1')+
+    pageHead('Прогрев аккаунтов',wmpRows.length+' на прогреве','<button class="btn btn-sm btn-primary" id="wmp-start">'+ic('play')+' Запустить прогрев</button>','1')+
     '<div class="g g4">'+profiles.map(function(p){
-      return '<div class="wu-profile" onclick=""><div class="wu-emoji">'+p.emoji+'</div><div class="tsm fbol" style="color:'+p.color+'">'+p.name+'</div><div class="txs c-m mt1" style="line-height:1.5">'+p.desc+'</div><div class="txs fmed mt2" style="color:'+p.color+'">'+p.actions+'</div></div>';
+      return '<div class="wu-profile"><div class="wu-emoji">'+p.emoji+'</div><div class="tsm fbol" style="color:'+p.color+'">'+p.name+'</div><div class="txs c-m mt1" style="line-height:1.5">'+p.desc+'</div><div class="txs fmed mt2" style="color:'+p.color+'">'+p.actions+'</div></div>';
     }).join('')+'</div>'+
-    '<div class="card"><div class="card-head"><div class="card-title">Мониторинг прогрева</div></div><div class="card-body flush"><div class="tw"><table><thead><tr><th>Аккаунт</th><th>Профиль</th><th>Уровень</th><th>Дней</th><th>Действий сегодня</th><th>Статус</th></tr></thead><tbody>'+
-      '<tr><td class="fmed">+7916xxx1234</td><td><span class="badge b-emerald">FRESH</span></td><td>'+wuBar(15)+'</td><td>3</td><td class="fmo">4 / 5</td><td><span class="badge b-emerald b-ol">Активен</span></td></tr>'+
-      '<tr><td class="fmed">+7903xxx5678</td><td><span class="badge b-blue">BEGINNER</span></td><td>'+wuBar(42)+'</td><td>12</td><td class="fmo">11 / 15</td><td><span class="badge b-emerald b-ol">Активен</span></td></tr>'+
-      '<tr><td class="fmed">+7925xxx9012</td><td><span class="badge b-orange">ACTIVE</span></td><td>'+wuBar(78)+'</td><td>28</td><td class="fmo">30 / 35</td><td><span class="badge b-yellow b-ol">FloodWait</span></td></tr>'+
+    '<div class="card"><div class="card-head"><div class="f ac jb"><div class="card-title">Мониторинг прогрева</div><button class="btn btn-sm btn-ghost" id="wmp-refresh">'+ic('refresh')+'</button></div></div><div class="card-body flush"><div class="tw"><table><thead><tr><th>Аккаунт</th><th>Профиль</th><th>Уровень</th><th>Действий (всего)</th><th>Последнее действие</th><th>Действия</th></tr></thead><tbody>'+
+      rowsHtml+
     '</tbody></table></div></div></div>'+
   '</div>';
+  var rf=el.querySelector('#wmp-refresh');if(rf)rf.onclick=function(){wmpLoaded=false;rWarmup(el);};
+  var sb=el.querySelector('#wmp-start');if(sb)sb.onclick=function(){mWarmupStart();};
+  el.querySelectorAll('.wmp-stop').forEach(function(b){b.onclick=async function(){b.disabled=true;b.innerHTML='<span class="spin"></span>';try{await ap('/warmup/'+b.dataset.id+'/stop');toast('Прогрев остановлен','success');wmpLoaded=false;rWarmup(el);}catch(e){toast(e.message,'error');b.disabled=false;b.innerHTML='Стоп';}};});
+}
+function mWarmupStart(){
+  var warmingIds={};wmpRows.forEach(function(a){warmingIds[a.account_id]=true;});
+  var eligible=wmpAccts.filter(function(a){var s=(a.status||'').toUpperCase();return !warmingIds[a.id]&&s!=='BANNED'&&s!=='DEAD'&&s!=='SPAM_BLOCKED'&&s!=='WARMING';});
+  var h='<div class="dlg-ov" id="mov"><div class="dlg"><div class="dlg-hd"><div class="dlg-tt">'+ic('play')+' Запустить прогрев</div></div>'+
+    '<div class="dlg-bd sy3">'+
+    (eligible.length>0
+      ?'<p class="sfn">Выберите аккаунты ('+eligible.length+' доступно):</p><div class="ipn sy1h" style="max-height:300px;overflow:auto">'+eligible.map(function(a){return '<label class="f ac g2x txs" style="padding:0.25rem 0;cursor:pointer"><input type="checkbox" class="wmp-pick" value="'+a.id+'"><span class="fmo">'+esc(a.phone||a.id)+'</span><span class="c-m">'+esc((a.status||'').toUpperCase())+'</span></label>';}).join('')+'</div>'
+      :'<p class="sfn">Нет доступных аккаунтов (все уже прогреваются или заблокированы).</p>')+
+    '</div>'+
+    '<div class="dlg-ft"><button type="button" class="btn btn-sm" id="mcl">Отмена</button>'+(eligible.length>0?'<button class="btn btn-sm btn-primary" id="wmp-go">Запустить</button>':'')+'</div></div></div>';
+  document.body.insertAdjacentHTML('beforeend',h);mBind('mov','mcl');
+  var go=document.getElementById('wmp-go');if(go)go.onclick=async function(){
+    var ids=[].slice.call(document.querySelectorAll('.wmp-pick:checked')).map(function(c){return c.value;});
+    if(!ids.length){toast('Выберите хотя бы один аккаунт','error');return;}
+    go.disabled=true;go.innerHTML='<span class="spin"></span> Запуск';
+    var ok=0,fail=0;for(var i=0;i<ids.length;i++){try{await ap('/warmup/'+ids[i]+'/start');ok++;}catch(e){fail++;}}
+    toast('Прогрев запущен: '+ok+(fail?(', ошибок '+fail):''),fail?'error':'success');mClose('mov');wmpLoaded=false;if(S.sec==='warmup')rWarmup(document.getElementById('mc'));
+  };
 }
 
 /* ── 14. DM Campaign ── */
