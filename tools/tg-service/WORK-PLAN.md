@@ -34,8 +34,8 @@
 - [x] **P1-03** · parser · UI-режимы синхронизированы с VALID*MODES (8 реальных). Live: REACTIONS→201, ACTIVE_ONLINE→400 ✓. *(commit P1-03/04)\_
 - [x] **P1-04** · parser · found*count/filtered_count → total_found/total_filtered (3 места в rParser). Live: поля присутствуют ✓. *(commit P1-03/04)\_
 - [x] **P1-05** · channels · Тип→{CHANNEL,SUPERGROUP,BASIC*GROUP,FORUM}, роль→{SOURCE,TARGET,BOTH,NONE}, чекбокс «мой канал»→is_own, вкладки/бейджи переведены на is_own+BOTH, resolve-маппинг типов. Live: SUPERGROUP/BOTH/is_own→201, 'channel'→400 ✓. *(commit P1-05)\_
-- [ ] **P1-06** · auto-replier · Синхронизировать поведения: заменить UI `FORWARD/IGNORE` на реальные `SILENCE/NOTIFY/HANDOFF_SALES` (бэк их валидирует). S · low
-- [ ] **P1-07** · phone-checker · Согласовать счётчики UI↔бэк: UI берёт `b.total`, которого нет (есть `input_count`). S · low
+- [x] **P1-06** · auto-replier · UI-поведения → AI*REPLY/TEMPLATE/SILENCE/NOTIFY/HANDOFF_SALES + tooltip. Live: NOTIFY→201, FORWARD→400 ✓. *(commit P1-06/07)\_
+- [x] **P1-07** · phone-checker · `b.total` → `b.input_count` (фолбэк на total). Совпадает со схемой бэка ✓. _(commit P1-06/07)_
 - [ ] **P1-08** · converter · Починить контракт UI↔API: эндпоинт принимает JSON, UI шлёт multipart (files/direction/options) → 422. Принять UploadFile + распарсить direction→input/output_format. M · med
 - [ ] **P1-09** · settings · Синхронизировать имена полей формы UI↔API (ai*model↔ai_default_model, daily_dm_limit↔limits_dm_per_day, active_hours_start/end↔active_hours, app_id, dm_delay*\_, notif\_\_). Почти вся форма сейчас молча не сохраняется. M · med
 - [ ] **P1-10** · inviting · Режим INVITE_LINK логирует ложный `SUCCESS`, ничего не отправив. Честно помечать (NOT_SENT/SKIPPED) или задизейблить режим в UI с пометкой. S-M · med (ложная отчётность)

@@ -3465,7 +3465,7 @@ function rPhoneChecker(el){
           :(phcItems.length>0
             ?'<div class="sy2">'+phcItems.slice(0,5).map(function(b){
               var stCls=b.status==='COMPLETED'?'b-emerald b-ol':b.status==='PENDING'?'b-muted b-ol':'b-blue b-ol';
-              return '<div class="f ac jb" style="padding:0.5rem 0;border-bottom:1px solid var(--border)"><div><div class="txs fmed">'+esc(b.id||'--')+'</div><div class="t10 c-m">'+fmtDT(b.created_at)+' &middot; '+(b.total||0)+' номеров</div></div><span class="badge '+stCls+'">'+esc(b.status||'--')+'</span></div>';
+              return '<div class="f ac jb" style="padding:0.5rem 0;border-bottom:1px solid var(--border)"><div><div class="txs fmed">'+esc(b.id||'--')+'</div><div class="t10 c-m">'+fmtDT(b.created_at)+' &middot; '+(b.input_count||b.total||0)+' номеров</div></div><span class="badge '+stCls+'">'+esc(b.status||'--')+'</span></div>';
             }).join('')+'</div>'
             :'<div class="txs c-m" style="text-align:center;padding:2rem 0">Введите номера и нажмите "Запустить"</div>'
           )
@@ -5188,7 +5188,7 @@ function rArTester(){
   '</div></div>';
 }
 function mCrAr(){
-  var behaviors=['AI_REPLY','TEMPLATE','FORWARD','IGNORE'];
+  var behaviors=['AI_REPLY','TEMPLATE','SILENCE','NOTIFY','HANDOFF_SALES'];
   var accOpts='';
   if(S.acc&&S.acc.length)S.acc.forEach(function(a){accOpts+='<option value="'+a.id+'">'+esc(a.phone||a.username||a.id)+'</option>';});
   var h='<div class="dlg-ov" id="mov"><div class="dlg dlg-wide">'+
@@ -5197,7 +5197,7 @@ function mCrAr(){
       '<div><label class="lbl">Название *</label><input class="input tsm" name="name" placeholder="Приветствие новых контактов" autofocus></div>'+
       '<div><label class="lbl">Аккаунты</label><div class="sel-w"><select class="sel" name="account_ids" multiple style="min-height:60px">'+accOpts+'</select></div><div class="txs c-m mt1">Ctrl+клик для выбора нескольких</div></div>'+
       '<div><label class="lbl">Триггеры (JSON массив)'+tip('Правила срабатывания: по ключевым словам, по regex, или на любое сообщение')+'</label><textarea class="ta" name="triggers" placeholder=\'[{"type":"first_message"},{"type":"keyword","value":"цена"}]\' style="min-height:80px"></textarea></div>'+
-      '<div><label class="lbl">Поведение по умолчанию'+tip('AI_REPLY \u2014 ответ через Claude, TEMPLATE \u2014 шаблон, FORWARD \u2014 переслать, IGNORE \u2014 игнорировать')+'</label><div class="sel-w"><select class="sel" name="default_behavior">'+behaviors.map(function(b){return '<option value="'+b+'">'+esc(b)+'</option>';}).join('')+'</select></div></div>'+
+      '<div><label class="lbl">Поведение по умолчанию'+tip('AI_REPLY \u2014 ответ через Claude, TEMPLATE \u2014 шаблон, SILENCE \u2014 молчать, NOTIFY \u2014 уведомить оператора, HANDOFF_SALES \u2014 передать AI Продажнику')+'</label><div class="sel-w"><select class="sel" name="default_behavior">'+behaviors.map(function(b){return '<option value="'+b+'">'+esc(b)+'</option>';}).join('')+'</select></div></div>'+
     '</div>'+
     '<div class="dlg-ft"><button type="button" class="btn btn-sm" id="mcl">Отмена</button><button type="submit" class="btn btn-sm btn-primary" id="ms">Создать</button></div></form></div></div>';
   document.body.insertAdjacentHTML('beforeend',h);mBind('mov','mcl');
