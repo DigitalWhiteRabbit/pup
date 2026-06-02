@@ -6248,14 +6248,14 @@ async function approvePendingReply(id) {
 }
 
 async function rejectPendingReply(id) {
-  if (!await confirmDialog('Отклонить ответ?','Агент больше не попробует его отправить.')) return;
+  if (!await confirmDialog('Отклонить?','Письмо не отправится, AI больше не сгенерирует его заново. Лид уйдёт в «Лиды» со статусом «Отклонён» (можно восстановить).')) return;
   try {
     const r = await fetch('/api/pending-replies/'+id+'/reject', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({})
     });
     const j = await r.json();
-    if (j.success) { toast('Отклонено','info'); loadPendingReplies(); }
+    if (j.success) { toast('Отклонено — лид в «Лидах»','info'); loadPendingReplies(); if (typeof loadLeads === 'function') loadLeads(); }
     else toast('Ошибка: '+(j.error||'unknown'),'error');
   } catch(e) { toast('Ошибка: '+e.message,'error'); }
 }

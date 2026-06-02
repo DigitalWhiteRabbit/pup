@@ -138,11 +138,13 @@ router.post("/:id/reject", (req, res) => {
   const now = new Date().toISOString();
   req.stmts.rejectPendingReply.run(notes, now, id);
 
-  // Reset lead so "Запустить" appears again
+  // Отклонить = вывести лида из авто-очереди (иначе при запущенном агенте
+  // ready+not_contacted сразу подхватывается и письмо генерируется заново —
+  // бесконечная петля). Лид остаётся в «Лидах» со статусом rejected (↺ восстановить).
   if (item.lead_id) {
     req.db
       .prepare(
-        `UPDATE leads SET lead_status = 'ready', dialogue_stage = 'not_contacted', locked_until = NULL, updated_at = ? WHERE id = ?`,
+        `UPDATE leads SET lead_status = 'rejected', locked_until = NULL, updated_at = ? WHERE id = ?`,
       )
       .run(now, item.lead_id);
   }
