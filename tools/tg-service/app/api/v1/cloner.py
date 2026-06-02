@@ -33,6 +33,50 @@ class ClonerTaskCreate(BaseModel):
     ai_rewrite: bool = False
     ai_rewrite_style: str | None = None
     schedule_config: dict[str, Any] = Field(default_factory=dict)
+    # The UI sends a flat `config` object (copy_posts/copy_profile/.../replacements/
+    # max_posts_per_day/active_hours_from/to). Previously this whole object was
+    # dropped (the model had no such field) so nothing but the default copy_items
+    # ever reached the worker. We now accept it and normalize below (P2-08).
+    config: dict[str, Any] | None = None
+
+
+def _normalize_cloner_config(body: ClonerTaskCreate) -> tuple[list[str], bool, str | None, dict[str, Any]]:
+    """Derive (copy_items, ai_rewrite, ai_rewrite_style, schedule_config) from
+    either the flat UI ``config`` object or the explicit top-level fields."""
+    cfg = body.config
+    if not cfg:
+        return body.copy_items, body.ai_rewrite, body.ai_rewrite_style, body.schedule_config
+
+    items: list[str] = []
+    if cfg.get("copy_posts", True):
+        items.append("posts")
+    if cfg.get("copy_profile"):
+        items.append("profile")
+    if cfg.get("copy_avatar"):
+        items.append("avatar")
+    if cfg.get("copy_pinned"):
+        items.append("pinned")
+    if not items:
+        items = ["posts"]
+
+    ai_rewrite = bool(cfg.get("ai_rewrite", body.ai_rewrite))
+    ai_rewrite_style = cfg.get("ai_style") or body.ai_rewrite_style
+
+    # Everything operational the worker needs lives in schedule_config.
+    schedule_config = {
+        "replacements": cfg.get("replacements"),
+        "max_posts_per_day": cfg.get("max_posts_per_day"),
+        "active_hours_from": cfg.get("active_hours_from"),
+        "active_hours_to": cfg.get("active_hours_to"),
+        "delay_min": cfg.get("delay_min"),
+        "delay_max": cfg.get("delay_max"),
+        "strategy": cfg.get("strategy"),
+        "copy_links": cfg.get("copy_links"),
+        "copy_polls": cfg.get("copy_polls"),
+        "copy_topics": cfg.get("copy_topics"),
+        "copy_settings": cfg.get("copy_settings"),
+    }
+    return items, ai_rewrite, ai_rewrite_style, schedule_config
 
 
 # ---------------------------------------------------------------------------
@@ -108,8 +152,10 @@ async def create_task(
     db: WorkspaceDB,
 ) -> dict[str, Any]:
     """Create a new cloner task."""
+    copy_items, ai_rewrite, ai_rewrite_style, schedule_config = _normalize_cloner_config(body)
+
     # Validate copy_items
-    invalid_items = set(body.copy_items) - VALID_COPY_ITEMS
+    invalid_items = set(copy_items) - VALID_COPY_ITEMS
     if invalid_items:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -128,8 +174,8 @@ async def create_task(
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             [
                 task_id, body.name, body.source_channel, body.target_channel,
-                json.dumps(body.copy_items), int(body.ai_rewrite),
-                body.ai_rewrite_style, json.dumps(body.schedule_config),
+                json.dumps(copy_items), int(ai_rewrite),
+                ai_rewrite_style, json.dumps(schedule_config),
                 "DRAFT", now, now,
             ],
         )

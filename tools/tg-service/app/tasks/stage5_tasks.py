@@ -30,6 +30,42 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _within_hours(h_start: Any, h_end: Any) -> bool:
+    """True if the current UTC hour is within [h_start, h_end) (wraps midnight).
+    Degenerate/unparseable window → True (no gate)."""
+    try:
+        s = int(h_start) % 24
+        e = int(h_end) % 24
+    except (TypeError, ValueError):
+        return True
+    if s == e:
+        return True
+    cur = datetime.now(timezone.utc).hour
+    if s < e:
+        return s <= cur < e
+    return cur >= s or cur < e
+
+
+def _parse_replacements(raw: Any) -> list[tuple[str, str]]:
+    """Parse a ``old→new`` (or ``old->new``) per-line replacements string into
+    a list of (find, replace) pairs. Empty/blank input → empty list."""
+    if not raw or not isinstance(raw, str):
+        return []
+    pairs: list[tuple[str, str]] = []
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        sep = "→" if "→" in line else ("->" if "->" in line else None)
+        if not sep:
+            continue
+        old, new = line.split(sep, 1)
+        old = old.strip()
+        if old:
+            pairs.append((old, new.strip()))
+    return pairs
+
+
 def _settings_active_now(db: Any) -> bool:
     """True if the current UTC hour is within tg_settings.active_hours
     ("HH:00-HH:00"). Missing/unparseable settings → always active (no gate)."""
@@ -395,6 +431,22 @@ async def _cloner_async(workspace_id: str, task_id: str) -> dict:
     copy_items = json.loads(task["copy_items"] or '["posts"]')
     ai_rewrite = bool(task["ai_rewrite"])
 
+    # Operational config (P2-08): replacements / max_posts_per_day / active hours / delays.
+    sched = json.loads(task["schedule_config"] or "{}")
+    replacements = _parse_replacements(sched.get("replacements"))
+    max_posts_per_day = sched.get("max_posts_per_day")
+    ah_from = sched.get("active_hours_from")
+    ah_to = sched.get("active_hours_to")
+    cl_delay_min = sched.get("delay_min") or 5
+    cl_delay_max = sched.get("delay_max") or 30
+
+    # Active-hours gate: outside the configured window → pause for a later run.
+    if ah_from is not None and ah_to is not None and not _within_hours(ah_from, ah_to):
+        db.execute("UPDATE tg_clone_tasks SET status='PAUSED', updated_at=? WHERE id=?", [_now(), task_id])
+        db.commit()
+        log.info("cloner_outside_active_hours", task_id=task_id, frm=ah_from, to=ah_to)
+        return {"status": "PAUSED", "reason": "outside active hours"}
+
     # Pick first available account
     acc_rows = db.execute("SELECT id FROM tg_accounts WHERE status = 'ACTIVE' LIMIT 1").fetchall()
     if not acc_rows:
@@ -426,8 +478,62 @@ async def _cloner_async(workspace_id: str, task_id: str) -> dict:
         source_entity = await client.get_entity(source_channel)
         target_entity = await client.get_entity(target_channel)
 
+        # ── Copy profile / avatar / pinned (P2-08) ───────────────────────────
+        if "profile" in copy_items or "avatar" in copy_items:
+            try:
+                src_full = await client.get_entity(source_channel)
+                title = getattr(src_full, "title", None)
+                from telethon.tl.functions.channels import EditTitleRequest, EditPhotoRequest
+                if "profile" in copy_items and title:
+                    new_title = title
+                    for old, new in replacements:
+                        new_title = new_title.replace(old, new)
+                    try:
+                        await client(EditTitleRequest(channel=target_entity, title=new_title[:128]))
+                        log.info("cloner_profile_copied", task_id=task_id)
+                    except Exception as e:
+                        log.warning("cloner_profile_failed", error=str(e)[:120])
+                if "avatar" in copy_items:
+                    try:
+                        photos = await client.get_profile_photos(source_entity, limit=1)
+                        if photos:
+                            await client(EditPhotoRequest(channel=target_entity, photo=photos[0]))
+                            log.info("cloner_avatar_copied", task_id=task_id)
+                    except Exception as e:
+                        log.warning("cloner_avatar_failed", error=str(e)[:120])
+            except Exception as e:
+                log.warning("cloner_profile_block_failed", error=str(e)[:120])
+
+        if "pinned" in copy_items:
+            try:
+                recent = await client.get_messages(source_entity, limit=50)
+                pinned_msg = next((m for m in recent if getattr(m, "pinned", False)), None)
+                if pinned_msg:
+                    ptext = pinned_msg.text or ""
+                    for old, new in replacements:
+                        ptext = ptext.replace(old, new)
+                    if pinned_msg.media:
+                        sent = await client.send_file(target_entity, pinned_msg.media, caption=ptext)
+                    else:
+                        sent = await client.send_message(target_entity, ptext) if ptext else None
+                    if sent:
+                        try:
+                            await client.pin_message(target_entity, sent)
+                            log.info("cloner_pinned_copied", task_id=task_id)
+                        except Exception:
+                            pass
+            except Exception as e:
+                log.warning("cloner_pinned_failed", error=str(e)[:120])
+
         if "posts" in copy_items:
-            messages = await client.get_messages(source_entity, limit=50)
+            # max_posts_per_day caps how many posts we copy in one run.
+            fetch_limit = 50
+            try:
+                if max_posts_per_day:
+                    fetch_limit = min(50, int(max_posts_per_day))
+            except (TypeError, ValueError):
+                pass
+            messages = await client.get_messages(source_entity, limit=fetch_limit)
             total_posts = len(messages)
 
             for msg in reversed(messages):
@@ -435,6 +541,10 @@ async def _cloner_async(workspace_id: str, task_id: str) -> dict:
                     continue
 
                 text = msg.text or ""
+
+                # Apply text replacements (P2-08) before AI rewrite.
+                for old, new in replacements:
+                    text = text.replace(old, new)
 
                 # AI rewrite if enabled
                 if ai_rewrite and text:
@@ -470,7 +580,7 @@ async def _cloner_async(workspace_id: str, task_id: str) -> dict:
                 except Exception:
                     pass
 
-                await asyncio.sleep(random.uniform(5, 30))
+                await asyncio.sleep(random.uniform(cl_delay_min, cl_delay_max))
 
     except Exception as e:
         log.error("cloner_error", error=str(e)[:200])
