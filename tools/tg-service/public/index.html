@@ -3574,7 +3574,7 @@ function rChannels(el){
           var roleLbl=rUp==='SOURCE'?'Источник':rUp==='TARGET'?'Цель':rUp==='BOTH'?'Ист.+Цель':rUp==='NONE'?'—':c.role||'--';
           if(c.is_own)roleLbl='<span class="badge b-emerald b-ol">Мой</span> '+roleLbl;
           var typeLbl=c.type||'--';
-          return '<tr><td class="fmed c-bl">'+esc(c.username?'@'+c.username:c.title||'--')+'</td><td><span class="badge b-muted b-ol">'+esc(typeLbl)+'</span></td><td class="fmo">'+(c.members_count!=null?c.members_count:'\u2014')+'</td><td class="txs c-m">'+esc(c.category||'--')+'</td><td><span class="badge '+roleCls+'">'+esc(roleLbl)+'</span></td><td><button class="btn btn-ghost btn-icon btn-danger ch-del" data-id="'+c.id+'" title="Удалить">'+ic('trash')+'</button></td></tr>';
+          return '<tr data-ch-id="'+c.id+'"><td class="fmed c-bl">'+esc(c.username?'@'+c.username:c.title||'--')+'</td><td><span class="badge b-muted b-ol">'+esc(typeLbl)+'</span></td><td class="fmo">'+(c.members_count!=null?c.members_count:'\u2014')+'</td><td><input class="input txs ch-cat-inp" data-id="'+c.id+'" value="'+esc(c.category||'')+'" placeholder="Категория" style="width:90px;padding:2px 5px"></td><td><div class="sel-w"><select class="sel txs ch-role-sel" data-id="'+c.id+'" style="font-size:0.7rem;padding:2px 4px"><option value="SOURCE"'+(rUp==='SOURCE'?' selected':'')+'>Источник</option><option value="TARGET"'+(rUp==='TARGET'?' selected':'')+'>Цель</option><option value="BOTH"'+(rUp==='BOTH'?' selected':'')+'>Ист.+Цель</option><option value="NONE"'+(rUp==='NONE'?' selected':'')+'>—</option></select></div></td><td><div class="f g1h"><button class="btn btn-ghost btn-icon ch-parse" data-username="'+(c.username||c.title||'')+'" title="Создать парсинг по этому каналу">'+ic('search')+'</button><button class="btn btn-ghost btn-icon btn-danger ch-del" data-id="'+c.id+'" title="Удалить">'+ic('trash')+'</button></div></td></tr>';
         }).join('')+
       '</tbody></table></div>'
       :esHtml('globe','Нет каналов','Добавьте каналы и группы для парсинга и продвижения',
@@ -3585,6 +3585,12 @@ function rChannels(el){
   var addB2=el.querySelector('#ch-add2');if(addB2)addB2.onclick=function(){mCrChannel();};
   el.querySelectorAll('.tab-item').forEach(function(t){t.onclick=function(){chTab=t.dataset.chtab||'ALL';rChannels(el);};});
   el.querySelectorAll('.ch-del').forEach(function(b){b.onclick=async function(){if(!confirm('Удалить канал?'))return;b.disabled=true;try{await aD('/channels/'+b.dataset.id);toast('Канал удалён','success');chLoaded=false;await ldCh();if(S.sec==='channels')rChannels(document.getElementById('mc'));}catch(e){toast(e.message,'error');b.disabled=false;}};});
+  /* P3-15: inline role select */
+  el.querySelectorAll('.ch-role-sel').forEach(function(s){s.onchange=async function(){var id=s.dataset.id;try{await aP('/channels/'+id,{role:s.value});var c=chItems.find(function(x){return x.id===id;});if(c)c.role=s.value;}catch(e){toast(e.message,'error');}};});
+  /* P3-15: inline category edit */
+  var cqt={};el.querySelectorAll('.ch-cat-inp').forEach(function(inp){var id=inp.dataset.id;inp.addEventListener('input',function(){clearTimeout(cqt[id]);cqt[id]=setTimeout(async function(){try{await aP('/channels/'+id,{category:inp.value.trim()||null});var c=chItems.find(function(x){return x.id===id;});if(c)c.category=inp.value.trim();}catch(e){toast(e.message,'error');}},600);});});
+  /* P3-17: parse from channel row */
+  el.querySelectorAll('.ch-parse').forEach(function(b){b.onclick=function(){var un=b.dataset.username;if(!un){toast('Нет @username у канала','error');return;}mCrParser(un.replace(/^@/,''));};});
 }
 function mCrChannel(){
   var h='<div class="dlg-ov" id="mov"><div class="dlg">'+
@@ -3618,7 +3624,7 @@ function mCrChannel(){
     var username=resolved?resolved.username:document.getElementById('ch-link').value.trim().replace(/^@/,'').replace(/^https?:\/\/t\.me\//,'');
     var title=resolved?resolved.title:username;
     try{
-      await ap('/channels',{username:username,title:title,type:document.getElementById('ch-type').value,role:document.getElementById('ch-role').value,is_own:document.getElementById('ch-own').checked?1:0,category:document.getElementById('ch-cat').value.trim()||undefined});
+      await ap('/channels',{username:username,title:title,type:document.getElementById('ch-type').value,role:document.getElementById('ch-role').value,is_own:document.getElementById('ch-own').checked?1:0,category:document.getElementById('ch-cat').value.trim()||undefined,about:resolved?resolved.about||undefined:undefined,members_count:resolved?resolved.members_count||undefined:undefined});
       toast('Канал добавлен','success');mClose('mov');chLoaded=false;await ldCh();if(S.sec==='channels')rChannels(document.getElementById('mc'));
     }catch(er){toast(er.message,'error');sb.disabled=false;sb.innerHTML='Добавить';}
   };
