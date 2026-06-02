@@ -3500,7 +3500,7 @@ function rAudDetail(el,aud){
     el.innerHTML='<div class="sy4">'+
       '<div class="f ac jb">'+
         '<div class="f ac g3x"><button class="btn btn-sm" id="aud-back">'+ic('back')+' Назад</button><h2 class="tlg fxb">'+esc(aud.name||'Аудитория')+'</h2><span class="txs c-m">&middot; '+total+' участников</span></div>'+
-        '<button class="btn btn-sm btn-danger" id="aud-del">'+ic('trash')+' Удалить</button>'+
+        '<div class="f g1h"><button class="btn btn-sm" id="aud-exp-json" title="Скачать как JSON">↓ JSON</button><button class="btn btn-sm" id="aud-exp-csv" title="Скачать как CSV">↓ CSV</button><button class="btn btn-sm btn-danger" id="aud-del">'+ic('trash')+' Удалить</button></div>'+
       '</div>'+
       '<div class="card"><div class="card-body flush">'+
       (members.length>0
@@ -3514,6 +3514,11 @@ function rAudDetail(el,aud){
     '</div>';
     el.querySelector('#aud-back').onclick=function(){audDetail=null;rAudiences(el);};
     var delB=el.querySelector('#aud-del');if(delB)delB.onclick=async function(){if(!confirm('Удалить аудиторию "'+esc(aud.name)+'"?'))return;delB.disabled=true;try{await aD('/audiences/'+aud.id);toast('Аудитория удалена','success');audDetail=null;audLoaded=false;await ldAud();if(S.sec==='audiences')rAudiences(document.getElementById('mc'));}catch(e){toast(e.message,'error');delB.disabled=false;}};
+    /* Export handlers */
+    function dlBlob(content,filename,mime){var blob=new Blob([content],{type:mime});var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=filename;a.click();URL.revokeObjectURL(a.href);}
+    function membersToCSV(ms){var header='tg_user_id,username,first_name,last_name,phone,is_premium,is_bot,has_avatar,source_chat,country,ai_score,ai_category';var rows=ms.map(function(m){return [m.tg_user_id||'',m.username||'',m.first_name||'',m.last_name||'',m.phone||'',m.is_premium?1:0,m.is_bot?1:0,m.has_avatar?1:0,m.source_chat||'',m.country||'',m.ai_score!=null?m.ai_score:'',m.ai_category||''].map(function(v){var s=String(v);return s.includes(',')||s.includes('"')?'"'+s.replace(/"/g,'""')+'"':s;}).join(',');});return [header].concat(rows).join('\n');}
+    var expJsonB=el.querySelector('#aud-exp-json');if(expJsonB)expJsonB.onclick=async function(){expJsonB.disabled=true;expJsonB.innerHTML='<span class="spin"></span>';try{var d=await ap('/audiences/'+aud.id+'/export');dlBlob(JSON.stringify(d,null,2),aud.name.replace(/\s+/g,'_')+'.json','application/json');toast('JSON скачан ('+d.count+' записей)','success');}catch(e){toast(e.message,'error');}finally{expJsonB.disabled=false;expJsonB.innerHTML='↓ JSON';}};
+    var expCsvB=el.querySelector('#aud-exp-csv');if(expCsvB)expCsvB.onclick=async function(){expCsvB.disabled=true;expCsvB.innerHTML='<span class="spin"></span>';try{var d=await ap('/audiences/'+aud.id+'/export');dlBlob(membersToCSV(d.members),aud.name.replace(/\s+/g,'_')+'.csv','text/csv;charset=utf-8');toast('CSV скачан ('+d.count+' записей)','success');}catch(e){toast(e.message,'error');}finally{expCsvB.disabled=false;expCsvB.innerHTML='↓ CSV';}};
   }).catch(function(e){
     el.innerHTML='<div class="sy4"><div class="f ac g3x"><button class="btn btn-sm" id="aud-back">'+ic('back')+' Назад</button><span class="c-rd">Ошибка: '+esc(e.message)+'</span></div></div>';
     el.querySelector('#aud-back').onclick=function(){audDetail=null;rAudiences(el);};
