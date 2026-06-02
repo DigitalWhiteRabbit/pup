@@ -5864,7 +5864,9 @@ function rChatBroadcast(el){
           '</div>'+
           '<div class="f g1h mt2 fw">'+
             (u==='DRAFT'||u==='PAUSED'?'<button class="btn btn-sm cbc-start" data-id="'+c.id+'">'+ic('play')+' Старт</button>':'')+
+            (u==='RUNNING'?'<button class="btn btn-sm cbc-pause" data-id="'+c.id+'">'+ic('pause')+' Пауза</button>':'')+
             (u==='RUNNING'||u==='PAUSED'?'<button class="btn btn-sm btn-danger cbc-stop" data-id="'+c.id+'">'+ic('xcircle')+' Стоп</button>':'')+
+            (u==='COMPLETED'||u==='STOPPED'?'<button class="btn btn-sm cbc-survival" data-id="'+c.id+'" title="Проверить удаление постов модерами">📊 Выживаемость</button>':'')+
             '<button class="btn btn-ghost btn-icon btn-danger cbc-del" data-id="'+c.id+'" title="Удалить">'+ic('trash')+'</button>'+
           '</div>'+
         '</div>';
@@ -5881,6 +5883,8 @@ function rChatBroadcast(el){
   });
   el.querySelectorAll('.cbc-start').forEach(function(b){b.onclick=async function(e){e.stopPropagation();b.disabled=true;b.innerHTML='<span class="spin"></span>';try{await ap('/chat-broadcasts/'+b.dataset.id+'/start');toast('Кампания запущена','success');cbcLoaded=false;await ldCbc();if(S.sec==='chat-broadcast')rChatBroadcast(document.getElementById('mc'));}catch(er){toast(er.message,'error');b.disabled=false;b.innerHTML=ic('play')+' Старт';}};});
   el.querySelectorAll('.cbc-stop').forEach(function(b){b.onclick=async function(e){e.stopPropagation();b.disabled=true;b.innerHTML='<span class="spin"></span>';try{await ap('/chat-broadcasts/'+b.dataset.id+'/stop');toast('Кампания остановлена','success');cbcLoaded=false;await ldCbc();if(S.sec==='chat-broadcast')rChatBroadcast(document.getElementById('mc'));}catch(er){toast(er.message,'error');b.disabled=false;b.innerHTML=ic('xcircle')+' Стоп';}};});
+  el.querySelectorAll('.cbc-pause').forEach(function(b){b.onclick=async function(e){e.stopPropagation();b.disabled=true;b.innerHTML='<span class="spin"></span>';try{await ap('/chat-broadcasts/'+b.dataset.id+'/pause');toast('Кампания на паузе','success');cbcLoaded=false;await ldCbc();if(S.sec==='chat-broadcast')rChatBroadcast(document.getElementById('mc'));}catch(er){toast(er.message,'error');b.disabled=false;b.innerHTML=ic('pause')+' Пауза';}};});
+  el.querySelectorAll('.cbc-survival').forEach(function(b){b.onclick=async function(e){e.stopPropagation();b.disabled=true;b.innerHTML='<span class="spin"></span>';try{var r=await ap('/chat-broadcasts/'+b.dataset.id+'/check-survival');toast('Проверено: '+r.checked+', удалено модерами: '+r.deleted+(r.survival_rate!=null?', выживаемость: '+r.survival_rate+'%':''),'success');}catch(er){toast(er.message,'error');}b.disabled=false;b.innerHTML='📊 Выживаемость';};});
   el.querySelectorAll('.cbc-del').forEach(function(b){b.onclick=async function(e){e.stopPropagation();if(!confirm('Удалить кампанию?'))return;b.disabled=true;try{await aD('/chat-broadcasts/'+b.dataset.id);toast('Кампания удалена','success');cbcLoaded=false;await ldCbc();if(S.sec==='chat-broadcast')rChatBroadcast(document.getElementById('mc'));}catch(er){toast(er.message,'error');b.disabled=false;}};});
 }
 function rCbcDetail(el){
@@ -6034,6 +6038,7 @@ function rInviting(el){
           '</div>'+
           '<div class="f g1h mt2 fw">'+
             (u==='DRAFT'||u==='PAUSED'?'<button class="btn btn-sm inv-start" data-id="'+c.id+'">'+ic('play')+' Старт</button>':'')+
+            (u==='RUNNING'?'<button class="btn btn-sm inv-pause" data-id="'+c.id+'">'+ic('pause')+' Пауза</button>':'')+
             (u==='RUNNING'||u==='PAUSED'?'<button class="btn btn-sm btn-danger inv-stop" data-id="'+c.id+'">'+ic('xcircle')+' Стоп</button>':'')+
             '<button class="btn btn-ghost btn-icon btn-danger inv-del" data-id="'+c.id+'" title="Удалить">'+ic('trash')+'</button>'+
           '</div>'+
@@ -6051,6 +6056,7 @@ function rInviting(el){
   });
   el.querySelectorAll('.inv-start').forEach(function(b){b.onclick=async function(e){e.stopPropagation();b.disabled=true;b.innerHTML='<span class="spin"></span>';try{await ap('/invite-campaigns/'+b.dataset.id+'/start');toast('Кампания запущена','success');invLoaded=false;await ldInv();if(S.sec==='inviting')rInviting(document.getElementById('mc'));}catch(er){toast(er.message,'error');b.disabled=false;b.innerHTML=ic('play')+' Старт';}};});
   el.querySelectorAll('.inv-stop').forEach(function(b){b.onclick=async function(e){e.stopPropagation();b.disabled=true;b.innerHTML='<span class="spin"></span>';try{await ap('/invite-campaigns/'+b.dataset.id+'/stop');toast('Кампания остановлена','success');invLoaded=false;await ldInv();if(S.sec==='inviting')rInviting(document.getElementById('mc'));}catch(er){toast(er.message,'error');b.disabled=false;b.innerHTML=ic('xcircle')+' Стоп';}};});
+  el.querySelectorAll('.inv-pause').forEach(function(b){b.onclick=async function(e){e.stopPropagation();b.disabled=true;b.innerHTML='<span class="spin"></span>';try{await ap('/invite-campaigns/'+b.dataset.id+'/pause');toast('Кампания на паузе','success');invLoaded=false;await ldInv();if(S.sec==='inviting')rInviting(document.getElementById('mc'));}catch(er){toast(er.message,'error');b.disabled=false;b.innerHTML=ic('pause')+' Пауза';}};});
   el.querySelectorAll('.inv-del').forEach(function(b){b.onclick=async function(e){e.stopPropagation();if(!confirm('Удалить кампанию?'))return;b.disabled=true;try{await aD('/invite-campaigns/'+b.dataset.id);toast('Кампания удалена','success');invLoaded=false;await ldInv();if(S.sec==='inviting')rInviting(document.getElementById('mc'));}catch(er){toast(er.message,'error');b.disabled=false;}};});
 }
 function rInvDetail(el){
