@@ -1397,12 +1397,14 @@ function rMain(){
 /* ====================================================================
    DASHBOARD
    ==================================================================== */
-var dashLoaded=false;
+var dashLoaded=false,dashLoadedAt=0,DASH_TTL=20000;/* 20s cache */
 async function ldDash(){
-  try{var r=await Promise.all([af('/dashboard/stats'),af('/accounts/stats')]);S.dStats=r[0];S.aStats=r[1];dashLoaded=true;rSide();}catch(e){/* silent */}
+  try{var r=await Promise.all([af('/dashboard/stats'),af('/accounts/stats')]);S.dStats=r[0];S.aStats=r[1];dashLoaded=true;dashLoadedAt=Date.now();rSide();}catch(e){/* silent */}
 }
 
 function rDash(el){
+  /* Stale-check: re-fetch if cache is older than DASH_TTL */
+  if(dashLoaded&&dashLoadedAt&&(Date.now()-dashLoadedAt)>DASH_TTL){dashLoaded=false;}
   if(!dashLoaded){
     el.innerHTML='<div class="sy4">'+
       '<div class="g g4">'+[1,2,3,4].map(function(){return skel('7rem');}).join('')+'</div>'+
@@ -1621,7 +1623,7 @@ function rDash(el){
   if(alertGoBtn)alertGoBtn.onclick=function(){S.sec='accounts';S.accF='SPAM_BLOCKED';location.hash='accounts';rSide();rMain();};
 
   var refreshBtn=el.querySelector('#dash-refresh');
-  if(refreshBtn)refreshBtn.onclick=function(){dashLoaded=false;rDash(el);};
+  if(refreshBtn)refreshBtn.onclick=function(){dashLoaded=false;dashLoadedAt=0;rDash(el);};
 
   var periodBtn=el.querySelector('#dash-period');
   if(periodBtn)periodBtn.onclick=function(){toast('Выбор периода будет доступен в следующем обновлении','info');};
