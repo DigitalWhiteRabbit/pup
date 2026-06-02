@@ -42,6 +42,28 @@ celery_app.conf.broker_connection_retry_on_startup = True
 celery_app.conf.broker_connection_retry = True
 celery_app.conf.broker_connection_max_retries = 10
 
+# ── Local filesystem broker (no Redis, for local dev) ────────────────────────
+# When CELERY_BROKER_URL uses the ``filesystem://`` scheme the engine runs off a
+# local directory-backed queue, so the worker executes tasks without Redis being
+# installed. Redis URLs are left completely untouched (production unchanged).
+if str(settings.celery_broker_url).startswith("filesystem://"):
+    _broker_dir = (settings.data_dir / "broker").resolve()
+    _queue_dir = _broker_dir / "queue"
+    _queue_dir.mkdir(parents=True, exist_ok=True)
+    celery_app.conf.broker_transport_options = {
+        "data_folder_in": str(_queue_dir),
+        "data_folder_out": str(_queue_dir),
+    }
+    # The filesystem transport carries no result backend — pin a file-backed one
+    # unless an explicit non-redis backend was configured.
+    if not settings.celery_result_backend or str(
+        settings.celery_result_backend
+    ).startswith(("redis://", "filesystem://")):
+        _results_dir = _broker_dir / "results"
+        _results_dir.mkdir(parents=True, exist_ok=True)
+        celery_app.conf.result_backend = "file://" + str(_results_dir)
+    log.info("celery_local_filesystem_broker", queue_dir=str(_queue_dir))
+
 
 # ── Beat schedule (imported lazily to avoid circular deps) ───────────────────
 def _register_beat_schedule() -> None:
