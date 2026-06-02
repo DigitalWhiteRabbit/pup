@@ -183,6 +183,12 @@ async def start_task(
         )
 
     now = _now()
+    # Dispatch first: a down engine raises 503 and leaves the task in its prior
+    # status instead of falsely showing RUNNING.
+    from app.tasks.dispatch import dispatch_task
+
+    dispatch_task("pup_tg.stories_boost", args=[workspace_id, task_id])
+
     try:
         db.execute(
             """UPDATE tg_stories_boost_tasks
@@ -194,17 +200,6 @@ async def start_task(
     except Exception:
         db.rollback()
         raise
-
-    # Dispatch Celery stories boost task
-    try:
-        from app.tasks.celery_app import celery_app
-        celery_app.send_task(
-            "pup_tg.stories_boost",
-            args=[workspace_id, task_id],
-            queue="pup_tg_default",
-        )
-    except Exception as exc:
-        log.warning("celery_dispatch_skipped", task_id=task_id, error=str(exc))
 
     row = db.execute(
         "SELECT * FROM tg_stories_boost_tasks WHERE id = ?", [task_id]

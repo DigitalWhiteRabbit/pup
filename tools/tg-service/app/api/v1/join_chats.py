@@ -262,17 +262,12 @@ async def create_task(
         db.rollback()
         raise
 
-    # Dispatch Celery task
-    try:
-        from app.tasks.celery_app import celery_app
-        celery_app.send_task(
-            "pup_tg.join_chats",
-            args=[workspace_id, task_id],
-            queue="pup_tg_default",
-        )
-        log.info("join_task_dispatched", task_id=task_id, workspace_id=workspace_id)
-    except Exception as exc:
-        log.warning("celery_dispatch_skipped", task_id=task_id, error=str(exc))
+    # Engine down → 503. The task row was inserted as PENDING above, so it stays
+    # PENDING (never falsely shows as running with no worker behind it).
+    from app.tasks.dispatch import dispatch_task
+
+    dispatch_task("pup_tg.join_chats", args=[workspace_id, task_id])
+    log.info("join_task_dispatched", task_id=task_id, workspace_id=workspace_id)
 
     row = db.execute(
         "SELECT * FROM tg_join_tasks WHERE id = ?", [task_id]

@@ -258,6 +258,13 @@ async def start_campaign(
         )
 
     now = _now()
+
+    # Dispatch first: a down engine raises 503 and leaves the campaign in its
+    # prior status instead of falsely showing RUNNING.
+    from app.tasks.dispatch import dispatch_task
+
+    dispatch_task("pup_tg.invite_campaign", args=[workspace_id, campaign_id])
+
     try:
         db.execute(
             """UPDATE tg_invite_campaigns
@@ -269,17 +276,6 @@ async def start_campaign(
     except Exception:
         db.rollback()
         raise
-
-    # Dispatch Celery invite campaign task
-    try:
-        from app.tasks.celery_app import celery_app
-        celery_app.send_task(
-            "pup_tg.invite_campaign",
-            args=[workspace_id, campaign_id],
-            queue="pup_tg_default",
-        )
-    except Exception as exc:
-        log.warning("celery_dispatch_skipped", campaign_id=campaign_id, error=str(exc))
 
     row = db.execute(
         "SELECT * FROM tg_invite_campaigns WHERE id = ?", [campaign_id]

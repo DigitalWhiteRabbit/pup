@@ -244,6 +244,13 @@ async def start_broadcast(
         )
 
     now = _now()
+
+    # Dispatch first: a down engine raises 503 and leaves the broadcast in its
+    # prior status instead of falsely showing RUNNING.
+    from app.tasks.dispatch import dispatch_task
+
+    dispatch_task("pup_tg.chat_broadcast", args=[workspace_id, broadcast_id])
+
     try:
         db.execute(
             """UPDATE tg_chat_broadcasts
@@ -255,17 +262,6 @@ async def start_broadcast(
     except Exception:
         db.rollback()
         raise
-
-    # Dispatch Celery chat broadcast task
-    try:
-        from app.tasks.celery_app import celery_app
-        celery_app.send_task(
-            "pup_tg.chat_broadcast",
-            args=[workspace_id, broadcast_id],
-            queue="pup_tg_default",
-        )
-    except Exception as exc:
-        log.warning("celery_dispatch_skipped", broadcast_id=broadcast_id, error=str(exc))
 
     row = db.execute(
         "SELECT * FROM tg_chat_broadcasts WHERE id = ?", [broadcast_id]

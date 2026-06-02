@@ -255,6 +255,14 @@ async def activate_scenario(
         )
 
     now = _now()
+
+    # Dispatch first: a down engine raises 503 and leaves the scenario in its
+    # prior status instead of falsely showing ACTIVE.
+    from app.tasks.dispatch import dispatch_task
+
+    dispatch_task("pup_tg.auto_replier", args=[workspace_id, scenario_id])
+    log.info("auto_replier_dispatched", scenario_id=scenario_id)
+
     try:
         db.execute(
             "UPDATE tg_auto_replier_scenarios SET status = ?, updated_at = ? WHERE id = ?",
@@ -264,18 +272,6 @@ async def activate_scenario(
     except Exception:
         db.rollback()
         raise
-
-    # Dispatch auto-replier Celery task
-    try:
-        from app.tasks.celery_app import celery_app
-        celery_app.send_task(
-            "pup_tg.auto_replier",
-            args=[workspace_id, scenario_id],
-            queue="pup_tg_default",
-        )
-        log.info("auto_replier_dispatched", scenario_id=scenario_id)
-    except Exception as exc:
-        log.warning("celery_dispatch_skipped", scenario_id=scenario_id, error=str(exc))
 
     row = db.execute(
         "SELECT * FROM tg_auto_replier_scenarios WHERE id = ?", [scenario_id]

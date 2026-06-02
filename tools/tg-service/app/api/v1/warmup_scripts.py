@@ -381,18 +381,13 @@ async def run_script(
         db.rollback()
         raise
 
-    # Dispatch Celery task
-    try:
-        from app.tasks.celery_app import celery_app
-        celery_app.send_task(
-            "pup_tg.warmup_script",
-            args=[workspace_id, run_id],
-            queue="pup_tg_default",
-        )
-        log.info("warmup_script_dispatched", run_id=run_id, script_id=script_id,
-                 accounts=len(body.account_ids))
-    except Exception as exc:
-        log.warning("celery_dispatch_skipped", run_id=run_id, error=str(exc))
+    # Engine down → 503. The run row was inserted as PENDING above, so it stays
+    # PENDING (never falsely shows as running with no worker behind it).
+    from app.tasks.dispatch import dispatch_task
+
+    dispatch_task("pup_tg.warmup_script", args=[workspace_id, run_id])
+    log.info("warmup_script_dispatched", run_id=run_id, script_id=script_id,
+             accounts=len(body.account_ids))
 
     row = db.execute(
         "SELECT * FROM tg_warmup_runs WHERE id = ?", [run_id]
