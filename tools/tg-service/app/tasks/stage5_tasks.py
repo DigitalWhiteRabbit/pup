@@ -367,9 +367,30 @@ async def _stories_boost_async(workspace_id: str, task_id: str) -> dict:
         try:
             entity = await client.get_entity(target_channel)
 
+            # Auto-detect latest story if target_story_id not specified (P4-06)
+            effective_story_id = target_story_id
+            if not effective_story_id:
+                try:
+                    from telethon.tl.functions.stories import GetPeerStoriesRequest
+                    stories_result = await client(GetPeerStoriesRequest(peer=entity))
+                    peer_stories = getattr(stories_result, "stories", None)
+                    story_list = getattr(peer_stories, "stories", []) if peer_stories else []
+                    if story_list:
+                        effective_story_id = max(
+                            (getattr(s, "id", 0) for s in story_list), default=0
+                        )
+                        log.info(
+                            "stories_auto_detected",
+                            task_id=task_id,
+                            channel=target_channel,
+                            story_id=effective_story_id,
+                        )
+                except Exception as exc:
+                    log.warning("stories_auto_detect_failed", error=str(exc)[:150])
+
             # View story
-            if target_story_id:
-                await client(ReadStoriesRequest(peer=entity, max_id=target_story_id))
+            if effective_story_id:
+                await client(ReadStoriesRequest(peer=entity, max_id=effective_story_id))
                 total_views += 1
 
                 # React if configured
@@ -378,7 +399,7 @@ async def _stories_boost_async(workspace_id: str, task_id: str) -> dict:
                     try:
                         await client(StoryReactionRequest(
                             peer=entity,
-                            story_id=target_story_id,
+                            story_id=effective_story_id,
                             reaction=ReactionEmoji(emoticon=config.get("emoji", "👍")),
                         ))
                         total_reactions += 1
