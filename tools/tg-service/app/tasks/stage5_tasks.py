@@ -722,7 +722,9 @@ async def _channel_creator_async(workspace_id: str, task_id: str) -> dict:
     creator_account_ids = json.loads(task["creator_account_ids"] or "[]")
 
     if not creator_account_ids:
-        acc_rows = db.execute("SELECT id FROM tg_accounts WHERE status = 'ACTIVE' LIMIT 1").fetchall()
+        acc_rows = db.execute(
+            "SELECT id FROM tg_accounts WHERE status = 'ACTIVE' ORDER BY warmup_level DESC NULLS LAST"
+        ).fetchall()
         creator_account_ids = [r["id"] for r in acc_rows]
 
     if not creator_account_ids:
@@ -730,103 +732,118 @@ async def _channel_creator_async(workspace_id: str, task_id: str) -> dict:
         db.commit()
         return {"status": "FAILED", "error": "No active accounts"}
 
-    acc_info = _connect_account_info(db, creator_account_ids[0])
-    if not acc_info:
-        return {"status": "FAILED", "error": "Account not available"}
-
-    # NO_PROXY guard: never connect a proxy-less account over the real IP.
-    if "proxy" not in acc_info["proxy_kwargs"]:
-        log.warning("no_proxy_skip", account_id=creator_account_ids[0], task_id=task_id)
-        db.execute(
-            "UPDATE tg_channel_creation_tasks SET status='FAILED', updated_at=? WHERE id=?",
-            [_now(), task_id],
-        )
-        db.commit()
-        return {"status": "FAILED", "error": "NO_PROXY: нет активного прокси"}
-
-    try:
-        client, tmp_dir = await _make_client(acc_info)
-    except Exception as e:
-        return {"status": "FAILED", "error": str(e)[:200]}
+    # P4-16: distribute channels across accounts (round-robin batches)
+    # P4-17: per-account limit = ceil(count / num_accounts), ramp-up delay
+    import math
+    n_accounts = len(creator_account_ids)
+    per_account = math.ceil(count / n_accounts)
 
     created_count = 0
     created_ids: list[str] = []
     megagroup = channel_type in ("SUPERGROUP", "BASIC_GROUP")
 
-    try:
-        for n in range(1, count + 1):
-            title = naming_pattern.replace("{n}", str(n)).replace("{N}", str(n))
-            try:
-                result = await client(CreateChannelRequest(
-                    title=title,
-                    about=description,
-                    megagroup=megagroup,
-                ))
-                channel = result.chats[0]
-                created_count += 1
-                created_ids.append(str(channel.id))
+    for acc_idx, acc_id in enumerate(creator_account_ids):
+        if created_count >= count:
+            break
 
-                # Set a public @username (P2-09) if a pattern was given. Public
-                # usernames can collide / require eligibility, so failures are
-                # logged and don't abort the channel.
-                if username_pattern:
-                    uname = username_pattern.replace("{n}", str(n)).replace("{N}", str(n))
-                    uname = uname.lstrip("@").strip()
-                    if uname:
+        acc_info = _connect_account_info(db, acc_id)
+        if not acc_info:
+            continue
+        if "proxy" not in acc_info["proxy_kwargs"]:
+            log.warning("no_proxy_skip", account_id=acc_id, task_id=task_id)
+            continue
+
+        try:
+            client, tmp_dir = await _make_client(acc_info)
+        except Exception as e:
+            log.warning("channel_creator_connect_failed", account_id=acc_id, error=str(e)[:100])
+            continue
+
+        # Number of channels this account should create
+        batch_count = min(per_account, count - created_count)
+
+        try:
+            for batch_n in range(batch_count):
+                n = created_count + 1  # global channel number
+                title = naming_pattern.replace("{n}", str(n)).replace("{N}", str(n))
+                try:
+                    result = await client(CreateChannelRequest(
+                        title=title,
+                        about=description,
+                        megagroup=megagroup,
+                    ))
+                    channel = result.chats[0]
+                    created_count += 1
+                    created_ids.append(str(channel.id))
+
+                    # P4-18: incremental created_count update in DB
+                    db.execute(
+                        "UPDATE tg_channel_creation_tasks SET created_count=?, updated_at=? WHERE id=?",
+                        [created_count, _now(), task_id],
+                    )
+                    db.commit()
+
+                    # Set username (P2-09)
+                    if username_pattern:
+                        uname = username_pattern.replace("{n}", str(n)).replace("{N}", str(n))
+                        uname = uname.lstrip("@").strip()
+                        if uname:
+                            try:
+                                await client(UpdateUsernameRequest(channel=channel, username=uname))
+                                log.info("channel_username_set", username=uname, tg_id=channel.id)
+                            except Exception as ue:
+                                log.warning("channel_username_failed", username=uname, error=str(ue)[:120])
+
+                    # Apply default member permissions (P2-09)
+                    if permissions:
                         try:
-                            await client(UpdateUsernameRequest(channel=channel, username=uname))
-                            log.info("channel_username_set", username=uname, tg_id=channel.id)
-                        except Exception as e:
-                            log.warning("channel_username_failed", username=uname, error=str(e)[:120])
+                            rights = ChatBannedRights(
+                                until_date=None,
+                                send_messages=bool(permissions.get("send_messages")),
+                                send_media=bool(permissions.get("send_media")),
+                                send_stickers=bool(permissions.get("send_stickers")),
+                                send_gifs=bool(permissions.get("send_stickers")),
+                                send_polls=bool(permissions.get("send_polls")),
+                                embed_links=bool(permissions.get("embed_links")),
+                                invite_users=bool(permissions.get("invite_users")),
+                                pin_messages=bool(permissions.get("pin_messages")),
+                                change_info=bool(permissions.get("change_info")),
+                            )
+                            await client(EditChatDefaultBannedRightsRequest(peer=channel, banned_rights=rights))
+                            log.info("channel_permissions_set", tg_id=channel.id)
+                        except Exception as pe:
+                            log.warning("channel_permissions_failed", error=str(pe)[:120])
 
-                # Apply default member permissions (P2-09) if configured.
-                if permissions:
-                    try:
-                        rights = ChatBannedRights(
-                            until_date=None,
-                            send_messages=bool(permissions.get("send_messages")),
-                            send_media=bool(permissions.get("send_media")),
-                            send_stickers=bool(permissions.get("send_stickers")),
-                            send_gifs=bool(permissions.get("send_stickers")),
-                            send_polls=bool(permissions.get("send_polls")),
-                            embed_links=bool(permissions.get("embed_links")),
-                            invite_users=bool(permissions.get("invite_users")),
-                            pin_messages=bool(permissions.get("pin_messages")),
-                            change_info=bool(permissions.get("change_info")),
-                        )
-                        await client(EditChatDefaultBannedRightsRequest(peer=channel, banned_rights=rights))
-                        log.info("channel_permissions_set", tg_id=channel.id)
-                    except Exception as e:
-                        log.warning("channel_permissions_failed", error=str(e)[:120])
+                    # P4-19: save to tg_channels with is_own=1 and role=TARGET
+                    db.execute(
+                        """INSERT OR IGNORE INTO tg_channels
+                            (id, tg_id, title, type, is_own, role, created_at, updated_at)
+                           VALUES (?, ?, ?, ?, 1, 'TARGET', ?, ?)""",
+                        [str(uuid.uuid4()), channel.id, title, channel_type, _now(), _now()],
+                    )
+                    db.commit()
 
-                # Save to tg_channels
-                db.execute(
-                    """INSERT OR IGNORE INTO tg_channels
-                        (id, tg_id, title, type, is_own, created_at, updated_at)
-                       VALUES (?, ?, ?, ?, 1, ?, ?)""",
-                    [str(uuid.uuid4()), channel.id, title, channel_type, _now(), _now()],
-                )
-                db.commit()
+                    log.info("channel_created", title=title, tg_id=channel.id)
 
-                log.info("channel_created", title=title, tg_id=channel.id)
+                    # P4-17: ramp-up delay — increases with each channel created per account
+                    ramp_delay = min(10 * (batch_n + 1), 60)
+                    await asyncio.sleep(random.uniform(ramp_delay, ramp_delay + 30))
 
-            except FloodWaitError as e:
-                if e.seconds > 120:
-                    break
-                await asyncio.sleep(e.seconds + 5)
-            except Exception as e:
-                log.warning("channel_create_error", title=title, error=str(e)[:200])
+                except FloodWaitError as e:
+                    if e.seconds > 120:
+                        break
+                    await asyncio.sleep(e.seconds + 5)
+                except Exception as e:
+                    log.warning("channel_create_error", title=title, error=str(e)[:200])
 
-            await asyncio.sleep(random.uniform(10, 60))
+        except Exception as e:
+            log.error("channel_creator_error", acc_id=acc_id, error=str(e)[:200])
 
-    except Exception as e:
-        log.error("channel_creator_error", error=str(e)[:200])
-
-    try:
-        await client.disconnect()
-    except Exception:
-        pass
-    shutil.rmtree(tmp_dir, ignore_errors=True)
+        try:
+            await client.disconnect()
+        except Exception:
+            pass
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
     db.execute(
         """UPDATE tg_channel_creation_tasks SET
