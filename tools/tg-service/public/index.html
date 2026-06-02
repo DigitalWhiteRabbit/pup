@@ -1468,6 +1468,11 @@ function rDash(el){
         '<button class="btn btn-sm" id="dash-refresh">&#10227; Обновить</button>'+
       '</div>'+
     '</div>'+
+    '<div class="card"><div class="card-body" style="padding:0.625rem 1.25rem;display:flex;align-items:center;gap:0.5rem">'+
+      '<span class="health-dot" id="dash-engine-dot"></span>'+
+      '<span class="tsm fbol">Движок задач:</span>'+
+      '<span class="tsm c-m" id="dash-engine-lbl">проверка…</span>'+
+    '</div></div>'+
     '<div class="g g4">'+
     '<div class="card card-hv"><div class="card-body" style="padding:1rem 1.25rem">'+
       '<div class="txs fbol upc c-m tkw mb2">Всего аккаунтов</div>'+
@@ -1596,6 +1601,9 @@ function rDash(el){
 
   var approvalBtn=el.querySelector('#dash-approval-q');
   if(approvalBtn)approvalBtn.onclick=function(){S.sec='ai-promoter';location.hash='ai-promoter';rSide();rMain();};
+
+  /* Заполнить карточку статуса движка сразу (дальше обновляется поллингом chkH) */
+  chkEngine();
 }
 
 /* ====================================================================
@@ -7256,11 +7264,24 @@ async function chkH(){
 /* Статус фонового движка (Celery worker): баннер, когда воркер офлайн. */
 async function chkEngine(){
   var b=document.getElementById('engine-banner');
-  if(!b)return;
   try{
     var st=await af('/system/status');
-    if(st&&st.worker_online)b.classList.add('hid');
-    else b.classList.remove('hid');
+    var online=!!(st&&st.worker_online);
+    if(b){if(online)b.classList.add('hid');else b.classList.remove('hid');}
+    /* Dashboard engine card (present only on the dashboard) */
+    var dot=document.getElementById('dash-engine-dot'),lbl=document.getElementById('dash-engine-lbl');
+    if(dot&&lbl){
+      if(online){
+        dot.classList.add('online');
+        var n=(st.workers&&st.workers.length)||0;
+        lbl.textContent='воркер онлайн'+(n?' ('+n+')':'');
+        lbl.style.color='';
+      }else{
+        dot.classList.remove('online');
+        lbl.textContent=(st&&st.broker_reachable)?'воркер офлайн — задачи не исполняются':'движок недоступен';
+        lbl.style.color='var(--red-500)';
+      }
+    }
   }catch(e){/* не наводим панику на сетевых сбоях статуса */}
 }
 
