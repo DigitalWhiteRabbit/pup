@@ -420,6 +420,99 @@ router.post("/:id/translate", async (req, res) => {
   }
 });
 
+// GET /api/pending-replies/:id/history — полная история переписки с лидом
+// (оригинал + перевод на русский; перевод кэшируется в messages.content_ru)
+router.get("/:id/history", async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const pr = req.db
+    .prepare("SELECT * FROM pending_replies WHERE id = ?")
+    .get(id);
+  if (!pr) return res.status(404).json({ success: false, error: "not found" });
+
+  const lead = req.stmts.getLead.get(pr.lead_id);
+
+  // Находим диалог: из pending_reply.dialogue_id, иначе по lead_id
+  let dialogueId = pr.dialogue_id;
+  if (!dialogueId && pr.lead_id) {
+    const d = req.db
+      .prepare("SELECT id FROM dialogues WHERE lead_id = ? LIMIT 1")
+      .get(pr.lead_id);
+    dialogueId = d?.id || null;
+  }
+  if (!dialogueId) {
+    return res.json({
+      success: true,
+      channel_name: lead?.channel_name || pr.channel_name || "",
+      messages: [],
+    });
+  }
+
+  const messages = req.db
+    .prepare(
+      "SELECT id, direction, sender, content, content_ru, metadata, created_at FROM messages WHERE dialogue_id = ? ORDER BY created_at ASC",
+    )
+    .all(dialogueId);
+
+  // Перевод недостающих сообщений (параллельно), с записью в кэш
+  const toTranslate = messages.filter(
+    (m) => m.content && m.content.trim() && !m.content_ru,
+  );
+  if (toTranslate.length) {
+    try {
+      const Anthropic = require("@anthropic-ai/sdk");
+      const client = new Anthropic();
+      const updateRu = req.db.prepare(
+        "UPDATE messages SET content_ru = ? WHERE id = ?",
+      );
+      await Promise.all(
+        toTranslate.map(async (m) => {
+          try {
+            const r = await client.messages.create({
+              model: "claude-haiku-4-5-20251001",
+              max_tokens: 1024,
+              messages: [
+                {
+                  role: "user",
+                  content: `Переведи на русский язык. Верни ТОЛЬКО перевод, без пояснений. Если текст уже на русском — верни как есть.\n\n${m.content}`,
+                },
+              ],
+            });
+            const tr = r.content?.[0]?.text || "";
+            m.content_ru = tr;
+            updateRu.run(tr, m.id);
+          } catch (e) {
+            m.content_ru = "(ошибка перевода)";
+          }
+        }),
+      );
+    } catch (e) {
+      // Anthropic недоступен — отдадим без перевода
+    }
+  }
+
+  const out = messages.map((m) => {
+    let subject = "";
+    try {
+      subject = JSON.parse(m.metadata || "{}").subject || "";
+    } catch {}
+    return {
+      id: m.id,
+      direction: m.direction,
+      sender: m.sender,
+      content: m.content,
+      content_ru: m.content_ru || "",
+      subject,
+      created_at: m.created_at,
+    };
+  });
+
+  res.json({
+    success: true,
+    channel_name: lead?.channel_name || pr.channel_name || "",
+    messages: out,
+  });
+});
+
 // POST /api/pending-replies/:id/force-send — skip timer, send immediately
 router.post("/:id/force-send", async (req, res) => {
   const id = parseInt(req.params.id, 10);
