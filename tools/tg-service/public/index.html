@@ -5487,12 +5487,33 @@ function rWarmup(el){
     '<div class="g g4">'+profiles.map(function(p){
       return '<div class="wu-profile"><div class="wu-emoji">'+p.emoji+'</div><div class="tsm fbol" style="color:'+p.color+'">'+p.name+'</div><div class="txs c-m mt1" style="line-height:1.5">'+p.desc+'</div><div class="txs fmed mt2" style="color:'+p.color+'">'+p.actions+'</div></div>';
     }).join('')+'</div>'+
+    '<div class="card" id="wmp-chart-card"><div class="card-head"><div class="card-title">Активность (14 дней)</div></div><div class="card-body"><div id="wmp-chart-inner" class="txs c-m" style="text-align:center;padding:1rem 0">Загрузка...</div></div></div>'+
     '<div class="card"><div class="card-head"><div class="f ac jb"><div class="card-title">Мониторинг прогрева</div><div class="f g2x"><label class="f ac g1h txs" style="cursor:pointer"><input type="checkbox" class="chk" id="wmp-cb-all"> Все</label><button class="btn btn-sm btn-ghost" id="wmp-refresh">'+ic('refresh')+'</button></div></div></div><div class="card-body flush"><div class="tw"><table><thead><tr><th style="width:32px"></th><th>Аккаунт</th><th>Профиль</th><th>Уровень</th><th>Действий (всего)</th><th>Последнее действие</th><th>Действия</th></tr></thead><tbody>'+
       rowsHtml+
     '</tbody></table></div></div></div>'+
   '</div>';
   var rf=el.querySelector('#wmp-refresh');if(rf)rf.onclick=function(){wmpLoaded=false;rWarmup(el);};
   var sb=el.querySelector('#wmp-start');if(sb)sb.onclick=function(){mWarmupStart();};
+  /* Load progress chart */
+  (async function(){
+    var chartEl=el.querySelector('#wmp-chart-inner');if(!chartEl)return;
+    try{
+      var d=await af('/warmup/progress?days=14');
+      var pts=d.by_day||[];
+      if(!pts.length){chartEl.textContent='Нет данных о прогреве за 14 дней';return;}
+      var mx=Math.max.apply(null,pts.map(function(p){return p.count;}));
+      chartEl.innerHTML='<div class="f ac g1x" style="align-items:flex-end;height:60px;gap:3px">'+
+        pts.map(function(p){
+          var h=mx>0?Math.round((p.count/mx)*56)+4:4;
+          var dt=p.date.slice(5);/* MM-DD */
+          return '<div class="f fc ac" style="flex:1;min-width:0" title="'+p.date+': '+p.count+' действий">'+
+            '<div style="width:100%;height:'+h+'px;background:var(--blue-500);border-radius:2px 2px 0 0;opacity:0.85"></div>'+
+            '<div class="t10 c-m" style="margin-top:3px;font-size:9px">'+dt+'</div>'+
+          '</div>';
+        }).join('')+
+      '</div><div class="txs c-m mt1" style="text-align:right">Всего: '+d.total+' действий</div>';
+    }catch(e){if(chartEl)chartEl.textContent='Нет данных';}
+  })();
   el.querySelectorAll('.wmp-stop').forEach(function(b){b.onclick=async function(){b.disabled=true;b.innerHTML='<span class="spin"></span>';try{await ap('/warmup/'+b.dataset.id+'/stop');toast('Прогрев остановлен','success');wmpLoaded=false;rWarmup(el);}catch(e){toast(e.message,'error');b.disabled=false;b.innerHTML='Стоп';}};});
   /* Bulk stop: checkboxes + "Стоп выбранных" */
   var stopSelBtn=el.querySelector('#wmp-stop-sel');

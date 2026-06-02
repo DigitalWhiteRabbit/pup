@@ -311,6 +311,29 @@ async def warmup_log(
     )
 
 
+@router.get("/progress")
+async def warmup_progress(
+    _token: AdminAuth,
+    db: WorkspaceDB,
+    days: int = Query(14, ge=1, le=90),
+) -> dict:
+    """Return warmup actions count per day for the last N days.
+
+    Used by the progress chart on the warmup screen.
+    """
+    rows = db.execute(
+        """SELECT date(created_at) AS day, COUNT(*) AS cnt
+           FROM tg_warmup_actions
+           WHERE created_at >= datetime('now', ?)
+           GROUP BY date(created_at)
+           ORDER BY day ASC""",
+        [f"-{days} days"],
+    ).fetchall()
+    by_day = [{"date": r["day"], "count": r["cnt"]} for r in rows]
+    total = sum(r["cnt"] for r in rows)
+    return {"by_day": by_day, "total": total, "days": days}
+
+
 # ---------------------------------------------------------------------------
 # Internal: dispatch Celery warmup task
 # ---------------------------------------------------------------------------
