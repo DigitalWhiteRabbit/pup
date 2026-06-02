@@ -6,6 +6,7 @@ so the UI can warn the user when "Старт" actions would not actually execute
 
 from __future__ import annotations
 
+import os
 import time
 from typing import Any
 
@@ -20,6 +21,25 @@ router = APIRouter(tags=["system"])
 # so cache the result briefly to keep the polled endpoint cheap.
 _CACHE: dict[str, Any] = {"ts": 0.0, "value": None}
 _CACHE_TTL = 15.0
+
+
+def _local_worker_pid() -> int | None:
+    """Return the PID of a worker started by dev-up.sh, if it is alive.
+
+    Fast, broker-agnostic liveness signal for local dev — avoids a slow
+    control.ping (and, on the filesystem broker, avoids leaving pidbox reply
+    files in the queue on every poll).
+    """
+    pidfile = settings.data_dir / "run" / "worker.pid"
+    try:
+        pid = int(pidfile.read_text().strip())
+    except (OSError, ValueError):
+        return None
+    try:
+        os.kill(pid, 0)  # signal 0 = liveness probe, does not kill
+    except OSError:
+        return None
+    return pid
 
 
 def _probe_engine() -> dict[str, Any]:
@@ -39,7 +59,13 @@ def _probe_engine() -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001
         error = f"broker: {exc}"
 
-    if broker_reachable:
+    # Prefer the local pidfile (instant, no broker chatter). Fall back to a
+    # control.ping for setups not started by dev-up.sh (e.g. PM2 in prod).
+    local_pid = _local_worker_pid()
+    if local_pid is not None:
+        worker_online = True
+        workers = [f"local:{local_pid}"]
+    elif broker_reachable:
         try:
             replies = celery_app.control.ping(timeout=3.0) or []
             workers = [name for r in replies for name in r.keys()]
