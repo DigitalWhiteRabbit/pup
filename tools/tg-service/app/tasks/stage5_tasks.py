@@ -613,7 +613,9 @@ def channel_creator_task(self, workspace_id: str, task_id: str) -> dict:
 
 
 async def _channel_creator_async(workspace_id: str, task_id: str) -> dict:
-    from telethon.tl.functions.channels import CreateChannelRequest
+    from telethon.tl.functions.channels import CreateChannelRequest, UpdateUsernameRequest
+    from telethon.tl.functions.messages import EditChatDefaultBannedRightsRequest
+    from telethon.tl.types import ChatBannedRights
     from telethon.errors import FloodWaitError
 
     db = get_db(workspace_id)
@@ -624,7 +626,18 @@ async def _channel_creator_async(workspace_id: str, task_id: str) -> dict:
     channel_type = task["channel_type"] or "CHANNEL"
     count = task["count"] or 1
     naming_pattern = task["naming_pattern"] or "Channel {n}"
+    username_pattern = task["username_pattern"] or ""
     description = task["description"] or ""
+    # permissions (P2-09): default banned rights for new members, applied via
+    # EditChatDefaultBannedRights when non-empty. Keys are Telegram restriction
+    # flags ("true" = restricted): send_messages, send_media, send_stickers,
+    # send_polls, embed_links, invite_users, pin_messages, change_info.
+    try:
+        permissions = json.loads(task["permissions"] or "{}")
+        if not isinstance(permissions, dict):
+            permissions = {}
+    except (json.JSONDecodeError, TypeError):
+        permissions = {}
     creator_account_ids = json.loads(task["creator_account_ids"] or "[]")
 
     if not creator_account_ids:
@@ -671,6 +684,39 @@ async def _channel_creator_async(workspace_id: str, task_id: str) -> dict:
                 channel = result.chats[0]
                 created_count += 1
                 created_ids.append(str(channel.id))
+
+                # Set a public @username (P2-09) if a pattern was given. Public
+                # usernames can collide / require eligibility, so failures are
+                # logged and don't abort the channel.
+                if username_pattern:
+                    uname = username_pattern.replace("{n}", str(n)).replace("{N}", str(n))
+                    uname = uname.lstrip("@").strip()
+                    if uname:
+                        try:
+                            await client(UpdateUsernameRequest(channel=channel, username=uname))
+                            log.info("channel_username_set", username=uname, tg_id=channel.id)
+                        except Exception as e:
+                            log.warning("channel_username_failed", username=uname, error=str(e)[:120])
+
+                # Apply default member permissions (P2-09) if configured.
+                if permissions:
+                    try:
+                        rights = ChatBannedRights(
+                            until_date=None,
+                            send_messages=bool(permissions.get("send_messages")),
+                            send_media=bool(permissions.get("send_media")),
+                            send_stickers=bool(permissions.get("send_stickers")),
+                            send_gifs=bool(permissions.get("send_stickers")),
+                            send_polls=bool(permissions.get("send_polls")),
+                            embed_links=bool(permissions.get("embed_links")),
+                            invite_users=bool(permissions.get("invite_users")),
+                            pin_messages=bool(permissions.get("pin_messages")),
+                            change_info=bool(permissions.get("change_info")),
+                        )
+                        await client(EditChatDefaultBannedRightsRequest(peer=channel, banned_rights=rights))
+                        log.info("channel_permissions_set", tg_id=channel.id)
+                    except Exception as e:
+                        log.warning("channel_permissions_failed", error=str(e)[:120])
 
                 # Save to tg_channels
                 db.execute(
