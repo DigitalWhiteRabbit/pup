@@ -129,6 +129,11 @@ CREATE TABLE IF NOT EXISTS tg_settings (
   notify_on_emergency_stop      INTEGER DEFAULT 1,
   notify_on_spam_block          INTEGER DEFAULT 1,
 
+  -- UI-only settings that have no dedicated column (delays, extra notif flags,
+  -- flood-wait behavior, save_snapshot, ...). Stored as a JSON blob so the
+  -- settings form persists every field instead of silently dropping unknowns.
+  extra_settings                TEXT DEFAULT '{}',
+
   updated_at                    TEXT DEFAULT (datetime('now'))
 );
 
