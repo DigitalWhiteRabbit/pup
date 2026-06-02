@@ -43,8 +43,36 @@ class SettingsUpdate(BaseModel):
 # Helpers
 # ---------------------------------------------------------------------------
 
+# Secret fields are never returned in clear text — the GET response masks them
+# (e.g. ``sk-a…AB12``). PATCH echoes the row too, so a client that reads back a
+# masked value and re-submits it must NOT overwrite the real secret — see
+# ``_strip_masked_secrets``.
+_SECRET_FIELDS = ("anthropic_api_key", "telegram_app_hash")
+_MASK_CHAR = "…"
+
+
+def _mask_secret(value: Any) -> Any:
+    """Return a masked form of a secret that reveals only head/tail."""
+    if not value:
+        return value
+    s = str(value)
+    if len(s) <= 8:
+        return "••••"
+    return f"{s[:4]}{_MASK_CHAR}{s[-4:]}"
+
+
+def _strip_masked_secrets(updates: dict[str, Any]) -> None:
+    """Drop secret fields whose incoming value is a mask (or empty), so a
+    round-tripped masked value never clobbers the stored secret. Mutates in place."""
+    for field in _SECRET_FIELDS:
+        if field in updates:
+            val = updates[field]
+            if val is None or val == "" or (isinstance(val, str) and _MASK_CHAR in val):
+                del updates[field]
+
+
 def _row_to_settings(row: dict[str, Any]) -> dict[str, Any]:
-    """Convert a raw SQLite row dict, deserializing JSON columns."""
+    """Convert a raw SQLite row dict, deserializing JSON columns and masking secrets."""
     data = dict(row)
     if data.get("ai_model_roles"):
         try:
@@ -53,6 +81,9 @@ def _row_to_settings(row: dict[str, Any]) -> dict[str, Any]:
             data["ai_model_roles"] = {}
     else:
         data["ai_model_roles"] = {}
+    for field in _SECRET_FIELDS:
+        if data.get(field):
+            data[field] = _mask_secret(data[field])
     return data
 
 
@@ -91,6 +122,9 @@ async def update_settings(
             updates["ai_model_roles"] = json.dumps(value)
         else:
             updates[field] = value
+
+    # A client may echo back masked secrets from a prior GET — never persist those.
+    _strip_masked_secrets(updates)
 
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")

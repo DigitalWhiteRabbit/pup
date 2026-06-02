@@ -29,7 +29,7 @@
 
 Делаем ПЕРВОЙ. Всё, что «UI дёргает несуществующее / падает 400/422 / показывает 0 / течёт секрет / ложная отчётность».
 
-- [ ] **P1-01** · settings · Замаскировать `anthropic_api_key` в `GET /settings` (отдавать `sk-...XXXX`, не полный ключ); проверить, что PATCH не затирает ключ маской. S · low(объём)/важно(секрет)
+- [x] **P1-01** · settings · Замаскировать `anthropic_api_key` (+`telegram_app_hash`) в `GET /settings` (`sk-a…wwAA`); PATCH дропает маск-значения → не затирает ключ. Live ✓. _(commit P1-01)_
 - [ ] **P1-02** · ai-sales · Добавить отсутствующий `GET /ai-sales/knowledge-base` (прокси к `/kb/documents`), который UI уже дёргает. S · low
 - [ ] **P1-03** · parser · Синхронизировать режимы UI↔`VALID_MODES`: убрать из UI несуществующие (ACTIVE_ONLINE/SEARCH/NEARBY/PHONE_CONTACTS/GROUP_MEMBERS), добавить реальные (REACTIONS/POLLS/JOINERS/TOPICS/GLOBAL_SEARCH + CHAT_MEMBERS/COMMENTERS/WRITERS). S · low
 - [ ] **P1-04** · parser · Исправить поля found/filtered: UI читает `found_count`/`filtered_count`, бэк хранит `total_found`/`total_filtered` → колонки всегда 0. S · low
@@ -37,7 +37,7 @@
 - [ ] **P1-06** · auto-replier · Синхронизировать поведения: заменить UI `FORWARD/IGNORE` на реальные `SILENCE/NOTIFY/HANDOFF_SALES` (бэк их валидирует). S · low
 - [ ] **P1-07** · phone-checker · Согласовать счётчики UI↔бэк: UI берёт `b.total`, которого нет (есть `input_count`). S · low
 - [ ] **P1-08** · converter · Починить контракт UI↔API: эндпоинт принимает JSON, UI шлёт multipart (files/direction/options) → 422. Принять UploadFile + распарсить direction→input/output_format. M · med
-- [ ] **P1-09** · settings · Синхронизировать имена полей формы UI↔API (ai*model↔ai_default_model, daily_dm_limit↔limits_dm_per_day, active_hours_start/end↔active_hours, app_id, dm_delay*_, notif\__). Почти вся форма сейчас молча не сохраняется. M · med
+- [ ] **P1-09** · settings · Синхронизировать имена полей формы UI↔API (ai*model↔ai_default_model, daily_dm_limit↔limits_dm_per_day, active_hours_start/end↔active_hours, app_id, dm_delay*\_, notif\_\_). Почти вся форма сейчас молча не сохраняется. M · med
 - [ ] **P1-10** · inviting · Режим INVITE_LINK логирует ложный `SUCCESS`, ничего не отправив. Честно помечать (NOT_SENT/SKIPPED) или задизейблить режим в UI с пометкой. S-M · med (ложная отчётность)
 - [ ] **P1-11** · ai-promoter · Удалить/задепрекейтить мёртвый `ai_promoter_tasks.py` (`pup_tg.ai_promoter`, нигде не диспатчится, баг `account_id`). S · low
 - [ ] **P1-12** · warmup · Подключить мок-экран `rWarmup` к реальному `/warmup/status` + `/warmup/log/{id}` + кнопки start/stop (убрать хардкод-номера). M · low (бэк готов, чистый фронт)
