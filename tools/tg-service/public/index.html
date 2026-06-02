@@ -3796,6 +3796,16 @@ function rAiPromoter(el){
     };
   });
   el.querySelectorAll('.prom-learn-sel').forEach(function(s){s.onchange=function(){promLearnPersona=s.value||'';Promise.all([ldPromReplies(),ldPromLearning()]).then(function(){if(S.sec==='ai-promoter')rAiPromoter(el);});};});
+  /* P3-20: Export 👍 replies to Style Bank */
+  var expStyBtn=el.querySelector('#prom-export-style');
+  if(expStyBtn)expStyBtn.onclick=async function(){
+    var good=(promReplies||[]).filter(function(m){return (m.moderator_rating||'').toLowerCase()==='good'&&m.original_text&&m.ai_text;});
+    if(!good.length){toast('Нет 👍 реплик для экспорта','error');return;}
+    var topic=prompt('Тема для Стиль-банка:','общее');if(topic===null)return;
+    var btn=this;btn.disabled=true;btn.innerHTML='<span class="spin"></span>';
+    var text=good.map(function(m){return (m.original_text||'').replace(/\n/g,' ')+'\\n'+(m.ai_text||'').replace(/\n/g,' ');}).join('\\n');
+    try{var r=await ap('/style/paste',{text:text,topic:topic.trim()||'общее'});toast('Экспортировано '+(r.imported||good.length)+' реплик в Стиль-банк','success');}catch(e){toast(e.message,'error');}finally{btn.disabled=false;btn.innerHTML='📚 В Стиль-банк ('+good.length+')';}
+  };
   el.querySelectorAll('.prom-toggle').forEach(function(b){
     b.onclick=async function(){
       var id=b.dataset.id,act=b.dataset.act;b.disabled=true;
@@ -3951,7 +3961,9 @@ function rPromReplies(){
   }else if(promLearnPersona){
     learnPanel='<div class="card mb3"><div class="card-body txs c-m">Статистика самообучения недоступна</div></div>';
   }
-  var head='<div class="f ac jb mb3"><div class="card-title">Ответы агента</div><div class="sel-w" style="max-width:240px"><select class="sel prom-learn-sel">'+persOpts+'</select></div></div>';
+  var goodCount=(promReplies||[]).filter(function(m){return (m.moderator_rating||'').toLowerCase()==='good';}).length;
+  var exportBtn=goodCount>0?'<button class="btn btn-sm" id="prom-export-style" title="Экспортировать '+goodCount+' 👍 реплик в Стиль-банк">📚 В Стиль-банк ('+goodCount+')</button>':'';
+  var head='<div class="f ac jb mb3"><div class="card-title">Ответы агента</div><div class="f g2x">'+exportBtn+'<div class="sel-w" style="max-width:240px"><select class="sel prom-learn-sel">'+persOpts+'</select></div></div></div>';
   if(!promReplies.length)return head+learnPanel+esHtml('message','Нет ответов','Ответы появятся после активации персон');
   var list='<div class="sy2">'+promReplies.map(function(m){
     var rated=(m.moderator_rating||'').toLowerCase();
@@ -3997,7 +4009,7 @@ async function mStyleBank(){
 function mCrProm(){
   var step=1,maxStep=7;
   var stepLabels=['Основное','Аккаунт','Стратегия','Характер','Промпт','Каналы','Обзор'];
-  var fd={name:'',account_id:'',niche:'',strategy:'soft',bio:'',personality:'',system_prompt:'',ai_model:'claude-haiku-4-5',target_channels:''};
+  var fd={name:'',account_id:'',niche:'',strategy:'soft',bio:'',personality:'',system_prompt:'',ai_model:'claude-haiku-4-5',target_channels:'',style_topic:'общее'};
   var models=['claude-haiku-4-5','claude-sonnet-4','claude-opus-4'];
   var strategies=['soft','medium','aggressive'];
   var stratLabels={soft:'Soft-sell',medium:'Medium',aggressive:'Aggressive'};
@@ -4017,7 +4029,7 @@ function mCrProm(){
       case 1: bodyHtml+='<div><label class="lbl">Имя персоны *</label><input class="input tsm" id="wiz-name" value="'+esc(fd.name)+'" placeholder="Алексей Крипто"></div><div><label class="lbl">Ниша'+tip('Тематика в которой агент будет общаться: крипто, DeFi, инвестиции и т.д.')+'</label><input class="input tsm" id="wiz-niche" value="'+esc(fd.niche)+'" placeholder="Крипто, DeFi, Фитнес..."></div>';break;
       case 2: bodyHtml+='<div><label class="lbl">Аккаунт Telegram</label><div class="sel-w"><select class="sel" id="wiz-account">'+accOpts.replace('value="'+fd.account_id+'"','value="'+fd.account_id+'" selected')+'</select></div><div class="txs c-m mt1">Привяжите аккаунт, от имени которого будет общаться персона</div></div>';break;
       case 3: bodyHtml+='<div><label class="lbl">Стратегия продвижения'+tip('soft \u2014 мягко через экспертизу, medium \u2014 активнее предлагает, aggressive \u2014 прямые призывы')+'</label><div class="g g3 mt2">'+strategies.map(function(s){var cls=fd.strategy===s?'border-color:var(--blue-500);background:rgba(59,130,246,0.05)':'';return '<div class="card card-hv wiz-strat" data-val="'+s+'" style="cursor:pointer;padding:1rem;text-align:center;'+cls+'"><div class="tsm fbol">'+esc(stratLabels[s])+'</div><div class="txs c-m mt1">'+(s==='soft'?'Мягкое вовлечение, вопросы, помощь':s==='medium'?'Экспертность + нативная реклама':'Прямые предложения, CTA')+'</div></div>';}).join('')+'</div></div><div class="mt3"><label class="lbl">AI Модель</label><div class="sel-w"><select class="sel" id="wiz-model">'+models.map(function(m){return '<option value="'+m+'"'+(fd.ai_model===m?' selected':'')+'>'+esc(m)+'</option>';}).join('')+'</select></div></div>';break;
-      case 4: bodyHtml+='<div><label class="lbl">Био / описание персоны'+tip('Краткая биография персонажа которую AI будет использовать для самопрезентации')+'</label><textarea class="ta" id="wiz-bio" placeholder="Описание персонажа для Telegram профиля..." style="min-height:80px">'+esc(fd.bio)+'</textarea></div><div><label class="lbl">Характер / стиль общения'+tip('Описание характера: дружелюбный, экспертный, сдержанный. Влияет на стиль общения')+'</label><input class="input tsm" id="wiz-personality" value="'+esc(fd.personality)+'" placeholder="Дружелюбный, экспертный, с юмором..."></div>';break;
+      case 4: bodyHtml+='<div><label class="lbl">Био / описание персоны'+tip('Краткая биография персонажа которую AI будет использовать для самопрезентации')+'</label><textarea class="ta" id="wiz-bio" placeholder="Описание персонажа для Telegram профиля..." style="min-height:80px">'+esc(fd.bio)+'</textarea></div><div><label class="lbl">Характер / стиль общения'+tip('Описание характера: дружелюбный, экспертный, сдержанный. Влияет на стиль общения')+'</label><input class="input tsm" id="wiz-personality" value="'+esc(fd.personality)+'" placeholder="Дружелюбный, экспертный, с юмором..."></div><div><label class="lbl">Тема Стиль-банка'+tip('Тема для few-shot примеров из Стиль-банка. Агент будет копировать стиль именно этой темы. Примеры: крипта, общее, бизнес')+'</label><input class="input tsm" id="wiz-style-topic" value="'+esc(fd.style_topic||'общее')+'" placeholder="общее, крипта, бизнес..."></div>';break;
       case 5: bodyHtml+='<div><label class="lbl">Системный промпт'+tip('Главная инструкция для AI: как себя вести, о чём говорить, чего избегать. Чем подробнее \u2014 тем лучше')+'</label><textarea class="ta" id="wiz-prompt" placeholder="Ты - эксперт по криптовалютам и DeFi. Твоя задача - нативно продвигать продукт..." style="min-height:160px">'+esc(fd.system_prompt)+'</textarea><div class="txs c-m mt1">Детальная инструкция для AI. Опишите роль, стиль, ограничения и цели.</div></div>';break;
       case 6: bodyHtml+='<div><label class="lbl">Целевые каналы (по одному на строку)'+tip('Список чатов где агент будет мониторить сообщения и отвечать')+'</label><textarea class="ta" id="wiz-channels" placeholder="@crypto_chat\n@business_group\nhttps://t.me/channel123" style="min-height:120px">'+esc(fd.target_channels)+'</textarea><div class="txs c-m mt1">Укажите каналы, в которых персона будет работать</div></div>';break;
       case 7:
@@ -4048,7 +4060,7 @@ function mCrProm(){
       case 1: var n=document.getElementById('wiz-name');if(n)fd.name=n.value.trim();var ni=document.getElementById('wiz-niche');if(ni)fd.niche=ni.value.trim();break;
       case 2: var a=document.getElementById('wiz-account');if(a)fd.account_id=a.value;break;
       case 3: var m=document.getElementById('wiz-model');if(m)fd.ai_model=m.value;break;
-      case 4: var b=document.getElementById('wiz-bio');if(b)fd.bio=b.value.trim();var p=document.getElementById('wiz-personality');if(p)fd.personality=p.value.trim();break;
+      case 4: var b=document.getElementById('wiz-bio');if(b)fd.bio=b.value.trim();var p=document.getElementById('wiz-personality');if(p)fd.personality=p.value.trim();var st=document.getElementById('wiz-style-topic');if(st)fd.style_topic=st.value.trim()||'общее';break;
       case 5: var pr=document.getElementById('wiz-prompt');if(pr)fd.system_prompt=pr.value.trim();break;
       case 6: var ch=document.getElementById('wiz-channels');if(ch)fd.target_channels=ch.value;break;
     }
@@ -4078,7 +4090,7 @@ function mCrProm(){
       sub.disabled=true;sub.innerHTML='<span class="spin"></span> Создание...';
       var channels=fd.target_channels.split('\n').map(function(s){return s.trim();}).filter(Boolean);
       try{
-        await ap('/ai-promoter/personas',{name:fd.name,account_ids:fd.account_id?[fd.account_id]:[],niche:fd.niche,bio:fd.bio,personality:fd.personality,strategy:fd.strategy,system_prompt:fd.system_prompt,ai_model:fd.ai_model,target_channels:channels});
+        await ap('/ai-promoter/personas',{name:fd.name,account_ids:fd.account_id?[fd.account_id]:[],niche:fd.niche,bio:fd.bio,personality:fd.personality,strategy:fd.strategy,system_prompt:fd.system_prompt,ai_model:fd.ai_model,target_channels:channels,style_topic:fd.style_topic||'общее'});
         toast('Персона создана','success');mClose('mov');promLoaded=false;await ldProm();if(S.sec==='ai-promoter')rAiPromoter(document.getElementById('mc'));
       }catch(er){toast(er.message,'error');sub.disabled=false;sub.innerHTML='\u25B6 Создать персону';}
     };

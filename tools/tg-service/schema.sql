@@ -430,6 +430,7 @@ CREATE TABLE IF NOT EXISTS tg_ai_personas (
   schedule        TEXT DEFAULT '{}',                              -- JSON: active_hours, max_messages_day
   dm_enabled      INTEGER DEFAULT 1,                              -- 0/1: can agent initiate DMs from chat?
   context_depth   INTEGER DEFAULT 50,                             -- how many chat messages to read for context
+  style_topic     TEXT DEFAULT 'общее',                           -- style-bank topic to draw examples from
   status          TEXT DEFAULT 'DRAFT',                           -- DRAFT|ACTIVE|PAUSED
   total_messages  INTEGER DEFAULT 0,
   total_leads     INTEGER DEFAULT 0,

@@ -53,6 +53,7 @@ class PersonaCreate(BaseModel):
     dm_enabled: bool = True
     dm_reply_to_all: bool = True
     context_depth: int = 50
+    style_topic: str | None = "общее"
 
 
 class RateMessageRequest(BaseModel):
@@ -77,6 +78,7 @@ class PersonaUpdate(BaseModel):
     dm_enabled: bool | None = None
     dm_reply_to_all: bool | None = None
     context_depth: int | None = None
+    style_topic: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -183,8 +185,8 @@ async def create_persona(
                 (id, name, account_ids, niche, bio, personality, strategy,
                  system_prompt, ai_model, temperature, target_channels,
                  rag_doc_ids, schedule, dm_enabled, dm_reply_to_all, context_depth,
-                 status, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                 style_topic, status, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             [
                 persona_id, body.name, json.dumps(body.account_ids),
                 body.niche, body.bio, body.personality, body.strategy,
@@ -192,7 +194,8 @@ async def create_persona(
                 json.dumps(body.target_channels), json.dumps(body.rag_doc_ids),
                 json.dumps(body.schedule), 1 if body.dm_enabled else 0,
                 1 if body.dm_reply_to_all else 0,
-                body.context_depth, "DRAFT", now, now,
+                body.context_depth, body.style_topic or "общее",
+                "DRAFT", now, now,
             ],
         )
         db.commit()
