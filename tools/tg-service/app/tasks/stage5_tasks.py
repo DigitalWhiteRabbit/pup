@@ -483,6 +483,13 @@ async def _cloner_async(workspace_id: str, task_id: str) -> dict:
     cl_delay_max = sched.get("delay_max") or 30
     # Dedup cursor (P4-09): only fetch messages newer than last run
     last_cloned_id: int = int(sched.get("last_cloned_id", 0) or 0)
+    # Content filters (P4-10)
+    skip_keywords: list[str] = [
+        kw.strip().lower()
+        for kw in str(sched.get("skip_keywords") or "").split(",")
+        if kw.strip()
+    ]
+    skip_ads: bool = bool(sched.get("skip_ads", False))
 
     # Active-hours gate: outside the configured window → pause for a later run.
     if ah_from is not None and ah_to is not None and not _within_hours(ah_from, ah_to):
@@ -591,6 +598,20 @@ async def _cloner_async(workspace_id: str, task_id: str) -> dict:
                     continue
 
                 text = msg.text or ""
+
+                # Content filters (P4-10): skip ads or keyword-matched posts
+                if skip_ads and getattr(msg, "fwd_from", None) is not None:
+                    # Skip forwarded messages (often ads)
+                    continue
+                if skip_ads and any(
+                    marker in text.lower()
+                    for marker in ("#реклама", "#ad", "#спонсор", "#sponsor", "рекламируем")
+                ):
+                    continue
+                if skip_keywords and text:
+                    text_lower = text.lower()
+                    if any(kw in text_lower for kw in skip_keywords):
+                        continue
 
                 # Apply text replacements (P2-08) before AI rewrite.
                 for old, new in replacements:
