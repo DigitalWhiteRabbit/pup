@@ -2141,6 +2141,8 @@ function rAccDet(el,acc){
                     '<img id="pf-avatar-img" alt="avatar" style="width:100%;height:100%;object-fit:cover;display:none">'+
                   '</div>'+
                   '<button class="btn btn-sm" id="pf-gen-avatar">🖼 Сгенерировать аватар</button>'+
+                  '<button class="btn btn-sm" id="pf-upload-avatar">⬆ Загрузить свой</button>'+
+                  '<input type="file" id="pf-avatar-file" accept="image/*" style="display:none">'+
                 '</div>'+
                 '<div class="f g2x fw" style="margin-top:8px;align-items:center">'+
                   '<button class="btn btn-sm" id="pf-apply-photo" style="border-color:var(--emerald-500);color:var(--emerald-500)">✅ Применить фото</button>'+
@@ -2745,6 +2747,23 @@ function rAccDet(el,acc){
         }).catch(function(e){toast('Ошибка генерации аватара: '+(e.message||''),'error');})
           .finally(function(){btn.disabled=false;});
       };
+
+      /* Upload a custom avatar (multipart) */
+      var upBtn=el.querySelector('#pf-upload-avatar'),upInp=el.querySelector('#pf-avatar-file');
+      if(upBtn&&upInp){
+        upBtn.onclick=function(){upInp.click();};
+        upInp.onchange=async function(){
+          if(!upInp.files||!upInp.files.length)return;
+          var f=upInp.files[0];upBtn.disabled=true;
+          try{
+            var fd=new FormData();fd.append('file',f);
+            var r=await fetch(au('/accounts/'+acc.id+'/profile/upload-avatar'),{method:'POST',headers:{'x-admin-token':S.tok||'','x-workspace-id':S.ws},body:fd});
+            if(!r.ok){var d=await r.json().catch(function(){return null;});throw new Error((d&&d.detail)||('HTTP '+r.status));}
+            pfLoadAvatar(true);pfRefreshHeader();toast('Аватар загружен','success');
+          }catch(e){toast('Ошибка загрузки: '+(e.message||''),'error');}
+          finally{upBtn.disabled=false;upInp.value='';}
+        };
+      }
 
       /* PATCH-save the whole card (shared by Save + every Apply button) */
       function pfSaveCard(){

@@ -26,7 +26,7 @@ from typing import Any
 
 import httpx
 import structlog
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, File, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
@@ -47,8 +47,40 @@ _AVATAR_USER_AGENT = (
     "Chrome/124.0.0.0 Safari/537.36"
 )
 _AVATAR_SOURCE_URL = "https://thispersondoesnotexist.com/"
+# Fallback source: deterministic per-account avatar (seed = account_id) used when
+# the synthetic-face source 403s / returns empty (a frequent failure mode).
+_AVATAR_FALLBACK_URL = "https://i.pravatar.cc/512?u={seed}"
 
 _HAIKU_MODEL = "claude-haiku-4-5-20251001"
+
+
+async def _download_avatar_bytes(account_id: str) -> bytes:
+    """Download an avatar image, trying the synthetic-face source first and a
+    deterministic seeded fallback second. Raises HTTP 502 if all sources fail."""
+    sources = [
+        _AVATAR_SOURCE_URL,
+        _AVATAR_FALLBACK_URL.format(seed=account_id),
+    ]
+    last_err = "no source"
+    for url in sources:
+        try:
+            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+                resp = await client.get(
+                    url,
+                    headers={"User-Agent": _AVATAR_USER_AGENT, "Accept": "image/jpeg,image/*"},
+                )
+            resp.raise_for_status()
+            content = resp.content
+            if content and len(content) >= 512:
+                return content
+            last_err = f"empty/invalid image from {url}"
+        except Exception as exc:  # noqa: BLE001
+            last_err = f"{url}: {exc}"
+            log.warning("avatar_source_failed", account_id=account_id, error=str(exc)[:160])
+    raise HTTPException(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        detail=f"All avatar sources failed: {last_err}",
+    )
 
 # Telegram constraints
 _BIO_MAX = 70
@@ -496,27 +528,7 @@ async def generate_avatar(
     """Download a synthetic face JPEG and store its path on the account card."""
     row = _load_account_row(db, account_id)
 
-    try:
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-            resp = await client.get(
-                _AVATAR_SOURCE_URL,
-                headers={"User-Agent": _AVATAR_USER_AGENT, "Accept": "image/jpeg,image/*"},
-            )
-        resp.raise_for_status()
-    except Exception as exc:
-        log.error("avatar_download_failed", account_id=account_id, error=str(exc)[:200])
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to download avatar: {exc}",
-        ) from exc
-
-    content = resp.content
-    if not content or len(content) < 512:
-        log.error("avatar_download_empty", account_id=account_id, size=len(content))
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Avatar source returned an empty or invalid image",
-        )
+    content = await _download_avatar_bytes(account_id)
 
     avatar_dir = _avatar_dir(workspace_id)
     avatar_dir.mkdir(parents=True, exist_ok=True)
@@ -542,6 +554,64 @@ async def generate_avatar(
     db.commit()
 
     log.info("avatar_generated", account_id=account_id, size=len(content), path=rel_path)
+    return AvatarResponse(avatar_url=_avatar_route(account_id))
+
+
+# ---------------------------------------------------------------------------
+# 3b. Upload a custom avatar
+# ---------------------------------------------------------------------------
+
+
+@router.post("/{account_id}/profile/upload-avatar")
+async def upload_avatar(
+    account_id: str,
+    _token: AdminAuth,
+    db: WorkspaceDB,
+    workspace_id: WorkspaceId,
+    file: UploadFile = File(...),
+) -> AvatarResponse:
+    """Store an operator-supplied image as the account's avatar.
+
+    Saved to the same per-account path as a generated avatar so the rest of the
+    profile flow (preview, apply-to-Telegram) works unchanged. Validates that
+    the upload is a non-trivial image.
+    """
+    row = _load_account_row(db, account_id)
+
+    content = await file.read()
+    if not content or len(content) < 512:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded file is empty or too small to be an image",
+        )
+    ctype = (file.content_type or "").lower()
+    if ctype and not ctype.startswith("image/"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Expected an image, got content-type '{ctype}'",
+        )
+
+    avatar_dir = _avatar_dir(workspace_id)
+    avatar_dir.mkdir(parents=True, exist_ok=True)
+    target = _avatar_path(workspace_id, account_id)
+    try:
+        target.write_bytes(content)
+    except OSError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to save avatar: {exc}",
+        ) from exc
+
+    rel_path = str(target.relative_to(settings.data_dir))
+    meta = _parse_metadata(row.get("metadata"))
+    meta["avatar_path"] = rel_path
+    db.execute(
+        "UPDATE tg_accounts SET metadata = ?, updated_at = datetime('now') WHERE id = ?",
+        [json.dumps(meta, ensure_ascii=False), account_id],
+    )
+    db.commit()
+
+    log.info("avatar_uploaded", account_id=account_id, size=len(content))
     return AvatarResponse(avatar_url=_avatar_route(account_id))
 
 

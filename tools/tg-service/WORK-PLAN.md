@@ -84,7 +84,7 @@
 ## ФАЗА 3 — Quick wins по разделам (S, low risk)
 
 - [x] **P3-01** · accounts · Бейджи здоровья уже были в колонке Статус (healthBadges). Добавлен фильтр `accHealthF` (Ограничен/scam/fake · Без профиля · Низкий humanity) + сброс. Live playwright: ALL=10, RESTRICTED=0, NOPROFILE=5, reset виден, без console-ошибок. _(commit P3-01)_
-- [ ] **P3-02** · account_profile · Загрузка своего аватара (upload) + seed/несколько источников. S · low
+- [x] **P3-02** · account*profile · `POST /{id}/profile/upload-avatar` (multipart, валидация image+размер) — сохраняет в тот же \_avatar_path; кнопка «⬆ Загрузить свой» во вкладке Профиль. Генерация: `_download_avatar_bytes` пробует thispersondoesnotexist → fallback i.pravatar.cc?u={account_id} (seed, лечит частые 403). Live: upload→200+avatar_url, GET→200 image/jpeg 2000B, text→400, disposable cleaned. *(commit P3-02)\_
 - [ ] **P3-03** · account_profile · Предпросмотр «как увидят аккаунт» перед apply. S · low
 - [ ] **P3-04** · account_profile · Pre-check занятости username (CheckUsername) до apply. S · low-med
 - [ ] **P3-05** · proxies · Расширенные форматы импорта (socks5://user:pass@host:port, rotation_url). S · low
