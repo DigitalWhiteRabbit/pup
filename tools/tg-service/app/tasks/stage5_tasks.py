@@ -481,6 +481,8 @@ async def _cloner_async(workspace_id: str, task_id: str) -> dict:
     ah_to = sched.get("active_hours_to")
     cl_delay_min = sched.get("delay_min") or 5
     cl_delay_max = sched.get("delay_max") or 30
+    # Dedup cursor (P4-09): only fetch messages newer than last run
+    last_cloned_id: int = int(sched.get("last_cloned_id", 0) or 0)
 
     # Active-hours gate: outside the configured window → pause for a later run.
     if ah_from is not None and ah_to is not None and not _within_hours(ah_from, ah_to):
@@ -575,8 +577,14 @@ async def _cloner_async(workspace_id: str, task_id: str) -> dict:
                     fetch_limit = min(50, int(max_posts_per_day))
             except (TypeError, ValueError):
                 pass
-            messages = await client.get_messages(source_entity, limit=fetch_limit)
+            # Only fetch messages newer than last_cloned_id for dedup (P4-09)
+            messages = await client.get_messages(
+                source_entity,
+                limit=fetch_limit,
+                min_id=last_cloned_id,  # 0 means fetch all (first run)
+            )
             total_posts = len(messages)
+            new_max_id = last_cloned_id
 
             for msg in reversed(messages):
                 if not msg.text and not msg.media:
@@ -613,6 +621,8 @@ async def _cloner_async(workspace_id: str, task_id: str) -> dict:
                     else:
                         await client.send_message(target_entity, text)
                     posted_count += 1
+                    # Advance cursor to the latest successfully cloned message id
+                    new_max_id = max(new_max_id, getattr(msg, "id", 0))
                 except ChatWriteForbiddenError:
                     break
                 except FloodWaitError as e:
@@ -632,6 +642,14 @@ async def _cloner_async(workspace_id: str, task_id: str) -> dict:
     except Exception:
         pass
     shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    # Persist the cursor so next run only fetches new posts
+    if new_max_id > last_cloned_id:
+        sched["last_cloned_id"] = new_max_id
+        db.execute(
+            "UPDATE tg_clone_tasks SET schedule_config=?, updated_at=? WHERE id=?",
+            [json.dumps(sched, ensure_ascii=False), _now(), task_id],
+        )
 
     db.execute(
         """UPDATE tg_clone_tasks SET
