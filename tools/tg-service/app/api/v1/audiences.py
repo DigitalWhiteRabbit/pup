@@ -421,6 +421,81 @@ async def merge_audiences(
 
 
 # ---------------------------------------------------------------------------
+# Routes — Add members (e.g. from phone checker results)
+# ---------------------------------------------------------------------------
+
+class MemberImportItem(BaseModel):
+    tg_user_id: int | None = None
+    username: str | None = None
+    first_name: str | None = None
+    last_name: str | None = None
+    phone: str | None = None
+    is_premium: int = 0
+    is_bot: int = 0
+    has_avatar: int = 0
+
+
+class MemberImportRequest(BaseModel):
+    members: list[MemberImportItem] = Field(default_factory=list)
+
+
+@router.post("/{audience_id}/add-members")
+async def add_members(
+    audience_id: str,
+    body: MemberImportRequest,
+    _token: AdminAuth,
+    db: WorkspaceDB,
+) -> dict[str, Any]:
+    """Add a list of members to an existing audience (upsert by tg_user_id).
+
+    Used to save phone-checker results or other contact lists into an audience.
+    Duplicates (same tg_user_id) are silently ignored via INSERT OR IGNORE.
+    """
+    import uuid as _uuid
+
+    existing = db.execute(
+        "SELECT id FROM tg_audiences WHERE id = ?", [audience_id]
+    ).fetchone()
+    if not existing:
+        raise HTTPException(status_code=404, detail="Audience not found")
+
+    now = datetime.now(timezone.utc).isoformat()
+    added = 0
+    for m in body.members:
+        if not m.tg_user_id and not m.phone:
+            continue
+        try:
+            db.execute(
+                """INSERT OR IGNORE INTO tg_audience_members
+                   (id, audience_id, tg_user_id, username, first_name, last_name,
+                    phone, is_premium, is_bot, has_avatar, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                [
+                    str(_uuid.uuid4()), audience_id, m.tg_user_id,
+                    m.username, m.first_name, m.last_name,
+                    m.phone, m.is_premium, m.is_bot, m.has_avatar, now,
+                ],
+            )
+            if db.execute("SELECT changes()").fetchone()[0]:
+                added += 1
+        except Exception:
+            pass
+
+    # Update audience total_count
+    count_row = db.execute(
+        "SELECT COUNT(*) AS cnt FROM tg_audience_members WHERE audience_id = ?",
+        [audience_id],
+    ).fetchone()
+    total = count_row["cnt"] if count_row else 0
+    db.execute(
+        "UPDATE tg_audiences SET total_count = ?, unique_count = ?, updated_at = ? WHERE id = ?",
+        [total, total, now, audience_id],
+    )
+    db.commit()
+    return {"added": added, "total": total}
+
+
+# ---------------------------------------------------------------------------
 # Routes — Export
 # ---------------------------------------------------------------------------
 

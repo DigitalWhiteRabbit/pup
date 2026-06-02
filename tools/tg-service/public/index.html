@@ -3638,7 +3638,7 @@ function rPhoneChecker(el){
   el.innerHTML='<div class="sy4">'+
     pageHead('Чекер номеров',phcTotal+' проверок')+
     '<div class="g g2">'+
-      '<div class="card"><div class="card-head"><div class="card-title">Номера для проверки</div></div><div class="card-body"><textarea class="ta" id="phc-ta" placeholder="+79001234567\n+79007654321\n+380501234567" style="min-height:240px"></textarea><div class="txs c-m mt2" id="phc-cnt">0 номеров</div><div class="mt3"><button class="btn btn-sm btn-primary" id="phc-run">'+ic('play')+' Запустить проверку</button></div></div></div>'+
+      '<div class="card"><div class="card-head"><div class="card-title">Номера для проверки</div><div class="f g1h"><button class="btn btn-sm" id="phc-file-btn">📁 Из файла</button><input type="file" id="phc-file-inp" accept=".txt,.csv" style="display:none"></div></div><div class="card-body"><textarea class="ta" id="phc-ta" placeholder="+79001234567\n+79007654321\n+380501234567" style="min-height:240px"></textarea><div class="txs c-m mt2" id="phc-cnt">0 номеров</div><div class="mt3 f g2x"><button class="btn btn-sm btn-primary" id="phc-run">'+ic('play')+' Запустить проверку</button></div></div></div>'+
       '<div class="card"><div class="card-head"><div class="card-title">Результаты</div></div><div class="card-body" id="phc-res">'+
         (phcBatchResult
           ?renderPhcResults(phcBatchResult)
@@ -3655,6 +3655,10 @@ function rPhoneChecker(el){
   '</div>';
   var ta=el.querySelector('#phc-ta'),cntEl=el.querySelector('#phc-cnt');
   ta.oninput=function(){var lines=ta.value.split('\n').filter(function(l){return l.trim();});cntEl.textContent=lines.length+' номеров';};
+  /* File import */
+  var fileBtn=el.querySelector('#phc-file-btn'),fileInp=el.querySelector('#phc-file-inp');
+  if(fileBtn&&fileInp){fileBtn.onclick=function(){fileInp.click();};fileInp.onchange=function(){var f=fileInp.files[0];if(!f)return;var reader=new FileReader();reader.onload=function(ev){ta.value=ev.target.result||'';ta.oninput();};reader.readAsText(f);};}
+
   el.querySelector('#phc-run').onclick=async function(){
     var lines=ta.value.split('\n').map(function(l){return l.trim();}).filter(Boolean);
     if(!lines.length){toast('Введите номера для проверки','error');return;}
@@ -3673,10 +3677,58 @@ function rPhoneChecker(el){
             phcBatchResult=br;resEl.innerHTML=renderPhcResults(br);
             btn.disabled=false;btn.innerHTML=ic('play')+' Запустить проверку';
             phcLoaded=false;ldPhc();
+            phcAddExportSaveButtons(el,br);
           }
         }catch(pe){clearInterval(pollTimer);resEl.innerHTML='<span class="badge b-red">Ошибка: '+esc(pe.message)+'</span>';btn.disabled=false;btn.innerHTML=ic('play')+' Запустить проверку';}
       },2000);
     }catch(e){toast(e.message,'error');resEl.innerHTML='<span class="badge b-red">Ошибка: '+esc(e.message)+'</span>';btn.disabled=false;btn.innerHTML=ic('play')+' Запустить проверку';}
+  };
+  if(phcBatchResult){phcAddExportSaveButtons(el,phcBatchResult);}
+}
+function phcAddExportSaveButtons(el,batch){
+  var resEl=el.querySelector('#phc-res');if(!resEl)return;
+  if(el.querySelector('#phc-exp-bar'))return;/* already added */
+  var bar=document.createElement('div');bar.id='phc-exp-bar';bar.className='f g2x mt2';
+  bar.innerHTML='<button class="btn btn-sm" id="phc-exp-csv">↓ CSV</button><button class="btn btn-sm" id="phc-save-aud">Сохранить в аудиторию</button>';
+  resEl.parentNode.insertBefore(bar,resEl.nextSibling);
+  /* Export CSV */
+  bar.querySelector('#phc-exp-csv').onclick=function(){
+    var results=(batch.results||batch.items||[]).filter(function(r){return r.in_telegram||r.found||r.registered;});
+    if(!results.length){toast('Нет найденных номеров для экспорта','error');return;}
+    var header='phone,tg_user_id,username,first_name,last_name,is_premium';
+    var rows=results.map(function(r){return [r.phone||'',r.tg_user_id||'',r.username||'',r.first_name||'',r.last_name||'',r.is_premium?1:0].map(function(v){var s=String(v);return s.includes(',')||s.includes('"')?'"'+s.replace(/"/g,'""')+'"':s;}).join(',');});
+    var csv=[header].concat(rows).join('\n');
+    var blob=new Blob([csv],{type:'text/csv;charset=utf-8'});var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='phone_check_'+Date.now()+'.csv';a.click();URL.revokeObjectURL(a.href);
+    toast('CSV скачан ('+results.length+' записей)','success');
+  };
+  /* Save to audience */
+  bar.querySelector('#phc-save-aud').onclick=async function(){
+    var found=(batch.results||batch.items||[]).filter(function(r){return r.in_telegram||r.found||r.registered;});
+    if(!found.length){toast('Нет найденных контактов для сохранения','error');return;}
+    /* load audiences and show mini-dialog */
+    var auds=[];try{var ar=await af('/audiences?limit=100');auds=ar.items||[];}catch(e){}
+    var h='<div class="dlg-ov" id="phc-save-dlg"><div class="dlg"><div class="dlg-hd"><div class="dlg-tt">Сохранить в аудиторию ('+found.length+' контактов)</div></div><div class="dlg-bd sy3">'+
+      '<div><label class="lbl">Аудитория</label><div class="sel-w"><select class="sel" id="phc-aud-sel"><option value="_new">Создать новую…</option>'+auds.map(function(a){return '<option value="'+a.id+'">'+esc(a.name)+' ('+a.total_count+')</option>';}).join('')+'</select></div></div>'+
+      '<div id="phc-aud-name-wrap"><label class="lbl">Название новой</label><input class="input tsm" id="phc-aud-name" placeholder="Мои контакты"></div>'+
+    '</div><div class="dlg-ft"><button class="btn btn-sm" id="phc-save-cancel">Отмена</button><button class="btn btn-sm btn-primary" id="phc-save-ok">Сохранить</button></div></div></div>';
+    document.body.insertAdjacentHTML('beforeend',h);
+    var sel=document.getElementById('phc-aud-sel'),nw=document.getElementById('phc-aud-name-wrap');
+    sel.onchange=function(){nw.style.display=(sel.value==='_new')?'':'none';};
+    document.getElementById('phc-save-cancel').onclick=function(){document.getElementById('phc-save-dlg').remove();};
+    document.getElementById('phc-save-ok').onclick=async function(){
+      var audId=sel.value;var sb=this;sb.disabled=true;sb.innerHTML='<span class="spin"></span>';
+      try{
+        if(audId==='_new'){
+          var nm=document.getElementById('phc-aud-name').value.trim()||'Чекер '+new Date().toLocaleDateString();
+          var na=await ap('/audiences',{name:nm});audId=na.id;
+        }
+        var members=found.map(function(r){return {tg_user_id:r.tg_user_id||null,username:r.username||null,first_name:r.first_name||null,last_name:r.last_name||null,phone:r.phone||null,is_premium:r.is_premium?1:0};});
+        var res=await ap('/audiences/'+audId+'/add-members',{members:members});
+        toast('Сохранено '+res.added+' контактов в аудиторию','success');
+        document.getElementById('phc-save-dlg').remove();
+        audLoaded=false;
+      }catch(e){toast(e.message,'error');sb.disabled=false;sb.innerHTML='Сохранить';}
+    };
   };
 }
 function renderPhcResults(batch){
