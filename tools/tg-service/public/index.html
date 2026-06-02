@@ -2165,6 +2165,17 @@ function rAccDet(el,acc){
               '</div>'+
             '</div>'+
             '<div class="sy3">'+
+              '<div class="det-section"><div class="det-section-title">Предпросмотр — как увидят аккаунт</div>'+
+                '<div class="f ac g2x" style="padding:10px;border:1px solid var(--border);border-radius:10px;background:var(--bg-2)">'+
+                  '<div id="pfp-avatar" style="width:48px;height:48px;border-radius:50%;overflow:hidden;background:var(--bg);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--c-m)"></div>'+
+                  '<div class="mw0 f1">'+
+                    '<div class="fmed" id="pfp-name" style="font-size:0.95rem">—</div>'+
+                    '<div class="txs c-bl" id="pfp-username">—</div>'+
+                    '<div class="txs c-m" id="pfp-bio" style="white-space:pre-wrap;margin-top:2px"></div>'+
+                    '<div class="t10 c-m" id="pfp-priv" style="margin-top:3px"></div>'+
+                  '</div>'+
+                '</div>'+
+              '</div>'+
               '<div class="det-section"><div class="det-section-title">Данные</div>'+
                 '<div class="sy2">'+
                   '<div><label class="txs c-m" style="display:block;margin-bottom:3px">Имя</label><input class="input" id="pf-first" placeholder="Имя"></div>'+
@@ -2764,6 +2775,27 @@ function rAccDet(el,acc){
           finally{upBtn.disabled=false;upInp.value='';}
         };
       }
+
+      /* Live profile preview — reflects the form values as the operator types */
+      function pfUpdatePreview(){
+        var fn=(el.querySelector('#pf-first')||{}).value||'';
+        var ln=(el.querySelector('#pf-last')||{}).value||'';
+        var un=(el.querySelector('#pf-username')||{}).value||'';
+        var bio=(el.querySelector('#pf-bio')||{}).value||'';
+        var ph=(el.querySelector('#pf-priv-phone')||{}).value||'';
+        var nm=(fn+' '+ln).trim()||un||'Без имени';
+        var nameEl=el.querySelector('#pfp-name');if(nameEl)nameEl.textContent=nm;
+        var unEl=el.querySelector('#pfp-username');if(unEl)unEl.textContent=un?'@'+un:'(без username)';
+        var bioEl=el.querySelector('#pfp-bio');if(bioEl)bioEl.textContent=bio;
+        var privEl=el.querySelector('#pfp-priv');if(privEl)privEl.textContent=ph?('Телефон видят: '+({everybody:'все',contacts:'контакты',nobody:'никто'}[ph]||ph)):'';
+        var av=el.querySelector('#pfp-avatar');var img=el.querySelector('#pf-avatar-img');
+        if(av){
+          if(img&&img.src&&img.style.display!=='none'){av.innerHTML='<img src="'+img.src+'" style="width:100%;height:100%;object-fit:cover">';}
+          else{av.innerHTML=esc((fn||un||'?').charAt(0).toUpperCase());}
+        }
+      }
+      ['#pf-first','#pf-last','#pf-username','#pf-bio','#pf-priv-phone'].forEach(function(sel){var e=el.querySelector(sel);if(e)e.addEventListener('input',pfUpdatePreview);if(e)e.addEventListener('change',pfUpdatePreview);});
+      setTimeout(pfUpdatePreview,50);
 
       /* PATCH-save the whole card (shared by Save + every Apply button) */
       function pfSaveCard(){
