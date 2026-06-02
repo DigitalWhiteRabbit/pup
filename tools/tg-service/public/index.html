@@ -2180,7 +2180,7 @@ function rAccDet(el,acc){
                 '<div class="sy2">'+
                   '<div><label class="txs c-m" style="display:block;margin-bottom:3px">Имя</label><input class="input" id="pf-first" placeholder="Имя"></div>'+
                   '<div><label class="txs c-m" style="display:block;margin-bottom:3px">Фамилия</label><input class="input" id="pf-last" placeholder="Фамилия"></div>'+
-                  '<div><label class="txs c-m" style="display:block;margin-bottom:3px">Username <span style="opacity:.6">(необязательно)</span></label><input class="input fmo" id="pf-username" placeholder="username"><div class="txs c-m" style="margin-top:2px">5-32, a-z0-9_ · можно оставить пустым</div></div>'+
+                  '<div><label class="txs c-m" style="display:block;margin-bottom:3px">Username <span style="opacity:.6">(необязательно)</span></label><div class="f g1h ac"><input class="input fmo" id="pf-username" placeholder="username"><button class="btn btn-sm" id="pf-check-username" type="button" title="Проверить занятость через Telegram (требует сессию с прокси)">Проверить</button></div><div class="txs c-m" style="margin-top:2px">5-32, a-z0-9_ · можно оставить пустым · <span id="pf-username-avail" style="font-weight:500"></span></div></div>'+
                   '<div><label class="txs c-m" style="display:block;margin-bottom:3px">Био</label><textarea class="input" id="pf-bio" maxlength="70" placeholder="О себе..." style="resize:vertical;min-height:60px"></textarea><div class="txs c-m" style="text-align:right;margin-top:2px"><span id="pf-bio-count">0</span>/70</div>'+
                     '<div class="f" style="align-items:center;justify-content:space-between;margin-top:5px"><label class="txs c-m">🇷🇺 Перевод (RU)</label><button class="btn btn-sm" id="pf-bio-translate" type="button">Перевести</button></div>'+
                     '<div class="txs c-m" id="pf-bio-ru" style="margin-top:3px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-style:italic;min-height:18px;white-space:pre-wrap"></div>'+
@@ -2901,6 +2901,32 @@ function rAccDet(el,acc){
           pfBaseline.privacy={phone:pfPhone.value,photo:pfPhoto.value,last_seen:pfSeen.value};
         });
       };
+
+      /* Check username availability */
+      el.querySelector('#pf-check-username').onclick=function(){
+        var btn=this,availEl=el.querySelector('#pf-username-avail');
+        var un=(pfUser.value||'').trim().replace(/^@/,'').toLowerCase();
+        if(!un){toast('Введите username','error');return;}
+        btn.disabled=true;btn.textContent='…';
+        availEl.textContent='';availEl.style.color='';
+        ap('/accounts/'+acc.id+'/profile/check-username',{username:un}).then(function(d){
+          if(d.available){
+            availEl.textContent='✓ Свободен';availEl.style.color='var(--emerald-500)';
+            toast('@'+d.username+' — свободен','success');
+          } else {
+            availEl.textContent='✗ Занят';availEl.style.color='var(--red-500)';
+            toast('@'+d.username+' — занят','error');
+          }
+        }).catch(function(e){
+          availEl.textContent='Ошибка';availEl.style.color='var(--red-500)';
+          toast('Проверка username: '+(e.message||'ошибка'),'error');
+        }).finally(function(){btn.disabled=false;btn.textContent='Проверить';});
+      };
+      /* Clear availability hint on any username input change */
+      pfUser.addEventListener('input',function(){
+        var availEl=el.querySelector('#pf-username-avail');
+        if(availEl){availEl.textContent='';availEl.style.color='';}
+      });
     })();
   }
 

@@ -159,6 +159,15 @@ class AvatarResponse(BaseModel):
     avatar_url: str
 
 
+class UsernameCheckRequest(BaseModel):
+    username: str
+
+
+class UsernameCheckResult(BaseModel):
+    username: str
+    available: bool
+
+
 class ApplyRequest(BaseModel):
     """Select which profile parts to push to Telegram.
 
@@ -613,6 +622,52 @@ async def upload_avatar(
 
     log.info("avatar_uploaded", account_id=account_id, size=len(content))
     return AvatarResponse(avatar_url=_avatar_route(account_id))
+
+
+# ---------------------------------------------------------------------------
+# 3c. Check username availability via Telegram (CheckUsernameRequest)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/{account_id}/profile/check-username")
+async def check_username_availability(
+    account_id: str,
+    body: UsernameCheckRequest,
+    _token: AdminAuth,
+    db: WorkspaceDB,
+) -> UsernameCheckResult:
+    """Check whether a Telegram username is available (CheckUsernameRequest).
+
+    Requires a live Telegram session — the account must have a proxy assigned
+    or NO_PROXY guard will raise HTTP 400 (same as check-telegram). Returns
+    ``{username, available: true}`` if free, ``available: false`` if taken.
+    """
+    username = (body.username or "").strip().lstrip("@").lower()
+    if not _USERNAME_RE.match(username):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="username must be 5-32 chars of a-z, 0-9, underscore",
+        )
+    _load_account_row(db, account_id)  # 404 guard
+
+    from telethon.tl.functions.account import CheckUsernameRequest
+
+    client = None
+    try:
+        client = await get_client_for_account(account_id, db)
+        available: bool = await client(CheckUsernameRequest(username=username))
+        log.info("username_check", account_id=account_id, username=username, available=available)
+        return UsernameCheckResult(username=username, available=available)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.error("username_check_failed", account_id=account_id, error=str(exc)[:200])
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Telegram check failed: {exc}",
+        ) from exc
+    finally:
+        await disconnect_client(client)
 
 
 # ---------------------------------------------------------------------------
