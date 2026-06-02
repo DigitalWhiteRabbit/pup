@@ -35,12 +35,12 @@
 - [x] **P3-01** · accounts · Бейджи здоровья уже были в колонке Статус (healthBadges). Добавлен фильтр `accHealthF` (Ограничен/scam/fake · Без профиля · Низкий humanity) + сброс. Live playwright: ALL=10, RESTRICTED=0, NOPROFILE=5, reset виден, без console-ошибок. _(commit P3-01)_
 - [x] **P3-02** · account*profile · `POST /{id}/profile/upload-avatar` (multipart, валидация image+размер) — сохраняет в тот же \_avatar_path; кнопка «⬆ Загрузить свой» во вкладке Профиль. Генерация: `_download_avatar_bytes` пробует thispersondoesnotexist → fallback i.pravatar.cc?u={account_id} (seed, лечит частые 403). Live: upload→200+avatar_url, GET→200 image/jpeg 2000B, text→400, disposable cleaned. *(commit P3-02)\_
 - [x] **P3-03** · account*profile · Блок «Предпросмотр — как увидят аккаунт» во вкладке Профиль (аватар+имя+@username+bio+privacy), live-обновление по input полей (pfUpdatePreview). Live playwright: блок есть, ввод «Иван» → превью обновилось, JS-ошибок нет (404 — отсутствующий файл аватара, штатно). *(commit P3-03)\_
-- [ ] **P3-04** · account_profile · Pre-check занятости username (CheckUsername) до apply. S · low-med
-- [ ] **P3-05** · proxies · Расширенные форматы импорта (socks5://user:pass@host:port, rotation_url). S · low
-- [ ] **P3-06** · proxies · Beat-задача авто-EXPIRED для истёкших + бейдж. S · low
-- [ ] **P3-07** · dashboard · Полнота словарей статусов/типов (INVALID, ISP). S · low
-- [ ] **P3-08** · dashboard · Виджеты парсера/чекера/аудиторий (найдено за месяц, размер баз). S · low
-- [ ] **P3-09** · dashboard · Кэш агрегата 15-30с. S · low
+- [x] **P3-04** · account*profile · Pre-check занятости username (CheckUsername) до apply. S · low-med. Live: bad_format→400, no_proxy→400(NO_PROXY), UI ✓ (playwright). Полный live с TG-клиентом ограничен (нужен прокси). *(commit 12897d0)\_
+- [x] **P3-05** · proxies · Расширенные форматы импорта (socks5://user:pass@host:port, rotation*url). S · low. Бонус: починен /proxies/bulk (UI вызывал несуществующий эндпоинт). Live: bulk imported=1, parser 5/5 ✓, UI ✓. *(commit 19d2c1b)\_
+- [x] **P3-06** · proxies · Beat-задача авто-EXPIRED для истёкших + бейдж. S · low. Live: task ran expired=1 ✓, UI бейдж EXPIRED уже был в psBdg. _(commit 3aa87c2)_
+- [x] **P3-07** · dashboard · Полнота словарей статусов/типов (INVALID, ISP). S · low. Live: ISP/RESIDENTIAL в диалоге ✓, INVALID/NO*PROXY в pool дашборда, без JS-ошибок. *(commit 21e1d66)\_
+- [x] **P3-08** · dashboard · Виджеты парсера/чекера/аудиторий (найдено за месяц, размер баз). S · low. Live: 3 виджета в дашборде, API возвращает поля ✓. _(commit 81113e0)_
+- [x] **P3-09** · dashboard · Кэш агрегата 15-30с. S · low. DASH*TTL=20s + stale-check, refresh сбрасывает таймер. *(commit 96b8f07)\_
 - [ ] **P3-10** · parser · Авто-поллинг прогресса RUNNING-задач. S · low
 - [ ] **P3-11** · parser · Пауза/возобновление в UI (бэк умеет PAUSED→start). S · low
 - [ ] **P3-12** · parser · Выбор существующей аудитории + premium_only в UI-модалке. S · low
