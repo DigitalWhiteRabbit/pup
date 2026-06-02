@@ -13,15 +13,15 @@
 
 ## Сводка по фазам
 
-| Фаза      | Тема                                            | Задач  | Статус   |
-| --------- | ----------------------------------------------- | ------ | -------- |
-| 1         | Починка сломанного + безопасность               | 12     | ✅ 12/12 |
-| 2         | «Фантомные» config-поля (подключить или скрыть) | 11     | ✅ 11/11 |
-| 3         | Quick wins по разделам (S/low)                  | 21     | ✅ 21/21 |
-| 4         | Средние улучшения (M, low-med)                  | 28     | ☐        |
-| 5         | Сквозная инфраструктура (общие компоненты)      | 9      | ☐        |
-| 6         | Крупные/стратегические (L, med+)                | 11     | ☐        |
-| **Итого** |                                                 | **92** |          |
+| Фаза      | Тема                                            | Задач  | Статус                   |
+| --------- | ----------------------------------------------- | ------ | ------------------------ |
+| 1         | Починка сломанного + безопасность               | 12     | ✅ 12/12                 |
+| 2         | «Фантомные» config-поля (подключить или скрыть) | 11     | ✅ 11/11                 |
+| 3         | Quick wins по разделам (S/low)                  | 21     | ✅ 21/21                 |
+| 4         | Средние улучшения (M, low-med)                  | 28     | ✅ 27/28 (P4-21 BLOCKED) |
+| 5         | Сквозная инфраструктура (общие компоненты)      | 9      | ☐                        |
+| 6         | Крупные/стратегические (L, med+)                | 11     | ☐                        |
+| **Итого** |                                                 | **92** |                          |
 
 ---
 
@@ -60,36 +60,36 @@
 
 ## ФАЗА 4 — Средние улучшения (M, low-med)
 
-- [ ] **P4-01** · warmup · Bulk-старт/стоп прогрева на экране (выбор пачки аккаунтов). S · low
-- [ ] **P4-02** · warmup · Уведомление «аккаунт прогрет» (notif_warmup_ready). S · low
-- [ ] **P4-03** · warmup · График прогресса по дням из логов. S · low
-- [ ] **P4-04** · warmup_scripts · Создать UI-экран (конструктор + история run'ов; бэк готов). M · low
-- [ ] **P4-05** · warmup_scripts · Объединить со «Прогрев» как вкладку. S · low
-- [ ] **P4-06** · stories-boost · Авто-определение последней сторис (GetPeerStories). S · low
-- [ ] **P4-07** · boost · Ротация аккаунтов по здоровью + round-robin. S · low
-- [ ] **P4-08** · boost · Множественные эмодзи с весами для реакций. S · low
-- [ ] **P4-09** · cloner · Дедуп/докопирование (курсор last_cloned_id). S · low
-- [ ] **P4-10** · cloner · Фильтры контента (пропуск рекламы/по ключевым словам). S · low
-- [ ] **P4-11** · converter · Скачивание результата (AES-расшифровка in-memory) + audit. S · med
-- [ ] **P4-12** · converter · Страна по номеру + проверка живости после конвертации. S · low
-- [ ] **P4-13** · join-chats · Дневной лимит вступлений per-account. S · med
-- [ ] **P4-14** · join-chats · Авто-стоп при серии BANNED_AFTER_JOIN. S · low
-- [ ] **P4-15** · join-chats · Retry проблемных (FAILED) чатов. S · low
-- [ ] **P4-16** · channel-creator · Распределение создания по нескольким аккаунтам (round-robin). M · med
-- [ ] **P4-17** · channel-creator · Лимит создания per-account + ramp-up. S · med
-- [ ] **P4-18** · channel-creator · Инкрементальный прогресс created_count. S · low
-- [ ] **P4-19** · channel-creator · Авто-связка is_own каналов как target (инвайтинг/boost). S · low
-- [ ] **P4-20** · dm-campaign · Детект ответов (REPLIED) + конверсия (мёртвая метрика). M · low
-- [ ] **P4-21** · dm-campaign · Дневной лимит между запусками (account_daily_usage). S · med (см. P5)
-- [ ] **P4-22** · chat-broadcast · Детект удаления постов модерами (survival_rate). M · low
-- [ ] **P4-23** · chat-broadcast · Пауза/резюм + PATCH (симметрия с DM). S · low
-- [ ] **P4-24** · inviting · Пауза/резюм. S · low
-- [ ] **P4-25** · neuro-commenting · Дедуп/история откомментированных постов + лог в UI. S · low
-- [ ] **P4-26** · templates · AI-генерация вариантов (ai_personalization-флаг). S · low
-- [ ] **P4-27** · kb · Авто-self-test/conflict-check после upload + бейдж здоровья. S · low
-- [ ] **P4-28** · style_bank · Сделать Style Bank полноценным пунктом меню. S · low
+- [x] **P4-01** · warmup · Bulk-старт/стоп прогрева на экране (выбор пачки аккаунтов). S · low. Чекбоксы в таблице + «Стоп выбранных» + «Все». _(commit b1905bc)_
+- [x] **P4-02** · warmup · Уведомление «аккаунт прогрет» (notif*warmup_ready). S · low. notify_admin_pref при level==100; live-тест ограничен (нужен реальный warmup-цикл). *(commit 862d35b)\_
+- [x] **P4-03** · warmup · График прогресса по дням из логов. S · low. GET /warmup/progress + CSS bar chart. _(commit b32e70f)_
+- [x] **P4-04** · warmup*scripts · Создать UI-экран (конструктор + история run'ов; бэк готов). M · low. *(commit 4344f47)\_
+- [x] **P4-05** · warmup*scripts · Объединить со «Прогрев» как вкладку. S · low. *(commit 4344f47)\_
+- [x] **P4-06** · stories-boost · Авто-определение последней сторис (GetPeerStories). S · low. GetPeerStoriesRequest → max story*id, fallback=skip. Live ограничен (нужна реальная сторис+аккаунт). *(commit dcf67c0)\_
+- [x] **P4-07** · boost · Ротация аккаунтов по здоровью + round-robin. S · low. ORDER BY warmup*level DESC + rotation_cursor в config. *(commit 02741f0)\_
+- [x] **P4-08** · boost · Множественные эмодзи с весами для реакций. S · low. Multi-toggle UI + random.choice в воркере. _(commit 59a2c15)_
+- [x] **P4-09** · cloner · Дедуп/докопирование (курсор last*cloned_id). S · low. min_id=last_cloned_id + персистируем в schedule_config. *(commit 2879724)\_
+- [x] **P4-10** · cloner · Фильтры контента (пропуск рекламы/по ключевым словам). S · low. skip*ads (forwards+hashtags) + skip_keywords. *(commit 0f40826)\_
+- [x] **P4-11** · converter · Скачивание результата + audit. S · med. GET /download → ZIP stream + audit*logs + UI кнопка. *(commit 3294fd5)\_
+- [x] **P4-12** · converter · Страна по номеру + проверка живости. S · low. GET /converter/phone-country + виджет в UI. Live: +7→RU+Tele2 ✓. _(commit 9d123a2)_
+- [x] **P4-13** · join-chats · Дневной лимит вступлений per-account. S · med. daily*limit_per_account в config (default 50). *(commit 5309f3c)\_
+- [x] **P4-14** · join-chats · Авто-стоп при серии BANNED*AFTER_JOIN. S · low. ban_auto_stop_count (default 3). *(commit 5309f3c)\_
+- [x] **P4-15** · join-chats · Retry проблемных (FAILED) чатов. S · low. POST /retry-failed + UI кнопка. _(commit 5309f3c)_
+- [x] **P4-16** · channel-creator · Распределение создания по нескольким аккаунтам (round-robin). M · med. _(commit 46908db)_
+- [x] **P4-17** · channel-creator · Лимит создания per-account + ramp-up. S · med. _(commit 46908db)_
+- [x] **P4-18** · channel-creator · Инкрементальный прогресс created*count. S · low. *(commit 46908db)\_
+- [x] **P4-19** · channel-creator · Авто-связка is*own каналов как target. S · low. *(commit 46908db)\_
+- [x] **P4-20** · dm-campaign · Детект ответов (REPLIED) + конверсия. M · low. POST /check-replies + UI кнопка. Live ограничен (нужен реальный TG). _(commit a01fc40)_
+- [B] **P4-21** · dm-campaign · Дневной лимит между запусками (account_daily_usage). S · med → BLOCKED: depends on P5-01 (account_daily_usage table). Текущий лимит через settings.limits_dm_per_day работает.
+- [x] **P4-22** · chat-broadcast · Детект удаления постов (survival*rate). M · low. POST /check-survival + UI кнопка. *(commit eea84a2)\_
+- [x] **P4-23** · chat-broadcast · Пауза/резюм + PATCH. S · low. POST /pause + /resume + UI кнопка. _(commit eea84a2)_
+- [x] **P4-24** · inviting · Пауза/резюм. S · low. POST /pause + /resume + UI кнопка. _(commit eea84a2)_
+- [x] **P4-25** · neuro-commenting · Дедуп/история откомментированных постов + лог в UI. S · low. GET /commenting/tasks/{id}/log + 📋 модальный лог. Dedup был в воркере. _(commit 6e6c700)_
+- [x] **P4-26** · templates · AI-генерация вариантов (ai*personalization-флаг). S · low. POST /generate-variants (Haiku, 3 шт) + UI кнопка. *(commit 6e6c700)\_
+- [x] **P4-27** · kb · Авто-self-test/conflict-check после upload + бейдж здоровья. S · low. _maybe_trigger_self_test() при ≥3 docs + 6h cooldown. _(commit 6e6c700)\_
+- [x] **P4-28** · style*bank · Сделать Style Bank полноценным пунктом меню. S · low. Nav item + rStyleBankPage() со статистикой. *(commit 6e6c700)\_
 
-**Регресс Ф4:** полный прогон + чистка.
+**Регресс Ф4:** `scripts/regression_screens.py` → 26/26 чисто. Тестовых записей нет. Аккаунты 9 ACTIVE + 1 INVALID. WARMING 0. P4-21 BLOCKED (depends on P5-01).
 
 ---
 
