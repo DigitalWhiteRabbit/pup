@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import io
 import json
 import uuid
+import zipfile
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 import structlog
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.config import settings
@@ -276,3 +280,62 @@ async def start_task(
 
     log.info("conversion_task_started", task_id=task_id)
     return _row_to_dict(row)
+
+
+@router.get("/tasks/{task_id}/download")
+async def download_task_files(
+    task_id: str,
+    _token: AdminAuth,
+    db: WorkspaceDB,
+) -> StreamingResponse:
+    """Stream all files for this conversion task as a ZIP archive.
+
+    Works for both input (DRAFT/RUNNING) and output files. Session files
+    stored encrypted are served as-is (the caller holds the key). Logs a
+    download audit event to tg_audit_logs.
+    """
+    row = db.execute(
+        "SELECT id, name, status FROM tg_conversion_tasks WHERE id = ?", [task_id]
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Conversion task not found")
+
+    work_dir = (settings.data_dir / "converter" / task_id).resolve()
+    data_root = settings.data_dir.resolve()
+    if data_root not in work_dir.parents and work_dir != data_root:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    if not work_dir.exists():
+        raise HTTPException(status_code=404, detail="No files found for this task")
+
+    files = [f for f in work_dir.rglob("*") if f.is_file()]
+    if not files:
+        raise HTTPException(status_code=404, detail="No files found for this task")
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for f in files:
+            arcname = f.relative_to(work_dir)
+            zf.write(f, arcname)
+    buf.seek(0)
+
+    # Audit log
+    try:
+        db.execute(
+            """INSERT INTO tg_audit_logs (id, event_type, severity, entity_type, entity_id,
+               message, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            [str(uuid.uuid4()), "converter_download", "INFO", "conversion_task",
+             task_id, f"Downloaded files for task '{row['name'] or task_id}'",
+             datetime.now(timezone.utc).isoformat()],
+        )
+        db.commit()
+    except Exception:
+        pass
+
+    filename = f"converter_{task_id[:8]}.zip"
+    log.info("converter_download", task_id=task_id, files=len(files))
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
