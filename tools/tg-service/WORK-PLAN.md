@@ -50,7 +50,7 @@
 
 Для каждого поля, которое форма собирает, а воркер игнорирует: **подключить** (если S) либо **задизейблить/скрыть в UI** с пометкой «не реализовано» (чтобы не было мнимой защиты). Решение по каждому — фиксировать прямо в задаче.
 
-- [ ] **P2-01** · dm-campaign · Подключить к воркеру active_hours + filter_online/username/ai_score_min + exclude_audience_id + skip_list + max_per_day (фильтрация получателей и активные часы). M · med
+- [x] **P2-01** · dm-campaign · Воркер теперь чтит: active*hours (вне окна → PAUSED), filter_username, filter_ai_score_min, exclude_audience_id, skip_list (дедуп по всем кампаниям), max_per_day (cap на base_limit). `filter_online` задизейблен в UI (нет данных онлайн-статуса в аудитории). Live: A→PAUSED (dm_outside_active_hours), B total_recipients 3→2 (filter_username), 0 реальных DMs (fake-acc). *(commit P2-01)\_
 - [ ] **P2-02** · dm-campaign · distribution (ROUND_ROBIN/GEO/RANDOM) — round-robin ротация аккаунтов вместо последовательного исчерпания. M · med
 - [ ] **P2-03** · chat-broadcast · Подключить exclude_channels + gap_24h (не постить в один чат чаще раза/сутки) + posts_per_day + ban_auto_stop. M · med
 - [ ] **P2-04** · chat-broadcast · slow_mode_behavior + distribution — применить в воркере. S-M · med

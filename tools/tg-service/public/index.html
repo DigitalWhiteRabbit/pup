@@ -5393,7 +5393,7 @@ function mCrDmc(){
           '<div><label class="lbl">Аудитория *'+tip('Спарсенная база контактов для рассылки. Создаётся через Парсер')+'</label><div class="sel-w"><select class="sel" id="wiz-aud"><option value="">-- выберите --</option>'+audOpts.map(function(a){return '<option value="'+a.id+'"'+(fd.audience_id===a.id?' selected':'')+'>'+esc(a.name)+' ('+esc(a.total_count||0)+')</option>';}).join('')+'</select></div></div>'+
           '<div><label class="lbl">Исключить аудиторию</label><div class="sel-w"><select class="sel" id="wiz-excl"><option value="">Нет</option>'+audOpts.map(function(a){return '<option value="'+a.id+'"'+(fd.exclude_audience_id===a.id?' selected':'')+'>'+esc(a.name)+'</option>';}).join('')+'</select></div></div>'+
           '<div class="txs fsem upc c-m tkw mt3">Фильтры</div>'+
-          '<div class="f g3x mt2"><label class="f ac g1h txs"><input type="checkbox" class="chk" id="wiz-fon"'+(fd.filter_online?' checked':'')+'> Только онлайн</label><label class="f ac g1h txs"><input type="checkbox" class="chk" id="wiz-fun"'+(fd.filter_username?' checked':'')+'> С юзернеймом</label></div>'+
+          '<div class="f g3x mt2"><label class="f ac g1h txs c-m" title="Онлайн-статус не хранится в базах аудитории — фильтр недоступен"><input type="checkbox" class="chk" id="wiz-fon" disabled> Только онлайн (недоступно)</label><label class="f ac g1h txs"><input type="checkbox" class="chk" id="wiz-fun"'+(fd.filter_username?' checked':'')+'> С юзернеймом</label></div>'+
           '<div class="mt2"><label class="lbl">AI-score минимум</label><input class="input tsm" type="number" id="wiz-fscore" value="'+fd.filter_ai_score_min+'" min="0" max="100" style="width:8rem"></div>';
         break;
       case 2:

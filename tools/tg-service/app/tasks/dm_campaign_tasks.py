@@ -32,6 +32,22 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _within_active_hours(h_start: Any, h_end: Any) -> bool:
+    """True if the current UTC hour is inside [h_start, h_end). Handles windows
+    that wrap past midnight. Returns True if the window is degenerate/unparseable."""
+    try:
+        s = int(h_start) % 24
+        e = int(h_end) % 24
+    except (TypeError, ValueError):
+        return True
+    if s == e:
+        return True
+    cur = datetime.now(timezone.utc).hour
+    if s < e:
+        return s <= cur < e
+    return cur >= s or cur < e
+
+
 def _build_proxy_kwargs(db: Any, proxy_id: str) -> dict[str, Any]:
     import python_socks
     proxy_row = db.execute("SELECT * FROM tg_proxies WHERE id = ?", [proxy_id]).fetchone()
@@ -113,6 +129,24 @@ async def _dm_campaign_async(workspace_id: str, campaign_id: str) -> dict:
     delay_max = config.get("delay_max", 180)
     emergency_threshold = config.get("emergency_stop_ratio", 0.30)
     ramp_up = config.get("ramp_up", False)
+    # Phantom-config fields now honored (P2-01):
+    max_per_day = config.get("max_per_day")          # per-account cap override
+    filter_username = config.get("filter_username", False)
+    filter_ai_score_min = config.get("filter_ai_score_min") or 0
+    exclude_audience_id = config.get("exclude_audience_id")
+    skip_list = config.get("skip_list", False)
+    ah_start = config.get("active_hours_start")
+    ah_end = config.get("active_hours_end")
+
+    # Active-hours gate: outside the window we pause the campaign instead of
+    # sending (resumes on the next start / scheduler tick). Honors the UI's
+    # active_hours_start/end which were previously ignored.
+    if ah_start is not None and ah_end is not None and not _within_active_hours(ah_start, ah_end):
+        db.execute("UPDATE tg_dm_campaigns SET status='PAUSED', updated_at=? WHERE id=?",
+                   [now, campaign_id])
+        db.commit()
+        log.info("dm_outside_active_hours", campaign_id=campaign_id, start=ah_start, end=ah_end)
+        return {"status": "PAUSED", "reason": "outside active hours"}
 
     log.info("dm_campaign_started", campaign_id=campaign_id, workspace_id=workspace_id,
              audience_id=audience_id, accounts=len(account_ids))
@@ -153,6 +187,26 @@ async def _dm_campaign_async(workspace_id: str, campaign_id: str) -> dict:
                   if (r["tg_user_id"] or r["username"])
                   and (r["tg_user_id"] or 0) not in already_sent]
 
+    # ── Recipient filters (P2-01: previously-ignored UI config) ──────────────
+    if filter_username:
+        recipients = [r for r in recipients if r["username"]]
+    if filter_ai_score_min:
+        recipients = [r for r in recipients if (r["ai_score"] or 0) >= filter_ai_score_min]
+    if exclude_audience_id:
+        excl_rows = db.execute(
+            "SELECT tg_user_id FROM tg_audience_members WHERE audience_id = ?",
+            [exclude_audience_id],
+        ).fetchall()
+        excl_ids = {r["tg_user_id"] for r in excl_rows if r["tg_user_id"]}
+        recipients = [r for r in recipients if (r["tg_user_id"] or 0) not in excl_ids]
+    if skip_list:
+        # Skip anyone already messaged in ANY prior campaign (not just this one).
+        prior_rows = db.execute(
+            "SELECT DISTINCT recipient_user_id FROM tg_dm_messages WHERE status != 'PENDING'"
+        ).fetchall()
+        prior_ids = {r["recipient_user_id"] for r in prior_rows if r["recipient_user_id"]}
+        recipients = [r for r in recipients if (r["tg_user_id"] or 0) not in prior_ids]
+
     if not recipients:
         db.execute("UPDATE tg_dm_campaigns SET status='COMPLETED', finished_at=?, updated_at=? WHERE id=?",
                    [now, now, campaign_id])
@@ -173,6 +227,16 @@ async def _dm_campaign_async(workspace_id: str, campaign_id: str) -> dict:
                    ["No ACTIVE accounts available", now, campaign_id])
         db.commit()
         return {"status": "FAILED", "error": "No active accounts"}
+
+    # Per-account base limit: the smaller of the global setting and the
+    # campaign's max_per_day override (P2-01). Ramp-up scales this base.
+    base_limit = daily_limit
+    if max_per_day:
+        try:
+            base_limit = min(daily_limit, int(max_per_day))
+        except (TypeError, ValueError):
+            pass
+    daily_limit = base_limit
 
     # Ramp-up: calculate today's limit per account
     effective_limit = daily_limit
