@@ -109,6 +109,9 @@ async def _chat_broadcast_async(workspace_id: str, broadcast_id: str) -> dict:
     gap_24h = config.get("gap_24h", False)
     posts_per_day = config.get("posts_per_day")
     ban_auto_stop = config.get("ban_auto_stop", True)
+    # P2-04:
+    slow_mode_behavior = config.get("slow_mode_behavior", "wait")  # wait|skip|next_account
+    distribution = (config.get("distribution") or "one_per_chat").lower()
 
     log.info("chat_broadcast_started", broadcast_id=broadcast_id, workspace_id=workspace_id,
              targets=len(target_channels), accounts=len(account_ids))
@@ -187,6 +190,13 @@ async def _chat_broadcast_async(workspace_id: str, broadcast_id: str) -> dict:
                    [now, broadcast_id])
         db.commit()
         return {"status": "FAILED", "error": "No ACTIVE accounts available"}
+
+    # Distribution (P2-04): each channel is posted once regardless; round_robin
+    # shuffles which accounts get used first so the same account isn't always the
+    # one posting (one_per_chat keeps declared order).
+    if distribution == "round_robin":
+        random.shuffle(account_ids)
+    log.info("chatbr_distribution", mode=distribution, accounts=len(account_ids))
 
     # Load settings for per-account daily limit; campaign posts_per_day caps it (P2-03).
     stg = db.execute("SELECT * FROM tg_settings WHERE id = 'default'").fetchone()
@@ -343,7 +353,20 @@ async def _chat_broadcast_async(workspace_id: str, broadcast_id: str) -> dict:
 
             except SlowModeWaitError as e:
                 wait_seconds = e.seconds
-                log.warning("chatbr_slow_mode", channel=channel_target, wait=wait_seconds)
+                log.warning("chatbr_slow_mode", channel=channel_target,
+                            wait=wait_seconds, behavior=slow_mode_behavior)
+                # P2-04 — slow_mode_behavior:
+                #   wait         → sleep out the slow-mode (if short) and retry the
+                #                  SAME channel; if too long, fall through to skip.
+                #   next_account → don't consume the channel; let the next account try it.
+                #   skip         → log SLOW_MODE and move on (default fallback).
+                if slow_mode_behavior == "wait" and wait_seconds <= 300:
+                    channel_idx -= 1  # retry same channel after the wait
+                    await asyncio.sleep(wait_seconds + 1)
+                    continue
+                if slow_mode_behavior == "next_account":
+                    channel_idx -= 1  # hand this channel to the next account
+                    break
                 db.execute("""
                     INSERT INTO tg_chat_broadcast_posts
                         (id, broadcast_id, account_id, channel_id, channel_title,
