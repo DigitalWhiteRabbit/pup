@@ -3396,7 +3396,10 @@ function rParser(el){
           var statusHtml='<span class="badge '+stCls+'"'+(((t.status||'').toUpperCase()==='RUNNING')?' style="animation:pulse-dot 2s infinite"':'')+'>'+esc(stLbl)+'</span>';
           var actions='';
           if((t.status||'').toUpperCase()==='PENDING')actions+='<button class="btn btn-sm prs-start" data-id="'+t.id+'">'+ic('play')+' Запустить</button>';
-          if((t.status||'').toUpperCase()==='RUNNING')actions+='<button class="btn btn-sm prs-cancel" data-id="'+t.id+'">'+ic('pause')+' Отмена</button>';
+          if((t.status||'').toUpperCase()==='RUNNING')actions+='<button class="btn btn-sm prs-pause" data-id="'+t.id+'" title="Поставить на паузу">'+ic('pause')+' Пауза</button>';
+          if((t.status||'').toUpperCase()==='PAUSED')actions+='<button class="btn btn-sm btn-primary prs-start" data-id="'+t.id+'" title="Продолжить парсинг">'+ic('play')+' Продолжить</button>';
+          var nonTerminal=['PENDING','RUNNING','PAUSED'].indexOf((t.status||'').toUpperCase())>=0;
+          if(nonTerminal)actions+='<button class="btn btn-ghost btn-icon btn-danger prs-cancel" data-id="'+t.id+'" title="Отменить">'+ic('x')+'</button>';
           actions+='<button class="btn btn-ghost btn-icon btn-danger prs-del" data-id="'+t.id+'" title="Удалить">'+ic('trash')+'</button>';
           return '<tr><td class="txs c-m">'+fmtDT(t.created_at)+'</td><td class="fmed">'+esc(t.name||'--')+'</td><td><span class="badge '+modeCls+'">'+esc(modeLbl)+'</span></td><td class="txs c-m">'+sources+'</td><td class="fmed">'+found+'</td><td class="fmed">'+filtered+'</td><td>'+progHtml+'</td><td>'+statusHtml+'</td><td><div class="f g1h">'+actions+'</div></td></tr>';
         }).join('')+
@@ -3408,7 +3411,8 @@ function rParser(el){
   var addB=el.querySelector('#prs-add');if(addB)addB.onclick=function(){mCrParser();};
   var addB2=el.querySelector('#prs-add2');if(addB2)addB2.onclick=function(){mCrParser();};
   el.querySelectorAll('.prs-start').forEach(function(b){b.onclick=async function(){b.disabled=true;b.innerHTML='<span class="spin"></span>';try{await ap('/parser/tasks/'+b.dataset.id+'/start');toast('Парсинг запущен','success');prsLoaded=false;await ldPrs();if(S.sec==='parser')rParser(document.getElementById('mc'));}catch(e){toast(e.message,'error');b.disabled=false;b.innerHTML=ic('play')+' Запустить';}};});
-  el.querySelectorAll('.prs-cancel').forEach(function(b){b.onclick=async function(){b.disabled=true;b.innerHTML='<span class="spin"></span>';try{await ap('/parser/tasks/'+b.dataset.id+'/cancel');toast('Парсинг отменён','success');prsLoaded=false;await ldPrs();if(S.sec==='parser')rParser(document.getElementById('mc'));}catch(e){toast(e.message,'error');b.disabled=false;b.innerHTML=ic('pause')+' Отмена';}};});
+  el.querySelectorAll('.prs-pause').forEach(function(b){b.onclick=async function(){b.disabled=true;b.innerHTML='<span class="spin"></span>';try{await ap('/parser/tasks/'+b.dataset.id+'/pause');toast('Парсинг приостановлен','success');prsLoaded=false;await ldPrs();if(S.sec==='parser')rParser(document.getElementById('mc'));}catch(e){toast(e.message,'error');b.disabled=false;b.innerHTML=ic('pause')+' Пауза';}};});
+  el.querySelectorAll('.prs-cancel').forEach(function(b){b.onclick=async function(){if(!confirm('Отменить задачу парсинга?'))return;b.disabled=true;b.innerHTML='<span class="spin"></span>';try{await ap('/parser/tasks/'+b.dataset.id+'/cancel');toast('Парсинг отменён','success');prsLoaded=false;await ldPrs();if(S.sec==='parser')rParser(document.getElementById('mc'));}catch(e){toast(e.message,'error');b.disabled=false;b.innerHTML=ic('x');}};});
   el.querySelectorAll('.prs-del').forEach(function(b){b.onclick=async function(){if(!confirm('Удалить задачу парсинга?'))return;b.disabled=true;try{await aD('/parser/tasks/'+b.dataset.id);toast('Задача удалена','success');prsLoaded=false;await ldPrs();if(S.sec==='parser')rParser(document.getElementById('mc'));}catch(e){toast(e.message,'error');b.disabled=false;}};});
   /* Auto-poll while RUNNING tasks exist */
   if(running>0){prsStartPoll();}else{prsStopPoll();}
