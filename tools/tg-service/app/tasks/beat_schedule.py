@@ -201,7 +201,7 @@ async def _membership_check_async() -> dict:
     from telethon.tl.types import Channel
 
     from app.core.database import get_db
-    from app.core.notify import notify_admin
+    from app.core.notify import notify_admin_pref
     from app.tasks.ai_agent_tasks import _log_activity, _now
     from app.telegram.client_pool import disconnect_client, get_client_for_account
 
@@ -275,7 +275,8 @@ async def _membership_check_async() -> dict:
                     f"⏸ Авто-пауза (периодическая проверка): аккаунт {reason} "
                     f"«{chat_title}». Разбаньте/верните аккаунт и запустите снова.",
                 )
-                notify_admin(
+                notify_admin_pref(
+                    db, "spam_block",
                     f"🚫 <b>Агент авто-пауза</b> (периодическая проверка членства)\n"
                     f"Персона: {p['name'] or p['id']}\n"
                     f"Чат: {chat_title}\n"

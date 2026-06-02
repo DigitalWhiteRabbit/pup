@@ -33,7 +33,7 @@ from typing import Any
 import structlog
 
 from app.core.database import get_db
-from app.core.notify import notify_admin
+from app.core.notify import notify_admin, notify_admin_pref
 from app.tasks.celery_app import celery_app
 
 log = structlog.get_logger(__name__)
@@ -398,6 +398,6 @@ def _pause_arena(db: Any, arena_id: str, reason: str) -> None:
     except Exception:  # noqa: BLE001
         log.warning("arena_pause_db_failed", arena_id=arena_id, exc_info=True)
     try:
-        notify_admin(f"🎭 Арена приостановлена ({arena_id[:8]}): {reason}")
+        notify_admin_pref(db, "long_task", f"🎭 Арена приостановлена ({arena_id[:8]}): {reason}")
     except Exception:  # noqa: BLE001
         log.debug("arena_pause_notify_failed", arena_id=arena_id, exc_info=True)

@@ -21,7 +21,7 @@ import structlog
 
 from app.config import settings
 from app.core.database import get_db
-from app.core.notify import notify_admin
+from app.core.notify import notify_admin_pref
 from app.core.security import decrypt_bytes
 from app.tasks.celery_app import celery_app
 
@@ -631,7 +631,7 @@ async def _join_chats_async(workspace_id: str, task_id: str) -> dict:
         msg += f"\n🚫 Забанены сразу после входа: {banned_after} — проверьте аккаунты/прогрев"
     if final_status == "STOPPED":
         msg += "\n⏹ Задача была остановлена вручную"
-    notify_admin(msg)
+    notify_admin_pref(db, "long_task", msg)
 
     return result
 
