@@ -33,28 +33,10 @@ def _now() -> str:
 
 
 def _build_proxy_kwargs(db: Any, proxy_id: str) -> dict[str, Any]:
-    """Build Telethon proxy kwargs from a proxy row."""
-    import python_socks
-    proxy_row = db.execute("SELECT * FROM tg_proxies WHERE id = ?", [proxy_id]).fetchone()
-    if not proxy_row or proxy_row["status"] != "ACTIVE":
-        return {}
-    scheme = (proxy_row["scheme"] or "http").lower()
-    if "socks5" in scheme:
-        ptype = python_socks.ProxyType.SOCKS5
-    elif "socks4" in scheme:
-        ptype = python_socks.ProxyType.SOCKS4
-    else:
-        ptype = python_socks.ProxyType.HTTP
-    return {
-        "proxy": {
-            "proxy_type": ptype,
-            "addr": proxy_row["host"],
-            "port": int(proxy_row["port"]),
-            "username": proxy_row["username"],
-            "password": proxy_row["password"],
-            "rdns": True,
-        }
-    }
+    # P5-02: delegate to the shared builder (was duplicated across ~10 modules).
+    from app.services.tg_runner import build_proxy_kwargs
+    return build_proxy_kwargs(db, proxy_id)
+
 
 
 def _connect_account(db: Any, account_id: str) -> dict[str, Any] | None:
