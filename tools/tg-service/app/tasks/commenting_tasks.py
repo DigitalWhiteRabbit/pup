@@ -121,6 +121,34 @@ def _load_template_variants(db: Any, category: str = "COMMENT") -> list[str]:
     return [r["text"] for r in rows if r["text"]]
 
 
+def _comment_style_examples(db: Any, k: int = 3) -> list[str]:
+    """Pull a few short style reply texts from the Style Bank (P6-11).
+
+    Reads tg_style_samples (the Style Bank corpus, P4-28/P6-10) — reuses the
+    data, does not duplicate the bank. Returns up to k single-line examples.
+    """
+    out: list[str] = []
+    try:
+        rows = db.execute(
+            "SELECT snippet FROM tg_style_samples ORDER BY RANDOM() LIMIT ?", [k * 2]
+        ).fetchall()
+    except Exception:  # noqa: BLE001
+        return out
+    for r in rows:
+        try:
+            snip = json.loads(r["snippet"] or "[]")
+        except (json.JSONDecodeError, TypeError):
+            continue
+        for turn in snip:
+            t = (turn.get("t") or "").strip()
+            if 2 <= len(t) <= 200:
+                out.append(t)
+                break
+        if len(out) >= k:
+            break
+    return out[:k]
+
+
 # ── Celery task ─────────────────────────────────────────────────────────────
 
 
@@ -383,8 +411,26 @@ async def _commenting_task_async(workspace_id: str, task_id: str) -> dict:
                             from app.ai.anthropic_client import generate_message
 
                             user_msg = f"Channel: {channel_title}\n\nPost:\n{post.text[:2000]}"
+                            # P6-11: ground the comment with hybrid KB-RAG (on the
+                            # post text) + a few Style Bank examples for tone.
+                            aug_prompt = system_prompt
+                            try:
+                                from app.services.kb_search import hybrid_retrieve
+                                rag_rows = hybrid_retrieve(db, post.text or "", limit=3)
+                                if rag_rows:
+                                    facts = "\n".join("- " + (r.get("text") or "")[:300] for r in rag_rows)
+                                    aug_prompt += "\n\nЗнания (используй, если релевантно теме поста):\n" + facts
+                            except Exception:  # noqa: BLE001
+                                pass
+                            try:
+                                style_ex = _comment_style_examples(db, k=3)
+                                if style_ex:
+                                    aug_prompt += ("\n\nПиши живо, по-человечески, в таком стиле (примеры реплик):\n"
+                                                   + "\n".join("- " + s for s in style_ex))
+                            except Exception:  # noqa: BLE001
+                                pass
                             ai_result = generate_message(
-                                system_prompt=system_prompt,
+                                system_prompt=aug_prompt,
                                 user_message=user_msg,
                                 model=ai_model,
                                 max_tokens=256,

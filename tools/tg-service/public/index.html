@@ -5301,7 +5301,7 @@ function rNeuroComment(el){
   var totalComments=0;ncTasks.forEach(function(t){totalComments+=(t.comments_count||0);});
   var activeCount=ncTasks.filter(function(t){return (t.status||'').toUpperCase()==='RUNNING'||(t.status||'').toUpperCase()==='ACTIVE';}).length;
   el.innerHTML='<div class="sy4">'+
-    pageHead('Нейрокомментинг',ncTasks.length+' задач','<button class="btn btn-sm btn-primary" id="nc-add">'+ic('plus')+' Новая задача</button>')+
+    pageHead('Нейрокомментинг',ncTasks.length+' задач','<button class="btn btn-sm" id="nc-queue" title="Очередь модерации комментариев (approve/reject)">🛡 Модерация</button><button class="btn btn-sm btn-primary" id="nc-add">'+ic('plus')+' Новая задача</button>')+
     kpiHtml([
       {v:ncTasks.length,l:'Задач',bg:'rgba(59,130,246,0.12)',fg:'var(--blue-500)'},
       {v:activeCount,l:'Активных',bg:'rgba(34,197,94,0.12)',fg:'var(--emerald-500)'},
@@ -5331,6 +5331,7 @@ function rNeuroComment(el){
     )+
   '</div>';
   var addB=el.querySelector('#nc-add');if(addB)addB.onclick=function(){mCrNc();};
+  var qB=el.querySelector('#nc-queue');if(qB)qB.onclick=function(){ncModerationQueue();};
   el.querySelectorAll('.nc-start').forEach(function(b){
     b.onclick=async function(){b.disabled=true;try{await ap('/commenting/tasks/'+b.dataset.id+'/start');toast('Задача запущена','success');ncLoaded=false;await ldNc();if(S.sec==='neuro-commenting')rNeuroComment(el);}catch(e){toast(e.message,'error');b.disabled=false;}};
   });
@@ -5351,6 +5352,30 @@ function rNeuroComment(el){
       document.body.insertAdjacentHTML('beforeend',h);mBind('nclog-dlg','nclog-cl');document.getElementById('nclog-cl2').onclick=function(){document.getElementById('nclog-dlg').remove();};
     }catch(e){toast(e.message,'error');}b.disabled=false;b.innerHTML='📋';};
   });
+}
+
+/* P6-11: moderation queue — review PENDING comments, approve (send) / reject. */
+async function ncModerationQueue(){
+  function close(){var d=document.getElementById('ncq-dlg');if(d)d.remove();}
+  async function render(){
+    var r;try{r=await af('/commenting/queue?limit=200');}catch(e){toast(e.message,'error');return;}
+    var items=r.items||[];
+    var body=document.getElementById('ncq-body');if(!body)return;
+    if(!items.length){body.innerHTML='<div class="txs c-m" style="text-align:center;padding:2rem">Очередь пуста — нет комментариев на модерацию.<br>(Комменты попадают сюда, когда у задачи режим одобрения ALL/IMPORTANT)</div>';return;}
+    body.innerHTML=items.map(function(it){
+      return '<div class="card" style="padding:.6rem;margin-bottom:.5rem"><div class="txs c-m mb1">'+esc(it.channel_title||it.channel_id||'--')+' · пост #'+esc(String(it.post_id||'--'))+' · '+fmtDT(it.created_at)+'</div>'+
+        (it.post_text?'<div class="txs c-m" style="max-height:60px;overflow:auto;border-left:2px solid var(--border);padding-left:.5rem;margin-bottom:.4rem">'+esc(it.post_text.substring(0,300))+'</div>':'')+
+        '<div class="tsm" style="margin-bottom:.5rem">💬 '+esc(it.comment_text||'')+'</div>'+
+        '<div class="f g2x"><button class="btn btn-sm btn-primary ncq-ok" data-id="'+esc(it.id)+'">✓ Одобрить и отправить</button><button class="btn btn-sm btn-danger ncq-no" data-id="'+esc(it.id)+'">✗ Отклонить</button></div></div>';
+    }).join('');
+    body.querySelectorAll('.ncq-ok').forEach(function(b){b.onclick=async function(){b.disabled=true;b.innerHTML='<span class="spin"></span>';try{var rr=await ap('/commenting/queue/'+b.dataset.id+'/approve',{});toast('Отправлено (msg '+(rr.tg_message_id||'?')+')','success');}catch(e){toast('Не отправлено: '+e.message,'error');}render();};});
+    body.querySelectorAll('.ncq-no').forEach(function(b){b.onclick=async function(){b.disabled=true;try{await ap('/commenting/queue/'+b.dataset.id+'/reject',{});toast('Отклонено','success');}catch(e){toast(e.message,'error');}render();};});
+  }
+  var h='<div class="dlg-ov" id="ncq-dlg"><div class="dlg dlg-xl"><div class="dlg-hd"><div class="dlg-tt">🛡 Очередь модерации комментариев</div><button class="btn btn-sm" id="ncq-cl">✕</button></div><div class="dlg-bd" id="ncq-body" style="max-height:70vh;overflow:auto"><div style="text-align:center;padding:2rem"><span class="spin"></span></div></div><div class="dlg-ft"><button class="btn btn-sm" id="ncq-cl2">Закрыть</button></div></div></div>';
+  document.body.insertAdjacentHTML('beforeend',h);
+  document.getElementById('ncq-cl').onclick=close;document.getElementById('ncq-cl2').onclick=close;
+  var ov=document.getElementById('ncq-dlg');ov.onclick=function(e){if(e.target===ov)close();};
+  render();
 }
 function mCrNc(){
   var step=1,maxStep=5;

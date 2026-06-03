@@ -20,7 +20,7 @@
 | 3         | Quick wins по разделам (S/low)                  | 21     | ✅ 21/21 |
 | 4         | Средние улучшения (M, low-med)                  | 28     | ✅ 28/28 |
 | 5         | Сквозная инфраструктура (общие компоненты)      | 9      | ✅ 9/9   |
-| 6         | Крупные/стратегические (L, med+)                | 11     | 9/11     |
+| 6         | Крупные/стратегические (L, med+)                | 11     | ✅ 11/11 |
 | **Итого** |                                                 | **92** |          |
 
 ---
@@ -131,9 +131,9 @@
   - НЕ дублирован поллер входящих (стадии внутри единственного владельца ЛС); чаты/комментинг/KB-RAG/cold-outreach не тронуты; `tg_sales_*` сохранены (на проде 0 скриптов).
   - Live: миграции 2/2 ✓; funnel-хелперы 7/7 unit ✓; создан тест-скрипт + привязка к Atlas round-trip через API ✓; `/funnel-stats` отдал стадии/конверсию ✓; Atlas ACTIVE без import/traceback при активной привязке (0 ошибок), loop*token-guard ОК (без двойного revive). Реальный staged-ответ нужен TG-инбаунд → **live-ограничен** (в dev инбаунда нет) — проверено логикой/хелперами/гейтами. Тест-скрипт удалён, Atlas разбинжен в исходный статус. contract_smoke 206 ✓; regression 26/26 ✓. *(commit B3)\_
 - [x] **P6-10** · arena · Харвест корпуса → Style Bank + live-просмотр. L · med-high. `POST /arenas/{id}/harvest` — собирает удачные реплики арены (tg*ai_messages с arena_id, status=SENT; `only_rated`→только 👍) через **переиспользование** Style Bank-синка и фильтров (`clean_text`/`is_good_line`) + тот же 2-turn snippet-формат, что `/style/paste`; дедуп против уже собранных arena-сэмплов по теме; бампит `tg_agent_arenas.total_harvested`. `GET /arenas/{id}/messages` — live-просмотр реплик. UI: на строке арены кнопки 📚 (харвест в Стиль-банк, тема из арены) + 👁 (просмотр сообщений); колонка «В корпус» уже была. Анти-бан арены (cadence/loop_token) — существующий, не трогали. Новых таблиц нет (Style Bank из P4-28, экспорт-паттерн из P3-20). Live: синтет. арена (4 SENT-сообщения) → harvest 3 сниппета (тема=крипта), повторный harvest 0 (дедуп ✓), `/messages`=4 ✓; тест-данные удалены (Style Bank → 2000 как было, 0 арен). Реальный харвест self-play live-ограничен (в dev арена не гоняла реплики — нужен прокси+группа). *(commit P6-10)\_
-- [ ] **P6-11** · neuro-commenting · Очередь модерации (approve/reject) + RAG/Style в комментах. M · med
+- [x] **P6-11** · neuro-commenting · Очередь модерации (approve/reject) + RAG/Style в комментах. M · med. Очередь: PENDING-строки `tg_commenting_log` (хранилище уже было — approval*mode ALL/IMPORTANT) + новые `GET /commenting/queue`, `POST /commenting/queue/{id}/approve` (коннект через `get_client_for_account` NO_PROXY-guard → отправка коммента `comment_to=post_id` → SENT), `/reject` (→REJECTED, 409 если не PENDING). RAG/Style в генерации воркера: гибридный `kb_search.hybrid_retrieve` (P6-01) по тексту поста + `_comment_style_examples` из Style Bank (`tg_style_samples`, P4-28/P6-10) инжектятся в промпт (try/except — не ломает генерацию). Переиспользована commenting-инфра + dedup-лог (P4-25), новых таблиц нет. UI: кнопка «🛡 Модерация» в нейрокомментинге → модалка с approve/reject. Live: queue list 2 PENDING ✓, reject→REJECTED + 409 на повтор ✓, approve→502 NO_PROXY (send live-ограничен, коммент корректно остаётся PENDING) ✓; style-helper 3 примера из 2000, hybrid_retrieve выполняется ✓; тест-данные удалены; contract_smoke 211 ✓; regression 26/26 ✓; Atlas ACTIVE, 0 ошибок. ai_agent не трогали. *(commit P6-11)\_
 
-**Регресс Ф6:** полный прогон + чистка.
+**Регресс Ф6:** `regression_screens.py` → 26/26 чисто; `contract_smoke.py` → чисто (211 routes). Тестовые записи удалены (синтетика P6-06/07/10/11). Аккаунты 9 ACTIVE + 1 INVALID; прокси 4 ACTIVE; Atlas ACTIVE (funnel=none, исходный статус); Style Bank 2000; 0 арен. tg*sales*\* сохранены. **Фаза 6 закрыта (11/11) — все 92 задачи плана выполнены.**
 
 ---
 
