@@ -353,3 +353,59 @@ async def list_replies(
 
     items = [_row_to_reply(r) for r in rows]
     return {"items": items, "total": total, "limit": limit, "offset": offset}
+
+
+class TestMessageRequest(BaseModel):
+    message: str
+
+
+@router.post("/test")
+async def test_message(
+    body: TestMessageRequest,
+    _token: AdminAuth,
+    db: WorkspaceDB,
+) -> dict[str, Any]:
+    """Dry-run an incoming message against ACTIVE scenarios' triggers (P5-07).
+
+    Returns which scenario/trigger would fire and the behaviour/response — no
+    Telegram contact, no logging. Reuses the worker's _match_trigger so the test
+    result matches real runtime behaviour exactly.
+    """
+    text = (body.message or "").strip()
+    if not text:
+        return {"matched": False, "error": "Пустое сообщение"}
+
+    from app.tasks.auto_replier_tasks import _match_trigger
+
+    scenarios = db.execute(
+        "SELECT id, name, triggers, default_behavior FROM tg_auto_replier_scenarios "
+        "WHERE status IN ('ACTIVE', 'RUNNING') ORDER BY created_at"
+    ).fetchall()
+
+    if not scenarios:
+        return {"matched": False, "error": "Нет активных сценариев"}
+
+    for sc in scenarios:
+        try:
+            triggers = json.loads(sc["triggers"] or "[]")
+        except (ValueError, TypeError):
+            triggers = []
+        hit = _match_trigger(text, triggers)
+        if hit:
+            return {
+                "matched": True,
+                "scenario_name": sc["name"],
+                "trigger_type": hit.get("type", "keyword"),
+                "trigger_name": hit.get("name"),
+                "action": hit.get("behavior") or sc["default_behavior"] or "AI_REPLY",
+                "response": hit.get("response") or "",
+            }
+
+    # No trigger matched — the default behaviour of the first scenario applies.
+    first = scenarios[0]
+    return {
+        "matched": False,
+        "scenario_name": first["name"],
+        "action": first["default_behavior"] or "AI_REPLY",
+        "note": "Ни один триггер не сработал — применится поведение по умолчанию",
+    }
