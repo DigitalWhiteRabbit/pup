@@ -1005,6 +1005,68 @@ async def _refresh_dm_summary(
         return (None, 0.0)
 
 
+# ── Staged sales funnel (P6-09) — ported pure helpers from ai_sales_tasks ──────
+# These let the DM secretary run a structured staged dialog when the persona is
+# bound to a tg_sales_scripts funnel. Kept here (not imported from the off-runtime
+# ai_sales_tasks) so the live agent stays self-contained.
+
+def _funnel_get_stages(script_row: dict[str, Any]) -> list[dict[str, Any]]:
+    """Parse the stages JSON array from a tg_sales_scripts row."""
+    raw = script_row.get("stages") or "[]"
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return []
+        return parsed if isinstance(parsed, list) else []
+    return raw if isinstance(raw, list) else []
+
+
+def _funnel_stage_obj(stages: list[dict[str, Any]], name: str | None) -> dict[str, Any] | None:
+    for st in stages:
+        if st.get("name") == name:
+            return st
+    return None
+
+
+def _funnel_advance(stages: list[dict[str, Any]], current_stage: str, user_message: str) -> str | None:
+    """Return next_stage if the message contains the current stage's advance_keywords."""
+    msg = (user_message or "").lower()
+    st = _funnel_stage_obj(stages, current_stage)
+    if st is None:
+        return None
+    for kw in st.get("advance_keywords") or []:
+        if kw and str(kw).lower() in msg:
+            return st.get("next_stage")
+    return None
+
+
+def _funnel_is_terminal(stages: list[dict[str, Any]], name: str | None) -> bool:
+    """A stage is terminal if flagged ``terminal`` or has no ``next_stage``."""
+    st = _funnel_stage_obj(stages, name)
+    if st is None:
+        return False
+    return bool(st.get("terminal") or not st.get("next_stage"))
+
+
+def _funnel_stage_section(stages: list[dict[str, Any]], current_stage: str) -> str:
+    """Build the stage-context block injected into the secretary system prompt."""
+    if not stages:
+        return ""
+    names = [s.get("name", "?") for s in stages]
+    st = _funnel_stage_obj(stages, current_stage)
+    lines = ["", "Скрипт-воронка (веди диалог по стадиям):",
+             "Этапы: " + " → ".join(names)]
+    if st:
+        lines.append(f"Текущая стадия: {current_stage}")
+        if st.get("goal"):
+            lines.append(f"Цель стадии: {st['goal']}")
+        if st.get("next_stage"):
+            lines.append(f"Следующая стадия: {st['next_stage']}")
+        lines.append("Мягко веди собеседника к цели текущей стадии, не дави и звучи как живой человек.")
+    return "\n".join(lines)
+
+
 def _build_secretary_system_prompt(
     persona: dict[str, Any],
     peer_label: str,
@@ -1012,6 +1074,7 @@ def _build_secretary_system_prompt(
     rag_context: str = "",
     own_name: str | None = None,
     own_username: str | None = None,
+    stage_section: str = "",
 ) -> str:
     """System prompt for the universal AI-secretary DM mode.
 
@@ -1060,6 +1123,9 @@ def _build_secretary_system_prompt(
     custom = (persona.get("system_prompt") or "").strip()
     if custom:
         parts.extend(["", "Дополнительные инструкции:", custom])
+
+    if stage_section:
+        parts.append(stage_section)
 
     if rag_context:
         parts.append(rag_context)

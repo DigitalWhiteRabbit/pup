@@ -201,6 +201,27 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
     except Exception:  # noqa: BLE001
         log.warning("migration_failed", migration="add_personas_dm_reply_to_all", exc_info=True)
 
+    # Migration (P6-09): staged sales funnel for the AI Agent's DM secretary.
+    # - tg_ai_personas.funnel_script_id → optional binding to a tg_sales_scripts row
+    #   (one funnel per persona; NULL = no funnel, plain secretary behaviour).
+    # - tg_dm_threads.funnel_stage → current stage name per (account, peer) dialog.
+    try:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(tg_ai_personas)").fetchall()}
+        if cols and "funnel_script_id" not in cols:
+            conn.execute("ALTER TABLE tg_ai_personas ADD COLUMN funnel_script_id TEXT")
+            conn.commit()
+            log.info("migration_applied", migration="add_personas_funnel_script_id")
+    except Exception:  # noqa: BLE001
+        log.warning("migration_failed", migration="add_personas_funnel_script_id", exc_info=True)
+    try:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(tg_dm_threads)").fetchall()}
+        if cols and "funnel_stage" not in cols:
+            conn.execute("ALTER TABLE tg_dm_threads ADD COLUMN funnel_stage TEXT")
+            conn.commit()
+            log.info("migration_applied", migration="add_dm_threads_funnel_stage")
+    except Exception:  # noqa: BLE001
+        log.warning("migration_failed", migration="add_dm_threads_funnel_stage", exc_info=True)
+
     # Migration: add arena_id column to tg_ai_messages (arena self-play origin)
     try:
         cols = {row[1] for row in conn.execute("PRAGMA table_info(tg_ai_messages)").fetchall()}
