@@ -59,6 +59,95 @@ def _normalize_entity_ref(chat_ref: str) -> Any:
 
 
 # ══════════════════════════════════════════════════════════════════════════
+# Role-based dialogue generation (mode='sales')
+# ══════════════════════════════════════════════════════════════════════════
+
+async def _generate_arena_reply(
+    db: Any,
+    persona: dict,
+    chat_title: str,
+    topic_hint: str,
+    recent_context: list,
+    model: str,
+    temperature: float,
+    own_name: str | None = None,
+    own_username: str | None = None,
+) -> tuple[str | None, float]:
+    """Generate a persona's turn IN CHARACTER, replying to the live conversation.
+
+    Unlike casual ``_generate_opener`` (which ignores ``system_prompt`` and only
+    breaks silence with a generic on-topic icebreaker), this drives each persona
+    from its own ``system_prompt`` so an arena can role-play distinct parts —
+    e.g. a salesperson vs. curious/skeptical leads. Personas wired to KB docs
+    (``rag_doc_ids``) get RAG context injected (reusing the same retrieval +
+    numbers-discipline guard as the secretary path), so the salesperson cites
+    REAL facts/tariffs instead of inventing them; leads with no rag_doc_ids just
+    play their role. Returns ``(humanized_text, cost_usd)``; ``(None, 0)`` on
+    failure or empty output.
+    """
+    try:
+        from app.ai.anthropic_client import generate_chat
+        from app.tasks.ai_agent_tasks import (
+            _build_identity_block,
+            _build_rag_context,
+            _humanize_text,
+            _search_kb_chunks,
+        )
+
+        role = (persona.get("system_prompt") or "").strip()
+
+        # RAG only for personas explicitly wired to KB docs (the salesperson).
+        rag_context = ""
+        try:
+            rag_doc_ids = json.loads(persona.get("rag_doc_ids") or "[]")
+        except (json.JSONDecodeError, TypeError):
+            rag_doc_ids = []
+        if rag_doc_ids:
+            recent_q = " ".join(recent_context[-3:]).strip() if recent_context else ""
+            query = recent_q or topic_hint or persona.get("niche") or ""
+            chunks = _search_kb_chunks(db, rag_doc_ids, query, limit=8)
+            rag_context = _build_rag_context(chunks)
+
+        style = (
+            "\n\nКАК ПИШЕШЬ В ГРУППЕ: живой человек в Telegram-чате, не бот. "
+            "Коротко — 1–3 предложения, по-русски, разговорно, по делу. Реагируй "
+            "на ПОСЛЕДНЮЮ реплику собеседника, не повторяй уже сказанное и не "
+            "здоровайся в каждом сообщении. ЗАПРЕЩЕНО: длинные тире (—), "
+            "списки/таблицы/markdown, канцелярит, фразы вроде «как ИИ я…». Если "
+            "называешь числа/тарифы — вплетай их в речь естественно (напр. «от "
+            "$10, на Core до +120% за 200 дней»), а не таблицей."
+        )
+        sys = role + style + _build_identity_block(own_name, own_username) + rag_context
+
+        if recent_context:
+            convo = "\n".join(recent_context[-12:])
+            user = (
+                f"Идёт разговор в группе «{chat_title}». Последние сообщения:\n{convo}\n\n"
+                "Ответь ОДНИМ коротким сообщением, оставаясь в своей роли — "
+                "реагируй на последнюю реплику собеседника."
+            )
+        else:
+            seed = topic_hint or persona.get("niche") or "доп. доход"
+            user = (
+                f"Ты в группе «{chat_title}» (тема: {seed}). Начни разговор ОДНИМ "
+                "коротким сообщением в своей роли."
+            )
+
+        res = generate_chat(
+            system_prompt=sys,
+            messages=[{"role": "user", "content": user}],
+            model=model,
+            max_tokens=320,
+            temperature=max(0.6, min(float(temperature), 1.0)),
+        )
+        text = _humanize_text((res.get("text") or "").strip())
+        return (text or None, float(res.get("cost_usd") or 0.0))
+    except Exception:
+        log.warning("arena_reply_failed", exc_info=True)
+        return (None, 0.0)
+
+
+# ══════════════════════════════════════════════════════════════════════════
 # Celery task entry point
 # ══════════════════════════════════════════════════════════════════════════
 
@@ -258,22 +347,37 @@ async def _arena_tick_async(workspace_id: str, arena_id: str) -> dict:
         except Exception:  # noqa: BLE001
             log.debug("arena_read_context_failed", arena_id=arena_id, exc_info=True)
 
-        # Casual generation. Pass arena.topic as chat_about so the opener
-        # respects the seed scenario when one is set.
+        # Generation. mode='sales' → role-based dialogue (each persona speaks
+        # from its own system_prompt; KB-wired personas cite real facts via RAG)
+        # so the arena can train a salesperson against lead questions/objections.
+        # mode='casual' → the original opener (revive a quiet chat, no role/RAG).
         model = _resolve_model(persona.get("ai_model"))
         temperature = float(persona.get("temperature") or 0.8)
         topic_hint = arena.get("topic") or ""
 
-        text, cost = await _generate_opener(
-            persona,
-            chat_title,
-            topic_hint,
-            recent_context,
-            model,
-            temperature,
-            own_name=own_name,
-            own_username=own_username,
-        )
+        if arena.get("mode") == "sales":
+            text, cost = await _generate_arena_reply(
+                db,
+                persona,
+                chat_title,
+                topic_hint,
+                recent_context,
+                model,
+                temperature,
+                own_name=own_name,
+                own_username=own_username,
+            )
+        else:
+            text, cost = await _generate_opener(
+                persona,
+                chat_title,
+                topic_hint,
+                recent_context,
+                model,
+                temperature,
+                own_name=own_name,
+                own_username=own_username,
+            )
         if not text:
             _advance_turn(db, arena_id, idx, len(turn_order))
             return {"status": "SKIPPED", "error": "generation produced empty text"}
