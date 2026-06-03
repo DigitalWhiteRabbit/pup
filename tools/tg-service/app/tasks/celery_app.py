@@ -261,6 +261,20 @@ def _register_join_chats_tasks() -> None:
 _register_join_chats_tasks()
 
 
+# ── Auto-discover bulk profile tasks (P6-06) ──────────────────────────────
+def _register_profile_tasks() -> None:
+    """Import profile_tasks so its @celery_app.task decorators register."""
+    try:
+        import app.tasks.profile_tasks  # noqa: F401, WPS433
+
+        log.info("celery_profile_tasks_registered")
+    except Exception:  # noqa: BLE001
+        log.warning("celery_profile_tasks_import_failed", exc_info=True)
+
+
+_register_profile_tasks()
+
+
 # ── Auto-discover warmup script tasks ─────────────────────────────────────
 def _register_warmup_script_tasks() -> None:
     """Import warmup_script_tasks so its @celery_app.task decorators register."""

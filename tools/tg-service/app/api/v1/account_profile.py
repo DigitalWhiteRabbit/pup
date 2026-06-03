@@ -1017,3 +1017,74 @@ async def apply_profile(
         applied=applied,
     )
     return ApplyResult(applied=applied)
+
+
+# ---------------------------------------------------------------------------
+# 7. BULK generate / apply across a pool (P6-06) — dispatched to the worker
+# ---------------------------------------------------------------------------
+
+
+class BulkGenerateRequest(BaseModel):
+    account_ids: list[str] = Field(..., min_length=1, max_length=50)
+    gender: str | None = None
+    niche: str | None = None
+    with_avatar: bool = True
+
+
+class BulkApplyRequest(BaseModel):
+    account_ids: list[str] = Field(..., min_length=1, max_length=50)
+    parts: list[str] = Field(default_factory=list)
+
+
+@router.post("/profiles/bulk-generate", status_code=status.HTTP_202_ACCEPTED)
+async def bulk_generate_profiles(
+    body: BulkGenerateRequest,
+    _token: AdminAuth,
+    db: WorkspaceDB,
+    workspace_id: WorkspaceId,
+) -> dict[str, Any]:
+    """Generate (and locally save) profiles for a pool of accounts (P6-06).
+
+    Runs in the worker (Claude calls are blocking). Telegram is NOT touched —
+    profiles are saved as DRAFT; use bulk-apply to push them.
+    """
+    from app.tasks.dispatch import dispatch_task
+
+    count = len(dict.fromkeys(body.account_ids))
+    task_id = dispatch_task(
+        "pup_tg.bulk_generate_profiles",
+        args=[workspace_id, body.account_ids, body.gender, body.niche, body.with_avatar],
+    )
+    log.info("bulk_generate_dispatched", count=count, task_id=task_id)
+    return {"status": "dispatched", "task_id": task_id, "count": count}
+
+
+@router.post("/profiles/bulk-apply", status_code=status.HTTP_202_ACCEPTED)
+async def bulk_apply_profiles(
+    body: BulkApplyRequest,
+    _token: AdminAuth,
+    db: WorkspaceDB,
+    workspace_id: WorkspaceId,
+) -> dict[str, Any]:
+    """Apply saved profiles to the real Telegram accounts across a pool (P6-06).
+
+    Runs in the worker with an anti-ban gap between accounts. Each account is
+    NO_PROXY-guarded (a proxy-less account is reported failed, never sent over
+    the real IP). Empty ``parts`` applies all parts.
+    """
+    unknown = [p for p in body.parts if p not in _APPLY_PARTS]
+    if unknown:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"unknown part(s): {', '.join(unknown)}; allowed: {', '.join(_APPLY_PARTS)}",
+        )
+
+    from app.tasks.dispatch import dispatch_task
+
+    count = len(dict.fromkeys(body.account_ids))
+    task_id = dispatch_task(
+        "pup_tg.bulk_apply_profiles",
+        args=[workspace_id, body.account_ids, body.parts],
+    )
+    log.info("bulk_apply_dispatched", count=count, parts=body.parts, task_id=task_id)
+    return {"status": "dispatched", "task_id": task_id, "count": count}

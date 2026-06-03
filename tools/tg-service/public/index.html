@@ -1734,7 +1734,7 @@ function rAcc(el){
       '<button class="btn" id="ab-proxy">\uD83C\uDF10 Прокси</button>'+
       '<button class="btn" id="ab-tags">\uD83C\uDFF7 Теги</button>'+
       '<button class="btn wip-btn">\uD83C\uDD98 Спамблок</button>'+
-      '<button class="btn wip-btn">\uD83D\uDC64 Профиль</button>'+
+      '<button class="btn" id="ab-profile">\uD83D\uDC64 Профиль</button>'+
       '<button class="btn wip-btn">\uD83E\uDDF9 Очистка</button>'+
       '<button class="btn btn-danger" id="ab-del">\uD83D\uDDD1 Удалить</button>'+
     '</div>':'')+
@@ -1954,6 +1954,35 @@ function rAcc(el){
     function btRun(action){var tag=(document.getElementById('bt-tag').value||'').trim();if(!tag){toast('Введите тег','error');return;}ap('/accounts/bulk-action',{account_ids:ids,action:action,params:{tags:[tag]}}).then(function(){toast(action==='add_tags'?'Тег добавлен':'Тег удалён','success');mClose('mov');S.accSel={};accLoaded=false;ldAcc().then(function(){rAcc(el);});}).catch(function(e){toast(e.message,'error');});}
     document.getElementById('bt-add').onclick=function(){btRun('add_tags');};
     document.getElementById('bt-rm').onclick=function(){btRun('remove_tags');};
+  };
+  /* P6-06: bulk generate / apply profiles across the selected pool */
+  var abProfile=el.querySelector('#ab-profile');
+  if(abProfile)abProfile.onclick=function(){
+    var ids=selIds(S.accSel);if(!ids.length)return;
+    var h='<div class="dlg-ov" id="mov"><div class="dlg"><div class="dlg-hd"><div class="dlg-tt">👤 Bulk-профили — '+ids.length+' акк.</div></div>'+
+      '<div class="dlg-bd sy3">'+
+        '<div><label class="lbl">Пол</label><div class="sel-w"><select class="sel tsm" id="bp-gender"><option value="">Любой</option><option value="male">Мужской</option><option value="female">Женский</option></select></div></div>'+
+        '<div><label class="lbl">Ниша / вайб (необязательно)</label><input class="input tsm" id="bp-niche" placeholder="напр. фитнес-тренер из Москвы"></div>'+
+        '<label class="f ac g2x" style="cursor:pointer"><input type="checkbox" class="chk" id="bp-avatar" checked><span class="tsm">Сгенерировать аватары</span></label>'+
+        '<div class="txs c-m">«Сгенерировать» создаёт и сохраняет профили локально (Telegram не трогается). «Применить к TG» пушит сохранённые профили в реальные аккаунты (анти-бан-пауза между аккаунтами, нужен прокси).</div>'+
+      '</div>'+
+      '<div class="dlg-ft"><button type="button" class="btn btn-sm" id="mcl">Отмена</button><button class="btn btn-sm btn-danger" id="bp-apply">📤 Применить к TG</button><button class="btn btn-sm btn-primary" id="bp-gen">✨ Сгенерировать</button></div>'+
+    '</div></div>';
+    document.body.insertAdjacentHTML('beforeend',h);mBind('mov','mcl');
+    document.getElementById('bp-gen').onclick=function(){
+      var gender=document.getElementById('bp-gender').value||undefined;
+      var niche=(document.getElementById('bp-niche').value||'').trim()||undefined;
+      var withAvatar=document.getElementById('bp-avatar').checked;
+      ap('/accounts/profiles/bulk-generate',{account_ids:ids,gender:gender,niche:niche,with_avatar:withAvatar})
+        .then(function(r){toast('Генерация запущена для '+r.count+' акк. (в фоне)','success');mClose('mov');})
+        .catch(function(e){toast(e.message,'error');});
+    };
+    document.getElementById('bp-apply').onclick=function(){
+      if(!confirm('Применить сохранённые профили к '+ids.length+' реальным TG-аккаунтам? (имя/username/фото/приватность)'))return;
+      ap('/accounts/profiles/bulk-apply',{account_ids:ids,parts:[]})
+        .then(function(r){toast('Применение запущено для '+r.count+' акк. (в фоне, с паузами)','success');mClose('mov');})
+        .catch(function(e){toast(e.message,'error');});
+    };
   };
   el.querySelectorAll('.a-tagx').forEach(function(x){x.onclick=function(e){e.stopPropagation();var aid=x.dataset.id,tag=x.dataset.tag;ap('/accounts/bulk-action',{account_ids:[aid],action:'remove_tags',params:{tags:[tag]}}).then(function(){toast('Тег «'+tag+'» удалён','success');accLoaded=false;ldAcc().then(function(){rAcc(el);});}).catch(function(er){toast(er.message,'error');});};});
   var abProxy=el.querySelector('#ab-proxy');
