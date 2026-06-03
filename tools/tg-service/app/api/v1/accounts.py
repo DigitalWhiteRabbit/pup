@@ -2002,3 +2002,30 @@ async def export_account(
             "Content-Disposition": f'attachment; filename="account_{phone}.zip"',
         },
     )
+
+
+@router.get("/{account_id}/daily-usage")
+async def get_daily_usage(
+    account_id: str,
+    _token: AdminAuth,
+    db: WorkspaceDB,
+) -> dict[str, Any]:
+    """Return today's per-action usage counters for an account (P5-01)."""
+    from app.core.daily_usage import _today
+
+    row = db.execute("SELECT id FROM tg_accounts WHERE id = ?", [account_id]).fetchone()
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
+
+    today = _today()
+    try:
+        rows = db.execute(
+            "SELECT action_type, count FROM tg_account_daily_usage "
+            "WHERE account_id = ? AND usage_date = ?",
+            [account_id, today],
+        ).fetchall()
+        usage = {r["action_type"]: r["count"] for r in rows}
+    except Exception:
+        usage = {}
+
+    return {"account_id": account_id, "date": today, "usage": usage}

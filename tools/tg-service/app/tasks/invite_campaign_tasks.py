@@ -335,7 +335,22 @@ async def _invite_campaign_async(workspace_id: str, campaign_id: str) -> dict:
         # Invite users with this account
         invited_this_account = 0
 
+        # P5-01: persistent daily cap across all campaigns + worker restarts.
+        from app.core.daily_usage import ACTION_INVITE, get_usage, incr_usage
+        if get_usage(db, acc_id, ACTION_INVITE) >= daily_limit:
+            log.info("invite_daily_cap_reached", account_id=acc_id, cap=daily_limit)
+            try:
+                await client.disconnect()
+            except Exception:
+                pass
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            continue
+
         while recipient_idx < len(recipients) and invited_this_account < effective_limit:
+            # P5-01: stop this account once it hits its persistent daily cap.
+            if get_usage(db, acc_id, ACTION_INVITE) >= daily_limit:
+                log.info("invite_daily_cap_mid_run", account_id=acc_id, cap=daily_limit)
+                break
             # ── Emergency stop check ─────────────────────────────────
             total_attempts = total_success + total_privacy + total_already + total_not_found + total_failed
             if total_attempts > 0 and flood_blocks > 0:
@@ -430,6 +445,7 @@ async def _invite_campaign_async(workspace_id: str, campaign_id: str) -> dict:
                 # Only DIRECT invites count as real successes.
                 if result_code == "SUCCESS":
                     total_success += 1
+                    incr_usage(db, acc_id, ACTION_INVITE)  # P5-01: count real invites
                 invited_this_account += 1
                 log.info(
                     "invite_attempt_logged",

@@ -344,7 +344,23 @@ async def _dm_campaign_async(workspace_id: str, campaign_id: str) -> dict:
         # Send messages with this account
         sent_this_account = 0
 
+        # P5-01: persistent daily cap across all campaigns + worker restarts.
+        from app.core.daily_usage import ACTION_DM, get_usage, incr_usage
+        if get_usage(db, acc_id, ACTION_DM) >= daily_limit:
+            log.info("dm_daily_cap_reached", account_id=acc_id, cap=daily_limit)
+            try:
+                await client.disconnect()
+            except Exception:
+                pass
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            continue
+
         while recipient_idx < len(recipients) and sent_this_account < effective_limit:
+            # P5-01: stop this account once it hits its persistent daily cap.
+            if get_usage(db, acc_id, ACTION_DM) >= daily_limit:
+                log.info("dm_daily_cap_mid_run", account_id=acc_id, cap=daily_limit)
+                break
+
             # Emergency stop check
             if total_sent + total_failed > 0:
                 fail_ratio = total_failed / (total_sent + total_failed)
@@ -404,6 +420,7 @@ async def _dm_campaign_async(workspace_id: str, campaign_id: str) -> dict:
 
                 total_sent += 1
                 sent_this_account += 1
+                incr_usage(db, acc_id, ACTION_DM)  # P5-01: persistent daily counter
                 log.info("dm_sent", account=acc_info["phone"], to=username or user_id,
                          variant=variant_idx, sent_this_acc=sent_this_account)
 

@@ -60,6 +60,21 @@ CREATE INDEX IF NOT EXISTS idx_tg_accounts_tg_user_id   ON tg_accounts(tg_user_i
 CREATE INDEX IF NOT EXISTS idx_tg_accounts_proxy_id     ON tg_accounts(proxy_id);
 CREATE INDEX IF NOT EXISTS idx_tg_accounts_warmup       ON tg_accounts(warmup_profile, warmup_level);
 
+-- ─── Account Daily Usage (P5-01) ───────────────────────────────────────────
+-- Persistent per-account, per-action daily counters with date-based reset.
+-- Hot-path engines (DM, broadcast, invite, boost, join, comment) reserve a slot
+-- here before acting, so limits survive worker restarts and span all campaigns.
+
+CREATE TABLE IF NOT EXISTS tg_account_daily_usage (
+  account_id      TEXT NOT NULL,
+  action_type     TEXT NOT NULL,   -- dm|chat_post|invite|comment|boost|join|subscription
+  usage_date      TEXT NOT NULL,   -- YYYY-MM-DD (UTC)
+  count           INTEGER DEFAULT 0,
+  updated_at      TEXT DEFAULT (datetime('now')),
+  PRIMARY KEY (account_id, action_type, usage_date)
+);
+CREATE INDEX IF NOT EXISTS idx_tg_daily_usage_date ON tg_account_daily_usage(usage_date);
+
 -- ─── Proxy Pool ────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS tg_proxies (

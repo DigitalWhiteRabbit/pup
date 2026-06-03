@@ -354,22 +354,10 @@ async def _join_chats_async(workspace_id: str, task_id: str) -> dict:
 
         log.info("join_account_connected", account_id=acc_id, phone=acc_info["phone"])
 
-        # P4-13: count today's joins for this account across all tasks
-        today_joins = 0
-        try:
-            from datetime import date
-            today_str = date.today().isoformat()
-            existing_results = json.loads(
-                (db.execute(
-                    "SELECT results FROM tg_join_tasks WHERE id = ?", [task_id]
-                ).fetchone() or {}).get("results", "[]") or "[]"
-            )
-            today_joins = sum(
-                1 for r in existing_results
-                if r.get("account_id") == acc_id and r.get("status") in ("JOINED", "ALREADY")
-            )
-        except Exception:
-            pass
+        # P4-13/P5-01: count today's joins for this account across ALL tasks via
+        # the shared persistent daily-usage table (survives restarts + spans tasks).
+        from app.core.daily_usage import ACTION_JOIN, get_usage, incr_usage
+        today_joins = get_usage(db, acc_id, ACTION_JOIN)
 
         acc_joins_this_run = 0
 
@@ -499,6 +487,7 @@ async def _join_chats_async(workspace_id: str, task_id: str) -> dict:
                 if result_entry["status"] in ("JOINED", "ALREADY"):
                     success_count += 1
                     acc_joins_this_run += 1
+                    incr_usage(db, acc_id, ACTION_JOIN)  # P5-01: persistent daily counter
                     consecutive_banned = 0  # P4-14: reset on success
                     # Save/update channel info
                     try:

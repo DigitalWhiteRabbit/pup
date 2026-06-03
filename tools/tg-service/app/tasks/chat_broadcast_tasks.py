@@ -286,7 +286,22 @@ async def _chat_broadcast_async(workspace_id: str, broadcast_id: str) -> dict:
         # Post messages with this account
         posted_this_account = 0
 
+        # P5-01: persistent daily cap across all broadcasts + worker restarts.
+        from app.core.daily_usage import ACTION_CHAT_POST, get_usage, incr_usage
+        if get_usage(db, acc_id, ACTION_CHAT_POST) >= daily_limit:
+            log.info("chatbr_daily_cap_reached", account_id=acc_id, cap=daily_limit)
+            try:
+                await client.disconnect()
+            except Exception:
+                pass
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            continue
+
         while channel_idx < len(remaining_channels) and posted_this_account < daily_limit:
+            # P5-01: stop this account once it hits its persistent daily cap.
+            if get_usage(db, acc_id, ACTION_CHAT_POST) >= daily_limit:
+                log.info("chatbr_daily_cap_mid_run", account_id=acc_id, cap=daily_limit)
+                break
             # Emergency stop check: >30% of attempts resulted in bans.
             # ban_auto_stop (P2-03) lets the operator disable this safety net.
             total_attempts = total_posted + total_failed + total_banned + total_slow_mode
@@ -341,6 +356,7 @@ async def _chat_broadcast_async(workspace_id: str, broadcast_id: str) -> dict:
 
                 total_posted += 1
                 posted_this_account += 1
+                incr_usage(db, acc_id, ACTION_CHAT_POST)  # P5-01: persistent daily counter
                 log.info("chatbr_posted", account=acc_info["phone"], channel=channel_target,
                          variant=variant_idx, posted_this_acc=posted_this_account)
 
