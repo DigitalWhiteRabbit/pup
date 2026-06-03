@@ -99,9 +99,9 @@
 - [x] **P5-02** · Сквозное · Общий `app/services/tg_runner.py` — единый build*proxy_kwargs (дедуп из 10 файлов, делегация). M · med. Live: 10/10 импорт ✓, воркер online, регресс 26/26. *(commit c97a359)\_
 - [x] **P5-03** · Сквозное · `can_act(account, action_type)` поверх Настроек (лимиты+активные часы), применить в boost/stories/cloner и кампаниях. M · med. can*act() в core/daily_usage; boost+stories per-account; кампании — лимиты в P5-01; cloner — active-hours уже task-level (P2-08), per-account дневной лимит не применим (пишет в свой канал). Live: 5/5 unit ✓, регресс 26/26. *(commit 603d809)\_
 - [x] **P5-04** · Сквозное · Beat-планировщик SCHEDULED/drip/AUTO*MONITOR (DM/broadcast/invite/boost/stories/cloner). M · med. pup_tg.campaign_scheduler (5мин): SCHEDULED→start, DM auto_paused active-hours→resume, AUTO_MONITOR stories→re-tick. Live: started+resumed ✓, manual PAUSED не тронут. *(commit aa9e4c8)\_
-- [ ] **P5-05** · Сквозное · Слой DM-ownership (один обработчик на account+peer): развести ai_agent DM-секретарь / auto_replier / ai_sales. M · high
-- [ ] **P5-06** · Сквозное · Единый источник enum'ов для фронта (отдавать через `/system`) — против рассинхронов. S · low
-- [ ] **P5-07** · Сквозное · Контрактный smoke-тест UI→эндпоинты (ловить рассинхроны). M · low
+- [B] **P5-05** · Сквозное · Слой DM-ownership (один обработчик на account+peer): развести ai_agent DM-секретарь / auto_replier / ai_sales. M · high → BLOCKED: трогает живой ai_agent движок (правило «движок не трогаем») + продуктовое решение по приоритету обработчиков. Нужен отдельный заход с осторожным live-прогоном.
+- [x] **P5-06** · Сквозное · Единый источник enum`ов для фронта (отдавать через `/system`) — против рассинхронов. S · low. GET /system/enums + UI fetch в S.enums + drift-warning. Live: fetch ✓, in-sync ✓. _(commit 37b6386)_
+- [x] **P5-07** · Сквозное · Контрактный smoke-тест UI→эндпоинты (ловить рассинхроны). M · low. scripts/contract*smoke.py: 73 UI-endpoint ⇄ OpenAPI. Нашёл дрейф /auto-replier/test (UI вызывал несуществующий) → добавил endpoint. Live: smoke pass, регресс 26/26. *(commit e5805a0)\_
 - [ ] **P5-08** · Сквозное · Единый декоратор аудита на горячий путь (чек/спамблок/apply/send в tg_audit_logs). S · low
 - [ ] **P5-09** · Сквозное · Унифицировать «непрерывность» воркеров (reaper/self-reschedule для commenting/auto_replier/boost/stories/cloner). M · med
 
