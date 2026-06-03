@@ -4179,6 +4179,7 @@ async function mEditProm(p){
   var accs=[],docs=[];
   try{var ra=await af('/accounts?limit=200');accs=ra.items||[];}catch(e){}
   try{var rd=await af('/kb/documents');docs=rd.items||[];}catch(e){}
+  var fScripts=[];try{var rfs=await af('/ai-sales/scripts');fScripts=rfs.items||[];}catch(e){}
   var sch=p.schedule||{};
   var selAcc={};(p.account_ids||[]).forEach(function(id){selAcc[id]=true;});
   var selDoc={};(p.rag_doc_ids||[]).forEach(function(id){selDoc[id]=true;});
@@ -4216,6 +4217,7 @@ async function mEditProm(p){
       '</div></div>'+
     '<div><label class="f ac g1h" style="cursor:pointer"><input type="checkbox" class="chk" id="ep-dm"'+(p.dm_enabled?' checked':'')+'> <span class="tsm">Разрешить рассылку в ЛС (DM)</span></label></div>'+
     '<div><label class="f ac g1h" style="cursor:pointer"><input type="checkbox" class="chk" id="ep-dm-all"'+(p.dm_reply_to_all!==false?' checked':'')+'> <span class="tsm">Отвечать на ВСЕ ЛС аккаунта (AI-секретарь)</span></label><div class="txs c-m" style="margin-left:1.4rem;margin-top:2px">Агент читает все диалоги, ведёт по каждому короткий summary и отвечает по Базе знаний. Замьюченные чаты пропускает.</div></div>'+
+    '<div><label class="lbl">Воронка-скрипт (стадии диалога ЛС)'+tip('P6-09: привязать скрипт со стадиями (из AI Продажника). Агент в ЛС ведёт диалог по стадиям, advance_keywords двигают стадию. Пусто = без воронки (обычный секретарь)')+'</label><div class="sel-w"><select class="sel" id="ep-funnel"><option value="">— без воронки —</option>'+fScripts.map(function(s){return '<option value="'+esc(s.id)+'"'+(p.funnel_script_id===s.id?' selected':'')+'>'+esc(s.name||s.id)+'</option>';}).join('')+'</select></div><div id="ep-funnel-stats" class="txs c-m" style="margin-top:4px"></div></div>'+
     '<div><label class="lbl">Аккаунты персоны</label><div style="max-height:120px;overflow:auto;border:1px solid var(--border);border-radius:var(--radius-md);padding:0.5rem">'+accHtml+'</div></div>'+
     '<div><label class="lbl">Знания (RAG) — на что опирается агент</label><div style="max-height:120px;overflow:auto;border:1px solid var(--border);border-radius:var(--radius-md);padding:0.5rem">'+docHtml+'</div></div>'+
     '<div><label class="lbl">Целевые чаты (по одному на строку)</label><textarea class="ta" id="ep-channels" style="min-height:70px" placeholder="@chat или https://t.me/...">'+esc((p.target_channels||[]).join('\n'))+'</textarea></div>'+
@@ -4227,6 +4229,17 @@ async function mEditProm(p){
   var ov=document.getElementById('mov');
   ov.onclick=function(e){if(e.target===ov)mClose('mov');};
   document.getElementById('mcl').onclick=function(){mClose('mov');};
+  /* P6-09: funnel stage distribution + conversion for this persona */
+  (async function(){
+    var el=document.getElementById('ep-funnel-stats');if(!el)return;
+    try{
+      var fs=await af('/ai-promoter/personas/'+p.id+'/funnel-stats');
+      if(!fs.bound){el.textContent='';return;}
+      if(fs.script_missing){el.textContent='⚠ привязанный скрипт не найден';return;}
+      var parts=(fs.stages||[]).map(function(s){return esc(s.name)+': '+s.count+(s.terminal?' ✓':'');});
+      el.innerHTML='📊 '+parts.join(' · ')+' · конверсия '+fs.conversion_rate+'% ('+fs.converted+'/'+fs.total_dialogs+')';
+    }catch(e){el.textContent='';}
+  })();
   document.getElementById('ep-save').onclick=async function(){
     var btn=this;
     var name=document.getElementById('ep-name').value.trim();
@@ -4245,6 +4258,7 @@ async function mEditProm(p){
       target_channels:channels,
       dm_enabled:document.getElementById('ep-dm').checked,
       dm_reply_to_all:document.getElementById('ep-dm-all').checked,
+      funnel_script_id:document.getElementById('ep-funnel').value||null,
       bio:document.getElementById('ep-bio').value.trim(),
       personality:document.getElementById('ep-personality').value.trim(),
       system_prompt:document.getElementById('ep-prompt').value.trim(),

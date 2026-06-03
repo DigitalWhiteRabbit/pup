@@ -805,6 +805,66 @@ async def promoter_stats(
     }
 
 
+@router.get("/personas/{persona_id}/funnel-stats")
+async def persona_funnel_stats(
+    persona_id: str,
+    _token: AdminAuth,
+    db: WorkspaceDB,
+) -> dict[str, Any]:
+    """Staged-funnel metrics (P6-09): per-stage dialog counts + conversion.
+
+    Counts tg_dm_threads by funnel_stage across the persona's accounts. Terminal
+    stages (no next_stage / terminal flag) count as conversions.
+    """
+    row = db.execute(
+        "SELECT account_ids, funnel_script_id FROM tg_ai_personas WHERE id = ?",
+        [persona_id],
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Persona not found")
+    if not row["funnel_script_id"]:
+        return {"bound": False, "stages": [], "total_dialogs": 0, "converted": 0, "conversion_rate": 0}
+
+    script = db.execute(
+        "SELECT * FROM tg_sales_scripts WHERE id = ?", [row["funnel_script_id"]]
+    ).fetchone()
+    if not script:
+        return {"bound": True, "script_missing": True, "stages": [],
+                "total_dialogs": 0, "converted": 0, "conversion_rate": 0}
+
+    from app.tasks.ai_agent_tasks import _funnel_get_stages, _funnel_is_terminal
+
+    stages = _funnel_get_stages(dict(script))
+    try:
+        account_ids = json.loads(row["account_ids"] or "[]")
+    except (json.JSONDecodeError, TypeError):
+        account_ids = []
+
+    cmap: dict[str, int] = {}
+    if account_ids:
+        ph = ",".join("?" for _ in account_ids)
+        rows = db.execute(
+            f"SELECT funnel_stage, COUNT(*) AS c FROM tg_dm_threads "
+            f"WHERE account_id IN ({ph}) AND funnel_stage IS NOT NULL "
+            f"GROUP BY funnel_stage",
+            account_ids,
+        ).fetchall()
+        cmap = {r["funnel_stage"]: r["c"] for r in rows}
+
+    stage_rows = [{
+        "name": s.get("name"), "goal": s.get("goal"),
+        "count": cmap.get(s.get("name"), 0),
+        "terminal": _funnel_is_terminal(stages, s.get("name")),
+    } for s in stages]
+    total = sum(cmap.values())
+    converted = sum(c["count"] for c in stage_rows if c["terminal"])
+    return {
+        "bound": True, "script_name": script["name"], "stages": stage_rows,
+        "total_dialogs": total, "converted": converted,
+        "conversion_rate": round(100 * converted / total, 1) if total else 0,
+    }
+
+
 @router.get("/personas/{persona_id}/learning-stats")
 async def persona_learning_stats(
     persona_id: str,
