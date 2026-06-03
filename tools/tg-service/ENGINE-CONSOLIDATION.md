@@ -188,3 +188,50 @@ AI Sales и Агент пишут одни `tg_sales_dialogs`/`tg_sales_messages
 - **B4.** Регресс `regression_screens.py` + `contract_smoke.py`; Atlas вернуть в исходный ACTIVE-статус.
 
 > Остаются вне этого скоупа: P5-08, P5-09, Phase 6.
+
+---
+
+## P6-09 — Перенос скриптовой воронки со стадиями в AI Агента
+
+### Этап A — карта (анализ)
+
+**Как воронку вёл AI Продажник** (`ai_sales_tasks.py`, off-runtime после P5-05):
+
+- Скрипт = строка `tg_sales_scripts`: `stages` (JSON-массив `{name, goal, next_stage, advance_keywords[], lead_status?}`), `system_prompt`, `rag_doc_ids`.
+- `_get_stages(script)` — парс stages. `_evaluate_stage_advance(stages, current_stage, msg)` — если в сообщении есть `advance_keywords` текущей стадии → `next_stage`. `_lead_status_for_stage` — эвристика статуса по позиции. `_build_system_prompt` — инжект стадии (goal/next/обзор) в промпт.
+- Стадия диалога хранилась в `tg_sales_dialogs.current_stage`; терминал — `_TERMINAL_STATUSES={CONVERTED,LOST,HANDED_OFF}`.
+
+**Как Агент сейчас ведёт ЛС** (`ai_agent_tasks.py`):
+
+- `_handle_secretary_dm` (единственный владелец входящих ЛС, P5-05): история(30) → summary → KB-RAG по последнему инбаунду → `_build_secretary_system_prompt` → `generate_chat` → humanize → send → счётчики в `tg_dm_threads` (per `(account_id, peer_id)`).
+- Состояние секретарь-диалога живёт в `tg_dm_threads` (summary, last_summarized_msg_id, счётчики, mute).
+
+### Что переносим и куда встраиваем
+
+| Что                                      | Откуда                                                                                                       | Куда в Агенте                                                       |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------- |
+| Стадии + advance-логика                  | `_get_stages`/`_evaluate_stage_advance` (порт чистых ф-ций в ai_agent_tasks, без импорта off-runtime модуля) | `_handle_secretary_dm`: после RAG, до сборки промпта                |
+| Инжект стадии в промпт (goal/next/обзор) | `_build_system_prompt`                                                                                       | расширить `_build_secretary_system_prompt` (optional stage-блок)    |
+| Источник скрипта                         | **`tg_sales_scripts`** (НЕ новая таблица)                                                                    | по `persona.funnel_script_id`                                       |
+| Терминал → исход/конверсия               | `_TERMINAL_STATUSES`                                                                                         | стадия без `next_stage` / `terminal:true` → метка в `tg_dm_threads` |
+
+### Выбор хранилища (обоснование)
+
+- **Привязка скрипта — на персоне**: новая колонка `tg_ai_personas.funnel_script_id` (FK→`tg_sales_scripts`, nullable). **Один скрипт на персону** → нет «конфликта скриптов»; **opt-in** (NULL = текущее поведение секретаря без воронки).
+- **Стадия диалога — в `tg_dm_threads.funnel_stage`** (новая колонка, nullable). Почему НЕ `tg_sales_dialogs`: секретарь-поток уже целиком живёт в `tg_dm_threads` per `(account,peer)`; класть стадию туда — значит не создавать `tg_sales_dialogs`-строку на каждый ЛС (это конфликтовало бы с cold-outreach lead-потоком Агента и его precedence-проверкой). `tg_sales_*` остаются нетронуты как источник скрипта (`tg_sales_scripts.stages`) и исторические данные.
+
+### Что НЕ дублируем / не ломаем
+
+- НЕ создаём параллельный поллер входящих — стадии живут внутри уже существующего `_handle_secretary_dm` (один владелец ЛС).
+- НЕ трогаем cold-outreach lead-поток (PHASE B1, `tg_sales_dialogs`), чаты, комментинг, KB/RAG.
+- При `funnel_script_id IS NULL` (или скрипт удалён/пуст) — поведение секретаря 1:1 как сейчас.
+
+### BLOCKED-вопросы владельцу
+
+**Нет.** Продуктовые развилки сняты дизайном: «какой скрипт» → явная привязка на персоне; «конфликт скриптов» → один скрипт на персону; применять ли ко всем ЛС → только при заданной привязке (opt-in). На проде сейчас 0 скриптов и привязки нет → **нулевое изменение поведения живого Atlas** до явной настройки оператором.
+
+### Этап B — план (инкрементально)
+
+- **B1.** Миграции: `tg_ai_personas.funnel_script_id`, `tg_dm_threads.funnel_stage` (идемпотентно). Порт `_get_stages`/`_evaluate_stage_advance` в ai_agent_tasks.
+- **B2.** Встроить в `_handle_secretary_dm`: загрузка скрипта по привязке, advance по keywords, инжект стадии в промпт, терминал→метка. Persona API: чтение/запись `funnel_script_id`.
+- **B3.** Метрики стадий/конверсии (`/ai-promoter/funnel-stats`) + UI: привязка скрипта к персоне + распределение по стадиям.
