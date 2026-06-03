@@ -7408,6 +7408,48 @@ async function msgOpenMedia(msgId, type) {
   }
 }
 
+/* Generic header-authed fetch for PATCH/DELETE/POST JSON (returns parsed body). */
+async function msgApi(method, path, body) {
+  var r = await fetch(au(path),{method:method,headers:ah(),body:body?JSON.stringify(body):undefined});
+  if(!r.ok){var d=await r.json().catch(function(){return null;});throw new Error(apiErr(d,r.status));}
+  return r.json();
+}
+function msgFindMessage(id){ for(var i=0;i<msgMessages.length;i++){ if(String(msgMessages[i].id)===String(id)) return msgMessages[i]; } return null; }
+
+/* P6-04: edit own message text. */
+async function msgEditMessage(id) {
+  if(!msgAccId || !msgPeerId) return;
+  var m = msgFindMessage(id);
+  var nt = prompt('\u0420\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0435:', (m && (m.text||m.message)) || '');
+  if(nt==null) return;
+  try {
+    await msgApi('PATCH','/telegram/'+msgAccId+'/messages/'+encodeURIComponent(msgPeerId)+'/'+id,{text:nt, access_hash: msgAccessHash||undefined});
+    await msgLoadMessages(); msgRenderMessages();
+  } catch(e) { toast('\u041E\u0448\u0438\u0431\u043A\u0430 \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u044F: '+e.message,'error'); }
+}
+
+/* P6-04: delete a message (for everyone). */
+async function msgDeleteMessage(id) {
+  if(!msgAccId || !msgPeerId) return;
+  if(!confirm('\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0435 \u0434\u043B\u044F \u0432\u0441\u0435\u0445?')) return;
+  try {
+    await msgApi('POST','/telegram/'+msgAccId+'/messages/'+encodeURIComponent(msgPeerId)+'/delete',{message_ids:[id], revoke:true, access_hash: msgAccessHash||undefined});
+    await msgLoadMessages(); msgRenderMessages();
+  } catch(e) { toast('\u041E\u0448\u0438\u0431\u043A\u0430 \u0443\u0434\u0430\u043B\u0435\u043D\u0438\u044F: '+e.message,'error'); }
+}
+
+/* P6-04: forward a message to another peer (target by @username or numeric id). */
+async function msgForwardMessage(id) {
+  if(!msgAccId || !msgPeerId) return;
+  var target = prompt('\u041F\u0435\u0440\u0435\u0441\u043B\u0430\u0442\u044C \u043A\u043E\u043C\u0443? (@username \u0438\u043B\u0438 id)');
+  if(!target || !target.trim()) return;
+  target = target.trim();
+  try {
+    var r = await msgApi('POST','/telegram/'+msgAccId+'/messages/forward',{from_peer: msgPeerId, to_peer: target, message_ids:[id], from_access_hash: msgAccessHash||undefined});
+    toast('\u041F\u0435\u0440\u0435\u0441\u043B\u0430\u043D\u043E: '+(r.forwarded||0),'success');
+  } catch(e) { toast('\u041E\u0448\u0438\u0431\u043A\u0430 \u043F\u0435\u0440\u0435\u0441\u044B\u043B\u043A\u0438: '+e.message,'error'); }
+}
+
 function msgScrollBottom() {
   var body = document.getElementById('msg-body');
   if(body) body.scrollTop = body.scrollHeight;
@@ -7534,6 +7576,15 @@ function msgRenderMessages() {
     }
     /* AI-agent reply? overlay a \uD83E\uDD16 tag + \uD83D\uDC4D/\uD83D\uDC4E rating bar (feeds self-learning) */
     var agent = isOut && m.id!=null ? msgAgentMap[String(m.id)] : null;
+    /* P6-04: per-message actions (edit own non-media / forward / delete). */
+    var actsHtml = '';
+    if(m.id!=null) {
+      actsHtml = '<div class="msg-acts" style="margin-top:3px;display:flex;gap:6px;opacity:0.65;font-size:0.72rem">' +
+        ((isOut && !m.media_type) ? '<span style="cursor:pointer" title="\u0420\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u0442\u044C" onclick="msgEditMessage('+m.id+')">\u270F\uFE0F</span>' : '') +
+        '<span style="cursor:pointer" title="\u041F\u0435\u0440\u0435\u0441\u043B\u0430\u0442\u044C" onclick="msgForwardMessage('+m.id+')">\u21AA</span>' +
+        '<span style="cursor:pointer" title="\u0423\u0434\u0430\u043B\u0438\u0442\u044C" onclick="msgDeleteMessage('+m.id+')">\uD83D\uDDD1</span>' +
+      '</div>';
+    }
     return '<div class="'+cls+(agent?' msg-agent':'')+'">' +
       (!isOut && sender ? '<div class="msg-sender">'+esc(sender)+'</div>' : '') +
       (agent ? '<div class="msg-agent-tag">\uD83E\uDD16 \u0410\u0418-\u0430\u0433\u0435\u043D\u0442</div>' : '') +
@@ -7541,6 +7592,7 @@ function msgRenderMessages() {
       mediaHtml +
       (text ? '<div>'+esc(text)+'</div>' : '') +
       '<div class="msg-time">'+esc(time)+'</div>' +
+      actsHtml +
       (agent ? msgRateBar(agent) : '') +
     '</div>';
   }).join('');

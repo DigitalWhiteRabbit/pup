@@ -79,6 +79,25 @@ class MarkReadRequest(BaseModel):
     peer_id: int | str
 
 
+class EditMessageRequest(BaseModel):
+    text: str
+    access_hash: str | None = None
+
+
+class DeleteMessagesRequest(BaseModel):
+    message_ids: list[int] = Field(..., min_length=1)
+    revoke: bool = True  # delete for everyone (not just locally)
+    access_hash: str | None = None
+
+
+class ForwardMessagesRequest(BaseModel):
+    from_peer: int | str
+    to_peer: int | str
+    message_ids: list[int] = Field(..., min_length=1)
+    from_access_hash: str | None = None
+    to_access_hash: str | None = None
+
+
 # ---------------------------------------------------------------------------
 # Connection helper
 # ---------------------------------------------------------------------------
@@ -651,6 +670,112 @@ async def send_message(
     finally:
         # P6-03: the messenger client is cached/reused (messenger_pool owns its
         # lifecycle via idle eviction) — do NOT disconnect it here.
+        pass
+
+
+@router.patch("/{account_id}/messages/{peer_id}/{message_id}")
+async def edit_message(
+    account_id: str,
+    peer_id: str,
+    message_id: int,
+    body: EditMessageRequest,
+    _token: AdminAuth,
+    db: WorkspaceDB,
+) -> dict[str, Any]:
+    """Edit an own outgoing message's text (P6-04)."""
+    from telethon.errors import FloodWaitError, MessageNotModifiedError
+
+    client = None
+    try:
+        client = await get_messenger_client(db, account_id)  # P6-03: cached/reused
+        entity = await resolve_entity(db, account_id, client, peer_id, body.access_hash)
+        try:
+            edited = await client.edit_message(entity, message_id, body.text)
+        except MessageNotModifiedError:
+            return {"id": message_id, "text": body.text, "edited": False, "reason": "not_modified"}
+        except FloodWaitError as e:
+            raise HTTPException(status_code=429, detail=f"FloodWait: retry after {e.seconds} seconds",
+                                headers={"Retry-After": str(e.seconds)})
+        log.info("message_edited", account_id=account_id, peer_id=peer_id, message_id=message_id)
+        return {
+            "id": getattr(edited, "id", message_id),
+            "text": getattr(edited, "text", body.text),
+            "date": _format_dt(getattr(edited, "edit_date", None) or getattr(edited, "date", None)),
+            "out": True,
+            "edited": True,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.error("message_edit_failed", account_id=account_id, peer_id=peer_id,
+                  message_id=message_id, error=str(exc))
+        raise HTTPException(status_code=502, detail=f"Failed to edit message: {exc}")
+    finally:
+        pass
+
+
+@router.post("/{account_id}/messages/{peer_id}/delete")
+async def delete_messages(
+    account_id: str,
+    peer_id: str,
+    body: DeleteMessagesRequest,
+    _token: AdminAuth,
+    db: WorkspaceDB,
+) -> dict[str, Any]:
+    """Delete messages in a dialog (P6-04). ``revoke`` = delete for everyone."""
+    from telethon.errors import FloodWaitError
+
+    client = None
+    try:
+        client = await get_messenger_client(db, account_id)  # P6-03: cached/reused
+        entity = await resolve_entity(db, account_id, client, peer_id, body.access_hash)
+        try:
+            await client.delete_messages(entity, body.message_ids, revoke=body.revoke)
+        except FloodWaitError as e:
+            raise HTTPException(status_code=429, detail=f"FloodWait: retry after {e.seconds} seconds",
+                                headers={"Retry-After": str(e.seconds)})
+        log.info("messages_deleted", account_id=account_id, peer_id=peer_id,
+                 count=len(body.message_ids), revoke=body.revoke)
+        return {"deleted": body.message_ids, "revoke": body.revoke}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.error("messages_delete_failed", account_id=account_id, peer_id=peer_id, error=str(exc))
+        raise HTTPException(status_code=502, detail=f"Failed to delete messages: {exc}")
+    finally:
+        pass
+
+
+@router.post("/{account_id}/messages/forward")
+async def forward_messages(
+    account_id: str,
+    body: ForwardMessagesRequest,
+    _token: AdminAuth,
+    db: WorkspaceDB,
+) -> dict[str, Any]:
+    """Forward messages from one peer to another (P6-04)."""
+    from telethon.errors import FloodWaitError
+
+    client = None
+    try:
+        client = await get_messenger_client(db, account_id)  # P6-03: cached/reused
+        from_entity = await resolve_entity(db, account_id, client, body.from_peer, body.from_access_hash)
+        to_entity = await resolve_entity(db, account_id, client, body.to_peer, body.to_access_hash)
+        try:
+            sent = await client.forward_messages(to_entity, body.message_ids, from_entity)
+        except FloodWaitError as e:
+            raise HTTPException(status_code=429, detail=f"FloodWait: retry after {e.seconds} seconds",
+                                headers={"Retry-After": str(e.seconds)})
+        new_ids = [m.id for m in sent] if isinstance(sent, list) else ([sent.id] if sent else [])
+        log.info("messages_forwarded", account_id=account_id, from_peer=str(body.from_peer),
+                 to_peer=str(body.to_peer), count=len(body.message_ids))
+        return {"forwarded": len(new_ids), "new_message_ids": new_ids}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.error("messages_forward_failed", account_id=account_id, error=str(exc))
+        raise HTTPException(status_code=502, detail=f"Failed to forward messages: {exc}")
+    finally:
         pass
 
 
