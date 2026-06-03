@@ -467,6 +467,39 @@ def campaign_scheduler() -> dict:
     return {"started": started, "resumed": resumed, "monitored": monitored}
 
 
+@shared_task(name="pup_tg.worker_continuity")
+def worker_continuity() -> dict:
+    """Revive task loops that died on a worker restart (P5-09).
+
+    Unified continuity reaper across all workspace DBs for the workers that
+    otherwise have no restart-survival: commenting / auto_replier / boost /
+    cloner. For each, a running-state task whose ``last_tick_at`` heartbeat is
+    stale (its in-flight Celery task is gone) is re-dispatched. Live loops keep
+    their heartbeat fresh and are never re-dispatched (no double-run).
+
+    ai_agent (own reaper) and stories AUTO_MONITOR / SCHEDULED campaigns
+    (campaign_scheduler) are intentionally out of scope — see continuity.py.
+    """
+    from app.core.continuity import revive_stale_loops
+    from app.core.database import get_db
+    from app.tasks.celery_app import celery_app
+
+    revived: list[dict] = []
+    for workspace_id in _iter_workspace_ids():
+        try:
+            db = get_db(workspace_id)
+        except Exception:  # noqa: BLE001
+            continue
+        try:
+            revived.extend(revive_stale_loops(db, workspace_id, celery_app))
+        except Exception:  # noqa: BLE001
+            log.warning("worker_continuity_failed", workspace_id=workspace_id, exc_info=True)
+
+    if revived:
+        log.info("worker_continuity_done", revived=len(revived))
+    return {"revived": revived}
+
+
 # ── Schedule registry ────────────────────────────────────────────────────────
 
 BEAT_SCHEDULE: dict[str, dict[str, object]] = {
@@ -501,6 +534,12 @@ BEAT_SCHEDULE: dict[str, dict[str, object]] = {
     # Resume scheduled/auto-paused campaigns + re-tick AUTO_MONITOR stories (P5-04).
     "campaign-scheduler-every-5-min": {
         "task": "pup_tg.campaign_scheduler",
+        "schedule": 300.0,  # every 5 minutes
+        "options": {"queue": "pup_tg_default"},
+    },
+    # Revive commenting/auto_replier/boost/cloner loops killed by a restart (P5-09).
+    "worker-continuity-every-5-min": {
+        "task": "pup_tg.worker_continuity",
         "schedule": 300.0,  # every 5 minutes
         "options": {"queue": "pup_tg_default"},
     },

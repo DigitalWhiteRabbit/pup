@@ -25,6 +25,7 @@ from typing import Any
 import structlog
 
 from app.config import settings
+from app.core.continuity import touch_heartbeat
 from app.core.database import get_db
 from app.core.security import decrypt_bytes
 from app.tasks.celery_app import celery_app
@@ -223,6 +224,8 @@ async def _commenting_task_async(workspace_id: str, task_id: str) -> dict:
         if task_check and task_check["status"] != "ACTIVE":
             log.info("commenting_task_externally_stopped", task_id=task_id)
             break
+
+        touch_heartbeat(db, "tg_commenting_tasks", task_id)  # P5-09 continuity
 
         acc_info = _connect_account(db, acc_id)
         if not acc_info:

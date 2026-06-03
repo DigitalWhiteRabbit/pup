@@ -19,7 +19,7 @@
 | 2         | «Фантомные» config-поля (подключить или скрыть) | 11     | ✅ 11/11 |
 | 3         | Quick wins по разделам (S/low)                  | 21     | ✅ 21/21 |
 | 4         | Средние улучшения (M, low-med)                  | 28     | ✅ 28/28 |
-| 5         | Сквозная инфраструктура (общие компоненты)      | 9      | ☐        |
+| 5         | Сквозная инфраструктура (общие компоненты)      | 9      | ✅ 9/9   |
 | 6         | Крупные/стратегические (L, med+)                | 11     | ☐        |
 | **Итого** |                                                 | **92** |          |
 
@@ -108,9 +108,9 @@
 - [x] **P5-06** · Сквозное · Единый источник enum`ов для фронта (отдавать через `/system`) — против рассинхронов. S · low. GET /system/enums + UI fetch в S.enums + drift-warning. Live: fetch ✓, in-sync ✓. _(commit 37b6386)_
 - [x] **P5-07** · Сквозное · Контрактный smoke-тест UI→эндпоинты (ловить рассинхроны). M · low. scripts/contract*smoke.py: 73 UI-endpoint ⇄ OpenAPI. Нашёл дрейф /auto-replier/test (UI вызывал несуществующий) → добавил endpoint. Live: smoke pass, регресс 26/26. *(commit e5805a0)\_
 - [x] **P5-08** · Сквозное · Единый аудит горячего пути (чек/спамблок/apply/send → tg*audit_logs). S · low. `app/core/audit.py::record_audit()` — единый sink (never-raises, не ломает горячий путь). Подключён: `account.check`/`account.spamblock` (accounts.py), `account.profile_apply` (account_profile.py), `send.dm`/`send.dm.flood`/`send.dm.error` (dm_campaign send-loop, observability-only, **анти-бан delay/sleep не тронуты — diff +16/-0**). Литеральный декоратор на эндпоинты НЕ применён: handlers под `from __future__ import annotations` (string-аннотации `-> SpamblockResult`), FastAPI резолвит их по `__globals__` хендлера — кросс-модульный wrapper это ломает (проверено), поэтому явные вызовы. Live: check-spamblock→502+audit-строка ✓, contract_smoke 194 routes ✓, signatures чистые, Atlas ACTIVE. *(commit P5-08)\_
-- [ ] **P5-09** · Сквозное · Унифицировать «непрерывность» воркеров (reaper/self-reschedule для commenting/auto_replier/boost/stories/cloner). M · med
+- [x] **P5-09** · Сквозное · Унифицирована «непрерывность» воркеров (reaper/heartbeat). M · med. `app/core/continuity.py`: `touch_heartbeat()` + `revive_stale_loops()` (реестр `CONTINUITY_SPECS`). Beat `pup_tg.worker_continuity` (5мин) + kick на `worker_ready` оживляют commenting/auto*replier/boost/cloner, чьи петли умерли при рестарте воркера (по stale `last_tick_at`); живая петля держит heartbeat свежим → без двойного запуска. Heartbeat: commenting (per-account, чинит непрерывный мониторинг — раньше был one-shot), auto_replier (per-cycle), boost/cloner (orphan-recovery). Миграция `last_tick_at` на 4 таблицы. **stories AUTO_MONITOR и SCHEDULED-кампании уже покрыты `campaign_scheduler` (P5-04) — вне scope, чтобы не дублировать тики.** Live: миграция ✓ (4/4 колонки), reaper-логика 6/6 кейсов (stale/NULL→revive, fresh/recent/paused→skip, heartbeat-bump), `worker_continuity` на старте отработал без ошибок, Atlas жив. Live-проверка реального orphan-recovery ограничена (0 активных задач + нужен реальный рестарт воркера в проде). *(commit P5-09)\_
 
-**Регресс Ф5:** полный прогон + чистка.
+**Регресс Ф5:** `regression_screens.py` → 26/26 чисто; `contract_smoke.py` → 73 UI-эндпоинта ⇄ 194 OpenAPI ✓. Тестовых записей нет (синтетика reaper-теста — in-memory, прод не тронут). Аккаунты 9 ACTIVE + 1 INVALID; Atlas ACTIVE; активных задач воркеров 0. **Фаза 5 закрыта (9/9).** Дальше — Phase 6.
 
 ---
 

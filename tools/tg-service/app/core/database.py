@@ -192,6 +192,19 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
     except Exception:
         log.warning("migration_failed", migration="add_capabilities_column", exc_info=True)
 
+    # Migration (P5-09): add last_tick_at heartbeat to continuity-tracked tables.
+    # The unified worker reaper (pup_tg.worker_continuity) revives running-state
+    # tasks whose heartbeat is stale (loop died on a worker restart).
+    for _ct in ("tg_commenting_tasks", "tg_auto_replier_scenarios", "tg_boost_tasks", "tg_clone_tasks"):
+        try:
+            cols = {r[1] for r in conn.execute(f"PRAGMA table_info({_ct})").fetchall()}
+            if cols and "last_tick_at" not in cols:
+                conn.execute(f"ALTER TABLE {_ct} ADD COLUMN last_tick_at TEXT")
+                conn.commit()
+                log.info("migration_applied", migration=f"add_last_tick_at_{_ct}")
+        except Exception:  # noqa: BLE001
+            log.warning("migration_failed", migration=f"add_last_tick_at_{_ct}", exc_info=True)
+
     # Migration: tg_ai_personas — account_id → account_ids, add rag_doc_ids, dm_enabled, context_depth, total_dm_sent
     try:
         existing_tables = {

@@ -19,6 +19,7 @@ from typing import Any
 import structlog
 
 from app.config import settings
+from app.core.continuity import touch_heartbeat
 from app.core.database import get_db
 from app.core.security import decrypt_bytes
 from app.tasks.celery_app import celery_app
@@ -184,6 +185,8 @@ async def _boost_async(workspace_id: str, task_id: str) -> dict:
         return {"status": "FAILED", "error": "Task not found"}
     if task["status"] != "RUNNING":
         return {"status": "SKIPPED", "error": f"Task status is {task['status']}"}
+
+    touch_heartbeat(db, "tg_boost_tasks", task_id)  # P5-09 continuity
 
     # Active-hours gate (P2-06): respect global settings.active_hours — don't
     # run boost outside the configured window (anti-ban). Pause for a later run.
@@ -487,6 +490,8 @@ async def _cloner_async(workspace_id: str, task_id: str) -> dict:
     task = db.execute("SELECT * FROM tg_clone_tasks WHERE id = ?", [task_id]).fetchone()
     if not task or task["status"] != "RUNNING":
         return {"status": "SKIPPED"}
+
+    touch_heartbeat(db, "tg_clone_tasks", task_id)  # P5-09 continuity
 
     source_channel = task["source_channel"]
     target_channel = task["target_channel"]

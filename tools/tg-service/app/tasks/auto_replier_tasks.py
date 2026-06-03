@@ -21,6 +21,7 @@ from typing import Any
 import structlog
 
 from app.config import settings
+from app.core.continuity import touch_heartbeat
 from app.core.database import get_db
 from app.services.dm_ownership import agent_owns_account_dms
 from app.core.security import decrypt_bytes
@@ -163,6 +164,8 @@ async def _auto_replier_async(workspace_id: str, scenario_id: str) -> dict:
         return {"status": "FAILED", "error": "Scenario not found"}
     if scenario["status"] != "ACTIVE":
         return {"status": "SKIPPED", "error": f"Scenario status is {scenario['status']}"}
+
+    touch_heartbeat(db, "tg_auto_replier_scenarios", scenario_id)  # P5-09 continuity
 
     triggers = json.loads(scenario["triggers"] or "[]")
     default_behavior = scenario["default_behavior"] or "AI_REPLY"

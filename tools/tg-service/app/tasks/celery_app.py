@@ -363,6 +363,16 @@ def _on_worker_ready(**kwargs: object) -> None:
         log.info("worker_ready_reaper_dispatched")
     except Exception:  # noqa: BLE001
         log.warning("worker_ready_reaper_dispatch_failed", exc_info=True)
+    # Same self-heal for commenting/auto_replier/boost/cloner loops (P5-09).
+    try:
+        celery_app.send_task(
+            "pup_tg.worker_continuity",
+            queue="pup_tg_default",
+            countdown=15,
+        )
+        log.info("worker_ready_continuity_dispatched")
+    except Exception:  # noqa: BLE001
+        log.warning("worker_ready_continuity_dispatch_failed", exc_info=True)
 
 
 # ── Smoke-test task ─────────────────────────────────────────────────────────
