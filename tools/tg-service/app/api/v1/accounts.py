@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 from fastapi.responses import Response
 
 from app.config import settings
+from app.core.audit import record_audit
 from app.core.security import decrypt_bytes, encrypt_bytes
 from app.deps import AdminAuth, WorkspaceDB, WorkspaceId
 
@@ -967,6 +968,10 @@ async def check_telegram(
     if not row:
         raise HTTPException(status_code=404, detail="Аккаунт не найден")
 
+    # P5-08: hot-path audit (observability only).
+    record_audit(db, "account.check", "check-telegram invoked",
+                 entity_type="account", entity_id=account_id)
+
     # NO_PROXY guard (FIRST): never connect to Telegram via the server's real IP.
     # "No proxy" is the primary reason a check can't run, so it must be reported
     # before any credential/session work. Do NOT change the stored account status
@@ -1589,6 +1594,10 @@ async def check_spamblock(
     row = db.execute("SELECT * FROM tg_accounts WHERE id = ?", [account_id]).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Аккаунт не найден")
+
+    # P5-08: hot-path audit (observability only).
+    record_audit(db, "account.spamblock", "check-spamblock invoked",
+                 entity_type="account", entity_id=account_id)
 
     # NO_PROXY guard: never connect to Telegram over the server's real IP.
     if not _has_active_proxy(db, row["proxy_id"]):

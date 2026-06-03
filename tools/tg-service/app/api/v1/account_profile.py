@@ -32,6 +32,7 @@ from pydantic import BaseModel, Field
 
 from app.ai.anthropic_client import generate_message
 from app.config import settings
+from app.core.audit import record_audit
 from app.deps import AdminAuth, WorkspaceDB, WorkspaceId
 from app.telegram.client_pool import disconnect_client, get_client_for_account
 
@@ -838,6 +839,10 @@ async def apply_profile(
         )
     # Preserve canonical order, de-dupe, so "between-step" sleeps stay sane.
     parts = [p for p in _APPLY_PARTS if p in requested]
+
+    # P5-08: hot-path audit (observability only).
+    record_audit(db, "account.profile_apply", f"profile apply invoked: {', '.join(parts)}",
+                 entity_type="account", entity_id=account_id, metadata={"parts": parts})
 
     do_name = "name" in parts
     do_username = "username" in parts

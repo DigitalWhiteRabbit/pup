@@ -21,6 +21,7 @@ from typing import Any
 import structlog
 
 from app.config import settings
+from app.core.audit import record_audit
 from app.core.database import get_db
 from app.core.security import decrypt_bytes
 from app.tasks.celery_app import celery_app
@@ -418,6 +419,12 @@ async def _dm_campaign_async(workspace_id: str, campaign_id: str) -> dict:
                            [_now(), acc_id])
                 db.commit()
 
+                # P5-08: hot send-path audit (observability only — placed AFTER
+                # the send + counters, before the anti-ban delay; no behaviour change).
+                record_audit(db, "send.dm", f"DM sent to {username or user_id}",
+                             entity_type="account", entity_id=acc_id,
+                             metadata={"campaign_id": campaign_id, "variant": variant_idx})
+
             except UserPrivacyRestrictedError:
                 db.execute("""
                     INSERT INTO tg_dm_messages (id, campaign_id, account_id, recipient_user_id, recipient_username,
@@ -442,6 +449,9 @@ async def _dm_campaign_async(workspace_id: str, campaign_id: str) -> dict:
                 db.execute("UPDATE tg_accounts SET status='FLOOD_WAIT', updated_at=? WHERE id=?",
                            [_now(), acc_id])
                 db.commit()
+                record_audit(db, "send.dm.flood", "PeerFlood — account paused (FLOOD_WAIT)",
+                             severity="WARN", entity_type="account", entity_id=acc_id,
+                             metadata={"campaign_id": campaign_id, "kind": "peer_flood"})
                 break
 
             except FloodWaitError as e:
@@ -459,6 +469,9 @@ async def _dm_campaign_async(workspace_id: str, campaign_id: str) -> dict:
                     """, [msg_id, campaign_id, acc_id, user_id, username, text, variant_idx,
                           f"FLOOD_WAIT_{wait_seconds}s", _now()])
                     db.commit()
+                    record_audit(db, "send.dm.flood", f"FloodWait {wait_seconds}s — account paused (FLOOD_WAIT)",
+                                 severity="WARN", entity_type="account", entity_id=acc_id,
+                                 metadata={"campaign_id": campaign_id, "kind": "flood_wait", "wait_seconds": wait_seconds})
                     total_failed += 1
                     break
                 else:
@@ -478,6 +491,9 @@ async def _dm_campaign_async(workspace_id: str, campaign_id: str) -> dict:
                 db.commit()
                 total_failed += 1
                 log.warning("dm_send_error", to=username or user_id, error=str(e)[:100])
+                record_audit(db, "send.dm.error", f"DM send failed: {str(e)[:200]}",
+                             severity="WARN", entity_type="account", entity_id=acc_id,
+                             metadata={"campaign_id": campaign_id})
 
             # Random delay between messages
             delay = random.uniform(delay_min, delay_max)
