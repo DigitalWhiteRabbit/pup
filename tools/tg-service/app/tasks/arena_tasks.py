@@ -178,7 +178,7 @@ def arena_tick(
         ).fetchone()
         if row and row["status"] == "RUNNING":
             if loop_token is None or row["loop_token"] == loop_token:
-                cadence = max(15, min(int(row["cadence_sec"] or 120), 3600))
+                cadence = max(8, min(int(row["cadence_sec"] or 120), 3600))
                 # ±20% jitter so multiple personas/arenas don't fire in lockstep.
                 jitter = random.uniform(-0.2, 0.2) * cadence
                 countdown = max(5, int(cadence + jitter))
@@ -382,8 +382,15 @@ async def _arena_tick_async(workspace_id: str, arena_id: str) -> dict:
             _advance_turn(db, arena_id, idx, len(turn_order))
             return {"status": "SKIPPED", "error": "generation produced empty text"}
 
-        # Human-feeling pause + send
-        delay = random.uniform(8, 30)
+        # Human-feeling pause + send. Scale the pre-send pause to the arena's
+        # cadence so a fast training cadence stays genuinely fast: at the default
+        # cadence_sec=120 this reproduces the old uniform(8, 30); at a low cadence
+        # (operator asked for a brisk pace) it shrinks proportionally. Never
+        # changes behaviour for existing slow/combat arenas.
+        cadence_now = int(arena.get("cadence_sec") or 120)
+        pause_hi = max(2.0, min(30.0, cadence_now * 0.5))
+        pause_lo = min(8.0, pause_hi * 0.4)
+        delay = random.uniform(pause_lo, pause_hi)
         try:
             await _human_pause(client, entity, delay)
             sent_msg = await _resilient_send(client, entity, text)
