@@ -151,42 +151,13 @@ def _search_rag_chunks(
 ) -> list[str]:
     """Return up to *top_k* chunk texts relevant to *user_message*.
 
-    Uses simple keyword matching: tokenise the message, query chunks
-    whose ``text`` contains any of the keywords, then rank by number
-    of keyword hits.
+    Hybrid retrieval (P6-01): keyword + local vector cosine over the chunk
+    ``embedding`` column, via the shared ``kb_search`` service. Falls back to
+    keyword-only when embeddings are unavailable.
     """
-    if not rag_doc_ids:
-        return []
+    from app.services.kb_search import search_chunk_texts
 
-    # Tokenise: lowercase words >= 3 chars, strip punctuation
-    words = re.findall(r"[a-zA-Z\u0400-\u04FF]{3,}", user_message.lower())
-    if not words:
-        return []
-
-    # Only unique words, limit to 20 to keep the query sane
-    keywords = list(dict.fromkeys(words))[:20]
-
-    # Fetch all chunks belonging to the requested docs
-    placeholders = ",".join("?" for _ in rag_doc_ids)
-    rows = db.execute(
-        f"SELECT id, text FROM tg_kb_chunks WHERE document_id IN ({placeholders})",
-        rag_doc_ids,
-    ).fetchall()
-
-    if not rows:
-        return []
-
-    # Score each chunk by keyword hits
-    scored: list[tuple[int, str]] = []
-    for row in rows:
-        chunk_lower = row["text"].lower()
-        hits = sum(1 for kw in keywords if kw in chunk_lower)
-        if hits > 0:
-            scored.append((hits, row["text"]))
-
-    # Sort descending by hits, take top_k
-    scored.sort(key=lambda x: x[0], reverse=True)
-    return [text for _, text in scored[:top_k]]
+    return search_chunk_texts(db, rag_doc_ids, user_message, limit=top_k)
 
 
 def _build_rag_context(chunks: list[str]) -> str:

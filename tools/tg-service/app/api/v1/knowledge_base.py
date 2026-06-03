@@ -256,12 +256,19 @@ def _create_chunks(
     """
     texts = _split_into_chunks(content, chunk_size, overlap)
 
+    # P6-01: best-effort local embeddings. NULL when unavailable → the hybrid
+    # retriever transparently falls back to keyword scoring for that chunk.
+    from app.ai import embeddings as emb
+
+    blobs = emb.embed_batch(texts) if texts else []
+
     for position, text in enumerate(texts):
         chunk_id = str(uuid.uuid4())
+        blob = blobs[position] if position < len(blobs) else None
         db.execute(
-            """INSERT INTO tg_kb_chunks (id, document_id, position, text, created_at)
-               VALUES (?, ?, ?, ?, ?)""",
-            [chunk_id, document_id, position, text, _now()],
+            """INSERT INTO tg_kb_chunks (id, document_id, position, text, embedding, created_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            [chunk_id, document_id, position, text, blob, _now()],
         )
 
     return len(texts)
@@ -396,49 +403,15 @@ def _retrieve_chunks(
     limit: int = 6,
     doc_ids: list[str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Keyword-rank chunks for *query* (shared by /kb/search and /kb/chat).
+    """Rank chunks for *query* (shared by /kb/search and /kb/chat).
 
-    Splits the query into words (2+ chars), scores each chunk by the number of
-    distinct keyword hits, and returns the top *limit* chunks joined with their
-    parent document title and metadata (for the document URL, if present).
-    Returns ``[]`` when the query has no usable words or nothing matches.
+    P6-01: hybrid keyword + local vector retrieval via the shared ``kb_search``
+    service (falls back to keyword-only when embeddings are unavailable). Each
+    result carries its parent document title + metadata (for the document URL).
     """
-    words = [w.lower() for w in re.split(r"\s+", query.strip()) if len(w) >= 2]
-    if not words:
-        return []
+    from app.services.kb_search import hybrid_retrieve
 
-    score_parts: list[str] = []
-    params: list[Any] = []
-    for word in words:
-        score_parts.append("(CASE WHEN LOWER(c.text) LIKE ? THEN 1 ELSE 0 END)")
-        params.append(f"%{word}%")
-    score_expr = " + ".join(score_parts)
-
-    where_parts: list[str] = []
-    for word in words:
-        where_parts.append("LOWER(c.text) LIKE ?")
-        params.append(f"%{word}%")
-    where_clause = f"({' OR '.join(where_parts)})"
-
-    if doc_ids:
-        placeholders = ", ".join("?" for _ in doc_ids)
-        where_clause += f" AND c.document_id IN ({placeholders})"
-        params.extend(doc_ids)
-
-    sql = f"""
-        SELECT c.id, c.document_id, c.position, c.text,
-               d.title AS document_title, d.metadata AS document_metadata,
-               ({score_expr}) AS score
-        FROM tg_kb_chunks c
-        JOIN tg_kb_documents d ON d.id = c.document_id
-        WHERE {where_clause}
-        ORDER BY score DESC, c.position ASC
-        LIMIT ?
-    """
-    params.append(limit)
-
-    rows = db.execute(sql, params).fetchall()
-    return [dict(r) for r in rows]
+    return hybrid_retrieve(db, query, limit=limit, doc_ids=doc_ids)
 
 
 def _doc_url_from_metadata(raw_metadata: str | None) -> str | None:
@@ -835,11 +808,15 @@ async def search_chunks(
     _token: AdminAuth,
     db: WorkspaceDB,
 ) -> dict[str, Any]:
-    """Keyword-based search across chunks.
+    """Hybrid search across chunks (P6-01).
 
-    Splits the query into words, searches chunks WHERE text LIKE '%word%'
-    for each word, ranks by number of keyword hits, returns top N.
+    Keyword + local vector cosine over the chunk ``embedding`` column via the
+    shared ``kb_search`` service; falls back to keyword-only when embeddings are
+    unavailable. ``mode`` in the response reports which path ran.
     """
+    from app.ai import embeddings as emb
+    from app.services.kb_search import hybrid_retrieve
+
     query = body.query.strip()
     if not query:
         raise HTTPException(
@@ -847,56 +824,55 @@ async def search_chunks(
             detail="Query must not be empty",
         )
 
-    # Split query into meaningful words (3+ chars), lowercased
-    words = [w.lower() for w in re.split(r"\s+", query) if len(w) >= 2]
-    if not words:
-        return {"items": [], "total": 0, "query": query}
+    items = hybrid_retrieve(db, query, limit=body.limit, doc_ids=body.doc_ids or None)
+    mode = "hybrid" if emb.is_available() else "keyword"
+    return {"items": items, "total": len(items), "query": query, "mode": mode}
 
-    # Build a query that counts keyword hits per chunk
-    # For each word, add a CASE WHEN that checks if LOWER(text) LIKE '%word%'
-    score_parts: list[str] = []
-    params: list[Any] = []
-    for word in words:
-        score_parts.append("(CASE WHEN LOWER(c.text) LIKE ? THEN 1 ELSE 0 END)")
-        params.append(f"%{word}%")
 
-    score_expr = " + ".join(score_parts)
+@router.post("/reembed")
+async def reembed_chunks(
+    _token: AdminAuth,
+    db: WorkspaceDB,
+) -> dict[str, Any]:
+    """Backfill local embeddings for chunks missing one (P6-01).
 
-    # Build WHERE clause — chunk must match at least one word
-    where_parts: list[str] = []
-    for word in words:
-        where_parts.append("LOWER(c.text) LIKE ?")
-        params.append(f"%{word}%")
-
-    where_clause = f"({' OR '.join(where_parts)})"
-
-    # Optional doc_ids filter
-    if body.doc_ids:
-        placeholders = ", ".join("?" for _ in body.doc_ids)
-        where_clause += f" AND c.document_id IN ({placeholders})"
-        params.extend(body.doc_ids)
-
-    sql = f"""
-        SELECT c.id, c.document_id, c.position, c.text, c.created_at,
-               d.title AS document_title,
-               ({score_expr}) AS score
-        FROM tg_kb_chunks c
-        JOIN tg_kb_documents d ON d.id = c.document_id
-        WHERE {where_clause}
-        ORDER BY score DESC, c.position ASC
-        LIMIT ?
+    Idempotent: only chunks with NULL ``embedding`` are processed. Returns 503
+    if the embedding model is unavailable (so the caller knows nothing changed).
     """
-    params.append(body.limit)
+    from app.ai import embeddings as emb
 
-    rows = db.execute(sql, params).fetchall()
+    if not emb.is_available():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Embedding model unavailable (fastembed not installed / model not loadable)",
+        )
 
-    items = []
-    for r in rows:
-        data = dict(r)
-        data.pop("embedding", None)
-        items.append(data)
+    rows = db.execute(
+        "SELECT id, text FROM tg_kb_chunks WHERE embedding IS NULL"
+    ).fetchall()
+    if not rows:
+        return {"embedded": 0, "remaining": 0}
 
-    return {"items": items, "total": len(items), "query": query}
+    embedded = 0
+    # Batch to keep memory bounded on large KBs.
+    batch = 128
+    for i in range(0, len(rows), batch):
+        slice_ = rows[i : i + batch]
+        blobs = emb.embed_batch([r["text"] for r in slice_])
+        for r, blob in zip(slice_, blobs):
+            if blob is None:
+                continue
+            db.execute(
+                "UPDATE tg_kb_chunks SET embedding = ? WHERE id = ?", [blob, r["id"]]
+            )
+            embedded += 1
+        db.commit()
+
+    remaining = db.execute(
+        "SELECT COUNT(*) AS n FROM tg_kb_chunks WHERE embedding IS NULL"
+    ).fetchone()["n"]
+    log.info("kb_reembed_done", embedded=embedded, remaining=remaining)
+    return {"embedded": embedded, "remaining": remaining}
 
 
 # ---------------------------------------------------------------------------

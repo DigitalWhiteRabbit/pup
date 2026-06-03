@@ -474,40 +474,13 @@ def _search_kb_chunks(
 ) -> list[str]:
     """Return up to *limit* chunk texts relevant to *query*.
 
-    Uses simple keyword matching: tokenise the query, fetch chunks
-    whose ``text`` contains any of the keywords, rank by hit count.
+    Hybrid retrieval (P6-01): keyword + local vector cosine over the chunk
+    ``embedding`` column, via the shared ``kb_search`` service. Falls back to
+    keyword-only when embeddings are unavailable.
     """
-    if not doc_ids:
-        return []
+    from app.services.kb_search import search_chunk_texts
 
-    # Tokenise: lowercase words >= 3 chars, strip punctuation
-    words = re.findall(r"[a-zA-Z\u0400-\u04FF]{3,}", query.lower())
-    if not words:
-        return []
-
-    # Only unique words, cap at 20
-    keywords = list(dict.fromkeys(words))[:20]
-
-    # Fetch all chunks belonging to the requested docs
-    placeholders = ",".join("?" for _ in doc_ids)
-    rows = db.execute(
-        f"SELECT id, text FROM tg_kb_chunks WHERE document_id IN ({placeholders})",
-        doc_ids,
-    ).fetchall()
-
-    if not rows:
-        return []
-
-    # Score each chunk by keyword hits
-    scored: list[tuple[int, str]] = []
-    for row in rows:
-        chunk_lower = row["text"].lower()
-        hits = sum(1 for kw in keywords if kw in chunk_lower)
-        if hits > 0:
-            scored.append((hits, row["text"]))
-
-    scored.sort(key=lambda x: x[0], reverse=True)
-    return [text for _, text in scored[:limit]]
+    return search_chunk_texts(db, doc_ids, query, limit=limit)
 
 
 def _build_rag_context(chunks: list[str]) -> str:

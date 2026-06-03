@@ -20,7 +20,7 @@
 | 3         | Quick wins по разделам (S/low)                  | 21     | ✅ 21/21 |
 | 4         | Средние улучшения (M, low-med)                  | 28     | ✅ 28/28 |
 | 5         | Сквозная инфраструктура (общие компоненты)      | 9      | ✅ 9/9   |
-| 6         | Крупные/стратегические (L, med+)                | 11     | ☐        |
+| 6         | Крупные/стратегические (L, med+)                | 11     | 1/11     |
 | **Итого** |                                                 | **92** |          |
 
 ---
@@ -116,7 +116,7 @@
 
 ## ФАЗА 6 — Крупные/стратегические (L, med+)
 
-- [ ] **P6-01** · kb / все AI · Векторный (гибридный) поиск поверх колонки `embedding` (fastembed). L · med
+- [x] **P6-01** · kb / все AI · Гибридный (keyword + векторный) поиск поверх колонки `embedding` (fastembed). L · med. `app/ai/embeddings.py` — ленивый локальный провайдер (fastembed, модель `paraphrase-multilingual-MiniLM-L12-v2`, 384-dim, RU+EN), float32-BLOB, cosine, graceful-fallback (нет модели → keyword). `app/services/kb_search.py::hybrid_retrieve()` — единая retrieval (0.5·cosine + 0.5·keyword; doc-scoped → полный пул, global → keyword-кандидаты + vec-rerank). Подключено: ai*agent `_search_kb_chunks`, ai_sales `_search_rag_chunks`, KB `_retrieve_chunks` (/kb/search, /kb/chat). Эмбеддинги генерятся при создании чанка (best-effort) + backfill `POST /kb/reembed`. requirements: fastembed==0.8.0, numpy==2.4.6. Live: модель грузится ✓; reembed 109/109 чанков (1536 B=384×f32) ✓; `/kb/search` mode=hybrid отдаёт релевантное (вкл. кросс-язычный EN→RU) ✓; изолированный cosine 0.34 (релевант) vs −0.05 (нерелевант) ✓; contract_smoke 195 ✓; regression 26/26 ✓; Atlas ACTIVE, без ошибок. Live в воркере: модель грузится лениво при первом KB-вызове агента (тот же проверенный код-путь; на момент теста чаты Atlas молчали — отметка). *(commit P6-01)\_
 - [ ] **P6-02** · messenger · Отправка медиа + просмотр вложений (download_media/send_file). L · med
 - [ ] **P6-03** · messenger · Переиспользование клиента + кеш entity (вместо reconnect). M · med
 - [ ] **P6-04** · messenger · Удаление/редактирование/пересылка. M · med

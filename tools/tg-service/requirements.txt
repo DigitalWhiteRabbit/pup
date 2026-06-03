@@ -40,6 +40,12 @@ httpx[socks]==0.27.2
 tenacity==9.0.0
 phonenumbers==8.13.49
 
+# RAG — local embeddings for hybrid KB search (P6-01). fastembed pulls
+# onnxruntime + tokenizers; the model (~0.22 GB) downloads on first use.
+# RAG degrades to keyword-only if these are absent (see app/ai/embeddings.py).
+fastembed==0.8.0
+numpy==2.4.6
+
 # Dev / Test
 pytest==8.3.0
 pytest-asyncio==0.24.0
