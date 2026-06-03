@@ -1165,10 +1165,6 @@ function toast(m,t){
 /* ── WIP toast ── */
 function wipToast(){toast('Функция в разработке','warning');}
 
-/* ── Dev banner HTML ── */
-function devBanner(stage){
-  return '<div class="dev-badge"><svg style="width:14px;height:14px"><use href="#i-info"/></svg> Экран в разработке &middot; бэкенд будет добавлен в STAGE '+(stage||'N')+'</div>';
-}
 
 /* ── API ── */
 function au(p){return '/api/v1'+p+(p.indexOf('?')>-1?'&':'?')+'workspace='+encodeURIComponent(S.ws);}
@@ -1233,14 +1229,13 @@ function kpiHtml(items){
 }
 
 /* ── Page header helper ── */
-function pageHead(title,sub,btnHtml,stage){
+function pageHead(title,sub,btnHtml){
   return '<div class="f ac jb">'+
     '<div>'+
       '<div class="f ac g3x">'+
         '<h2 class="tlg fxb">'+esc(title)+'</h2>'+
         (sub?'<span class="txs c-m">&middot; '+esc(sub)+'</span>':'')+
       '</div>'+
-      (stage?'<div class="mt2">'+devBanner(stage)+'</div>':'')+
     '</div>'+
     (btnHtml?'<div class="f g2x">'+btnHtml+'</div>':'')+
   '</div>';
@@ -5519,7 +5514,7 @@ function rWarmup(el){
       '<td><button class="btn btn-sm btn-danger wmp-stop" data-id="'+a.account_id+'">'+ic('pause')+' Стоп</button></td></tr>';
   }).join(''):'<tr><td colspan="7" class="txs c-m" style="text-align:center;padding:2rem 0">Нет аккаунтов на прогреве. Нажмите «Запустить прогрев».</td></tr>';
   el.innerHTML='<div class="sy4">'+
-    pageHead('Прогрев аккаунтов','','<div class="f g1h">'+(wmpTab==="monitor"?'<button class="btn btn-sm btn-danger" id="wmp-stop-sel" disabled>'+ic('pause')+' Стоп выбранных</button><button class="btn btn-sm btn-primary" id="wmp-start">'+ic('play')+' Запустить прогрев</button>':'<button class="btn btn-sm btn-primary" id="wmp-scr-add">'+ic('plus')+' Новый скрипт</button>')+'</div>','1')+
+    pageHead('Прогрев аккаунтов','','<div class="f g1h">'+(wmpTab==="monitor"?'<button class="btn btn-sm btn-danger" id="wmp-stop-sel" disabled>'+ic('pause')+' Стоп выбранных</button><button class="btn btn-sm btn-primary" id="wmp-start">'+ic('play')+' Запустить прогрев</button>':'<button class="btn btn-sm btn-primary" id="wmp-scr-add">'+ic('plus')+' Новый скрипт</button>')+'</div>')+
     '<div class="tab-bar"><button class="tab-item'+(wmpTab==='monitor'?' active':'')+'" data-wmptab="monitor">Мониторинг ('+wmpRows.length+')</button><button class="tab-item'+(wmpTab==='scripts'?' active':'')+'" data-wmptab="scripts">📋 Скрипты</button></div>'+
     (wmpTab==="monitor"?
     '<div class="g g4">'+profiles.map(function(p){
