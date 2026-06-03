@@ -517,3 +517,109 @@ async def verify_arena(
         "all_members_present": all_in,
         "personas": persona_results,
     }
+
+
+# ---------------------------------------------------------------------------
+# P6-10: live message view + harvest good arena replies into the Style Bank
+# ---------------------------------------------------------------------------
+
+
+class HarvestRequest(BaseModel):
+    only_rated: bool = False  # True → only 👍 (moderator_rating='good') replies
+    topic: str | None = None  # default: arena.topic or "общее"
+
+
+@router.get("/{arena_id}/messages")
+async def arena_messages(
+    arena_id: str,
+    _token: AdminAuth,
+    db: WorkspaceDB,
+    limit: int = Query(50, ge=1, le=200),
+) -> dict[str, Any]:
+    """Live view of an arena's self-play messages (newest first) — P6-10."""
+    rows = db.execute(
+        "SELECT id, persona_id, ai_text, status, moderator_rating, created_at "
+        "FROM tg_ai_messages WHERE arena_id = ? ORDER BY created_at DESC LIMIT ?",
+        [arena_id, limit],
+    ).fetchall()
+    return {"items": [dict(r) for r in rows], "total": len(rows)}
+
+
+@router.post("/{arena_id}/harvest")
+async def harvest_arena(
+    arena_id: str,
+    body: HarvestRequest,
+    _token: AdminAuth,
+    db: WorkspaceDB,
+) -> dict[str, Any]:
+    """Harvest good arena replies into the Style Bank corpus (P6-10).
+
+    Reuses the Style Bank sink + quality filters (clean_text / is_good_line) and
+    the same 2-turn snippet format as ``/style/paste``. Dedupes against existing
+    arena-sourced samples for the topic, and bumps ``total_harvested``.
+    """
+    from app.api.v1.style_bank import clean_text, is_good_line
+
+    arena = db.execute(
+        "SELECT * FROM tg_agent_arenas WHERE id = ?", [arena_id]
+    ).fetchone()
+    if not arena:
+        raise HTTPException(status_code=404, detail="Arena not found")
+
+    topic = (body.topic or arena["topic"] or "общее").strip() or "общее"
+
+    sql = (
+        "SELECT ai_text FROM tg_ai_messages "
+        "WHERE arena_id = ? AND status = 'SENT'"
+    )
+    if body.only_rated:
+        sql += " AND moderator_rating = 'good'"
+    sql += " ORDER BY created_at ASC"
+    rows = db.execute(sql, [arena_id]).fetchall()
+
+    # Cleaned, quality-filtered reply lines in chronological order.
+    lines = [clean_text(r["ai_text"] or "") for r in rows]
+    lines = [ln for ln in lines if is_good_line(ln)]
+    if len(lines) < 2:
+        return {"imported": 0, "topic": topic, "candidates": len(lines),
+                "total_harvested": arena["total_harvested"] or 0,
+                "reason": "need >= 2 good replies to form a snippet"}
+
+    # Dedup against already-harvested arena samples for this topic.
+    existing = {
+        r["snippet"]
+        for r in db.execute(
+            "SELECT snippet FROM tg_style_samples WHERE source = 'arena' AND topic = ?",
+            [topic],
+        ).fetchall()
+    }
+
+    imported = 0
+    now = _now()
+    for i in range(len(lines) - 1):
+        snippet = json.dumps(
+            [{"a": "Собеседник1", "t": lines[i]}, {"a": "Собеседник2", "t": lines[i + 1]}],
+            ensure_ascii=False,
+        )
+        if snippet in existing:
+            continue
+        try:
+            db.execute(
+                "INSERT INTO tg_style_samples "
+                "(id, source, lang, topic, snippet, quality, created_at) "
+                "VALUES (?, 'arena', 'ru', ?, ?, 1.0, ?)",
+                [str(uuid.uuid4()), topic, snippet, now],
+            )
+            existing.add(snippet)
+            imported += 1
+        except Exception:  # noqa: BLE001
+            pass
+
+    db.execute(
+        "UPDATE tg_agent_arenas SET total_harvested = total_harvested + ?, updated_at = ? WHERE id = ?",
+        [imported, now, arena_id],
+    )
+    db.commit()
+    log.info("arena_harvested", arena_id=arena_id, imported=imported, topic=topic)
+    return {"imported": imported, "topic": topic, "candidates": len(lines),
+            "total_harvested": (arena["total_harvested"] or 0) + imported}
