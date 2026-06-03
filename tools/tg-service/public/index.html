@@ -4899,6 +4899,7 @@ function rJoinChats(el){
         }).join('')+'</div>':'<div class="txs c-m">Нет активных аккаунтов. Добавьте и активируйте аккаунты.</div>')+
       '</div>'+
       '<div class="g g2"><div><label class="lbl">Интервал мин (сек)</label><input class="input tsm" type="number" id="jc-min" value="30" min="5"></div><div><label class="lbl">Интервал макс (сек)</label><input class="input tsm" type="number" id="jc-max" value="120" min="10"></div></div>'+
+      '<div class="g g2"><div><label class="lbl">Лимит вступлений на аккаунт/день'+tip('Каждый аккаунт делает не более N вступлений в сутки (анти-бан)')+'</label><input class="input tsm" type="number" id="jc-daily" value="50" min="1" max="200"></div><div><label class="lbl">Авто-стоп после N банов подряд'+tip('Остановить задачу если N аккаунтов подряд забанены сразу после вступления. 0 = выкл')+'</label><input class="input tsm" type="number" id="jc-ban-stop" value="3" min="0" max="50"></div></div>'+
       '<div class="f g2x"><button class="btn btn-sm btn-primary" id="jc-run">'+ic('play')+' Запустить</button></div>'+
     '</div></div>'+
     '<div id="jc-status"></div>'+
@@ -4919,11 +4920,13 @@ function rJoinChats(el){
     if(!accIds.length){toast('Выберите хотя бы один аккаунт','error');return;}
     var mn=parseInt(document.getElementById('jc-min').value)||30,mx=parseInt(document.getElementById('jc-max').value)||120;
     if(mn>mx){toast('Мин интервал не может быть больше макс','error');return;}
+    var dailyLimit=parseInt(document.getElementById('jc-daily').value)||50;
+    var banStop=parseInt(document.getElementById('jc-ban-stop').value);if(isNaN(banStop))banStop=3;
     var b=this;b.disabled=true;b.innerHTML='<span class="spin"></span> Запуск...';
     /* Join with humanity-gate: backend returns 409 LOW_HUMANITY for "naked"
        accounts; we list them and let the operator confirm (force) or cancel. */
     async function doJoin(force){
-      var r=await fetch(au('/join-chats'),{method:'POST',headers:ah(),body:JSON.stringify({target_chats:chats,account_ids:accIds,join_interval_min:mn,join_interval_max:mx,force_low_humanity:!!force})});
+      var r=await fetch(au('/join-chats'),{method:'POST',headers:ah(),body:JSON.stringify({target_chats:chats,account_ids:accIds,join_interval_min:mn,join_interval_max:mx,daily_limit:dailyLimit,ban_auto_stop_count:banStop,force_low_humanity:!!force})});
       if(r.status===409){
         var d=await r.json().catch(function(){return null;});
         var det=d&&d.detail;

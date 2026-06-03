@@ -41,6 +41,9 @@ class JoinTaskCreate(BaseModel):
     # (no avatar / no username — the #1 auto-ban trigger for fresh accounts).
     # The UI re-sends with this set to True after the operator confirms.
     force_low_humanity: bool = False
+    # P4-13/14: per-account daily join cap + consecutive-ban auto-stop (read by worker).
+    daily_limit: int = Field(default=50, ge=1, le=200)
+    ban_auto_stop_count: int = Field(default=3, ge=0, le=50)
 
 
 # ---------------------------------------------------------------------------
@@ -242,18 +245,23 @@ async def create_task(
         name = f"Вступление: {nc} чат(ов), {na} акк."
 
     try:
+        cfg_json = json.dumps({
+            "daily_limit": body.daily_limit,
+            "ban_auto_stop_count": body.ban_auto_stop_count,
+        })
         db.execute(
             """INSERT INTO tg_join_tasks
                 (id, name, target_chats, account_ids,
-                 join_interval_min, join_interval_max,
+                 join_interval_min, join_interval_max, config,
                  status, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             [
                 task_id, name,
                 json.dumps(body.target_chats),
                 json.dumps(body.account_ids),
                 body.join_interval_min,
                 body.join_interval_max,
+                cfg_json,
                 "PENDING", now, now,
             ],
         )
