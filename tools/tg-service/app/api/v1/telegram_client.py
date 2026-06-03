@@ -22,6 +22,7 @@ _MAX_MEDIA_BYTES = 50 * 1024 * 1024
 from app.config import settings
 from app.core.security import decrypt_bytes
 from app.deps import AdminAuth, WorkspaceDB
+from app.telegram.messenger_pool import get_messenger_client, resolve_entity
 
 router = APIRouter(prefix="/telegram", tags=["telegram-client"])
 
@@ -90,6 +91,10 @@ async def _connect_account_telethon(
 
     Returns (TelegramClient, tmp_dir_path).
     The caller MUST disconnect the client and shutil.rmtree(tmp_dir) in a finally block.
+
+    DEPRECATED (P6-03): the messenger endpoints now use the reusing
+    ``messenger_pool`` (cached client + entity cache, in-memory StringSession).
+    Kept for a one-off file-session connect if ever needed; not on the hot path.
     """
     from telethon import TelegramClient
     import python_socks
@@ -402,9 +407,8 @@ async def get_dialogs(
     from telethon.errors import FloodWaitError
 
     client = None
-    tmp_dir = None
     try:
-        client, tmp_dir = await _connect_account_telethon(db, account_id)
+        client = await get_messenger_client(db, account_id)  # P6-03: cached/reused
 
         try:
             dialogs = await client.get_dialogs(limit=limit)
@@ -465,13 +469,9 @@ async def get_dialogs(
         log.error("dialogs_fetch_failed", account_id=account_id, error=str(exc))
         raise HTTPException(status_code=502, detail=f"Failed to fetch dialogs: {exc}")
     finally:
-        if client:
-            try:
-                await client.disconnect()
-            except Exception:
-                pass
-        if tmp_dir:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
+        # P6-03: the messenger client is cached/reused (messenger_pool owns its
+        # lifecycle via idle eviction) — do NOT disconnect it here.
+        pass
 
 
 @router.get("/{account_id}/messages/{peer_id}")
@@ -489,37 +489,15 @@ async def get_messages(
     from telethon.tl.types import User
 
     client = None
-    tmp_dir = None
     try:
-        client, tmp_dir = await _connect_account_telethon(db, account_id)
+        client = await get_messenger_client(db, account_id)  # P6-03: cached/reused
 
-        # Load dialogs — this fills entity cache AND gives us direct entity references
-        dialogs = await client.get_dialogs(limit=100)
-
-        # Find entity from loaded dialogs first (most reliable)
-        entity = None
-        numeric_peer = None
-        if not peer_id.startswith("@"):
-            try:
-                numeric_peer = int(peer_id)
-            except ValueError:
-                pass
-
-        for dlg in dialogs:
-            if numeric_peer and (dlg.entity.id == numeric_peer or dlg.id == numeric_peer):
-                entity = dlg.entity
-                break
-            if peer_id.startswith("@") and getattr(dlg.entity, "username", None) == peer_id[1:]:
-                entity = dlg.entity
-                break
-
-        # Fallback: try resolve (works for @username peers)
-        if entity is None:
-            try:
-                ahash = int(ah) if ah else None
-                entity = await _resolve_peer(client, peer_id if peer_id.startswith("@") else (numeric_peer or peer_id), access_hash=ahash)
-            except Exception:
-                raise HTTPException(status_code=404, detail=f"Peer not found: {peer_id}")
+        # P6-03: resolve via the cached resolver (dialog-scan + resolve on miss,
+        # then cached per account+peer so repeat opens skip get_dialogs(100)).
+        try:
+            entity = await resolve_entity(db, account_id, client, peer_id, ah)
+        except Exception:
+            raise HTTPException(status_code=404, detail=f"Peer not found: {peer_id}")
 
         title = _entity_title(entity)
         etype = _entity_type(entity)
@@ -595,13 +573,9 @@ async def get_messages(
         )
         raise HTTPException(status_code=502, detail=f"Failed to fetch messages: {exc}")
     finally:
-        if client:
-            try:
-                await client.disconnect()
-            except Exception:
-                pass
-        if tmp_dir:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
+        # P6-03: the messenger client is cached/reused (messenger_pool owns its
+        # lifecycle via idle eviction) — do NOT disconnect it here.
+        pass
 
 
 @router.post("/{account_id}/send")
@@ -615,30 +589,11 @@ async def send_message(
     from telethon.errors import FloodWaitError
 
     client = None
-    tmp_dir = None
     try:
-        client, tmp_dir = await _connect_account_telethon(db, account_id)
+        client = await get_messenger_client(db, account_id)  # P6-03: cached/reused
 
-        # Load dialogs to fill entity cache
-        dialogs = await client.get_dialogs(limit=100)
-        entity = None
-        pid = body.peer_id
-        numeric_peer = None
-        if isinstance(pid, int):
-            numeric_peer = pid
-        elif isinstance(pid, str) and not pid.startswith("@"):
-            try: numeric_peer = int(pid)
-            except ValueError: pass
-
-        for dlg in dialogs:
-            if numeric_peer and (dlg.entity.id == numeric_peer or dlg.id == numeric_peer):
-                entity = dlg.entity; break
-            if isinstance(pid, str) and pid.startswith("@") and getattr(dlg.entity, "username", None) == pid[1:]:
-                entity = dlg.entity; break
-
-        if entity is None:
-            ahash = int(body.access_hash) if body.access_hash else None
-            entity = await _resolve_peer(client, body.peer_id, access_hash=ahash)
+        # P6-03: cached resolve (dialog-scan + resolve on miss, then cached).
+        entity = await resolve_entity(db, account_id, client, body.peer_id, body.access_hash)
 
         try:
             sent = await client.send_message(
@@ -694,13 +649,9 @@ async def send_message(
         )
         raise HTTPException(status_code=502, detail=f"Failed to send message: {exc}")
     finally:
-        if client:
-            try:
-                await client.disconnect()
-            except Exception:
-                pass
-        if tmp_dir:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
+        # P6-03: the messenger client is cached/reused (messenger_pool owns its
+        # lifecycle via idle eviction) — do NOT disconnect it here.
+        pass
 
 
 @router.get("/{account_id}/messages/{peer_id}/{message_id}/media")
@@ -721,10 +672,9 @@ async def download_message_media(
     from telethon.errors import FloodWaitError
 
     client = None
-    tmp_dir = None
     try:
-        client, tmp_dir = await _connect_account_telethon(db, account_id)
-        entity = await _find_peer_entity(client, peer_id, ah)
+        client = await get_messenger_client(db, account_id)  # P6-03: cached/reused
+        entity = await resolve_entity(db, account_id, client, peer_id, ah)
 
         try:
             msgs = await client.get_messages(entity, ids=[message_id])
@@ -758,13 +708,9 @@ async def download_message_media(
                   message_id=message_id, error=str(exc))
         raise HTTPException(status_code=502, detail=f"Failed to download media: {exc}")
     finally:
-        if client:
-            try:
-                await client.disconnect()
-            except Exception:
-                pass
-        if tmp_dir:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
+        # P6-03: the messenger client is cached/reused (messenger_pool owns its
+        # lifecycle via idle eviction) — do NOT disconnect it here.
+        pass
 
 
 @router.post("/{account_id}/send-media")
@@ -794,7 +740,6 @@ async def send_media(
         raise HTTPException(status_code=400, detail="Empty file")
 
     client = None
-    tmp_dir = None
     upload_dir = tempfile.mkdtemp(prefix="tg_send_media_")
     safe_name = os.path.basename(file.filename or "upload.bin") or "upload.bin"
     upload_path = os.path.join(upload_dir, safe_name)
@@ -802,8 +747,8 @@ async def send_media(
         with open(upload_path, "wb") as fh:
             fh.write(raw)
 
-        client, tmp_dir = await _connect_account_telethon(db, account_id)
-        entity = await _find_peer_entity(client, peer_id, access_hash)
+        client = await get_messenger_client(db, account_id)  # P6-03: cached/reused
+        entity = await resolve_entity(db, account_id, client, peer_id, access_hash)
 
         try:
             sent = await client.send_file(
@@ -836,14 +781,9 @@ async def send_media(
         log.error("media_send_failed", account_id=account_id, peer_id=peer_id, error=str(exc))
         raise HTTPException(status_code=502, detail=f"Failed to send media: {exc}")
     finally:
+        # Always clean the uploaded file; the messenger client is cached/reused
+        # (P6-03) so it is NOT disconnected here.
         shutil.rmtree(upload_dir, ignore_errors=True)
-        if client:
-            try:
-                await client.disconnect()
-            except Exception:
-                pass
-        if tmp_dir:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 @router.post("/{account_id}/mark-read")
@@ -857,11 +797,10 @@ async def mark_read(
     from telethon.errors import FloodWaitError
 
     client = None
-    tmp_dir = None
     try:
-        client, tmp_dir = await _connect_account_telethon(db, account_id)
+        client = await get_messenger_client(db, account_id)  # P6-03: cached/reused
 
-        entity = await _resolve_peer(client, body.peer_id)
+        entity = await resolve_entity(db, account_id, client, body.peer_id)
 
         try:
             await client.send_read_acknowledge(entity)
@@ -890,13 +829,9 @@ async def mark_read(
         )
         raise HTTPException(status_code=502, detail=f"Failed to mark as read: {exc}")
     finally:
-        if client:
-            try:
-                await client.disconnect()
-            except Exception:
-                pass
-        if tmp_dir:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
+        # P6-03: the messenger client is cached/reused (messenger_pool owns its
+        # lifecycle via idle eviction) — do NOT disconnect it here.
+        pass
 
 
 @router.get("/{account_id}/sessions")
@@ -909,9 +844,8 @@ async def get_sessions(
     from telethon.tl.functions.account import GetAuthorizationsRequest
 
     client = None
-    tmp_dir = None
     try:
-        client, tmp_dir = await _connect_account_telethon(db, account_id)
+        client = await get_messenger_client(db, account_id)  # P6-03: cached/reused
         result = await client(GetAuthorizationsRequest())
         sessions = []
         for auth in result.authorizations:
@@ -934,10 +868,6 @@ async def get_sessions(
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Failed to get sessions: {exc}")
     finally:
-        if client:
-            try:
-                await client.disconnect()
-            except Exception:
-                pass
-        if tmp_dir:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
+        # P6-03: the messenger client is cached/reused (messenger_pool owns its
+        # lifecycle via idle eviction) — do NOT disconnect it here.
+        pass
