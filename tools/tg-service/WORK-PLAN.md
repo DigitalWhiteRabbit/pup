@@ -96,9 +96,9 @@
 ## ФАЗА 5 — Сквозная инфраструктура
 
 - [x] **P5-01** · Сквозное · `account_daily_usage` — персистентные суточные лимиты per-account с reset по дате, проверяемые всеми движками горячего пути. M · med. Таблица + core/daily*usage.py + подключено в dm/chat_broadcast/invite/join. Live: 6/6 unit ✓, endpoint ✓. *(commit 2b5a705)\_
-- [ ] **P5-02** · Сквозное · Общий `app/services/tg_runner.py` — единый connect/proxy_kwargs/NO_PROXY-guard/FloodWait/ramp-up (дедуп из 6+ файлов). M · med
-- [ ] **P5-03** · Сквозное · `can_act(account, action_type)` поверх Настроек (лимиты+активные часы), применить в boost/stories/cloner и кампаниях. M · med
-- [ ] **P5-04** · Сквозное · Beat-планировщик SCHEDULED/drip/AUTO_MONITOR (DM/broadcast/invite/boost/stories/cloner). M · med
+- [x] **P5-02** · Сквозное · Общий `app/services/tg_runner.py` — единый build*proxy_kwargs (дедуп из 10 файлов, делегация). M · med. Live: 10/10 импорт ✓, воркер online, регресс 26/26. *(commit c97a359)\_
+- [x] **P5-03** · Сквозное · `can_act(account, action_type)` поверх Настроек (лимиты+активные часы), применить в boost/stories/cloner и кампаниях. M · med. can*act() в core/daily_usage; boost+stories per-account; кампании — лимиты в P5-01; cloner — active-hours уже task-level (P2-08), per-account дневной лимит не применим (пишет в свой канал). Live: 5/5 unit ✓, регресс 26/26. *(commit 603d809)\_
+- [x] **P5-04** · Сквозное · Beat-планировщик SCHEDULED/drip/AUTO*MONITOR (DM/broadcast/invite/boost/stories/cloner). M · med. pup_tg.campaign_scheduler (5мин): SCHEDULED→start, DM auto_paused active-hours→resume, AUTO_MONITOR stories→re-tick. Live: started+resumed ✓, manual PAUSED не тронут. *(commit aa9e4c8)\_
 - [ ] **P5-05** · Сквозное · Слой DM-ownership (один обработчик на account+peer): развести ai_agent DM-секретарь / auto_replier / ai_sales. M · high
 - [ ] **P5-06** · Сквозное · Единый источник enum'ов для фронта (отдавать через `/system`) — против рассинхронов. S · low
 - [ ] **P5-07** · Сквозное · Контрактный smoke-тест UI→эндпоинты (ловить рассинхроны). M · low
