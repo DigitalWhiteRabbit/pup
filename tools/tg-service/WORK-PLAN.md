@@ -99,11 +99,12 @@
 - [x] **P5-02** · Сквозное · Общий `app/services/tg_runner.py` — единый build*proxy_kwargs (дедуп из 10 файлов, делегация). M · med. Live: 10/10 импорт ✓, воркер online, регресс 26/26. *(commit c97a359)\_
 - [x] **P5-03** · Сквозное · `can_act(account, action_type)` поверх Настроек (лимиты+активные часы), применить в boost/stories/cloner и кампаниях. M · med. can*act() в core/daily_usage; boost+stories per-account; кампании — лимиты в P5-01; cloner — active-hours уже task-level (P2-08), per-account дневной лимит не применим (пишет в свой канал). Live: 5/5 unit ✓, регресс 26/26. *(commit 603d809)\_
 - [x] **P5-04** · Сквозное · Beat-планировщик SCHEDULED/drip/AUTO*MONITOR (DM/broadcast/invite/boost/stories/cloner). M · med. pup_tg.campaign_scheduler (5мин): SCHEDULED→start, DM auto_paused active-hours→resume, AUTO_MONITOR stories→re-tick. Live: started+resumed ✓, manual PAUSED не тронут. *(commit aa9e4c8)\_
-- [~] **P5-05** · Сквозное · Слой DM-ownership (один обработчик на account+peer): развести ai*agent DM-секретарь / auto_replier / ai_sales. M · high. **РАЗБЛОКИРОВАН** владельцем (КОНСОЛИДАЦИЯ ДВИЖКОВ, явное разрешение трогать ai_agent). Карта: [ENGINE-CONSOLIDATION.md](ENGINE-CONSOLIDATION.md). Этап A (карта) — *(commit 662fead)\_. Этап B инкрементально:
-  - [x] **B1** · single-ownership гейт: `app/services/dm_ownership.py` (`agent_owns_account_dms`/`any_active_dm_agent`); AI Sales monitor yield+`/start`/`/monitor`→409 при активном Агенте-владельце ЛС; auto-replier per-account yield. Live: `/ai-sales/monitor`→409 ✓ (Atlas ACTIVE), 7/7 unit-кейсов ownership ✓, Atlas-цикл жив без ошибок. _(commit B1)_
-  - [ ] **B2** · auto-replier → фронт-линия (HANDOFF→Агенту, tooltip/UI), без параллельных ответов.
-  - [ ] **B3** · AI Sales off-runtime: UI read-only/архив-баннер; `connect_ai_sales`→«AI Агент»; воронка→P6-09; таблицы сохранить.
-  - [ ] **B4** · регресс + contract_smoke + Atlas в исходный статус.
+- [x] **P5-05** · Сквозное · Слой DM-ownership: Агент — единственный движок входящих ЛС. M · high. **РАЗБЛОКИРОВАН** владельцем (КОНСОЛИДАЦИЯ, явное разрешение трогать ai_agent). Карта: [ENGINE-CONSOLIDATION.md](ENGINE-CONSOLIDATION.md). Этап A — (commit 662fead).
+  - [x] **B1** · single-ownership гейт: `app/services/dm_ownership.py` (`agent_owns_account_dms`/`any_active_dm_agent`); AI Sales monitor yield + `/start`/`/monitor`→409 при активном Агенте; auto-replier per-account yield. Live: `/monitor`→409 ✓, 7/7 unit ownership ✓, Atlas-цикл жив. (commit 4264ba6)
+  - [x] **B2** · auto-replier → фронт-линия: `HANDOFF_SALES` больше не молчаливый no-op — логирует «[HANDOFF → AI Агент]» и НЕ помечает диалог прочитанным (остаётся Агенту/человеку, без параллельного ответа); tooltip + `connect_ai_sales`→«AI Агент». Данные auto-replier не трогали. (commit B2-B3)
+  - [x] **B3** · AI Sales off-runtime: UI архив-баннер в `rAiSales` (скрипты/диалоги/воронка сохранены, рантайм остановлен); воронка-стадии → P6-09; `tg_sales_*` НЕ дропали (со-владение Агента). (commit B2-B3)
+  - [x] **B4** · регресс `regression_screens.py` 26/26 ✓; `contract_smoke.py` ✓ (73 UI-эндпоинта); Atlas всё время ACTIVE (исходный статус). (commit B2-B3)
+  - Отложено: **скриптовая воронка со стадиями** — единственная функция AI Sales без аналога в Агенте → **P6-09** (на проде 0 скриптов, данные сохранены).
 - [x] **P5-06** · Сквозное · Единый источник enum`ов для фронта (отдавать через `/system`) — против рассинхронов. S · low. GET /system/enums + UI fetch в S.enums + drift-warning. Live: fetch ✓, in-sync ✓. _(commit 37b6386)_
 - [x] **P5-07** · Сквозное · Контрактный smoke-тест UI→эндпоинты (ловить рассинхроны). M · low. scripts/contract*smoke.py: 73 UI-endpoint ⇄ OpenAPI. Нашёл дрейф /auto-replier/test (UI вызывал несуществующий) → добавил endpoint. Live: smoke pass, регресс 26/26. *(commit e5805a0)\_
 - [ ] **P5-08** · Сквозное · Единый декоратор аудита на горячий путь (чек/спамблок/apply/send в tg_audit_logs). S · low
@@ -123,7 +124,7 @@
 - [ ] **P6-06** · account_profile · Bulk-генерация и применение профилей по пулу. L · med-high
 - [ ] **P6-07** · accounts · Авто-чек по расписанию (Celery) + история здоровья (timeline). M · med
 - [ ] **P6-08** · proxies · Настоящая проверка (auth + Telegram DC) + гео/IP-обогащение. M · med
-- [ ] **P6-09** · ai-sales · Привязка скрипта к аккаунтам/сегментам + конструктор воронки + метрики drop-off. M · med
+- [ ] **P6-09** · ai-sales · Привязка скрипта к аккаунтам/сегментам + конструктор воронки + метрики drop-off. M · med. **+ перенос скриптовой воронки со стадиями из AI Sales в Агента** (`_evaluate_stage_advance` — keyword-стейт-машина стадий; данные `tg_sales_scripts`/`tg_sales_dialogs` сохранены при консолидации P5-05).
 - [ ] **P6-10** · arena · Харвест корпуса → Style Bank + анти-бан + live-просмотр. L · med-high
 - [ ] **P6-11** · neuro-commenting · Очередь модерации (approve/reject) + RAG/Style в комментах. M · med
 

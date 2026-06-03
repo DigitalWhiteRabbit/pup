@@ -173,7 +173,10 @@ AI Sales и Агент пишут одни `tg_sales_dialogs`/`tg_sales_messages
 
 ---
 
-## 6. План Этапа B (инкрементально, коммит + live-проверка + отметка в WORK-PLAN после каждого шага)
+## 6. План Этапа B — ✅ ВЫПОЛНЕН (B1-B4)
+
+> Статус: B1 (commit 4264ba6), B2-B4 (commit B2-B3). Регресс 26/26, contract_smoke ✓, Atlas ACTIVE.
+> Подробности и галочки — в [WORK-PLAN.md](WORK-PLAN.md) под P5-05.
 
 - **B1.** Single-ownership: гейт на петлю/эндпоинты AI Sales (`/start`,`/monitor`) и auto-replier —
   не опрашивать ЛС параллельно с активным Агентом-владельцем. (закрывает корень конфликта; на проде

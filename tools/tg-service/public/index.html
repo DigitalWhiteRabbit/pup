@@ -5058,6 +5058,7 @@ function rAiSales(el){
   var st=salesStats;var byS=st.by_status||{};
   el.innerHTML='<div class="sy4">'+
     pageHead('AI Продажник',salesScripts.length+' скриптов','<button class="btn btn-sm btn-primary" id="sales-add">'+ic('plus')+' Создать скрипт</button>')+
+    '<div class="card mb3" style="border-left:3px solid var(--orange-500);background:rgba(249,115,22,0.07)"><div class="f ac g2x"><span style="font-size:1.1rem">📦</span><div><div class="tsm" style="font-weight:600">Движки ЛС консолидированы — обработку входящих ведёт AI Агент</div><div class="txs c-m mt1">Раздел в режиме архива/просмотра: скрипты, диалоги и воронка сохранены, но рантайм-движок AI Продажника остановлен (запуск вернёт 409, пока активна персона Агента). Скриптовая воронка со стадиями отложена — см. P6-09.</div></div></div></div>'+
     kpiHtml([
       {v:st.total||0,l:'Диалогов',bg:'rgba(59,130,246,0.12)',fg:'var(--blue-500)'},
       {v:byS.ACTIVE||byS.active||0,l:'Активных',bg:'rgba(34,197,94,0.12)',fg:'var(--emerald-500)'},
@@ -5466,7 +5467,7 @@ function mCrAr(){
       '<div><label class="lbl">Название *</label><input class="input tsm" name="name" placeholder="Приветствие новых контактов" autofocus></div>'+
       '<div><label class="lbl">Аккаунты</label><div class="sel-w"><select class="sel" name="account_ids" multiple style="min-height:60px">'+accOpts+'</select></div><div class="txs c-m mt1">Ctrl+клик для выбора нескольких</div></div>'+
       '<div><label class="lbl">Триггеры (JSON массив)'+tip('Правила срабатывания: по ключевым словам, по regex, или на любое сообщение')+'</label><textarea class="ta" name="triggers" placeholder=\'[{"type":"first_message"},{"type":"keyword","value":"цена"}]\' style="min-height:80px"></textarea></div>'+
-      '<div><label class="lbl">Поведение по умолчанию'+tip('AI_REPLY \u2014 ответ через Claude, TEMPLATE \u2014 шаблон, SILENCE \u2014 молчать, NOTIFY \u2014 уведомить оператора, HANDOFF_SALES \u2014 передать AI Продажнику')+'</label><div class="sel-w"><select class="sel" name="default_behavior">'+behaviors.map(function(b){return '<option value="'+b+'">'+esc(b)+'</option>';}).join('')+'</select></div></div>'+
+      '<div><label class="lbl">Поведение по умолчанию'+tip('AI_REPLY \u2014 ответ через Claude, TEMPLATE \u2014 шаблон, SILENCE \u2014 молчать, NOTIFY \u2014 уведомить оператора, HANDOFF_SALES \u2014 передать диалог AI Агенту (без ответа, остаётся непрочитанным)')+'</label><div class="sel-w"><select class="sel" name="default_behavior">'+behaviors.map(function(b){return '<option value="'+b+'">'+esc(b)+'</option>';}).join('')+'</select></div></div>'+
     '</div>'+
     '<div class="dlg-ft"><button type="button" class="btn btn-sm" id="mcl">Отмена</button><button type="submit" class="btn btn-sm btn-primary" id="ms">Создать</button></div></form></div></div>';
   document.body.insertAdjacentHTML('beforeend',h);mBind('mov','mcl');
@@ -5789,7 +5790,7 @@ function mCrDmc(){
         bodyHtml+='<div><label class="lbl">Поведение при FloodWait</label><div class="sel-w"><select class="sel" id="wiz-flood"><option value="pause_24h"'+(fd.flood_behavior==='pause_24h'?' selected':'')+'>Пауза 24ч</option><option value="pause_48h"'+(fd.flood_behavior==='pause_48h'?' selected':'')+'>Пауза 48ч</option><option value="switch_account"'+(fd.flood_behavior==='switch_account'?' selected':'')+'>Переключить аккаунт</option><option value="stop_campaign"'+(fd.flood_behavior==='stop_campaign'?' selected':'')+'>Остановить кампанию</option></select></div></div>'+
           '<div class="mt3"><label class="lbl">Порог аварийной остановки (%)</label><input class="input tsm" type="number" id="wiz-estop" value="'+fd.emergency_stop_pct+'" min="1" max="100" style="width:8rem"><div class="txs c-m mt1">Если % неудачных отправок превысит это значение, кампания будет остановлена</div></div>'+
           '<div class="mt3"><label class="f ac g2x" style="cursor:pointer"><input type="checkbox" class="chk" id="wiz-skip"'+(fd.skip_list?' checked':'')+'><span class="tsm">Skip-list (не писать повторно)</span></label></div>'+
-          '<div class="mt2"><label class="f ac g2x" style="cursor:pointer"><input type="checkbox" class="chk" id="wiz-aisales"'+(fd.connect_ai_sales?' checked':'')+'><span class="tsm">Подключить AI Продажник при ответе</span></label><div class="txs c-m mt1">Если получатель ответит, диалог автоматически передаётся AI Продажнику</div></div>';
+          '<div class="mt2"><label class="f ac g2x" style="cursor:pointer"><input type="checkbox" class="chk" id="wiz-aisales"'+(fd.connect_ai_sales?' checked':'')+'><span class="tsm">Подключить AI Агента при ответе</span></label><div class="txs c-m mt1">Если получатель ответит, диалог обрабатывает AI Агент (единый движок ЛС)</div></div>';
         break;
       case 6:
         var audName='--';audOpts.forEach(function(a){if(a.id===fd.audience_id)audName=a.name+' ('+a.total_count+')';});

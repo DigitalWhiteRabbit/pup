@@ -281,6 +281,11 @@ async def _auto_replier_async(workspace_id: str, scenario_id: str) -> dict:
             except Exception:
                 continue
 
+            # Front-line handoff: if a trigger hands the dialog to the AI Agent,
+            # we do NOT reply and we leave the dialog UNREAD so the Agent's
+            # secretary (or a human) picks it up — never a parallel answer.
+            handoff_pending = False
+
             for msg in reversed(messages):  # oldest first
                 if msg.out:  # skip our own messages
                     continue
@@ -340,8 +345,20 @@ async def _auto_replier_async(workspace_id: str, scenario_id: str) -> dict:
                         log.error("auto_replier_ai_error", error=str(e)[:200])
                         continue
                 elif behavior == "HANDOFF_SALES":
-                    # Log for sales team pickup
-                    reply_text = ""
+                    # Front-line → hand the dialog to the AI Agent (the single
+                    # owner of incoming DMs). Don't reply; log it for visibility
+                    # and leave the dialog unread so the Agent/human picks it up.
+                    db.execute(
+                        """INSERT INTO tg_auto_replies
+                            (id, scenario_id, account_id, trigger_name, inbound_text, response_text, delay_used_sec, created_at)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                        [str(uuid.uuid4()), scenario_id, acc_id, trigger_name,
+                         msg.text[:500], "[HANDOFF → AI Агент]", 0, _now()],
+                    )
+                    db.commit()
+                    handoff_pending = True
+                    total_skipped += 1
+                    continue
 
                 if not reply_text:
                     total_skipped += 1
@@ -402,11 +419,13 @@ async def _auto_replier_async(workspace_id: str, scenario_id: str) -> dict:
                 except Exception as e:
                     log.warning("auto_replier_send_error", error=str(e)[:200])
 
-            # Mark dialog as read
-            try:
-                await client.send_read_acknowledge(dialog.entity)
-            except Exception:
-                pass
+            # Mark dialog as read — but NOT when handed off: leave it unread so
+            # the AI Agent (single DM owner) or a human can pick the dialog up.
+            if not handoff_pending:
+                try:
+                    await client.send_read_acknowledge(dialog.entity)
+                except Exception:
+                    pass
 
         # Disconnect
         try:
