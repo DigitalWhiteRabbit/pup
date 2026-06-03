@@ -125,8 +125,11 @@ async def _dm_campaign_async(workspace_id: str, campaign_id: str) -> dict:
     # sending (resumes on the next start / scheduler tick). Honors the UI's
     # active_hours_start/end which were previously ignored.
     if ah_start is not None and ah_end is not None and not _within_active_hours(ah_start, ah_end):
-        db.execute("UPDATE tg_dm_campaigns SET status='PAUSED', updated_at=? WHERE id=?",
-                   [now, campaign_id])
+        # P5-04: mark as auto-paused so the campaign_scheduler beat task resumes
+        # it when the active-hours window reopens (vs a manual operator pause).
+        config["auto_paused"] = "active_hours"
+        db.execute("UPDATE tg_dm_campaigns SET status='PAUSED', config=?, updated_at=? WHERE id=?",
+                   [json.dumps(config), now, campaign_id])
         db.commit()
         log.info("dm_outside_active_hours", campaign_id=campaign_id, start=ah_start, end=ah_end)
         return {"status": "PAUSED", "reason": "outside active hours"}
