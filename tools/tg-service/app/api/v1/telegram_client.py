@@ -411,6 +411,15 @@ def _media_filename_mime(msg: Any) -> tuple[str, str]:
     return (f"media_{msg.id}.bin", "application/octet-stream")
 
 
+def _peer_to_id(peer: Any) -> int | None:
+    """Extract the numeric id from a Telethon Peer (User/Chat/Channel)."""
+    for attr in ("user_id", "channel_id", "chat_id"):
+        v = getattr(peer, attr, None)
+        if v is not None:
+            return v
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -909,6 +918,105 @@ async def send_media(
         # Always clean the uploaded file; the messenger client is cached/reused
         # (P6-03) so it is NOT disconnected here.
         shutil.rmtree(upload_dir, ignore_errors=True)
+
+
+@router.get("/{account_id}/resolve")
+async def resolve_username(
+    account_id: str,
+    _token: AdminAuth,
+    db: WorkspaceDB,
+    username: str = Query(..., min_length=1, description="@username or t.me link"),
+) -> dict[str, Any]:
+    """Resolve a @username / t.me link to a peer (P6-05) — open chats not in dialogs."""
+    client = None
+    try:
+        client = await get_messenger_client(db, account_id)  # P6-03: cached/reused
+        u = username.strip()
+        if "t.me/" in u:
+            u = u.rsplit("/", 1)[-1]
+        u = "@" + u.lstrip("@")
+        try:
+            entity = await client.get_entity(u)
+        except Exception:  # noqa: BLE001 — unresolvable username
+            raise HTTPException(status_code=404, detail=f"Не найдено: {username}")
+        ahash = getattr(entity, "access_hash", None)
+        log.info("username_resolved", account_id=account_id, username=u)
+        return {
+            "id": getattr(entity, "id", 0),
+            "title": _entity_title(entity),
+            "type": _entity_type(entity),
+            "username": _entity_username(entity),
+            "access_hash": str(ahash) if ahash else None,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.error("username_resolve_failed", account_id=account_id, username=username, error=str(exc))
+        raise HTTPException(status_code=502, detail=f"Failed to resolve username: {exc}")
+    finally:
+        pass
+
+
+@router.get("/{account_id}/search")
+async def search_messages(
+    account_id: str,
+    _token: AdminAuth,
+    db: WorkspaceDB,
+    q: str = Query(..., min_length=1, description="global message search query"),
+    limit: int = Query(30, ge=1, le=100),
+) -> dict[str, Any]:
+    """Global message search across all the account's chats (P6-05)."""
+    from telethon.errors import FloodWaitError
+    from telethon.tl.functions.messages import SearchGlobalRequest
+    from telethon.tl.types import InputMessagesFilterEmpty, InputPeerEmpty
+
+    client = None
+    try:
+        client = await get_messenger_client(db, account_id)  # P6-03: cached/reused
+        try:
+            res = await client(
+                SearchGlobalRequest(
+                    q=q,
+                    filter=InputMessagesFilterEmpty(),
+                    min_date=None,
+                    max_date=None,
+                    offset_rate=0,
+                    offset_peer=InputPeerEmpty(),
+                    offset_id=0,
+                    limit=limit,
+                )
+            )
+        except FloodWaitError as e:
+            raise HTTPException(status_code=429, detail=f"FloodWait: retry after {e.seconds} seconds",
+                                headers={"Retry-After": str(e.seconds)})
+
+        # Build id → display-name map from returned users + chats.
+        names: dict[int, str] = {}
+        for u in getattr(res, "users", []) or []:
+            parts = [getattr(u, "first_name", "") or "", getattr(u, "last_name", "") or ""]
+            names[u.id] = " ".join(p for p in parts if p).strip() or (getattr(u, "username", None) or str(u.id))
+        for c in getattr(res, "chats", []) or []:
+            names[c.id] = getattr(c, "title", None) or str(c.id)
+
+        items: list[dict[str, Any]] = []
+        for m in getattr(res, "messages", []) or []:
+            pid = _peer_to_id(m.peer_id) if getattr(m, "peer_id", None) else None
+            items.append({
+                "message_id": getattr(m, "id", None),
+                "peer_id": pid,
+                "peer_title": names.get(pid) if pid else None,
+                "text": (getattr(m, "message", None) or "")[:200],
+                "date": _format_dt(getattr(m, "date", None)),
+            })
+        log.info("messages_searched", account_id=account_id, q=q, count=len(items))
+        return {"items": items, "total": len(items), "query": q}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.error("messages_search_failed", account_id=account_id, q=q, error=str(exc))
+        raise HTTPException(status_code=502, detail=f"Failed to search: {exc}")
+    finally:
+        pass
 
 
 @router.post("/{account_id}/mark-read")

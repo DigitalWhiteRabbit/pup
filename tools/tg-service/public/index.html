@@ -7450,6 +7450,37 @@ async function msgForwardMessage(id) {
   } catch(e) { toast('\u041E\u0448\u0438\u0431\u043A\u0430 \u043F\u0435\u0440\u0435\u0441\u044B\u043B\u043A\u0438: '+e.message,'error'); }
 }
 
+/* P6-05: open a chat by @username (resolves, then loads). */
+async function msgOpenByUsername(username) {
+  if(!msgAccId || !username || !username.trim()) return;
+  try {
+    var r = await af('/telegram/'+msgAccId+'/resolve?username='+encodeURIComponent(username.trim()));
+    msgPeerId = r.username ? ('@'+r.username) : String(r.id);
+    msgAccessHash = r.access_hash || '';
+    msgClearPoll(); msgLoadMessages().then(function(){ msgRenderMessages(); msgRenderHeader(); msgRenderInputArea(); msgScrollBottom(); });
+  } catch(e) { toast('\u041D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E: '+e.message,'error'); }
+}
+
+/* P6-05: global message search; render hits into the dialog list. */
+async function msgGlobalSearch(q) {
+  if(!msgAccId || !q || !q.trim()) return;
+  var list = document.getElementById('msg-dlg-list');
+  if(list) list.innerHTML = '<div class="msg-empty"><span>\uD83C\uDF10</span><span>\u041F\u043E\u0438\u0441\u043A\u2026</span></div>';
+  try {
+    var r = await af('/telegram/'+msgAccId+'/search?q='+encodeURIComponent(q.trim())+'&limit=30');
+    if(!list) return;
+    if(!(r.items||[]).length) { list.innerHTML = '<div class="msg-empty"><span>\uD83D\uDD0D</span><span>\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E</span></div>'; return; }
+    list.innerHTML = r.items.map(function(it){
+      var title = it.peer_title || ('#'+(it.peer_id||'?'));
+      var snip = (it.text||'').substring(0,50);
+      return '<div class="dlg-item" data-peer="'+esc(String(it.peer_id||''))+'"><div class="dlg-info"><div class="dlg-name">'+esc(title)+'</div><div class="dlg-last">'+esc(snip)+'</div></div></div>';
+    }).join('');
+    list.querySelectorAll('.dlg-item').forEach(function(item){
+      item.onclick = function(){ var p=item.dataset.peer; if(!p) return; msgPeerId=p; msgAccessHash=''; msgClearPoll(); msgLoadMessages().then(function(){ msgRenderMessages(); msgRenderHeader(); msgRenderInputArea(); msgScrollBottom(); }); };
+    });
+  } catch(e) { if(list) list.innerHTML='<div class="msg-empty"><span>\u26A0\uFE0F</span><span>'+esc(e.message)+'</span></div>'; }
+}
+
 function msgScrollBottom() {
   var body = document.getElementById('msg-body');
   if(body) body.scrollTop = body.scrollHeight;
@@ -7678,6 +7709,11 @@ function rMessenger(el) {
         '</div>' +
         '<div class="msg-search">' +
           '<input type="text" id="msg-dlg-search" class="input" placeholder="\uD83D\uDD0D \u041F\u043E\u0438\u0441\u043A \u0434\u0438\u0430\u043B\u043E\u0433\u0430..." style="font-size:0.8rem">' +
+          '<div class="f g2x mt1">' +
+            '<input type="text" id="msg-global-q" class="input f1" placeholder="@username / \u0433\u043B\u043E\u0431. \u043F\u043E\u0438\u0441\u043A" style="font-size:0.76rem">' +
+            '<button class="btn btn-sm" id="msg-open-user" title="\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0447\u0430\u0442 \u043F\u043E @username">@\u2192</button>' +
+            '<button class="btn btn-sm" id="msg-global-btn" title="\u0413\u043B\u043E\u0431\u0430\u043B\u044C\u043D\u044B\u0439 \u043F\u043E\u0438\u0441\u043A \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0439">\uD83C\uDF10</button>' +
+          '</div>' +
         '</div>' +
         '<div class="msg-dialogs-list" id="msg-dlg-list">' +
           '<div class="msg-empty"><span>\u260E\uFE0F</span><span>\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0430\u043A\u043A\u0430\u0443\u043D\u0442 \u0434\u043B\u044F \u043D\u0430\u0447\u0430\u043B\u0430</span></div>' +
@@ -7775,6 +7811,14 @@ function rMessenger(el) {
       });
     };
   }
+
+  /* P6-05: open-by-@username + global message search */
+  var gq = document.getElementById('msg-global-q');
+  var openUserBtn = document.getElementById('msg-open-user');
+  var globalBtn = document.getElementById('msg-global-btn');
+  if(openUserBtn) openUserBtn.onclick = function(){ if(!msgAccId){toast('Выберите аккаунт','error');return;} msgOpenByUsername(gq ? gq.value : ''); };
+  if(globalBtn) globalBtn.onclick = function(){ if(!msgAccId){toast('Выберите аккаунт','error');return;} msgGlobalSearch(gq ? gq.value : ''); };
+  if(gq) gq.addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); if(!msgAccId){toast('Выберите аккаунт','error');return;} msgGlobalSearch(gq.value); } });
 }
 
 /* ====================================================================
