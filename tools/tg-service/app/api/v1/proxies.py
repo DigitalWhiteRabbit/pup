@@ -215,6 +215,152 @@ def _check_proxy_connectivity(host: str, port: int, timeout: float = 10.0) -> tu
         return False, 0, str(exc)
 
 
+# Telegram production data-centre endpoints (port 443). A real proxy check must
+# reach one of these THROUGH the proxy (auth handshake + DC reachability), not
+# just open a TCP socket to the proxy itself.
+_TELEGRAM_DCS = [
+    ("149.154.167.51", 443),  # DC2 (primary)
+    ("149.154.175.50", 443),  # DC1
+    ("91.108.56.130", 443),   # DC5
+]
+
+
+def _proxy_type_for(scheme: str):
+    """Map a proxy scheme string → python_socks ProxyType."""
+    import python_socks
+
+    s = (scheme or "http").lower()
+    if "socks5" in s:
+        return python_socks.ProxyType.SOCKS5
+    if "socks4" in s:
+        return python_socks.ProxyType.SOCKS4
+    return python_socks.ProxyType.HTTP
+
+
+def _proxy_egress_geo(ptype, host, port, user, pwd, timeout: float) -> dict | None:
+    """Best-effort egress IP + geo as seen by the outside world, THROUGH the proxy.
+
+    Does a minimal HTTP/1.1 GET to ip-api.com over a proxied socket. Returns
+    ``{egress_ip, geo_country, geo_city, geo_isp}`` or None on any failure
+    (enrichment must never fail the check).
+    """
+    from python_socks.sync import Proxy
+
+    try:
+        proxy = Proxy.create(proxy_type=ptype, host=host, port=port,
+                             username=user, password=pwd, rdns=True)
+        sock = proxy.connect(dest_host="ip-api.com", dest_port=80, timeout=timeout)
+        try:
+            sock.settimeout(timeout)
+            sock.sendall(
+                b"GET /json/?fields=status,country,city,query,isp HTTP/1.1\r\n"
+                b"Host: ip-api.com\r\nUser-Agent: tg-svc\r\nConnection: close\r\n\r\n"
+            )
+            buf = b""
+            while len(buf) < 65536:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    break
+                buf += chunk
+        finally:
+            try:
+                sock.close()
+            except Exception:  # noqa: BLE001
+                pass
+        text = buf.decode("utf-8", "ignore")
+        i, j = text.find("{"), text.rfind("}")
+        if i >= 0 and j > i:
+            data = json.loads(text[i:j + 1])
+            if data.get("status") == "success":
+                return {
+                    "egress_ip": data.get("query"),
+                    "geo_country": data.get("country"),
+                    "geo_city": data.get("city"),
+                    "geo_isp": data.get("isp"),
+                }
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
+def _check_proxy_real(proxy_row: dict[str, Any], timeout: float = 12.0) -> tuple[bool, int, str | None, dict | None]:
+    """Real proxy check: auth + Telegram DC reachability + egress geo (P6-08).
+
+    Connects THROUGH the proxy (credentials → handshake) to a Telegram DC. On
+    success, latency is measured and egress geo is enriched (best-effort).
+    Returns ``(alive, latency_ms, error, geo)``.
+    """
+    from python_socks.sync import Proxy
+
+    ptype = _proxy_type_for(proxy_row.get("scheme"))
+    host = proxy_row["host"]
+    port = int(proxy_row["port"])
+    user = proxy_row.get("username") or None
+    pwd = proxy_row.get("password") or None
+
+    last_err: str | None = None
+    for dc_host, dc_port in _TELEGRAM_DCS:
+        start = time.monotonic()
+        try:
+            proxy = Proxy.create(proxy_type=ptype, host=host, port=port,
+                                 username=user, password=pwd, rdns=True)
+            sock = proxy.connect(dest_host=dc_host, dest_port=dc_port, timeout=timeout)
+            latency = int((time.monotonic() - start) * 1000)
+            try:
+                sock.close()
+            except Exception:  # noqa: BLE001
+                pass
+            geo = _proxy_egress_geo(ptype, host, port, user, pwd, timeout)
+            return True, latency, None, geo
+        except Exception as exc:  # noqa: BLE001 — try next DC, report last error
+            last_err = str(exc)[:200]
+            continue
+    return False, 0, last_err or "Telegram DC unreachable via proxy", None
+
+
+def _persist_proxy_check(db: Any, proxy_row: dict[str, Any], alive: bool,
+                         latency_ms: int, geo: dict | None) -> str:
+    """Persist a real-check result (status + latency + geo metadata + geo cols).
+
+    Returns the new status. Geo enrichment is stored in metadata.geo and
+    backfills empty country/city columns. Best-effort; never raises here.
+    """
+    now = _now()
+    new_status = "ACTIVE" if alive else "DEAD"
+    try:
+        meta = json.loads(proxy_row["metadata"]) if proxy_row.get("metadata") else {}
+        if not isinstance(meta, dict):
+            meta = {}
+    except (json.JSONDecodeError, TypeError):
+        meta = {}
+
+    country = proxy_row.get("country")
+    city = proxy_row.get("city")
+    if geo:
+        meta["geo"] = {
+            "egress_ip": geo.get("egress_ip"),
+            "country": geo.get("geo_country"),
+            "city": geo.get("geo_city"),
+            "isp": geo.get("geo_isp"),
+            "checked_at": now,
+        }
+        if not country and geo.get("geo_country"):
+            country = geo["geo_country"]
+        if not city and geo.get("geo_city"):
+            city = geo["geo_city"]
+
+    db.execute(
+        """UPDATE tg_proxies
+           SET last_checked_at = ?, last_latency_ms = ?, status = ?,
+               country = ?, city = ?, metadata = ?, updated_at = ?
+           WHERE id = ?""",
+        [now, latency_ms, new_status, country, city,
+         json.dumps(meta, ensure_ascii=False), now, proxy_row["id"]],
+    )
+    db.commit()
+    return new_status
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -897,44 +1043,38 @@ async def check_proxy(
     _token: AdminAuth,
     db: WorkspaceDB,
 ) -> dict[str, Any]:
-    """Test real TCP connectivity to a proxy and update its status."""
+    """Real proxy check (P6-08): auth + Telegram DC reachability + egress geo.
+
+    Connects THROUGH the proxy to a Telegram DC (verifies credentials + DC
+    reachability), measures latency, enriches egress IP/geo (best-effort), and
+    updates status / last_checked_at / last_latency_ms / geo metadata.
+    """
     existing = db.execute(
         "SELECT * FROM tg_proxies WHERE id = ?", [proxy_id]
     ).fetchone()
     if not existing:
         raise HTTPException(status_code=404, detail="Proxy not found")
 
-    host = existing["host"]
-    port = existing["port"]
+    proxy_row = dict(existing)
+    host, port = proxy_row["host"], proxy_row["port"]
 
-    # Run the blocking socket check in a thread to avoid blocking the event loop
+    # Run the blocking proxy/DC check in a thread to avoid blocking the event loop.
     loop = asyncio.get_event_loop()
-    alive, latency_ms, error = await loop.run_in_executor(
-        None, _check_proxy_connectivity, host, port,
+    alive, latency_ms, error, geo = await loop.run_in_executor(
+        None, _check_proxy_real, proxy_row,
     )
 
-    now = _now()
-    new_status = "ACTIVE" if alive else "DEAD"
-
     try:
-        db.execute(
-            """UPDATE tg_proxies
-               SET last_checked_at = ?, last_latency_ms = ?, status = ?, updated_at = ?
-               WHERE id = ?""",
-            [now, latency_ms, new_status, now, proxy_id],
-        )
-        db.commit()
+        new_status = _persist_proxy_check(db, proxy_row, alive, latency_ms, geo)
     except Exception:
         db.rollback()
         raise
 
     log.info(
         "proxy_check_complete",
-        proxy_id=proxy_id,
-        host=host,
-        port=port,
-        alive=alive,
-        latency_ms=latency_ms,
+        proxy_id=proxy_id, host=host, port=port,
+        alive=alive, latency_ms=latency_ms, status=new_status,
+        geo=bool(geo), error=error,
     )
 
     row = db.execute(
@@ -965,28 +1105,21 @@ async def check_all_proxies(
     loop = asyncio.get_event_loop()
 
     for idx, proxy_row in enumerate(rows):
-        proxy_id = proxy_row["id"]
-        host = proxy_row["host"]
-        port = proxy_row["port"]
+        prow = dict(proxy_row)
+        proxy_id = prow["id"]
+        host = prow["host"]
+        port = prow["port"]
 
-        # Run connectivity check in thread pool
-        alive, latency_ms, error = await loop.run_in_executor(
-            None, _check_proxy_connectivity, host, port,
+        # Real proxy check (auth + Telegram DC + egress geo) in thread pool.
+        alive, latency_ms, error, geo = await loop.run_in_executor(
+            None, _check_proxy_real, prow,
         )
 
-        now = _now()
-        new_status = "ACTIVE" if alive else "DEAD"
-
         try:
-            db.execute(
-                """UPDATE tg_proxies
-                   SET last_checked_at = ?, last_latency_ms = ?, status = ?, updated_at = ?
-                   WHERE id = ?""",
-                [now, latency_ms, new_status, now, proxy_id],
-            )
-            db.commit()
+            new_status = _persist_proxy_check(db, prow, alive, latency_ms, geo)
         except Exception:
             db.rollback()
+            new_status = "ACTIVE" if alive else "DEAD"
 
         if alive:
             alive_count += 1
