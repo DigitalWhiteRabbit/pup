@@ -92,3 +92,45 @@ def system_status(_token: AdminAuth) -> dict[str, Any]:
     _CACHE["ts"] = now
     _CACHE["value"] = value
     return {**value, "cached": False}
+
+
+@router.get("/system/enums")
+def system_enums(_token: AdminAuth) -> dict[str, Any]:
+    """Canonical enum source-of-truth for the frontend (P5-06).
+
+    The UI hardcodes status/mode dictionaries in JS which can drift from the
+    backend's accepted values (the P1-03 parser-mode mismatch was exactly this).
+    This endpoint exposes the authoritative sets pulled straight from the
+    validating modules, so the UI can fetch + reconcile on load.
+    """
+    def _safe(getter: Any) -> list[str]:
+        try:
+            return sorted(getter())
+        except Exception:  # noqa: BLE001
+            return []
+
+    from app.api.v1 import parser as _parser
+
+    enums: dict[str, Any] = {
+        "parser_modes": _safe(lambda: _parser.VALID_MODES),
+        "parser_statuses": _safe(lambda: _parser.VALID_STATUSES),
+        # Account lifecycle (kept in sync with schema.sql comment + UI ASL/ASC).
+        "account_statuses": [
+            "IMPORTED", "ACTIVE", "WARMING", "PAUSED", "FLOOD_WAIT",
+            "SPAM_BLOCKED", "BANNED", "DEAD", "INVALID", "NO_PROXY",
+        ],
+        "proxy_statuses": ["ACTIVE", "DEAD", "PAUSED", "EXPIRED"],
+        "proxy_types": ["RESIDENTIAL", "MOBILE", "DATACENTER", "ISP"],
+        "proxy_schemes": ["socks5", "socks4", "http", "https", "mtproto"],
+        "channel_types": ["CHANNEL", "SUPERGROUP", "BASIC_GROUP", "FORUM"],
+        "channel_roles": ["SOURCE", "TARGET", "BOTH", "NONE"],
+        "campaign_statuses": [
+            "DRAFT", "SCHEDULED", "RUNNING", "PAUSED",
+            "COMPLETED", "STOPPED", "EMERGENCY_STOPPED",
+        ],
+        "boost_types": ["SUBSCRIBERS", "REACTIONS", "VIEWS", "POLL_VOTES"],
+        "daily_usage_actions": [
+            "dm", "chat_post", "invite", "comment", "boost", "join", "subscription",
+        ],
+    }
+    return {"enums": enums}

@@ -7692,6 +7692,21 @@ async function chkH(){
   catch(e){S.online=false;}
   updH();
   chkEngine();
+  ldEnums();
+}
+/* P5-06: fetch canonical enums from backend into S.enums; UI hardcodes stay as
+   fallback. Lets us catch backend/frontend enum drift via the console warning. */
+var enumsLoaded=false;
+async function ldEnums(){
+  if(enumsLoaded)return;
+  try{var d=await af('/system/enums');S.enums=d.enums||{};enumsLoaded=true;
+    /* Drift check: warn if hardcoded parser modes differ from backend's. */
+    if(S.enums.parser_modes&&window.PRS_MODE_LABEL){
+      var beModes=S.enums.parser_modes.slice().sort().join(',');
+      var feModes=Object.keys(PRS_MODE_LABEL).sort().join(',');
+      if(beModes!==feModes)console.warn('[enums] parser_modes drift — backend:',beModes,'frontend:',feModes);
+    }
+  }catch(e){/* fallback to hardcoded UI dicts */}
 }
 
 /* Статус фонового движка (Celery worker): баннер, когда воркер офлайн. */
