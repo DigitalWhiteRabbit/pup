@@ -470,13 +470,19 @@ def _search_kb_chunks(
     db: Any,
     doc_ids: list[str],
     query: str,
-    limit: int = 3,
+    limit: int = 8,
 ) -> list[str]:
     """Return up to *limit* chunk texts relevant to *query*.
 
     Hybrid retrieval (P6-01): keyword + local vector cosine over the chunk
     ``embedding`` column, via the shared ``kb_search`` service. Falls back to
     keyword-only when embeddings are unavailable.
+
+    Default limit is 8 (was 3): a top-3 cut often returned only a fragment of a
+    multi-row table (e.g. one example deposit) and missed the row with the real
+    figure (e.g. the "$10 minimum / tariff" rows), which led to the agent
+    misquoting numbers. 8 chunks keep the full table in context without blowing
+    the prompt budget (~8 × 300 chars).
     """
     from app.services.kb_search import search_chunk_texts
 
@@ -501,7 +507,17 @@ def _build_rag_context(chunks: list[str]) -> str:
         "ВАЖНО: говори ТОЛЬКО то, что есть в этих знаниях. Не приписывай тому, о "
         "чём рассказываешь, фич, которых тут нет (напр. не выдумывай «стейкинг», "
         "если его тут нет). Если проект ещё не запущен — так и говори ("
-        "«пока на старте/до запуска», «сам тестирую/слежу»), не ври что это уже live."
+        "«пока на старте/до запуска», «сам тестирую/слежу»), не ври что это уже live.\n"
+        "ЦИФРЫ/ЦЕНЫ/ТАРИФЫ — строго по тексту выше, дословно, без догадок:\n"
+        "- Минимальная сумма/порог входа — бери ТОЛЬКО ту цифру, что прямо названа "
+        "минимумом. Сумма из примера расчёта (напр. «взнос 1 000 $» для иллюстрации "
+        "процентов) — это ПРИМЕР, а НЕ минимум; не выдавай пример за порог.\n"
+        "- Сроки — как в тексте: дни это дни, не превращай «5 дней» в «5 месяцев» и т.п.\n"
+        "- Проценты/доходность/тарифы — только те значения, что явно указаны; "
+        "ничего не округляй и не придумывай.\n"
+        "- Если точной цифры (минимум, %, срок) в знаниях выше НЕ видно — честно "
+        "скажи «точную цифру гляну/подскажу, есть на сайте», а НЕ называй наугад. "
+        "Лучше уточнить, чем ошибиться в цифре."
     )
 
 
@@ -1216,10 +1232,15 @@ async def _handle_secretary_dm(
             except Exception:  # noqa: BLE001
                 log.debug("dm_summary_persist_failed", thread_id=thread["id"], exc_info=True)
 
-    # ── RAG: search KB on the last inbound message (the thing we answer) ─
+    # ── RAG: search KB on the last few inbound messages + topic, not just the
+    # single last line — so a multi-row answer (e.g. a whole tariff table) lands
+    # in context instead of a fragment. limit=8 (see _search_kb_chunks).
     rag_chunks: list[str] = []
-    if rag_doc_ids and last_inbound.text:
-        rag_chunks = _search_kb_chunks(db, rag_doc_ids, last_inbound.text)
+    if rag_doc_ids:
+        recent_in = " ".join(
+            (m.text or "") for m in inbound_only[-3:] if getattr(m, "text", None)
+        ).strip() or (last_inbound.text or "")
+        rag_chunks = _search_kb_chunks(db, rag_doc_ids, recent_in, limit=8)
     rag_context = _build_rag_context(rag_chunks)
 
     # ── Build chat-style messages from the last 20 turns ──────────────
