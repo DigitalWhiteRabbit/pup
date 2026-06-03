@@ -500,6 +500,58 @@ def worker_continuity() -> dict:
     return {"revived": revived}
 
 
+@shared_task(name="pup_tg.account_health_check")
+def account_health_check() -> dict:
+    """Periodic account health check (P6-07).
+
+    Verifies ACTIVE/WARMING/FLOOD_WAIT/SPAM_BLOCKED accounts across all workspaces
+    (reusing the single-account check logic) and records each result to the health
+    timeline (``tg_account_health_history``, source='scheduled'). NO_PROXY accounts
+    are recorded without connecting (never over the real IP). A randomized gap
+    paces Telegram connects (anti-ban).
+
+    Distinct from ``membership_check`` (persona chat membership) and
+    ``worker_continuity`` / ``campaign_scheduler`` (loop revival / scheduling) —
+    it does different work, so no ticks are duplicated.
+    """
+    import asyncio
+
+    return asyncio.run(_account_health_check_async())
+
+
+async def _account_health_check_async() -> dict:
+    import asyncio
+    import random
+
+    from app.api.v1.accounts import _check_telegram_impl, _record_health_history
+    from app.core.database import get_db
+
+    checked = 0
+    for workspace_id in _iter_workspace_ids():
+        try:
+            db = get_db(workspace_id)
+            rows = db.execute(
+                "SELECT id FROM tg_accounts "
+                "WHERE status IN ('ACTIVE','WARMING','FLOOD_WAIT','SPAM_BLOCKED')"
+            ).fetchall()
+        except Exception:  # noqa: BLE001
+            continue
+        for i, r in enumerate(rows):
+            aid = r["id"]
+            if i > 0:
+                await asyncio.sleep(random.uniform(3.0, 8.0))  # anti-ban pacing
+            try:
+                res = await _check_telegram_impl(aid, db)
+                _record_health_history(db, aid, res, source="scheduled")
+                checked += 1
+            except Exception:  # noqa: BLE001 — one account never aborts the sweep
+                log.warning("health_check_account_failed", account_id=aid, exc_info=True)
+
+    if checked:
+        log.info("account_health_check_done", checked=checked)
+    return {"checked": checked}
+
+
 # ── Schedule registry ────────────────────────────────────────────────────────
 
 BEAT_SCHEDULE: dict[str, dict[str, object]] = {
@@ -541,6 +593,12 @@ BEAT_SCHEDULE: dict[str, dict[str, object]] = {
     "worker-continuity-every-5-min": {
         "task": "pup_tg.worker_continuity",
         "schedule": 300.0,  # every 5 minutes
+        "options": {"queue": "pup_tg_default"},
+    },
+    # Periodic account health check + timeline (P6-07).
+    "account-health-check-every-6h": {
+        "task": "pup_tg.account_health_check",
+        "schedule": 21600.0,  # every 6 hours
         "options": {"queue": "pup_tg_default"},
     },
 }

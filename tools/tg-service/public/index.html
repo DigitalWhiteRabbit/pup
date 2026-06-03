@@ -2045,7 +2045,7 @@ function rAccDet(el,acc){
       '</div>'+
     '</div>'+
     '<div style="display:flex;border-bottom:1px solid var(--border);margin-bottom:1rem">'+
-      [['overview','\u041E\u0431\u0437\u043E\u0440'],['activity','\u0410\u043A\u0442\u0438\u0432\u043D\u043E\u0441\u0442\u044C'],['proxy','\u041F\u0440\u043E\u043A\u0441\u0438'],['chats','\u0427\u0430\u0442\u044B'],['bans','\u0411\u0430\u043D\u044B'],['profile','\u041F\u0440\u043E\u0444\u0438\u043B\u044C'],['stories','\u0421\u0442\u043E\u0440\u0438\u0441'],['twofa','2FA']].map(function(t){
+      [['overview','\u041E\u0431\u0437\u043E\u0440'],['activity','\u0410\u043A\u0442\u0438\u0432\u043D\u043E\u0441\u0442\u044C'],['health','\u0417\u0434\u043E\u0440\u043E\u0432\u044C\u0435'],['proxy','\u041F\u0440\u043E\u043A\u0441\u0438'],['chats','\u0427\u0430\u0442\u044B'],['bans','\u0411\u0430\u043D\u044B'],['profile','\u041F\u0440\u043E\u0444\u0438\u043B\u044C'],['stories','\u0421\u0442\u043E\u0440\u0438\u0441'],['twofa','2FA']].map(function(t){
         return '<button class="det-tab'+(S.accDetTab===t[0]?' active':'')+'" data-dt="'+t[0]+'">'+t[1]+'</button>';
       }).join('')+
     '</div>'+
@@ -2146,6 +2146,14 @@ function rAccDet(el,acc){
         return infoHtml +
           '<div class="card mt3"><div class="card-head"><div class="card-title">Последние действия прогрева</div></div><div class="card-body">'+
           '<div id="det-activity-list"><div style="text-align:center;padding:2rem"><span class="spin" style="border-color:var(--border);border-top-color:var(--blue-500)"></span> Загрузка...</div></div>'+
+        '</div></div>';
+      }
+
+      /* ── Health timeline Tab (P6-07) ── */
+      if(tab==='health'){
+        return '<div class="card"><div class="card-head"><div class="f ac jb"><div class="card-title">История здоровья</div><button class="btn btn-sm btn-primary" id="hh-check">⟳ Проверить сейчас</button></div></div><div class="card-body">'+
+          '<div class="txs c-m mb2">Авто-чек по расписанию (каждые 6ч) + ручные/bulk проверки. Каждая проверка добавляет запись в таймлайн.</div>'+
+          '<div id="det-health-list"><div style="text-align:center;padding:2rem"><span class="spin" style="border-color:var(--border);border-top-color:var(--blue-500)"></span> Загрузка...</div></div>'+
         '</div></div>';
       }
 
@@ -2302,6 +2310,31 @@ function rAccDet(el,acc){
       }catch(e){
         listEl.innerHTML='<div class="txs c-m" style="text-align:center;padding:1.5rem 0">\u041D\u0435\u0442 \u0434\u0430\u043D\u043D\u044B\u0445 \u043E \u043F\u0440\u043E\u0433\u0440\u0435\u0432\u0435. \u0417\u0430\u043F\u0443\u0441\u0442\u0438\u0442\u0435 \u043F\u0440\u043E\u0433\u0440\u0435\u0432 \u0434\u043B\u044F \u044D\u0442\u043E\u0433\u043E \u0430\u043A\u043A\u0430\u0443\u043D\u0442\u0430.</div>';
       }
+    })();
+  }
+
+  /* \u2500\u2500 Health timeline loader (P6-07) \u2500\u2500 */
+  if(S.accDetTab==='health'){
+    var hhBtn=el.querySelector('#hh-check');
+    if(hhBtn)hhBtn.onclick=async function(){
+      hhBtn.disabled=true;hhBtn.innerHTML='<span class="spin"></span> \u041F\u0440\u043E\u0432\u0435\u0440\u043A\u0430\u2026';
+      try{var r=await ap('/accounts/'+acc.id+'/check-telegram');toast('\u0421\u0442\u0430\u0442\u0443\u0441: '+(r.status||'?'),r.success?'success':'error');}
+      catch(e){toast(e.message,'error');}
+      rAccDet(el,acc);  /* reloads the timeline */
+    };
+    (async function(){
+      var listEl=el.querySelector('#det-health-list');if(!listEl)return;
+      function badge(s){var m={ACTIVE:'b-emerald',DEAD:'b-red',BANNED:'b-red',NO_PROXY:'b-yellow',INVALID:'b-yellow',FLOOD_WAIT:'b-yellow',SPAM_BLOCKED:'b-yellow'};return '<span class="badge '+(m[s]||'')+' b-ol">'+esc(s||'?')+'</span>';}
+      try{
+        var d=await af('/accounts/'+acc.id+'/health-history?limit=50');
+        var items=d.items||[];
+        if(!items.length){listEl.innerHTML='<div class="txs c-m" style="text-align:center;padding:1.5rem 0">\u041F\u0440\u043E\u0432\u0435\u0440\u043E\u043A \u0435\u0449\u0451 \u043D\u0435 \u0431\u044B\u043B\u043E. \u041D\u0430\u0436\u043C\u0438\u0442\u0435 \u00AB\u041F\u0440\u043E\u0432\u0435\u0440\u0438\u0442\u044C \u0441\u0435\u0439\u0447\u0430\u0441\u00BB \u0438\u043B\u0438 \u0434\u043E\u0436\u0434\u0438\u0442\u0435\u0441\u044C \u0430\u0432\u0442\u043E-\u0447\u0435\u043A\u0430.</div>';return;}
+        listEl.innerHTML='<div class="tw"><table style="font-size:0.75rem"><thead><tr><th>\u0414\u0430\u0442\u0430</th><th>\u0421\u0442\u0430\u0442\u0443\u0441</th><th>\u0424\u043B\u0430\u0433\u0438</th><th>Humanity</th><th>\u0418\u0441\u0442\u043E\u0447\u043D\u0438\u043A</th></tr></thead><tbody>'+
+          items.map(function(h){
+            var flags=[];if(h.restricted)flags.push('\uD83D\uDEAB\u043E\u0433\u0440');if(h.scam)flags.push('scam');if(h.fake)flags.push('fake');if(h.verified)flags.push('\u2713verif');
+            return '<tr><td class="c-m">'+fmtDT(h.created_at)+'</td><td>'+badge(h.status)+'</td><td class="txs">'+(flags.length?esc(flags.join(' ')):'<span class="c-m">\u2014</span>')+(h.error?'<span class="c-m" title="'+esc(h.error)+'"> \u26A0</span>':'')+'</td><td class="txs">'+(h.humanity_score!=null?h.humanity_score+'/4':'\u2014')+'</td><td class="txs c-m">'+esc(h.source||'manual')+'</td></tr>';
+          }).join('')+'</tbody></table></div>';
+      }catch(e){listEl.innerHTML='<div class="txs c-m" style="text-align:center;padding:1.5rem 0">\u041E\u0448\u0438\u0431\u043A\u0430 \u0437\u0430\u0433\u0440\u0443\u0437\u043A\u0438: '+esc(e.message)+'</div>';}
     })();
   }
 

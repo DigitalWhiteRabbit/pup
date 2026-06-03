@@ -152,6 +152,36 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
     except Exception:  # noqa: BLE001
         log.warning("migration_failed", migration="dm_threads_table", exc_info=True)
 
+    # Migration (P6-07): account health-check timeline — one row per check
+    # (manual / bulk / scheduled), so the UI can show a health history.
+    _health_history_ddl = """
+    CREATE TABLE IF NOT EXISTS tg_account_health_history (
+      id                TEXT PRIMARY KEY,
+      account_id        TEXT NOT NULL,
+      status            TEXT,                                       -- ACTIVE|DEAD|BANNED|NO_PROXY|INVALID|...
+      success           INTEGER DEFAULT 0,                          -- 0/1
+      restricted        INTEGER DEFAULT 0,
+      scam              INTEGER DEFAULT 0,
+      fake              INTEGER DEFAULT 0,
+      verified          INTEGER DEFAULT 0,
+      humanity_score    INTEGER DEFAULT 0,
+      source            TEXT DEFAULT 'manual',                      -- manual|bulk|scheduled
+      error             TEXT,
+      created_at        TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_tg_health_account ON tg_account_health_history(account_id, created_at);
+    """
+    try:
+        existing_tables = {
+            row[0]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        }
+        if "tg_account_health_history" not in existing_tables:
+            conn.executescript(_health_history_ddl)
+            log.info("migration_applied", migration="account_health_history_table")
+    except Exception:  # noqa: BLE001
+        log.warning("migration_failed", migration="account_health_history_table", exc_info=True)
+
     # Migration: add dm_reply_to_all column to tg_ai_personas — toggles the
     # universal AI-secretary mode (read+answer every DM with unread + RAG +
     # summary; respects per-thread mute). Default ON.

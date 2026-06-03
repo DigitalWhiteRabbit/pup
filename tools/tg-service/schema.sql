@@ -60,6 +60,24 @@ CREATE INDEX IF NOT EXISTS idx_tg_accounts_tg_user_id   ON tg_accounts(tg_user_i
 CREATE INDEX IF NOT EXISTS idx_tg_accounts_proxy_id     ON tg_accounts(proxy_id);
 CREATE INDEX IF NOT EXISTS idx_tg_accounts_warmup       ON tg_accounts(warmup_profile, warmup_level);
 
+-- ─── Account Health History (P6-07) ────────────────────────────────────────
+-- One row per health check (manual / bulk / scheduled) → UI health timeline.
+CREATE TABLE IF NOT EXISTS tg_account_health_history (
+  id                TEXT PRIMARY KEY,
+  account_id        TEXT NOT NULL,
+  status            TEXT,                                       -- ACTIVE|DEAD|BANNED|NO_PROXY|INVALID|...
+  success           INTEGER DEFAULT 0,                          -- 0/1
+  restricted        INTEGER DEFAULT 0,
+  scam              INTEGER DEFAULT 0,
+  fake              INTEGER DEFAULT 0,
+  verified          INTEGER DEFAULT 0,
+  humanity_score    INTEGER DEFAULT 0,
+  source            TEXT DEFAULT 'manual',                      -- manual|bulk|scheduled
+  error             TEXT,
+  created_at        TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_tg_health_account ON tg_account_health_history(account_id, created_at);
+
 -- ─── Account Daily Usage (P5-01) ───────────────────────────────────────────
 -- Persistent per-account, per-action daily counters with date-based reset.
 -- Hot-path engines (DM, broadcast, invite, boost, join, comment) reserve a slot

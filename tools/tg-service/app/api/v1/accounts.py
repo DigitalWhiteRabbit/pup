@@ -955,13 +955,62 @@ class TelegramCheckResult(BaseModel):
     humanity_score: int = 0  # 0..4: avatar / username / bio / 2FA
 
 
+@router.get("/{account_id}/health-history")
+async def get_health_history(
+    account_id: str,
+    _token: AdminAuth,
+    db: WorkspaceDB,
+    limit: int = Query(50, ge=1, le=200),
+) -> dict[str, Any]:
+    """Return the account's health-check timeline (P6-07), newest first."""
+    rows = db.execute(
+        "SELECT status, success, restricted, scam, fake, verified, humanity_score, "
+        "source, error, created_at FROM tg_account_health_history "
+        "WHERE account_id = ? ORDER BY created_at DESC, id DESC LIMIT ?",
+        [account_id, limit],
+    ).fetchall()
+    return {"items": [dict(r) for r in rows], "total": len(rows)}
+
+
+def _record_health_history(db: Any, account_id: str, result: "TelegramCheckResult", source: str = "manual") -> None:
+    """Append one health-check result to the timeline (P6-07). Never raises."""
+    try:
+        db.execute(
+            "INSERT INTO tg_account_health_history "
+            "(id, account_id, status, success, restricted, scam, fake, verified, "
+            "humanity_score, source, error, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                str(uuid.uuid4()), account_id, result.status,
+                1 if result.success else 0,
+                1 if result.restricted else 0, 1 if result.scam else 0,
+                1 if result.fake else 0, 1 if result.verified else 0,
+                int(result.humanity_score or 0), source, result.error, _now(),
+            ],
+        )
+        db.commit()
+    except Exception:  # noqa: BLE001 — timeline write must never break a check
+        log.warning("health_history_record_failed", account_id=account_id, exc_info=True)
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+
+
 @router.post("/{account_id}/check-telegram")
 async def check_telegram(
     account_id: str,
     _token: AdminAuth,
     db: WorkspaceDB,
 ) -> TelegramCheckResult:
-    """Connect to Telegram via stored session, verify account is alive."""
+    """Connect + verify the account, recording the result to the health timeline (P6-07)."""
+    res = await _check_telegram_impl(account_id, db)
+    _record_health_history(db, account_id, res, source="manual")
+    return res
+
+
+async def _check_telegram_impl(account_id: str, db: Any) -> TelegramCheckResult:
+    """Connect to Telegram via stored session, verify account is alive (core)."""
     import asyncio
 
     row = db.execute("SELECT * FROM tg_accounts WHERE id = ?", [account_id]).fetchone()
