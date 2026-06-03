@@ -1234,10 +1234,52 @@ async def _handle_secretary_dm(
         # Nothing to answer to (last turn was ours / no text inbound) — skip.
         return result
 
+    # ── Staged sales funnel (P6-09): opt-in via persona.funnel_script_id ──
+    # When bound to a tg_sales_scripts funnel, track the dialog stage in
+    # tg_dm_threads.funnel_stage, advance it on the user's advance_keywords, and
+    # inject the stage goal into the prompt. NULL binding / missing script / no
+    # stages → no-op (plain secretary behaviour, unchanged).
+    stage_section = ""
+    funnel_script_id = persona.get("funnel_script_id")
+    if funnel_script_id:
+        try:
+            script_row = db.execute(
+                "SELECT * FROM tg_sales_scripts WHERE id = ?", [funnel_script_id]
+            ).fetchone()
+        except Exception:  # noqa: BLE001
+            script_row = None
+        if script_row:
+            script = dict(script_row)
+            stages = _funnel_get_stages(script)
+            if stages:
+                current_stage = thread.get("funnel_stage") or stages[0].get("name")
+                # Advance on the latest inbound message (unless already terminal).
+                if not _funnel_is_terminal(stages, current_stage):
+                    nxt = _funnel_advance(stages, current_stage, last_inbound.text or "")
+                    if nxt:
+                        current_stage = nxt
+                if current_stage != (thread.get("funnel_stage") or ""):
+                    try:
+                        db.execute(
+                            "UPDATE tg_dm_threads SET funnel_stage=?, updated_at=? WHERE id=?",
+                            [current_stage, _now(), thread["id"]],
+                        )
+                        db.commit()
+                    except Exception:  # noqa: BLE001
+                        log.debug("funnel_stage_persist_failed", thread_id=thread["id"], exc_info=True)
+                stage_section = _funnel_stage_section(stages, current_stage)
+                script_prompt = (script.get("system_prompt") or "").strip()
+                if script_prompt:
+                    stage_section = "Скрипт-продажи: " + script_prompt + "\n" + stage_section
+                if _funnel_is_terminal(stages, current_stage):
+                    log.info("funnel_terminal_reached", persona_id=persona_id,
+                             peer=contact_user_id, stage=current_stage)
+
     peer_label = contact_name or (("@" + contact_username) if contact_username else f"user {contact_user_id}")
     sys_prompt = _build_secretary_system_prompt(
         persona, peer_label=peer_label, thread_summary=summary,
         rag_context=rag_context, own_name=own_name, own_username=own_username,
+        stage_section=stage_section,
     )
 
     # ── Generation ─────────────────────────────────────────────────────
