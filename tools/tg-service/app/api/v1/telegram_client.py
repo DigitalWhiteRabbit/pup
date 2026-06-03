@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import mimetypes
+import os
 import shutil
 import tempfile
 from datetime import datetime, timezone
@@ -10,8 +12,12 @@ from pathlib import Path
 from typing import Any
 
 import structlog
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile, status
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
+
+# Max media size we will download into memory / accept for upload (anti-OOM).
+_MAX_MEDIA_BYTES = 50 * 1024 * 1024
 
 from app.config import settings
 from app.core.security import decrypt_bytes
@@ -335,6 +341,52 @@ def _detect_media_type(message: Any) -> str | None:
     return "other"
 
 
+async def _find_peer_entity(client: Any, peer_id: int | str, access_hash: str | int | None = None) -> Any:
+    """Resolve a peer to a Telethon entity: scan loaded dialogs first, then resolve.
+
+    Mirrors the resolution used by get_messages / send_message so the media
+    endpoints accept the exact same peer identifiers (numeric id or @username).
+    """
+    dialogs = await client.get_dialogs(limit=100)
+    numeric_peer: int | None = None
+    pid = peer_id
+    if isinstance(pid, int):
+        numeric_peer = pid
+    elif isinstance(pid, str) and not pid.startswith("@"):
+        try:
+            numeric_peer = int(pid)
+        except ValueError:
+            pass
+    for dlg in dialogs:
+        if numeric_peer and (dlg.entity.id == numeric_peer or dlg.id == numeric_peer):
+            return dlg.entity
+        if isinstance(pid, str) and pid.startswith("@") and getattr(dlg.entity, "username", None) == pid[1:]:
+            return dlg.entity
+    ahash = int(access_hash) if access_hash else None
+    target = pid if (isinstance(pid, str) and pid.startswith("@")) else (numeric_peer or pid)
+    return await _resolve_peer(client, target, access_hash=ahash)
+
+
+def _media_filename_mime(msg: Any) -> tuple[str, str]:
+    """Best-effort (filename, mime-type) for a message's downloadable media."""
+    media = msg.media
+    if type(media).__name__ == "MessageMediaPhoto":
+        return (f"photo_{msg.id}.jpg", "image/jpeg")
+    doc = getattr(media, "document", None)
+    if doc is not None:
+        mime = getattr(doc, "mime_type", None) or "application/octet-stream"
+        fname = None
+        for attr in getattr(doc, "attributes", []) or []:
+            if type(attr).__name__ == "DocumentAttributeFilename":
+                fname = attr.file_name
+                break
+        if not fname:
+            ext = mimetypes.guess_extension(mime) or ".bin"
+            fname = f"file_{msg.id}{ext}"
+        return (fname, mime)
+    return (f"media_{msg.id}.bin", "application/octet-stream")
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -642,6 +694,149 @@ async def send_message(
         )
         raise HTTPException(status_code=502, detail=f"Failed to send message: {exc}")
     finally:
+        if client:
+            try:
+                await client.disconnect()
+            except Exception:
+                pass
+        if tmp_dir:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+@router.get("/{account_id}/messages/{peer_id}/{message_id}/media")
+async def download_message_media(
+    account_id: str,
+    peer_id: str,
+    message_id: int,
+    _token: AdminAuth,
+    db: WorkspaceDB,
+    ah: str | None = Query(None, description="access_hash for peers without username"),
+) -> Response:
+    """Download a message's media attachment (P6-02).
+
+    Streams the binary back with its real content-type + filename (inline) so
+    the UI can preview images or download files. 404 for non-downloadable media
+    (webpage/poll/geo/contact) or missing media; 413 if over the size cap.
+    """
+    from telethon.errors import FloodWaitError
+
+    client = None
+    tmp_dir = None
+    try:
+        client, tmp_dir = await _connect_account_telethon(db, account_id)
+        entity = await _find_peer_entity(client, peer_id, ah)
+
+        try:
+            msgs = await client.get_messages(entity, ids=[message_id])
+        except FloodWaitError as e:
+            raise HTTPException(status_code=429, detail=f"FloodWait: retry after {e.seconds} seconds",
+                                headers={"Retry-After": str(e.seconds)})
+        msg = msgs[0] if msgs else None
+        if msg is None or not msg.media:
+            raise HTTPException(status_code=404, detail="No media in this message")
+
+        size = getattr(getattr(msg, "file", None), "size", None)
+        if size and size > _MAX_MEDIA_BYTES:
+            raise HTTPException(status_code=413, detail=f"Media too large ({size} bytes, cap {_MAX_MEDIA_BYTES})")
+
+        data = await client.download_media(msg, file=bytes)
+        if not data:
+            raise HTTPException(status_code=404, detail="Media not downloadable (e.g. webpage/poll/geo)")
+
+        filename, mime = _media_filename_mime(msg)
+        log.info("media_downloaded", account_id=account_id, peer_id=peer_id,
+                 message_id=message_id, bytes=len(data), mime=mime)
+        return Response(
+            content=data,
+            media_type=mime,
+            headers={"Content-Disposition": f'inline; filename="{filename}"'},
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.error("media_download_failed", account_id=account_id, peer_id=peer_id,
+                  message_id=message_id, error=str(exc))
+        raise HTTPException(status_code=502, detail=f"Failed to download media: {exc}")
+    finally:
+        if client:
+            try:
+                await client.disconnect()
+            except Exception:
+                pass
+        if tmp_dir:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+@router.post("/{account_id}/send-media")
+async def send_media(
+    account_id: str,
+    _token: AdminAuth,
+    db: WorkspaceDB,
+    file: UploadFile = File(...),
+    peer_id: str = Form(...),
+    caption: str = Form(""),
+    reply_to: int | None = Form(None),
+    access_hash: str | None = Form(None),
+    force_document: bool = Form(False),
+) -> dict[str, Any]:
+    """Send a media file to a peer via Telethon ``send_file`` (P6-02).
+
+    Multipart upload. ``force_document=true`` sends as a plain file (no photo /
+    video compression). Rejects uploads over the size cap (413).
+    """
+    from telethon.errors import FloodWaitError
+
+    # Read upload (bounded) into a temp file so Telethon can infer type by name.
+    raw = await file.read()
+    if len(raw) > _MAX_MEDIA_BYTES:
+        raise HTTPException(status_code=413, detail=f"File too large ({len(raw)} bytes, cap {_MAX_MEDIA_BYTES})")
+    if not raw:
+        raise HTTPException(status_code=400, detail="Empty file")
+
+    client = None
+    tmp_dir = None
+    upload_dir = tempfile.mkdtemp(prefix="tg_send_media_")
+    safe_name = os.path.basename(file.filename or "upload.bin") or "upload.bin"
+    upload_path = os.path.join(upload_dir, safe_name)
+    try:
+        with open(upload_path, "wb") as fh:
+            fh.write(raw)
+
+        client, tmp_dir = await _connect_account_telethon(db, account_id)
+        entity = await _find_peer_entity(client, peer_id, access_hash)
+
+        try:
+            sent = await client.send_file(
+                entity,
+                upload_path,
+                caption=caption or None,
+                reply_to=reply_to,
+                force_document=force_document,
+            )
+        except FloodWaitError as e:
+            raise HTTPException(status_code=429, detail=f"FloodWait: retry after {e.seconds} seconds",
+                                headers={"Retry-After": str(e.seconds)})
+
+        result = {
+            "id": sent.id,
+            "text": sent.text,
+            "date": _format_dt(sent.date),
+            "out": True,
+            "sender_name": None,
+            "sender_id": sent.sender_id,
+            "reply_to_id": reply_to,
+            "media_type": _detect_media_type(sent) if sent.media else None,
+        }
+        log.info("media_sent", account_id=account_id, peer_id=peer_id,
+                 message_id=sent.id, filename=safe_name, bytes=len(raw))
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.error("media_send_failed", account_id=account_id, peer_id=peer_id, error=str(exc))
+        raise HTTPException(status_code=502, detail=f"Failed to send media: {exc}")
+    finally:
+        shutil.rmtree(upload_dir, ignore_errors=True)
         if client:
             try:
                 await client.disconnect()

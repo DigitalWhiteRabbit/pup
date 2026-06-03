@@ -7372,6 +7372,42 @@ async function msgSend(text) {
   }
 }
 
+/* P6-02: send a media file (multipart \u2192 /send-media). Optional caption from the textarea. */
+async function msgSendMedia(file, caption) {
+  if(!msgAccId || !msgPeerId || !file) return;
+  var fd = new FormData();
+  fd.append('file', file);
+  fd.append('peer_id', msgPeerId);
+  if(caption && caption.trim()) fd.append('caption', caption.trim());
+  if(msgAccessHash) fd.append('access_hash', msgAccessHash);
+  toast('\u041E\u0442\u043F\u0440\u0430\u0432\u043A\u0430 \u0444\u0430\u0439\u043B\u0430\u2026','info');
+  try {
+    var r = await fetch(au('/telegram/'+msgAccId+'/send-media'),{method:'POST',headers:{'x-admin-token':S.tok||'','x-workspace-id':S.ws},body:fd});
+    if(!r.ok){var d=await r.json().catch(function(){return null;});throw new Error(apiErr(d,r.status));}
+    await msgLoadMessages(); msgRenderMessages(); msgScrollBottom();
+  } catch(e) {
+    toast('\u041E\u0448\u0438\u0431\u043A\u0430 \u043E\u0442\u043F\u0440\u0430\u0432\u043A\u0438 \u0444\u0430\u0439\u043B\u0430: '+e.message,'error');
+  }
+}
+
+/* P6-02: download a message's media attachment (header-authed) and open it. */
+var MSG_DOWNLOADABLE = {photo:1,video:1,document:1,voice:1,audio:1,gif:1,video_note:1,sticker:1};
+async function msgOpenMedia(msgId, type) {
+  if(!msgAccId || !msgPeerId) return;
+  var ahParam = msgAccessHash ? ('?ah='+encodeURIComponent(msgAccessHash)) : '';
+  toast('\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0432\u043B\u043E\u0436\u0435\u043D\u0438\u044F\u2026','info');
+  try {
+    var r = await fetch(au('/telegram/'+msgAccId+'/messages/'+msgPeerId+'/'+msgId+'/media'+ahParam),{headers:{'x-admin-token':S.tok||'','x-workspace-id':S.ws}});
+    if(!r.ok){var d=await r.json().catch(function(){return null;});throw new Error(apiErr(d,r.status));}
+    var blob = await r.blob();
+    var url = URL.createObjectURL(blob);
+    window.open(url,'_blank');
+    setTimeout(function(){URL.revokeObjectURL(url);}, 60000);
+  } catch(e) {
+    toast('\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044C: '+e.message,'error');
+  }
+}
+
 function msgScrollBottom() {
   var body = document.getElementById('msg-body');
   if(body) body.scrollTop = body.scrollHeight;
@@ -7484,8 +7520,13 @@ function msgRenderMessages() {
     var text = m.text || m.message || '';
     var mediaHtml = '';
     if(m.media_type) {
-      var mediaLabels = {photo:'\uD83D\uDCF7 \u0424\u043E\u0442\u043E',video:'\uD83C\uDFA5 \u0412\u0438\u0434\u0435\u043E',document:'\uD83D\uDCC4 \u0414\u043E\u043A\u0443\u043C\u0435\u043D\u0442',voice:'\uD83C\uDF99 \u0413\u043E\u043B\u043E\u0441\u043E\u0432\u043E\u0435',sticker:'\uD83D\uDCCC \u0421\u0442\u0438\u043A\u0435\u0440',audio:'\uD83C\uDFB5 \u0410\u0443\u0434\u0438\u043E'};
-      mediaHtml = '<div class="msg-media">['+(mediaLabels[m.media_type]||m.media_type)+']</div>';
+      var mediaLabels = {photo:'\uD83D\uDCF7 \u0424\u043E\u0442\u043E',video:'\uD83C\uDFA5 \u0412\u0438\u0434\u0435\u043E',document:'\uD83D\uDCC4 \u0414\u043E\u043A\u0443\u043C\u0435\u043D\u0442',voice:'\uD83C\uDF99 \u0413\u043E\u043B\u043E\u0441\u043E\u0432\u043E\u0435',sticker:'\uD83D\uDCCC \u0421\u0442\u0438\u043A\u0435\u0440',audio:'\uD83C\uDFB5 \u0410\u0443\u0434\u0438\u043E',gif:'\uD83C\uDFAC GIF',video_note:'\uD83C\uDFA5 \u0412\u0438\u0434\u0435\u043E'};
+      var label = '['+(mediaLabels[m.media_type]||m.media_type)+']';
+      if(MSG_DOWNLOADABLE[m.media_type] && m.id!=null) {
+        mediaHtml = '<div class="msg-media" style="cursor:pointer;text-decoration:underline" title="\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0432\u043B\u043E\u0436\u0435\u043D\u0438\u0435" onclick="msgOpenMedia('+m.id+',\''+esc(m.media_type)+'\')">\u2B07 '+label+'</div>';
+      } else {
+        mediaHtml = '<div class="msg-media">'+label+'</div>';
+      }
     }
     var replyHtml = '';
     if(m.reply_to_id) {
@@ -7539,10 +7580,21 @@ function msgRenderInputArea() {
     return;
   }
   area.innerHTML =
+    '<input type="file" id="msg-file" style="display:none">' +
+    '<button class="btn" id="msg-attach-btn" title="\u041F\u0440\u0438\u043A\u0440\u0435\u043F\u0438\u0442\u044C \u0444\u0430\u0439\u043B" style="align-self:flex-end">\uD83D\uDCCE</button>' +
     '<textarea id="msg-ta" class="input" placeholder="\u041D\u0430\u043F\u0438\u0448\u0438\u0442\u0435 \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0435..." rows="1" style="resize:none;min-height:2.5rem;max-height:6rem"></textarea>' +
     '<button class="btn btn-primary" id="msg-send-btn" style="align-self:flex-end">'+ic('send')+' \u041E\u0442\u043F\u0440\u0430\u0432\u0438\u0442\u044C</button>';
   var ta = document.getElementById('msg-ta');
   var btn = document.getElementById('msg-send-btn');
+  var fileInput = document.getElementById('msg-file');
+  var attachBtn = document.getElementById('msg-attach-btn');
+  attachBtn.onclick = function(){ fileInput.click(); };
+  fileInput.onchange = function(){
+    if(fileInput.files && fileInput.files[0]) {
+      msgSendMedia(fileInput.files[0], ta.value);
+      ta.value=''; ta.style.height='2.5rem'; fileInput.value='';
+    }
+  };
   function doSend() {
     var txt = ta.value;
     if(!txt.trim()) return;
