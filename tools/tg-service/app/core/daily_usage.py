@@ -102,3 +102,75 @@ def check_and_reserve(db: Any, account_id: str, action_type: str, limit: int, da
         return False
     incr_usage(db, account_id, action_type, 1, day)
     return True
+
+
+# Maps an action_type to the tg_settings column holding its per-day limit.
+# Actions without a settings limit (boost actions etc.) fall back to 0 = unlimited.
+_ACTION_LIMIT_COL = {
+    ACTION_DM: "limits_dm_per_day",
+    ACTION_CHAT_POST: "limits_chat_posts_per_day",
+    ACTION_COMMENT: "limits_comments_per_day",
+    ACTION_INVITE: "limits_invites_per_day",
+    ACTION_JOIN: "limits_subscriptions_per_day",
+    ACTION_SUBSCRIPTION: "limits_subscriptions_per_day",
+}
+
+
+def _settings_active_now(db: Any) -> bool:
+    """True if the current UTC hour is within tg_settings.active_hours.
+
+    Format ``"HH:MM-HH:MM"`` (only the hour part is used). Missing/unparseable
+    settings → always active (no gate). Handles windows that wrap past midnight.
+    """
+    try:
+        row = db.execute(
+            "SELECT active_hours FROM tg_settings WHERE id = 'default'"
+        ).fetchone()
+    except Exception:
+        return True
+    if not row or not row["active_hours"] or "-" not in row["active_hours"]:
+        return True
+    try:
+        start_s, end_s = row["active_hours"].split("-", 1)
+        h_start = int(start_s.split(":")[0]) % 24
+        h_end = int(end_s.split(":")[0]) % 24
+    except (ValueError, IndexError):
+        return True
+    if h_start == h_end:
+        return True
+    cur = datetime.now(timezone.utc).hour
+    if h_start < h_end:
+        return h_start <= cur < h_end
+    return cur >= h_start or cur < h_end
+
+
+def can_act(db: Any, account_id: str, action_type: str, limit: int | None = None) -> tuple[bool, str]:
+    """Unified gate for hot-path engines (P5-03): active hours + daily limit.
+
+    Combines the global active-hours window with the per-account persistent daily
+    cap. ``limit`` overrides the settings-derived limit when given; otherwise the
+    limit is looked up from tg_settings via ``_ACTION_LIMIT_COL`` (0 = unlimited).
+
+    Returns ``(allowed, reason)`` where ``reason`` is "" on success or a short
+    machine-readable tag ("outside_active_hours" / "daily_limit_reached") to log.
+    """
+    if not _settings_active_now(db):
+        return False, "outside_active_hours"
+
+    eff_limit = limit
+    if eff_limit is None:
+        col = _ACTION_LIMIT_COL.get(action_type)
+        eff_limit = 0
+        if col:
+            try:
+                row = db.execute(
+                    f"SELECT {col} AS lim FROM tg_settings WHERE id = 'default'"
+                ).fetchone()
+                eff_limit = int(row["lim"]) if row and row["lim"] is not None else 0
+            except Exception:
+                eff_limit = 0
+
+    if eff_limit and get_usage(db, account_id, action_type) >= eff_limit:
+        return False, "daily_limit_reached"
+
+    return True, ""

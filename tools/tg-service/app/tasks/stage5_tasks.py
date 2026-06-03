@@ -228,6 +228,16 @@ async def _boost_async(workspace_id: str, task_id: str) -> dict:
         if target_amount > 0 and current_amount + total_success >= target_amount:
             break
 
+        # P5-03: unified per-account gate (active hours + daily cap). Boost has no
+        # settings daily-limit column, so a config override (boost_daily_limit)
+        # supplies the cap; without it only active-hours gates this account.
+        from app.core.daily_usage import ACTION_BOOST, can_act, incr_usage
+        boost_acc_limit = int(config.get("boost_daily_limit", 0) or 0)
+        allowed, reason = can_act(db, acc_id, ACTION_BOOST, limit=boost_acc_limit)
+        if not allowed:
+            log.info("boost_account_gated", account_id=acc_id, reason=reason)
+            continue
+
         acc_info = _connect_account_info(db, acc_id)
         if not acc_info:
             continue
@@ -292,6 +302,7 @@ async def _boost_async(workspace_id: str, task_id: str) -> dict:
                 [str(uuid.uuid4()), task_id, acc_id, boost_type.lower(), _now()],
             )
             db.commit()
+            incr_usage(db, acc_id, ACTION_BOOST)  # P5-03: persistent daily counter
 
         except FloodWaitError as e:
             log.warning("boost_flood", account_id=acc_id, wait=e.seconds)
@@ -362,6 +373,7 @@ async def _stories_boost_async(workspace_id: str, task_id: str) -> dict:
     target_channel = task["target_channel"]
     target_story_id = task["target_story_id"]
     account_ids = json.loads(task["account_ids"] or "[]")
+    config = json.loads(task["config"] or "{}")
 
     if not account_ids:
         acc_rows = db.execute("SELECT id FROM tg_accounts WHERE status = 'ACTIVE'").fetchall()
@@ -371,6 +383,14 @@ async def _stories_boost_async(workspace_id: str, task_id: str) -> dict:
     total_reactions = 0
 
     for acc_id in account_ids:
+        # P5-03: unified per-account gate (active hours + optional daily cap).
+        from app.core.daily_usage import ACTION_BOOST, can_act, incr_usage
+        st_acc_limit = int(config.get("stories_daily_limit", 0) or 0)
+        allowed, reason = can_act(db, acc_id, ACTION_BOOST, limit=st_acc_limit)
+        if not allowed:
+            log.info("stories_account_gated", account_id=acc_id, reason=reason)
+            continue
+
         acc_info = _connect_account_info(db, acc_id)
         if not acc_info:
             continue
@@ -413,9 +433,9 @@ async def _stories_boost_async(workspace_id: str, task_id: str) -> dict:
             if effective_story_id:
                 await client(ReadStoriesRequest(peer=entity, max_id=effective_story_id))
                 total_views += 1
+                incr_usage(db, acc_id, ACTION_BOOST)  # P5-03: persistent daily counter
 
                 # React if configured
-                config = json.loads(task["config"] or "{}")
                 if config.get("react"):
                     try:
                         await client(StoryReactionRequest(
