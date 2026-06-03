@@ -12,8 +12,17 @@ from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from app.deps import AdminAuth, WorkspaceDB, WorkspaceId
+from app.services.dm_ownership import any_active_dm_agent
 
 router = APIRouter(prefix="/ai-sales", tags=["ai-sales"])
+
+# Engine consolidation: AI Sales is off-runtime while the AI Agent owns incoming
+# DMs. The runtime entry points refuse to start a parallel poller. See
+# ENGINE-CONSOLIDATION.md.
+_CONSOLIDATED_DETAIL = (
+    "AI Агент — единственный движок обработки входящих ЛС (движки консолидированы). "
+    "Чтобы запустить AI Продажник отдельно, остановите персону Агента (dm_enabled)."
+)
 
 log = structlog.get_logger(__name__)
 
@@ -451,6 +460,9 @@ async def start_script(
             detail=f"Cannot start script in status '{row['status']}'.",
         )
 
+    if any_active_dm_agent(db):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_CONSOLIDATED_DETAIL)
+
     now = _now()
     # Dispatch BEFORE commit: if the dispatch fails we roll back the UPDATE so
     # the script is never left ACTIVE without a monitoring task running.
@@ -512,9 +524,13 @@ async def stop_script(
 @router.post("/monitor")
 async def trigger_monitor(
     _token: AdminAuth,
+    db: WorkspaceDB,
     workspace_id: WorkspaceId,
 ) -> dict[str, Any]:
     """Manually trigger the AI sales monitor cycle (scans all ACTIVE scripts for incoming DMs)."""
+    if any_active_dm_agent(db):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_CONSOLIDATED_DETAIL)
+
     from app.tasks.dispatch import dispatch_task
 
     celery_task_id = dispatch_task("pup_tg.ai_sales_monitor", args=[workspace_id])

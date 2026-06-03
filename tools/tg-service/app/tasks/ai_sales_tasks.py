@@ -33,6 +33,7 @@ from app.ai.anthropic_client import generate_chat
 from app.config import settings
 from app.core.database import get_db
 from app.core.security import decrypt_bytes
+from app.services.dm_ownership import any_active_dm_agent
 from app.tasks.celery_app import celery_app
 
 log = structlog.get_logger(__name__)
@@ -430,6 +431,14 @@ def ai_sales_monitor(self, workspace_id: str) -> dict:
     still ``ACTIVE`` so incoming DMs keep being processed. Stops naturally
     once no script is active (e.g. all stopped/paused).
     """
+    # Single-ownership (ENGINE-CONSOLIDATION): the AI Agent is the sole owner of
+    # incoming DMs. While any active persona owns DMs, AI Sales yields entirely
+    # — it neither processes nor reschedules, so its independent poller is off.
+    db0 = get_db(workspace_id)
+    if any_active_dm_agent(db0):
+        log.info("ai_sales_monitor_yielded_to_agent", workspace_id=workspace_id)
+        return {"status": "SKIPPED", "reason": "AI Agent owns incoming DMs (consolidated)"}
+
     result = asyncio.run(_ai_sales_monitor_async(workspace_id))
 
     # Self-reschedule only while there is work to do for this workspace.

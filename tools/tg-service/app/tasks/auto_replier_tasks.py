@@ -22,6 +22,7 @@ import structlog
 
 from app.config import settings
 from app.core.database import get_db
+from app.services.dm_ownership import agent_owns_account_dms
 from app.core.security import decrypt_bytes
 from app.tasks.celery_app import celery_app
 
@@ -192,6 +193,17 @@ async def _auto_replier_async(workspace_id: str, scenario_id: str) -> dict:
     total_skipped = 0
 
     for acc_id in account_ids:
+        # Single-ownership (ENGINE-CONSOLIDATION): the AI Agent is the sole owner
+        # of incoming DMs for any account it covers. The auto-replier is only a
+        # front-line for accounts NO active agent covers — it must never answer
+        # in parallel with the Agent on the same dialog.
+        if agent_owns_account_dms(db, acc_id):
+            log.info(
+                "auto_replier_yield_to_agent", account_id=acc_id, scenario_id=scenario_id
+            )
+            total_skipped += 1
+            continue
+
         acc_info = _connect_account(db, acc_id)
         if not acc_info:
             continue
