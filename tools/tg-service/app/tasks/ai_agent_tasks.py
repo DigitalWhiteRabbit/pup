@@ -33,7 +33,7 @@ import structlog
 
 from app.config import settings
 from app.core.database import get_db
-from app.core.notify import notify_admin
+from app.core.notify import notify_admin_pref
 from app.core.security import decrypt_bytes
 from app.tasks.celery_app import celery_app
 
@@ -1938,7 +1938,8 @@ async def _ai_agent_async(workspace_id: str, persona_id: str) -> dict:
                                         db, persona_id, None, None, "SKIP",
                                         "⏸ Агент на ПАУЗЕ: не смог начать разговор — нет прав/бан в чате.",
                                     )
-                                    notify_admin(
+                                    notify_admin_pref(
+                                        db, "spam_block",
                                         f"🚫 <b>Агент авто-пауза</b> (при попытке начать разговор)\n"
                                         f"Персона: {persona.get('name') or persona_id}\n"
                                         f"Чат: {chat_title or chat_id}"
@@ -2172,7 +2173,8 @@ async def _ai_agent_async(workspace_id: str, persona_id: str) -> dict:
                                     "⏸ Агент на ПАУЗЕ: нет прав на запись в чате. "
                                     "Проверьте права аккаунта и запустите снова.",
                                 )
-                                notify_admin(
+                                notify_admin_pref(
+                                    db, "spam_block",
                                     f"⏸ <b>Агент на паузе</b>\n"
                                     f"Персона: {persona.get('name') or persona_id}\n"
                                     f"Чат: {chat_title or chat_id}\n"
@@ -2216,7 +2218,8 @@ async def _ai_agent_async(workspace_id: str, persona_id: str) -> dict:
                                     "⏸ Агент на ПАУЗЕ: аккаунт забанен в чате. Разбаньте "
                                     "аккаунт в чате и запустите агента снова.",
                                 )
-                                notify_admin(
+                                notify_admin_pref(
+                                    db, "spam_block",
                                     f"🚫 <b>Аккаунт забанен в чате</b> — агент на паузе\n"
                                     f"Персона: {persona.get('name') or persona_id}\n"
                                     f"Чат: {chat_title or chat_id}\n"

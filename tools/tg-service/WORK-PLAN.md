@@ -26,7 +26,7 @@
 ---
 
 > **P1, P2 → см. [WORK-PLAN-DONE.md](WORK-PLAN-DONE.md)** (все задачи закрыты, регресс чист)
-> Отложенные под-задачи из P2: **P2-10b** (ai_agent hot-path notify_admin_pref — адаптировать отдельным заходом с live-прогоном ai_agent)
+> ~~Отложенные под-задачи из P2: P2-10b~~ → **[x] P2-10b ЗАКРЫТ**: 3 вызова `notify_admin` в ai*agent_tasks.py (авто-пауза агента при бане/нет-прав) обёрнуты в `notify_admin_pref(db, "spam_block", …)` — теперь уважают `notify_on_spam_block` (тот же event_key, что membership_check в P5-08; ничего кроме гейтинга уведомлений не менялось). Live: gate-unit (off→suppress / on→send / null→send-default) ✓; Atlas-цикл жив (3 цикла, 0 import/traceback, loop_token-guard без двойного revive-краша); contract_smoke 211 ✓; regression 26/26 ✓. **Хвостов плана не осталось — все 92 + P2-10b закрыты.** *(commit P2-10b)\_
 
 ---
 
