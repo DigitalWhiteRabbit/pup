@@ -13,15 +13,15 @@
 
 ## Сводка по фазам
 
-| Фаза      | Тема                                            | Задач  | Статус                   |
-| --------- | ----------------------------------------------- | ------ | ------------------------ |
-| 1         | Починка сломанного + безопасность               | 12     | ✅ 12/12                 |
-| 2         | «Фантомные» config-поля (подключить или скрыть) | 11     | ✅ 11/11                 |
-| 3         | Quick wins по разделам (S/low)                  | 21     | ✅ 21/21                 |
-| 4         | Средние улучшения (M, low-med)                  | 28     | ✅ 27/28 (P4-21 BLOCKED) |
-| 5         | Сквозная инфраструктура (общие компоненты)      | 9      | ☐                        |
-| 6         | Крупные/стратегические (L, med+)                | 11     | ☐                        |
-| **Итого** |                                                 | **92** |                          |
+| Фаза      | Тема                                            | Задач  | Статус   |
+| --------- | ----------------------------------------------- | ------ | -------- |
+| 1         | Починка сломанного + безопасность               | 12     | ✅ 12/12 |
+| 2         | «Фантомные» config-поля (подключить или скрыть) | 11     | ✅ 11/11 |
+| 3         | Quick wins по разделам (S/low)                  | 21     | ✅ 21/21 |
+| 4         | Средние улучшения (M, low-med)                  | 28     | ✅ 28/28 |
+| 5         | Сквозная инфраструктура (общие компоненты)      | 9      | ☐        |
+| 6         | Крупные/стратегические (L, med+)                | 11     | ☐        |
+| **Итого** |                                                 | **92** |          |
 
 ---
 
@@ -72,15 +72,15 @@
 - [x] **P4-10** · cloner · Фильтры контента (пропуск рекламы/по ключевым словам). S · low. skip*ads (forwards+hashtags) + skip_keywords. *(commit 0f40826)\_
 - [x] **P4-11** · converter · Скачивание результата + audit. S · med. GET /download → ZIP stream + audit*logs + UI кнопка. *(commit 3294fd5)\_
 - [x] **P4-12** · converter · Страна по номеру + проверка живости. S · low. GET /converter/phone-country + виджет в UI. Live: +7→RU+Tele2 ✓. _(commit 9d123a2)_
-- [x] **P4-13** · join-chats · Дневной лимит вступлений per-account. S · med. daily*limit_per_account в config (default 50). *(commit 5309f3c)\_
-- [x] **P4-14** · join-chats · Авто-стоп при серии BANNED*AFTER_JOIN. S · low. ban_auto_stop_count (default 3). *(commit 5309f3c)\_
+- [x] **P4-13** · join-chats · Дневной лимит вступлений per-account. S · med. daily*limit в config (default 50) + UI-инпут. *(commits 5309f3c, 15d672d)\_
+- [x] **P4-14** · join-chats · Авто-стоп при серии BANNED*AFTER_JOIN. S · low. ban_auto_stop_count (default 3) + UI-инпут. *(commits 5309f3c, 15d672d)\_
 - [x] **P4-15** · join-chats · Retry проблемных (FAILED) чатов. S · low. POST /retry-failed + UI кнопка. _(commit 5309f3c)_
 - [x] **P4-16** · channel-creator · Распределение создания по нескольким аккаунтам (round-robin). M · med. _(commit 46908db)_
 - [x] **P4-17** · channel-creator · Лимит создания per-account + ramp-up. S · med. _(commit 46908db)_
 - [x] **P4-18** · channel-creator · Инкрементальный прогресс created*count. S · low. *(commit 46908db)\_
 - [x] **P4-19** · channel-creator · Авто-связка is*own каналов как target. S · low. *(commit 46908db)\_
 - [x] **P4-20** · dm-campaign · Детект ответов (REPLIED) + конверсия. M · low. POST /check-replies + UI кнопка. Live ограничен (нужен реальный TG). _(commit a01fc40)_
-- [B] **P4-21** · dm-campaign · Дневной лимит между запусками (account_daily_usage). S · med → BLOCKED: depends on P5-01 (account_daily_usage table). Текущий лимит через settings.limits_dm_per_day работает.
+- [x] **P4-21** · dm-campaign · Дневной лимит между запусками (account*daily_usage). S · med. Разблокирован P5-01: DM-движок гейтит по get_usage(ACTION_DM) ≥ daily_limit (cross-campaign + restart-safe). *(commit 2b5a705)\_
 - [x] **P4-22** · chat-broadcast · Детект удаления постов (survival*rate). M · low. POST /check-survival + UI кнопка. *(commit eea84a2)\_
 - [x] **P4-23** · chat-broadcast · Пауза/резюм + PATCH. S · low. POST /pause + /resume + UI кнопка. _(commit eea84a2)_
 - [x] **P4-24** · inviting · Пауза/резюм. S · low. POST /pause + /resume + UI кнопка. _(commit eea84a2)_
@@ -89,13 +89,13 @@
 - [x] **P4-27** · kb · Авто-self-test/conflict-check после upload + бейдж здоровья. S · low. _maybe_trigger_self_test() при ≥3 docs + 6h cooldown. _(commit 6e6c700)\_
 - [x] **P4-28** · style*bank · Сделать Style Bank полноценным пунктом меню. S · low. Nav item + rStyleBankPage() со статистикой. *(commit 6e6c700)\_
 
-**Регресс Ф4:** `scripts/regression_screens.py` → 26/26 чисто. Тестовых записей нет. Аккаунты 9 ACTIVE + 1 INVALID. WARMING 0. P4-21 BLOCKED (depends on P5-01).
+**Регресс Ф4:** `scripts/regression_screens.py` → 26/26 чисто. Тестовых записей нет. Аккаунты 9 ACTIVE + 1 INVALID. WARMING 0. P4-21 закрыт в Ф5 (P5-01).
 
 ---
 
 ## ФАЗА 5 — Сквозная инфраструктура
 
-- [ ] **P5-01** · Сквозное · `account_daily_usage` — персистентные суточные лимиты per-account с reset по дате, проверяемые всеми движками горячего пути. M · med
+- [x] **P5-01** · Сквозное · `account_daily_usage` — персистентные суточные лимиты per-account с reset по дате, проверяемые всеми движками горячего пути. M · med. Таблица + core/daily*usage.py + подключено в dm/chat_broadcast/invite/join. Live: 6/6 unit ✓, endpoint ✓. *(commit 2b5a705)\_
 - [ ] **P5-02** · Сквозное · Общий `app/services/tg_runner.py` — единый connect/proxy_kwargs/NO_PROXY-guard/FloodWait/ramp-up (дедуп из 6+ файлов). M · med
 - [ ] **P5-03** · Сквозное · `can_act(account, action_type)` поверх Настроек (лимиты+активные часы), применить в boost/stories/cloner и кампаниях. M · med
 - [ ] **P5-04** · Сквозное · Beat-планировщик SCHEDULED/drip/AUTO_MONITOR (DM/broadcast/invite/boost/stories/cloner). M · med
