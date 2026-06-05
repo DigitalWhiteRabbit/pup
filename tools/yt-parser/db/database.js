@@ -383,6 +383,23 @@ function getDb(workspaceId = "default") {
     `CREATE INDEX IF NOT EXISTS idx_dev_tasks_parent ON dev_tasks(parent_task_id)`,
   );
 
+  // ─── Channel tags (catalog + per-channel assignment) ──────────────
+  safeExec(`CREATE TABLE IF NOT EXISTS tags (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    color TEXT NOT NULL DEFAULT '#3b82f6',
+    created_at TEXT NOT NULL
+  )`);
+  safeExec(`CREATE TABLE IF NOT EXISTS channel_tags (
+    channel_id TEXT PRIMARY KEY,
+    tag_id INTEGER NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(tag_id) REFERENCES tags(id) ON DELETE CASCADE
+  )`);
+  safeExec(
+    `CREATE INDEX IF NOT EXISTS idx_channel_tags_tag ON channel_tags(tag_id)`,
+  );
+
   // ─── Prepared Statements ──────────────────────────────────────────
   const stmts = buildStmts(db);
 

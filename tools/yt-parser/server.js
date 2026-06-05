@@ -25,6 +25,7 @@ const { importFromCsv } = require("./db/lead-importer");
 const tgOutreach = require("./services/telegram-outreach");
 const adminBot = require("./services/admin-bot");
 const apiKeysRouter = require("./routes/api-keys");
+const tagsRouter = require("./routes/tags");
 const apiKeysDb = require("./db/api-keys");
 
 const app = express();
@@ -68,6 +69,7 @@ app.use("/api/health", healthRouter);
 app.use("/api/knowledge", knowledgeRouter);
 app.use("/api/dev-tasks", devTasksRouter);
 app.use("/api/api-keys", apiKeysRouter);
+app.use("/api/tags", tagsRouter);
 
 const ARCHIVE_DIR = path.join(__dirname, "Архив парсинг");
 // Per-workspace CSV path
