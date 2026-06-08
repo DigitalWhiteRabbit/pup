@@ -166,6 +166,50 @@ router.post("/bulk-status", (req, res) => {
   res.json({ success: true, updated: ids.length });
 });
 
+// POST /api/leads/bulk-run  { ids: [] } — массовый запуск: готовит лидов и
+// запускает AI-агента по очереди; письма падают в «На проверке» (review mode).
+router.post("/bulk-run", (req, res) => {
+  const ids = (Array.isArray(req.body.ids) ? req.body.ids : [])
+    .map((n) => parseInt(n, 10))
+    .filter(Boolean);
+  if (ids.length === 0) {
+    return res.status(400).json({ success: false, error: "ids required" });
+  }
+
+  const now = new Date().toISOString();
+  const eligible = [];
+  for (const id of ids) {
+    const lead = req.stmts.getLead.get(id);
+    if (!lead) continue;
+    if (lead.lead_status === "rejected") continue; // отклонённых не воскрешаем
+    // Готовим к запуску: ready + снять лок + стадия not_contacted.
+    req.db
+      .prepare(
+        `UPDATE leads SET lead_status = 'ready', locked_until = NULL, dialogue_stage = 'not_contacted', updated_at = ? WHERE id = ?`,
+      )
+      .run(now, id);
+    eligible.push(id);
+  }
+
+  // Запускаем последовательно в фоне, ответ отдаём сразу.
+  setImmediate(() => {
+    try {
+      const worker = require("../services/outreach-worker");
+      if (worker && typeof worker.runLeadsNow === "function") {
+        worker
+          .runLeadsNow(eligible, req.workspaceId)
+          .catch((err) =>
+            console.error("[leads/bulk-run] runLeadsNow error:", err.message),
+          );
+      }
+    } catch (err) {
+      console.error("[leads/bulk-run] failed to trigger worker:", err.message);
+    }
+  });
+
+  res.json({ success: true, queued: eligible.length });
+});
+
 // POST /api/leads/promote — промоут канала из Dashboard в Лиды (создать если нет + статус ready)
 router.post("/promote", (req, res) => {
   const row = req.body;

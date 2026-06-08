@@ -107,6 +107,10 @@ function getDb(workspaceId = "default") {
     safeExec(`ALTER TABLE projects ADD COLUMN admin_directive TEXT`);
   if (!columnExists("projects", "system_prompt"))
     safeExec(`ALTER TABLE projects ADD COLUMN system_prompt TEXT`);
+  if (!columnExists("projects", "pitch_temperature"))
+    safeExec(`ALTER TABLE projects ADD COLUMN pitch_temperature REAL`);
+  if (!columnExists("projects", "subject_pool"))
+    safeExec(`ALTER TABLE projects ADD COLUMN subject_pool TEXT`);
   if (!columnExists("projects", "reply_delay_min"))
     safeExec(
       `ALTER TABLE projects ADD COLUMN reply_delay_min INTEGER DEFAULT 30`,
@@ -575,6 +579,15 @@ function buildStmts(db) {
     listMessagesByDialogue: db.prepare(
       `SELECT * FROM messages WHERE dialogue_id = ? ORDER BY created_at ASC`,
     ),
+    // Все сообщения лида по ВСЕМ его диалогам (слитно по времени). Нужно, когда
+    // у лида несколько диалогов (например, ответ блогера в старой ветке другой
+    // кампании) — чтобы окно диалога показывало полную переписку.
+    listMessagesByLead: db.prepare(
+      `SELECT m.* FROM messages m
+       JOIN dialogues d ON d.id = m.dialogue_id
+       WHERE d.lead_id = ?
+       ORDER BY m.created_at ASC, m.id ASC`,
+    ),
     // Email open tracking: get last outgoing message open status per lead
     getLastOutgoingMessageOpen: db.prepare(`
       SELECT m.opened_at, m.open_count
@@ -691,7 +704,7 @@ function buildStmts(db) {
     `),
     getPendingReply: db.prepare(`SELECT * FROM pending_replies WHERE id = ?`),
     listPendingReplies: db.prepare(`
-      SELECT pr.*, l.channel_name, l.country, l.subscribers
+      SELECT pr.*, l.channel_name, l.country, l.subscribers, l.channel_url
       FROM pending_replies pr
       LEFT JOIN leads l ON l.id = pr.lead_id
       WHERE (@status IS NULL OR pr.status = @status)

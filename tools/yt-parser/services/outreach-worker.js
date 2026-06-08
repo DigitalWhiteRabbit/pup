@@ -329,6 +329,21 @@ async function _processPickedLead(lead, project, counts) {
       log("WARN", `Scoring failed for lead #${lead.id}: ${e.message}`);
     }
 
+    // ─── Авто-сводка (content_summary) перед генерацией питча (TZ §6) ──
+    // Только если пусто (сделанное человеком/ранее не трогаем). Ошибка не фатальна.
+    if (!lead.content_summary) {
+      try {
+        const summary = await ai.generateContentSummary(lead, project);
+        db.prepare(
+          "UPDATE leads SET content_summary = ?, updated_at = ? WHERE id = ?",
+        ).run(summary, new Date().toISOString(), lead.id);
+        lead.content_summary = summary;
+        log("INFO", `Lead #${lead.id} content_summary auto-generated`);
+      } catch (e) {
+        log("WARN", `summary failed lead #${lead.id}: ${e.message}`);
+      }
+    }
+
     // Opted-out check (GDPR)
     if (lead.opted_out) {
       log("INFO", `Lead #${lead.id} opted out — skipping`);
@@ -372,6 +387,29 @@ async function _processPickedLead(lead, project, counts) {
     if (!recipient) {
       log("WARN", `Lead #${lead.id} empty recipient, skipping`);
       stmts.lockLead.run(Date.now() + LOCK_DURATION_ERR_MS, lead.id);
+      return;
+    }
+
+    // ─── Защита от пересечения кампаний ──────────────────────────────
+    // Если лиду УЖЕ слали исходящие (в любом диалоге, любой кампанией) —
+    // не генерируем новый initial-питч: иначе вторая кампания «перебивает»
+    // активную ветку первой. Такой лид ведётся через ответы (processInbox),
+    // а не через повторный холодный питч.
+    const priorOut = db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM messages m
+         JOIN dialogues d ON d.id = m.dialogue_id
+         WHERE d.lead_id = ? AND m.direction = 'out'`,
+      )
+      .get(lead.id);
+    if (priorOut && priorOut.n > 0) {
+      log(
+        "WARN",
+        `Lead #${lead.id} уже контактирован (${priorOut.n} исходящих) — пропускаю initial-питч (защита от пересечения кампаний)`,
+      );
+      const nowTs = new Date().toISOString();
+      stmts.updateLeadStage.run("contacted", nowTs, lead.id);
+      stmts.unlockLead.run(lead.id);
       return;
     }
 
@@ -559,6 +597,18 @@ async function runLeadNow(leadId, workspaceId) {
     stmts = savedStmts;
     db = savedDb;
     currentWorkspaceId = savedWsId;
+  }
+}
+
+// Последовательный запуск нескольких лидов (bulk «Запустить»): по очереди,
+// без параллелизма — чтобы не было гонки stmts-свопа и всплеска вызовов API.
+async function runLeadsNow(leadIds, workspaceId) {
+  for (const id of leadIds || []) {
+    try {
+      await runLeadNow(id, workspaceId);
+    } catch (e) {
+      log("WARN", `bulk-run lead #${id}: ${e.message}`);
+    }
   }
 }
 
@@ -1835,6 +1885,7 @@ module.exports = {
   processApprovedQueue,
   processFollowUps,
   runLeadNow,
+  runLeadsNow,
   onPendingReplyRejected,
   isReviewMode,
   getFollowUpConfig,

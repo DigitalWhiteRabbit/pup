@@ -1876,6 +1876,7 @@ window.fetch = function(url, opts) {
 
         <div class="bulk-bar" id="leadsBulkBar">
           <span>Выбрано: <span class="count" id="leadsBulkCount">0</span></span>
+          <button class="btn-primary btn-sm" onclick="leadsBulkRun()">▶ Запустить выбранные</button>
           <button class="btn-secondary btn-sm" onclick="leadsBulkSetStatus('ready')">→ В работу</button>
           <button class="btn-secondary btn-sm" onclick="leadsBulkSetStatus('pending')">→ В ожидание</button>
           <button class="btn-danger btn-sm" onclick="leadsBulkSetStatus('rejected')">✕ Отклонить</button>
@@ -5383,6 +5384,26 @@ function leadsUpdateBulkBar() {
   document.getElementById('leadsBulkCount').textContent = leadsSelected.size;
   bar.classList.toggle('visible', leadsSelected.size > 0);
 }
+async function leadsBulkRun() {
+  if (leadsSelected.size === 0) return;
+  const n = leadsSelected.size;
+  if (!await confirmDialog('Запустить выбранные', `Запустить генерацию писем для ${n} лидов? Они обрабатываются по очереди, готовые письма появятся в «На проверке».`)) return;
+  try {
+    const r = await fetch('/api/leads/bulk-run', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ ids:[...leadsSelected] })
+    });
+    const j = await r.json();
+    if (j.success) toast(`Запущено ${j.queued ?? n} лидов — письма появятся в «На проверке» по мере готовности`, 'success');
+    else toast('Ошибка: ' + (j.error || 'не удалось запустить'), 'error');
+  } catch (e) {
+    toast('Ошибка запуска: ' + e.message, 'error');
+  }
+  leadsSelected.clear();
+  leadsUpdateBulkBar();
+  loadLeads();
+}
+
 async function leadsBulkSetStatus(status) {
   if (leadsSelected.size === 0) return;
   if (!await confirmDialog('Изменить статус',`Установить статус "${status}" для ${leadsSelected.size} лидов?`)) return;
@@ -5968,6 +5989,7 @@ function renderPendingReplyCard(it) {
               <span style="font-weight:700;font-size:15px;color:var(--text)">${escapeHtml(it.channel_name || 'Без лида')}</span>
               <button class="btn-secondary btn-sm" style="font-size:10px;padding:3px 10px;border-radius:6px" onclick="showLeadContext(${it.id})" title="Что AI знает о блогере">📋 Сводка</button>
               <button class="btn-secondary btn-sm" style="font-size:10px;padding:3px 10px;border-radius:6px" onclick="showConversationHistory(${it.id})" title="Вся история переписки (оригинал + перевод)">📜 История</button>
+              ${it.channel_url ? `<a href="${escapeHtml(it.channel_url)}" target="_blank" rel="noopener" class="btn-secondary btn-sm" style="font-size:10px;padding:3px 10px;border-radius:6px;text-decoration:none" title="Открыть YouTube-канал блогера">▶ Канал</a>` : ''}
             </div>
             <div style="font-size:12px;color:var(--text-dim);margin-top:2px">
               → <span style="color:var(--accent);font-weight:500">${escapeHtml(it.recipient || '')}</span>
