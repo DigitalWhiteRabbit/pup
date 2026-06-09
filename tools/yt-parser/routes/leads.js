@@ -66,6 +66,20 @@ router.get("/", (req, res) => {
     "SELECT 1 FROM dialogues WHERE lead_id = ? LIMIT 1",
   );
 
+  // Каналы, по которым лиду уже уходило исходящее (workspace-scoped через req.db).
+  const sentChannelsStmt = req.db.prepare(
+    `SELECT DISTINCT d.channel FROM dialogues d
+     JOIN messages m ON m.dialogue_id = d.id
+     WHERE d.lead_id = ? AND m.direction = 'out'`,
+  );
+  // Доступность TG-канала зависит от наличия живого аккаунта под лимитом (общий пул).
+  let tgReady = false;
+  try {
+    tgReady = require("../services/telegram-outreach").anyReadyUnderLimit();
+  } catch {
+    tgReady = false;
+  }
+
   // Enrich each lead with last outgoing message open status + dialogue presence
   for (const lead of leads) {
     try {
@@ -80,6 +94,16 @@ router.get("/", (req, res) => {
       lead.has_dialogue = !!hasDialogueStmt.get(lead.id);
     } catch {
       lead.has_dialogue = false;
+    }
+    // Доступность каналов для пикера (зелёный/красный) + уже отправленные.
+    lead.channels_available = {
+      email: !!(lead.email && String(lead.email).trim()),
+      telegram: !!(lead.telegram && String(lead.telegram).trim()) && tgReady,
+    };
+    try {
+      lead.channels_sent = sentChannelsStmt.all(lead.id).map((r) => r.channel);
+    } catch {
+      lead.channels_sent = [];
     }
   }
 
@@ -191,13 +215,17 @@ router.post("/bulk-run", (req, res) => {
     eligible.push(id);
   }
 
+  const channels = Array.isArray(req.body?.channels)
+    ? req.body.channels.filter((c) => c === "email" || c === "telegram")
+    : null;
+
   // Запускаем последовательно в фоне, ответ отдаём сразу.
   setImmediate(() => {
     try {
       const worker = require("../services/outreach-worker");
       if (worker && typeof worker.runLeadsNow === "function") {
         worker
-          .runLeadsNow(eligible, req.workspaceId)
+          .runLeadsNow(eligible, req.workspaceId, channels)
           .catch((err) =>
             console.error("[leads/bulk-run] runLeadsNow error:", err.message),
           );
@@ -207,7 +235,7 @@ router.post("/bulk-run", (req, res) => {
     }
   });
 
-  res.json({ success: true, queued: eligible.length });
+  res.json({ success: true, queued: eligible.length, channels });
 });
 
 // POST /api/leads/promote — промоут канала из Dashboard в Лиды (создать если нет + статус ready)
@@ -415,6 +443,11 @@ router.post("/:id/run", (req, res) => {
       .json({ success: false, error: 'lead_status must be "ready"' });
   }
 
+  // Каналы из пикера (Фаза 2): ["email","telegram"]; если не переданы — все доступные.
+  const channels = Array.isArray(req.body?.channels)
+    ? req.body.channels.filter((c) => c === "email" || c === "telegram")
+    : null;
+
   const now = new Date().toISOString();
   try {
     req.db
@@ -429,7 +462,7 @@ router.post("/:id/run", (req, res) => {
         if (!worker) return;
         if (typeof worker.runLeadNow === "function") {
           worker
-            .runLeadNow(id, req.workspaceId)
+            .runLeadNow(id, req.workspaceId, channels)
             .catch((err) =>
               console.error("[leads/run] runLeadNow error:", err.message),
             );
@@ -438,7 +471,7 @@ router.post("/:id/run", (req, res) => {
         console.error("[leads/run] failed to trigger worker:", err.message);
       }
     });
-    res.json({ success: true, queued: true });
+    res.json({ success: true, queued: true, channels });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
