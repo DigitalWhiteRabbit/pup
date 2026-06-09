@@ -10,7 +10,7 @@
 - [x] **Шаг 3 — Прокси (SOCKS5)**: билдер proxy-опции для TelegramClient из полей `tg_account`; заготовка под MTProxy (`proxy_type`).
 - [x] **Шаг 4 — Анти-бан**: пейсинг-очередь TG с джиттером 30–90с; per-account дневной лимит + ramp-up по `first_used_at`; обработка `FloodWaitError` → `flood_until`.
 - [x] **Шаг 5 — Выбор каналов**: `POST /api/leads/:id/run` принимает `channels[]`; доступность отдаётся в данных лида; рассылка по КАЖДОМУ выбранному каналу (своя запись dialogue+message, свой incrementDailyCount, account_id для TG); идемпотентность по каналу; ревью-режим — строка в pending_replies на канал.
-- [ ] **Шаг 6 — Входящие + approve под TG**: надёжный матч лида + тег account_id; approve шлёт через `sendMessageVia` тем же аккаунтом из `dialogues.account_id`.
+- [x] **Шаг 6 — Входящие + approve под TG**: надёжный матч лида + тег account_id; approve шлёт через `sendMessageVia` тем же аккаунтом из `dialogues.account_id`.
 - [ ] **Шаг 7 — Проверка**: curl всех новых эндпоинтов при DRY_RUN, lint, рестарт dev-сервера, обновление этого файла.
 
 ## Принятые дефолты

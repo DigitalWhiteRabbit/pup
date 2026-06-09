@@ -257,6 +257,26 @@ function recipientFor(lead, channel) {
     : parseTelegramHandle(lead.telegram);
 }
 
+// Отправка ответа в TG ТЕМ ЖЕ аккаунтом, что ведёт диалог (dialogues.account_id).
+// Если у диалога ещё нет привязки — выбираем здоровый аккаунт и фиксируем его.
+async function sendTelegramBound(dialogueId, recipient, text) {
+  let accountId = null;
+  if (dialogueId) {
+    const d = stmts.getDialogue.get(dialogueId);
+    if (d && d.account_id != null) accountId = d.account_id;
+  }
+  if (accountId == null) accountId = tg.pickAccount();
+  if (accountId == null)
+    throw new Error("нет доступного TG-аккаунта (залогинен/под лимитом)");
+  const result = await tg.sendMessageVia(accountId, recipient, text);
+  if (dialogueId) {
+    const d = stmts.getDialogue.get(dialogueId);
+    if (d && d.account_id == null)
+      stmts.setDialogueAccount.run(result.accountId, dialogueId);
+  }
+  return result;
+}
+
 // Match lead by exact email address (lowercase). Берём lead'ов с lead_status in work/done и потом фильтруем.
 function findLeadByEmail(fromAddr) {
   if (!fromAddr) return null;
@@ -1138,11 +1158,16 @@ async function processOneLeadReply(lead, project) {
       metadata = { subject: reply.subject, resend_id: result.id };
       incrementDailyCount("email");
     } else if (dialogue.channel === "telegram") {
-      const tgResult = await tg.sendMessage(
+      const tgResult = await sendTelegramBound(
+        dialogue.id,
         parseTelegramHandle(lead.telegram),
         reply.body,
       );
-      metadata = { tg_message_id: tgResult.messageId };
+      metadata = {
+        tg_message_id: tgResult.messageId,
+        chat_id: tgResult.chatId,
+        account_id: tgResult.accountId,
+      };
       incrementDailyCount("telegram");
     }
 
@@ -1259,11 +1284,16 @@ async function processDecidedDeals() {
         metadata = { subject: reply.subject, resend_id: result.id };
         incrementDailyCount("email");
       } else if (dialogue.channel === "telegram") {
-        const tgResult = await tg.sendMessage(
+        const tgResult = await sendTelegramBound(
+          dialogue.id,
           parseTelegramHandle(lead.telegram),
           reply.body,
         );
-        metadata = { tg_message_id: tgResult.messageId };
+        metadata = {
+          tg_message_id: tgResult.messageId,
+          chat_id: tgResult.chatId,
+          account_id: tgResult.accountId,
+        };
         incrementDailyCount("telegram");
       }
 
@@ -1384,11 +1414,14 @@ async function processAnsweredConsultations() {
         metadata.resend_id = result.id;
         incrementDailyCount("email");
       } else if (dialogue.channel === "telegram") {
-        const tgResult = await tg.sendMessage(
+        const tgResult = await sendTelegramBound(
+          dialogue.id,
           parseTelegramHandle(lead.telegram),
           reply.body,
         );
         metadata.tg_message_id = tgResult.messageId;
+        metadata.chat_id = tgResult.chatId;
+        metadata.account_id = tgResult.accountId;
         incrementDailyCount("telegram");
       }
 
@@ -1516,6 +1549,16 @@ async function sendApprovedPendingReply(item) {
     if (lastOut) replyToHeader = safeJsonParse(lastOut.metadata).resend_id;
   }
 
+  // Для TG: аккаунт-владелец диалога (или выбранный, если привязки ещё нет).
+  let tgAccountId = null;
+  if (item.channel === "telegram") {
+    if (item.dialogue_id) {
+      const d = stmts.getDialogue.get(item.dialogue_id);
+      if (d && d.account_id != null) tgAccountId = d.account_id;
+    }
+    if (tgAccountId == null) tgAccountId = tg.pickAccount();
+  }
+
   // Отправка
   let externalId = null;
   let sendMeta = {};
@@ -1523,7 +1566,11 @@ async function sendApprovedPendingReply(item) {
   if (DRY_RUN) {
     log(
       "INFO",
-      `[DRY_RUN] Would send ${item.channel} to ${item.recipient}\nSubject: ${subject || ""}\n${body}`,
+      `[DRY_RUN] Would send ${item.channel} to ${item.recipient}${
+        item.channel === "telegram" && tgAccountId != null
+          ? ` via acc#${tgAccountId}`
+          : ""
+      }\nSubject: ${subject || ""}\n${body}`,
     );
     db.prepare(
       `INSERT INTO dry_run_log (created_at, lead_id, channel, subject, body, would_send_to) VALUES (?,?,?,?,?,?)`,
@@ -1541,6 +1588,7 @@ async function sendApprovedPendingReply(item) {
     else if (item.channel === "telegram") {
       sendMeta.tg_message_id = externalId;
       sendMeta.chat_id = externalId;
+      if (tgAccountId != null) sendMeta.account_id = tgAccountId;
     }
   } else if (item.channel === "email") {
     trackingId = generateTrackingId();
@@ -1559,9 +1607,16 @@ async function sendApprovedPendingReply(item) {
     externalId = result.messageId;
     sendMeta = { subject, resend_id: result.id };
   } else if (item.channel === "telegram") {
-    const result = await tg.sendMessage(item.recipient, body);
+    if (tgAccountId == null)
+      throw new Error("нет доступного TG-аккаунта (залогинен/под лимитом)");
+    const result = await tg.sendMessageVia(tgAccountId, item.recipient, body);
     externalId = result.chatId;
-    sendMeta = { tg_message_id: result.messageId, chat_id: result.chatId };
+    sendMeta = {
+      tg_message_id: result.messageId,
+      chat_id: result.chatId,
+      account_id: result.accountId,
+    };
+    tgAccountId = result.accountId;
   } else {
     throw new Error("unknown channel " + item.channel);
   }
@@ -1576,6 +1631,8 @@ async function sendApprovedPendingReply(item) {
         externalId,
         now,
       );
+      if (item.channel === "telegram" && tgAccountId != null)
+        stmts.setDialogueAccount.run(tgAccountId, dlgResult.lastInsertRowid);
       stmts.insertMessage.run({
         dialogue_id: dlgResult.lastInsertRowid,
         direction: "out",
@@ -1600,6 +1657,12 @@ async function sendApprovedPendingReply(item) {
       if (type === "deal_accept") metaExtra.deal_decision = ctx.deal_decision;
       if (type === "consultation_answer")
         metaExtra.consultation_id = ctx.consultation_id;
+      if (
+        item.channel === "telegram" &&
+        tgAccountId != null &&
+        item.dialogue_id
+      )
+        stmts.setDialogueAccount.run(tgAccountId, item.dialogue_id);
       stmts.insertMessage.run({
         dialogue_id: item.dialogue_id,
         direction: "out",
@@ -1762,8 +1825,14 @@ async function processFollowUps() {
           metadata.resend_id = result.id;
           incrementDailyCount("email");
         } else if (row.dlg_channel === "telegram") {
-          const result = await tg.sendMessage(recipient, reply.body);
+          const result = await sendTelegramBound(
+            row.dlg_id,
+            recipient,
+            reply.body,
+          );
           metadata.tg_message_id = result.messageId;
+          metadata.chat_id = result.chatId;
+          metadata.account_id = result.accountId;
           incrementDailyCount("telegram");
         }
 
@@ -1884,7 +1953,14 @@ async function handleIncomingTelegram(msg) {
           id: r.lastInsertRowid,
           lead_id: lead.id,
           channel: "telegram",
+          account_id: null,
         };
+      }
+      // Привязка диалога к аккаунту, ПОЛУЧИВШЕМУ входящее (или backfill, если
+      // диалог был создан без привязки). Так ответ уйдёт тем же аккаунтом.
+      if (msg.accountId != null && dialogue.account_id == null) {
+        stmts.setDialogueAccount.run(msg.accountId, dialogue.id);
+        dialogue.account_id = msg.accountId;
       }
       stmts.insertMessage.run({
         dialogue_id: dialogue.id,
@@ -1895,6 +1971,7 @@ async function handleIncomingTelegram(msg) {
           username: msg.username,
           tg_message_id: msg.messageId,
           chat_id: msg.chatId,
+          account_id: msg.accountId ?? null,
         }),
         created_at: now,
         tracking_id: null,
@@ -1994,6 +2071,7 @@ module.exports = {
   runLeadsNow,
   channelAvailability,
   existingOutChannels,
+  handleIncomingTelegram,
   onPendingReplyRejected,
   isReviewMode,
   getFollowUpConfig,
