@@ -50,6 +50,17 @@
 - `POST /api/leads/:id/run` и `POST /api/leads/bulk-run` — доп. поле `channels: ["email","telegram"]`.
 - `GET  /api/leads` — у лида добавлены `channels_available {email,telegram}` и `channels_sent [...]`.
 
+## Фаза 2 (UI) — `public/index.html` (vanilla-JS SPA)
+
+Ветка та же `feat/tg-multichannel-outreach`. Аккаунты не подключены (нет кредов) —
+UI строится и проверяется структурно; реальный логин — позже вместе.
+
+- [x] **Шаг 1 — Попап-пикер каналов при «Запустить»**: модалка с кнопками каналов (зелёный=доступен по `channels_available`, красный/disabled=нет, ✓=уже отправлен по `channels_sent`); мультивыбор → `POST /api/leads/:id/run {channels}`; то же для bulk → `/api/leads/bulk-run {ids,channels}`; будущие каналы (WhatsApp…) — disabled.
+- [ ] **Шаг 2 — Управление TG-аккаунтами в Настройках**: список из `/api/telegram/accounts`, добавление (label/phone/proxy_string/daily_cap), поэтапный логин per-account (login→code→password), статус (active/flood/banned/disabled + sent_today/cap), logout/delete, PATCH прокси/лимита.
+- [ ] **Шаг 3 — Переключатель канала в чате**: вкладки Email/Telegram по `channels_sent`; пер-канальная история; индикатор канала и аккаунта (account_id) у TG.
+- [ ] **Шаг 4 — Бейджи каналов в списке лидов**: existing контакт-иконки увязать с состоянием доступен/отправлено.
+- [ ] **Шаг 5 — Проверка**: нет ошибок в консоли, fetch-вызовы по контрактам, рестарт dev-сервера, обновление PROGRESS.
+
 ## Осталось на живой тест (нужно от Бруно)
 
 - 3 реальных TG-аккаунта (phone/code/2FA) + 3 прокси. **Уточнить тип прокси** (SOCKS5 уже готов; MTProxy — заготовка, нужно дореализовать при необходимости).

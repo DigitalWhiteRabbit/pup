@@ -1003,6 +1003,50 @@ td a:hover { text-decoration:underline; }
 .modal-contacts a { display:inline-block; padding:5px 11px; background:rgba(255,255,255,.05); border:1px solid var(--border); border-radius:6px; font-size:11px; color:var(--text); text-decoration:none; }
 .modal-contacts a:hover { background:rgba(255,255,255,.1); border-color:var(--accent); }
 
+/* ─── Channel picker (TG multichannel) ─────────────────── */
+.chan-pick-grid { display:flex; flex-direction:column; gap:10px; margin:8px 0 4px; }
+.chan-pick {
+  display:flex; align-items:center; gap:12px; padding:12px 14px;
+  border-radius:10px; border:1px solid var(--border); background:rgba(255,255,255,.02);
+  cursor:pointer; transition:border-color .15s, background .15s; user-select:none;
+}
+.chan-pick .chan-ico { width:34px; height:34px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:800; flex:none; }
+.chan-pick .chan-body { flex:1; min-width:0; }
+.chan-pick .chan-name { font-size:13px; font-weight:700; }
+.chan-pick .chan-sub { font-size:11px; color:var(--text-dim); margin-top:1px; }
+.chan-pick .chan-check { width:20px; height:20px; border-radius:5px; border:1.5px solid var(--border); display:flex; align-items:center; justify-content:center; font-size:12px; color:transparent; flex:none; }
+/* available (selectable) */
+.chan-pick.available { border-color:rgba(74,222,128,.4); }
+.chan-pick.available .chan-ico { background:var(--green-dim); color:var(--green); }
+.chan-pick.available:hover { background:rgba(74,222,128,.07); }
+.chan-pick.selected { border-color:var(--green); background:rgba(74,222,128,.1); }
+.chan-pick.selected .chan-check { background:var(--green); border-color:var(--green); color:#0b1a0f; }
+/* unavailable / future (disabled) */
+.chan-pick.disabled { opacity:.5; cursor:not-allowed; border-color:rgba(239,68,68,.3); }
+.chan-pick.disabled .chan-ico { background:var(--red-dim); color:var(--red); }
+/* already sent */
+.chan-pick.sent .chan-ico { background:var(--blue-dim); color:var(--blue); }
+.chan-pick.sent { border-color:rgba(59,130,246,.35); }
+
+/* ─── Contact icon channel-state (leads table) ─────────── */
+.contact-icon.ch-sent { position:relative; box-shadow:0 0 0 1.5px rgba(59,130,246,.6) inset; }
+.contact-icon.ch-sent::after {
+  content:'✓'; position:absolute; top:-5px; right:-5px; font-size:8px; line-height:1;
+  background:var(--blue); color:#fff; border-radius:50%; width:11px; height:11px;
+  display:flex; align-items:center; justify-content:center; font-weight:800;
+}
+.contact-icon.ch-unavail { opacity:.32; filter:grayscale(.6); }
+
+/* ─── Dialogue channel tabs ────────────────────────────── */
+.dlg-chan-tabs { display:flex; gap:6px; padding:8px 18px 0; border-bottom:1px solid var(--border); }
+.dlg-chan-tab {
+  padding:6px 14px; border-radius:8px 8px 0 0; font-size:12px; font-weight:700;
+  border:1px solid var(--border); border-bottom:none; background:rgba(255,255,255,.02);
+  color:var(--text-dim); cursor:pointer;
+}
+.dlg-chan-tab.active { background:var(--card); color:var(--text); border-color:var(--accent); }
+.dlg-chan-tab .tab-acc { font-size:10px; color:var(--text-dim); font-weight:600; margin-left:5px; }
+
 /* ─── Presets ─────────────────────────────────────────── */
 /* ─── Presets ─────────────────────────────────────────── */
 .preset-box {
@@ -2423,6 +2467,22 @@ window.fetch = function(url, opts) {
       <button class="btn-secondary" onclick="closeTestLeadModal()">Отмена</button>
     </div>
     <div style="font-size:11px;color:var(--text-dim);margin-top:10px">* Email или Telegram обязательны</div>
+  </div>
+</div>
+
+<!-- ─── Channel picker (TG multichannel «Запустить») ─────── -->
+<div class="modal-overlay" id="channelPickerOverlay" onclick="if(event.target===this)closeChannelPicker()">
+  <div class="modal" style="width:440px">
+    <button class="modal-close" onclick="closeChannelPicker()">&times;</button>
+    <h2 id="chanPickTitle">Выбор каналов</h2>
+    <div style="font-size:12px;color:var(--text-dim);margin-bottom:14px" id="chanPickSub">
+      По каким каналам отправить? Зелёные — доступны, красные — нет контакта/нет живого аккаунта.
+    </div>
+    <div class="chan-pick-grid" id="chanPickGrid"></div>
+    <div class="btn-row" style="margin-top:18px">
+      <button class="btn-primary" id="chanPickConfirm" onclick="confirmChannelPicker()">Отправить</button>
+      <button class="btn-secondary" onclick="closeChannelPicker()">Отмена</button>
+    </div>
   </div>
 </div>
 
@@ -5059,12 +5119,115 @@ function openLeadDialog(leadId) {
   }, 400);
 }
 
-async function runLead(id) {
+// ─── Channel picker (TG multichannel) ──────────────────
+// Описание каналов для пикера. future:true → всегда disabled (транспорта нет).
+const CH_PICKER_CHANNELS = [
+  { key:'email',    label:'Email',    cls:'email', ico:'@'  },
+  { key:'telegram', label:'Telegram', cls:'tg',    ico:'TG' },
+  { key:'whatsapp', label:'WhatsApp', cls:'wa',    ico:'WA', future:true },
+];
+let chanPickState = { mode:'single', leadId:null, ids:[], selected:new Set() };
+
+// Открыть пикер для одного лида (кнопка «Запустить»).
+function runLead(id) {
+  const lead = leadsData.find(l => l.id === id);
+  if (!lead) { toast('Лид не найден','error'); return; }
+  const avail = lead.channels_available || { email: !!lead.email, telegram:false };
+  const sent = new Set(lead.channels_sent || []);
+  chanPickState = { mode:'single', leadId:id, ids:[], selected:new Set() };
+  // по умолчанию выбираем доступные и ещё не отправленные
+  CH_PICKER_CHANNELS.forEach(c => { if (avail[c.key] && !sent.has(c.key)) chanPickState.selected.add(c.key); });
+  renderChannelPicker(avail, sent, `Запустить лида «${escapeHtml(lead.channel_name||'')}»`);
+}
+
+// Открыть пикер для массового запуска выбранных лидов.
+function openBulkChannelPicker() {
+  if (leadsSelected.size === 0) return;
+  const ids = [...leadsSelected];
+  // канал доступен в bulk, если доступен хотя бы у одного выбранного лида
+  const avail = { email:false, telegram:false };
+  ids.forEach(id => {
+    const l = leadsData.find(x => x.id === id);
+    if (!l) return;
+    const a = l.channels_available || { email: !!l.email, telegram:false };
+    if (a.email) avail.email = true;
+    if (a.telegram) avail.telegram = true;
+  });
+  chanPickState = { mode:'bulk', leadId:null, ids, selected:new Set() };
+  CH_PICKER_CHANNELS.forEach(c => { if (avail[c.key]) chanPickState.selected.add(c.key); });
+  renderChannelPicker(avail, new Set(), `Запустить выбранные (${ids.length})`);
+}
+
+function renderChannelPicker(avail, sent, title) {
+  document.getElementById('chanPickTitle').textContent = 'Выбор каналов';
+  document.getElementById('chanPickSub').innerHTML = escapeHtml(title);
+  const grid = document.getElementById('chanPickGrid');
+  grid.innerHTML = CH_PICKER_CHANNELS.map(c => {
+    const isAvail = !c.future && !!avail[c.key];
+    const isSent = sent.has(c.key);
+    const isSelected = chanPickState.selected.has(c.key);
+    const classes = ['chan-pick'];
+    let subtitle;
+    if (c.future) { classes.push('disabled'); subtitle = 'скоро — транспорт не подключён'; }
+    else if (!isAvail) { classes.push('disabled'); subtitle = c.key==='telegram' ? 'нет @username или нет живого аккаунта' : 'нет контакта'; }
+    else { classes.push('available'); subtitle = isSent ? 'уже отправлено — будет пропущено' : 'доступен'; }
+    if (isSent) classes.push('sent');
+    if (isSelected && isAvail) classes.push('selected');
+    const clickable = isAvail; // disabled/future нельзя выбрать
+    return `<div class="${classes.join(' ')}" ${clickable?`onclick="toggleChannelPick('${c.key}')"`:''} data-ch="${c.key}">
+      <div class="chan-ico contact-icon ${c.cls}" style="opacity:1">${escapeHtml(c.ico)}</div>
+      <div class="chan-body">
+        <div class="chan-name">${escapeHtml(c.label)}${isSent?' <span style="color:var(--blue);font-size:10px">● отправлено</span>':''}</div>
+        <div class="chan-sub">${escapeHtml(subtitle)}</div>
+      </div>
+      <div class="chan-check">✓</div>
+    </div>`;
+  }).join('');
+  updateChanPickConfirm();
+  document.getElementById('channelPickerOverlay').classList.add('open');
+}
+
+function toggleChannelPick(key) {
+  if (chanPickState.selected.has(key)) chanPickState.selected.delete(key);
+  else chanPickState.selected.add(key);
+  // перерисуем только классы выбранности
+  const el = document.querySelector(`#chanPickGrid .chan-pick[data-ch="${key}"]`);
+  if (el) el.classList.toggle('selected', chanPickState.selected.has(key));
+  updateChanPickConfirm();
+}
+
+function updateChanPickConfirm() {
+  const btn = document.getElementById('chanPickConfirm');
+  const n = chanPickState.selected.size;
+  btn.disabled = n === 0;
+  btn.style.opacity = n === 0 ? '.5' : '1';
+  btn.textContent = n === 0 ? 'Выбери канал' : `Отправить (${n})`;
+}
+
+function closeChannelPicker() {
+  document.getElementById('channelPickerOverlay').classList.remove('open');
+}
+
+async function confirmChannelPicker() {
+  const channels = [...chanPickState.selected];
+  if (channels.length === 0) return;
+  closeChannelPicker();
+  if (chanPickState.mode === 'single') {
+    await doRunLead(chanPickState.leadId, channels);
+  } else {
+    await doBulkRun(chanPickState.ids, channels);
+  }
+}
+
+async function doRunLead(id, channels) {
   try {
-    const r = await fetch('/api/leads/' + id + '/run', { method: 'POST' });
+    const r = await fetch('/api/leads/' + id + '/run', {
+      method: 'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ channels })
+    });
     const j = await r.json();
     if (j.success) {
-      toast('AI-агент запущен для лида','success');
+      toast('AI-агент запущен · каналы: ' + channels.join(', '),'success');
       loadLeads();
     } else {
       toast('Ошибка: ' + (j.error || 'unknown'),'error');
@@ -5384,17 +5547,18 @@ function leadsUpdateBulkBar() {
   document.getElementById('leadsBulkCount').textContent = leadsSelected.size;
   bar.classList.toggle('visible', leadsSelected.size > 0);
 }
-async function leadsBulkRun() {
-  if (leadsSelected.size === 0) return;
-  const n = leadsSelected.size;
-  if (!await confirmDialog('Запустить выбранные', `Запустить генерацию писем для ${n} лидов? Они обрабатываются по очереди, готовые письма появятся в «На проверке».`)) return;
+// Кнопка «Запустить выбранные» → открывает пикер каналов (см. openBulkChannelPicker).
+function leadsBulkRun() { openBulkChannelPicker(); }
+
+async function doBulkRun(ids, channels) {
+  const n = ids.length;
   try {
     const r = await fetch('/api/leads/bulk-run', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ ids:[...leadsSelected] })
+      body: JSON.stringify({ ids, channels })
     });
     const j = await r.json();
-    if (j.success) toast(`Запущено ${j.queued ?? n} лидов — письма появятся в «На проверке» по мере готовности`, 'success');
+    if (j.success) toast(`Запущено ${j.queued ?? n} лидов · каналы: ${channels.join(', ')} — письма появятся в «На проверке»`, 'success');
     else toast('Ошибка: ' + (j.error || 'не удалось запустить'), 'error');
   } catch (e) {
     toast('Ошибка запуска: ' + e.message, 'error');
