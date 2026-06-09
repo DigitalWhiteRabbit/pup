@@ -122,6 +122,42 @@ function getDb(workspaceId = "default") {
   if (!columnExists("pending_replies", "send_after"))
     safeExec(`ALTER TABLE pending_replies ADD COLUMN send_after TEXT`);
 
+  // ─── TG multichannel: account pool + per-dialogue binding ──────────
+  // Какой TG-аккаунт ведёт диалог (nullable; для email-диалогов остаётся NULL).
+  if (!columnExists("dialogues", "account_id"))
+    safeExec(`ALTER TABLE dialogues ADD COLUMN account_id INTEGER`);
+
+  // Пул TG-аккаунтов (1 аккаунт = 1 сессия + 1 прокси). Живёт в default-БД,
+  // но миграция создаёт таблицу во всех ws-БД — безвредно.
+  safeExec(`CREATE TABLE IF NOT EXISTS tg_account (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    label TEXT,
+    phone TEXT,
+    api_id INTEGER,
+    api_hash TEXT,
+    session TEXT,
+    proxy_type TEXT DEFAULT 'socks5',
+    proxy_host TEXT,
+    proxy_port INTEGER,
+    proxy_user TEXT,
+    proxy_pass TEXT,
+    status TEXT DEFAULT 'active',
+    first_used_at TEXT,
+    sent_today INTEGER DEFAULT 0,
+    sent_today_date TEXT,
+    daily_cap INTEGER DEFAULT 50,
+    flood_until INTEGER,
+    last_sent_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`);
+  safeExec(
+    `CREATE INDEX IF NOT EXISTS idx_tg_account_status ON tg_account(status)`,
+  );
+  safeExec(
+    `CREATE INDEX IF NOT EXISTS idx_dialogues_account ON dialogues(account_id)`,
+  );
+
   // Seed: default red_flags for project CopyBanner (id=3) — only for default workspace
   if (workspaceId === "default") {
     try {
@@ -547,6 +583,9 @@ function buildStmts(db) {
       VALUES (?, ?, ?, ?)
     `),
     getDialogue: db.prepare(`SELECT * FROM dialogues WHERE id = ?`),
+    setDialogueAccount: db.prepare(
+      `UPDATE dialogues SET account_id = ? WHERE id = ?`,
+    ),
     getDialogueByLead: db.prepare(
       `SELECT * FROM dialogues WHERE lead_id = ? AND channel = ? ORDER BY created_at DESC LIMIT 1`,
     ),
@@ -768,6 +807,58 @@ function buildStmts(db) {
     incrementLeadFollowUp: db.prepare(`
       UPDATE leads SET followup_attempts = COALESCE(followup_attempts,0) + 1, last_followup_at = ?, updated_at = ? WHERE id = ?
     `),
+
+    // ─── TG account pool ──────────────────────────────────────────────
+    insertTgAccount: db.prepare(`
+      INSERT INTO tg_account (
+        label, phone, api_id, api_hash, proxy_type, proxy_host, proxy_port,
+        proxy_user, proxy_pass, status, daily_cap, created_at, updated_at
+      ) VALUES (
+        @label, @phone, @api_id, @api_hash, @proxy_type, @proxy_host, @proxy_port,
+        @proxy_user, @proxy_pass, @status, @daily_cap, @created_at, @updated_at
+      )
+    `),
+    getTgAccount: db.prepare(`SELECT * FROM tg_account WHERE id = ?`),
+    listTgAccounts: db.prepare(`SELECT * FROM tg_account ORDER BY id ASC`),
+    listActiveTgAccounts: db.prepare(
+      `SELECT * FROM tg_account WHERE status = 'active' ORDER BY id ASC`,
+    ),
+    updateTgAccountFields: db.prepare(`
+      UPDATE tg_account SET
+        label = COALESCE(@label, label),
+        phone = COALESCE(@phone, phone),
+        api_id = COALESCE(@api_id, api_id),
+        api_hash = COALESCE(@api_hash, api_hash),
+        proxy_type = COALESCE(@proxy_type, proxy_type),
+        proxy_host = COALESCE(@proxy_host, proxy_host),
+        proxy_port = COALESCE(@proxy_port, proxy_port),
+        proxy_user = COALESCE(@proxy_user, proxy_user),
+        proxy_pass = COALESCE(@proxy_pass, proxy_pass),
+        status = COALESCE(@status, status),
+        daily_cap = COALESCE(@daily_cap, daily_cap),
+        updated_at = @updated_at
+      WHERE id = @id
+    `),
+    setTgAccountSession: db.prepare(
+      `UPDATE tg_account SET session = ?, updated_at = ? WHERE id = ?`,
+    ),
+    setTgAccountStatus: db.prepare(
+      `UPDATE tg_account SET status = ?, updated_at = ? WHERE id = ?`,
+    ),
+    setTgAccountFlood: db.prepare(
+      `UPDATE tg_account SET flood_until = ?, status = ?, updated_at = ? WHERE id = ?`,
+    ),
+    // Учёт отправки: сброс дневного счётчика при смене даты + инкремент.
+    recordTgAccountSend: db.prepare(`
+      UPDATE tg_account SET
+        sent_today = CASE WHEN sent_today_date = @date THEN sent_today + 1 ELSE 1 END,
+        sent_today_date = @date,
+        last_sent_at = @now,
+        first_used_at = COALESCE(first_used_at, @now),
+        updated_at = @now
+      WHERE id = @id
+    `),
+    deleteTgAccount: db.prepare(`DELETE FROM tg_account WHERE id = ?`),
 
     // Knowledge
     insertKnowledgeDoc: db.prepare(`
