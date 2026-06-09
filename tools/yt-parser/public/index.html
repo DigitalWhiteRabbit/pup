@@ -2730,7 +2730,7 @@ function trustBadge(trust) {
   return '';
 }
 
-function buildContactIcons(row) {
+function buildContactIcons(row, statusCtx) {
   const icons = [];
   // Детализированные контакты (если есть — предпочитаем их)
   let detailed = null;
@@ -2742,21 +2742,35 @@ function buildContactIcons(row) {
     }
   } catch {}
 
+  // Состояние канала аутрича (отправлено / недоступно) — только для email/telegram,
+  // когда вызвано из списка лидов со statusCtx { available:{...}, sent:Set }.
+  const sentSet = statusCtx && statusCtx.sent ? statusCtx.sent : null;
+  const avail = statusCtx && statusCtx.available ? statusCtx.available : null;
+  const chanState = (field) => {
+    if (!statusCtx || (field !== 'email' && field !== 'telegram')) return { cls:'', tip:'' };
+    if (sentSet && sentSet.has(field)) return { cls:' ch-sent', tip:' · отправлено ✓' };
+    if (avail && avail[field] === false) return { cls:' ch-unavail', tip:field==='telegram' ? ' · нет живого аккаунта' : ' · недоступно' };
+    if (avail && avail[field] === true) return { cls:'', tip:' · доступно' };
+    return { cls:'', tip:'' };
+  };
+
   const add = (field, cls, label, urlFn) => {
+    const st = chanState(field);
+    const fullCls = (cls + st.cls);
     // Приоритет: detailed со source/trust → плоский row[field]
     const detailedArr = detailed && detailed[field === 'email' ? 'emails' : field === 'website' ? 'websites' : field];
     if (detailedArr && detailedArr.length) {
       const v = detailedArr[0].value;
       const url = urlFn ? urlFn(v) : '#';
       const tipLines = detailedArr.map(x => `${x.value}${trustBadge(x.trust)} — ${contactSourceLabel(x.source)}`);
-      icons.push(`<a class="contact-icon ${escapeHtml(cls)}" href="${escapeHtml(url)}" target="_blank" rel="noopener" title="${escapeHtml(label + ':\n' + tipLines.join('\n'))}">${escapeHtml(label.slice(0,2).toUpperCase())}</a>`);
+      icons.push(`<a class="contact-icon ${escapeHtml(fullCls)}" href="${escapeHtml(url)}" target="_blank" rel="noopener" title="${escapeHtml(label + st.tip + ':\n' + tipLines.join('\n'))}">${escapeHtml(label.slice(0,2).toUpperCase())}</a>`);
       return;
     }
     if (!row[field] || !row[field].trim()) return;
     const vals = row[field].split(';').filter(Boolean);
     const v = vals[0];
     const url = urlFn ? urlFn(v) : '#';
-    icons.push(`<a class="contact-icon ${escapeHtml(cls)}" href="${escapeHtml(url)}" target="_blank" rel="noopener" title="${escapeHtml(label + ': ' + vals.join(', '))}">${escapeHtml(label.slice(0,2).toUpperCase())}</a>`);
+    icons.push(`<a class="contact-icon ${escapeHtml(fullCls)}" href="${escapeHtml(url)}" target="_blank" rel="noopener" title="${escapeHtml(label + st.tip + ': ' + vals.join(', '))}">${escapeHtml(label.slice(0,2).toUpperCase())}</a>`);
   };
   add('email', 'email', 'Email', v => 'mailto:'+v);
   add('telegram', 'tg', 'TG', v => 'https://t.me/'+v);
@@ -5036,7 +5050,11 @@ function renderLeadsTable() {
       email:lead.email, telegram:lead.telegram, whatsapp:lead.whatsapp,
       ...(lead.raw_contacts ? JSON.parse(lead.raw_contacts) : {})
     };
-    tdContacts.innerHTML = '<div class="contact-icons">' + buildContactIcons(contactRow) + '</div>';
+    const chanStatusCtx = {
+      available: lead.channels_available || null,
+      sent: new Set(lead.channels_sent || []),
+    };
+    tdContacts.innerHTML = '<div class="contact-icons">' + buildContactIcons(contactRow, chanStatusCtx) + '</div>';
     tr.appendChild(tdContacts);
 
     // Lead status (dropdown)
