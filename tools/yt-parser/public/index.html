@@ -5810,6 +5810,15 @@ async function loadLeadsForTestPitch() {
 
 let currentDialogueId = null;
 let dialoguesPollTimer = null;
+let allDialoguesCache = [];
+
+// Иконка канала для меток в списке/вкладках.
+function channelIcon(ch) {
+  if (ch === 'telegram') return 'TG';
+  if (ch === 'email') return '✉';
+  if (ch === 'whatsapp') return 'WA';
+  return (ch || '?').slice(0,2).toUpperCase();
+}
 
 async function loadDialogues() {
   try {
@@ -5817,6 +5826,7 @@ async function loadDialogues() {
     const j = await r.json();
     const list = document.getElementById('dlgList');
     const dialogues = j.dialogues || [];
+    allDialoguesCache = dialogues;
     document.getElementById('sbDialoguesCount').textContent = dialogues.length > 0 ? dialogues.length : '';
     if (dialogues.length === 0) {
       list.innerHTML = '<div class="activity-empty">Нет диалогов. Запусти агента → он начнёт писать ready-лидам.</div>';
@@ -5831,7 +5841,7 @@ async function loadDialogues() {
         </div>
         <div class="dlg-item-preview">${escapeHtml((d.last_message||'').slice(0,80))}</div>
         <div class="dlg-item-meta">
-          <span>${d.channel}</span>
+          <span title="канал">${channelIcon(d.channel)}${d.channel==='telegram'&&d.account_id?` · ${escapeHtml(tgAccountLabel(d.account_id))}`:''}</span>
           <span>${d.message_count} сообщ.</span>
           ${d.last_message_at?`<span>${timeAgo(d.last_message_at)} назад</span>`:''}
           ${d.last_out_opened_at
@@ -5843,20 +5853,65 @@ async function loadDialogues() {
   } catch(e) { console.error(e); }
 }
 
+// Подтянуть кэш TG-аккаунтов (для меток account_id в чате), если он пуст.
+async function ensureTgAccountsCache() {
+  if (tgAccountsCache.length) return;
+  try {
+    const r = await fetch('/api/telegram/accounts');
+    const j = await r.json();
+    tgAccountsCache = j.accounts || [];
+  } catch {}
+}
+
 async function openDialogue(id) {
   currentDialogueId = id;
   loadDialogues(); // re-render to highlight active
+  await ensureTgAccountsCache();
   try {
     const r = await fetch('/api/dialogues/'+id+'/messages');
     const j = await r.json();
     if (!j.success) return;
+    const dlg = j.dialogue || {};
+    const leadId = j.lead.id;
+
+    // ─── Вкладки каналов (пер-канальный диалог) ───
+    const siblings = allDialoguesCache.filter(d => d.lead_id === leadId);
+    const dlgChannelById = {};
+    siblings.forEach(d => { dlgChannelById[d.id] = d.channel; });
+    dlgChannelById[dlg.id] = dlg.channel;
+    // представитель-диалог на канал (для переключения вкладки)
+    const chanRep = {};
+    siblings.forEach(d => { if (!(d.channel in chanRep)) chanRep[d.channel] = d.id; });
+    if (dlg.channel && !(dlg.channel in chanRep)) chanRep[dlg.channel] = dlg.id;
+    const channels = Object.keys(chanRep);
+    let tabsHtml = '';
+    if (channels.length > 1) {
+      tabsHtml = `<div class="dlg-chan-tabs">` + channels.map(ch => {
+        const repId = (ch === dlg.channel) ? dlg.id : chanRep[ch];
+        const active = ch === dlg.channel ? ' active' : '';
+        const sib = siblings.find(d => d.channel === ch);
+        const accId = (ch === dlg.channel) ? dlg.account_id : (sib && sib.account_id);
+        const accLabel = (ch === 'telegram' && accId) ? `<span class="tab-acc">${escapeHtml(tgAccountLabel(accId))}</span>` : '';
+        return `<div class="dlg-chan-tab${active}" onclick="openDialogue(${repId})">${channelIcon(ch)} ${escapeHtml(ch)}${accLabel}</div>`;
+      }).join('') + `</div>`;
+    }
+
+    // Индикатор канала/аккаунта в шапке
+    const accBadge = (dlg.channel === 'telegram' && dlg.account_id)
+      ? ` · <span style="color:var(--blue)" title="Диалог ведётся этим TG-аккаунтом">TG: ${escapeHtml(tgAccountLabel(dlg.account_id))}</span>`
+      : (dlg.channel ? ` · <span style="color:var(--text-dim)">${channelIcon(dlg.channel)} ${escapeHtml(dlg.channel)}</span>` : '');
+
+    // Фильтр сообщений по выбранному каналу (диалоги раздельны по каналу)
+    const viewChannel = dlg.channel;
+    const visibleMsgs = j.messages.filter(m => (dlgChannelById[m.dialogue_id] || viewChannel) === viewChannel);
+
     const chat = document.getElementById('dlgChat');
     chat.innerHTML = `
       <div class="dlg-chat-header">
         <img class="ch-avatar" src="${escapeHtml(j.lead.thumbnail||'')}" alt="">
         <div>
           <h3>${escapeHtml(j.lead.channel_name||'?')}</h3>
-          <div class="meta">${escapeHtml(j.lead.country||'?')} · ${fmt(j.lead.subscribers||0)} подп. · <span class="lead-status-pill ${escapeHtml(j.lead.lead_status||'')}">${escapeHtml(LEAD_STATUS_LABELS[j.lead.lead_status]||'')}</span></div>
+          <div class="meta">${escapeHtml(j.lead.country||'?')} · ${fmt(j.lead.subscribers||0)} подп. · <span class="lead-status-pill ${escapeHtml(j.lead.lead_status||'')}">${escapeHtml(LEAD_STATUS_LABELS[j.lead.lead_status]||'')}</span>${accBadge}</div>
         </div>
         <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
           ${j.lead.dialogue_stage === 'moved_to_tg'
@@ -5866,6 +5921,7 @@ async function openDialogue(id) {
           <a href="${escapeHtml(j.lead.channel_url||'#')}" target="_blank" class="btn-secondary btn-sm" style="text-decoration:none">Канал ↗</a>
         </div>
       </div>
+      ${tabsHtml}
       <div style="padding:8px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px">
         <span style="font-size:13px" title="Заметка для себя по этому лиду">📝</span>
         <input id="dlgNote" value="${escapeHtml(j.lead.notes||'')}"
@@ -5881,7 +5937,7 @@ async function openDialogue(id) {
       </div>
     `;
     const msgs = document.getElementById('dlgMessages');
-    msgs.innerHTML = j.messages.map(m => {
+    msgs.innerHTML = visibleMsgs.map(m => {
       const meta = m.metadata ? (() => { try { return JSON.parse(m.metadata); } catch { return {}; } })() : {};
       const cls = m.direction === 'in' ? 'in' : (m.sender === 'admin' ? 'admin' : 'out');
       const senderLabel = m.direction === 'in' ? 'Блогер' : (m.sender === 'admin' ? 'Админ' : 'AI агент');
