@@ -56,7 +56,7 @@
 UI строится и проверяется структурно; реальный логин — позже вместе.
 
 - [x] **Шаг 1 — Попап-пикер каналов при «Запустить»**: модалка с кнопками каналов (зелёный=доступен по `channels_available`, красный/disabled=нет, ✓=уже отправлен по `channels_sent`); мультивыбор → `POST /api/leads/:id/run {channels}`; то же для bulk → `/api/leads/bulk-run {ids,channels}`; будущие каналы (WhatsApp…) — disabled.
-- [ ] **Шаг 2 — Управление TG-аккаунтами в Настройках**: список из `/api/telegram/accounts`, добавление (label/phone/proxy_string/daily_cap), поэтапный логин per-account (login→code→password), статус (active/flood/banned/disabled + sent_today/cap), logout/delete, PATCH прокси/лимита.
+- [x] **Шаг 2 — Управление TG-аккаунтами в Настройках**: список из `/api/telegram/accounts`, добавление (label/phone/proxy_string/daily_cap), поэтапный логин per-account (login→code→password), статус (active/flood/banned/disabled + sent_today/cap), logout/delete, PATCH прокси/лимита.
 - [ ] **Шаг 3 — Переключатель канала в чате**: вкладки Email/Telegram по `channels_sent`; пер-канальная история; индикатор канала и аккаунта (account_id) у TG.
 - [ ] **Шаг 4 — Бейджи каналов в списке лидов**: existing контакт-иконки увязать с состоянием доступен/отправлено.
 - [ ] **Шаг 5 — Проверка**: нет ошибок в консоли, fetch-вызовы по контрактам, рестарт dev-сервера, обновление PROGRESS.

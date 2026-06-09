@@ -1047,6 +1047,26 @@ td a:hover { text-decoration:underline; }
 .dlg-chan-tab.active { background:var(--card); color:var(--text); border-color:var(--accent); }
 .dlg-chan-tab .tab-acc { font-size:10px; color:var(--text-dim); font-weight:600; margin-left:5px; }
 
+/* ─── TG account cards (settings pool) ─────────────────── */
+.tg-acc { border:1px solid var(--border); border-radius:10px; padding:12px 14px; margin-bottom:10px; background:rgba(255,255,255,.02); }
+.tg-acc-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.tg-acc-title { font-size:13px; font-weight:700; }
+.tg-acc-phone { font-size:11px; color:var(--text-dim); }
+.tg-acc-pill { font-size:10px; font-weight:700; padding:3px 9px; border-radius:20px; text-transform:uppercase; letter-spacing:.4px; }
+.tg-acc-pill.active { background:var(--green-dim); color:var(--green); }
+.tg-acc-pill.ready { background:var(--green-dim); color:var(--green); }
+.tg-acc-pill.flood { background:rgba(251,191,36,.12); color:var(--yellow); }
+.tg-acc-pill.banned { background:var(--red-dim); color:var(--red); }
+.tg-acc-pill.disabled { background:#2a3540; color:var(--text-dim); }
+.tg-acc-pill.offline { background:#2a3540; color:var(--text-dim); }
+.tg-acc-meta { font-size:11px; color:var(--text-dim); margin-top:6px; display:flex; gap:14px; flex-wrap:wrap; }
+.tg-acc-actions { display:flex; gap:6px; flex-wrap:wrap; margin-top:10px; align-items:center; }
+.tg-acc-login-step { margin-top:10px; padding:10px; border-radius:8px; background:var(--blue-dim); border:1px solid rgba(59,130,246,.3); }
+.tg-acc-edit { margin-top:10px; padding-top:10px; border-top:1px dashed var(--border); display:none; }
+.tg-acc-edit.open { display:block; }
+.tg-cap-bar { height:5px; border-radius:3px; background:rgba(255,255,255,.08); overflow:hidden; margin-top:4px; max-width:160px; }
+.tg-cap-bar > div { height:100%; background:var(--accent); }
+
 /* ─── Presets ─────────────────────────────────────────── */
 /* ─── Presets ─────────────────────────────────────────── */
 .preset-box {
@@ -2303,44 +2323,50 @@ window.fetch = function(url, opts) {
           <div style="margin-top:10px;font-size:11px;color:var(--text-dim)">Переключатель применяется мгновенно — перезапускать сервер не нужно.</div>
         </div>
 
-        <!-- Telegram outreach setup -->
+        <!-- Telegram outreach setup (multi-account pool) -->
         <div class="card">
-          <div class="card-title">Telegram Outreach (gramjs)</div>
+          <div class="card-title">Telegram аккаунты (пул)</div>
           <div style="font-size:12px;color:var(--text-dim);margin-bottom:14px;line-height:1.6">
-            Залогинь обычный Telegram-аккаунт через MTProto, чтобы AI-агент мог писать блогерам в личку. <strong style="color:var(--yellow)">⚠️ Используй отдельный аккаунт</strong> — массовая рассылка может привести к бану.
+            Несколько Telegram-аккаунтов для аутрича — рассылка раздаётся между ними (round-robin),
+            у каждого свой прокси, дневной лимит и прогрев. <strong style="color:var(--yellow)">⚠️ Только отдельные аккаунты</strong> — массовая рассылка может привести к бану.
           </div>
 
           <div style="background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:14px;font-size:11px;line-height:1.7">
             <strong style="color:var(--text)">Шаги:</strong><br>
-            1. Получи API_ID и API_HASH на <a href="https://my.telegram.org/apps" target="_blank" style="color:var(--accent)">my.telegram.org/apps</a><br>
-            2. Пропиши в .env: <code style="color:var(--accent)">TG_API_ID</code>, <code style="color:var(--accent)">TG_API_HASH</code>, <code style="color:var(--accent)">TG_PHONE</code><br>
-            3. Перезапусти сервер<br>
-            4. Нажми «Login» — придёт SMS с кодом<br>
-            5. Введи код, при необходимости 2FA-пароль
+            1. API_ID/API_HASH с <a href="https://my.telegram.org/apps" target="_blank" style="color:var(--accent)">my.telegram.org/apps</a> — общие в <code style="color:var(--accent)">.env</code> (<code>TG_API_ID</code>/<code>TG_API_HASH</code>) или индивидуально у аккаунта.<br>
+            2. Добавь аккаунт (телефон + прокси <code>host:port:user:pass</code> + дневной лимит).<br>
+            3. «Login» → введи SMS-код → при необходимости 2FA-пароль. Каждый аккаунт логинится отдельно.<br>
+            4. <strong style="color:var(--yellow)">1 аккаунт = 1 прокси</strong> — для прода прокси обязателен.
           </div>
 
-          <div id="tgStatusBox" style="margin-bottom:14px"></div>
-
-          <div id="tgLoginActions">
-            <button class="btn-primary btn-sm" id="tgLoginBtn" onclick="tgLogin()">▶ Login</button>
-            <button class="btn-danger btn-sm" id="tgLogoutBtn" onclick="tgLogout()" style="display:none">Logout</button>
-          </div>
-
-          <div id="tgCodeInput" style="display:none;margin-top:14px">
-            <label>SMS код</label>
-            <div style="display:flex;gap:8px">
-              <input type="text" id="tgCode" placeholder="12345" autocomplete="off" inputmode="numeric">
-              <button class="btn-blue btn-sm" onclick="tgSubmitCode()">Отправить</button>
+          <!-- Форма добавления аккаунта -->
+          <details id="tgAddAccBox" style="margin-bottom:14px;border:1px solid var(--border);border-radius:8px;padding:10px 12px">
+            <summary style="cursor:pointer;font-size:12px;font-weight:700;color:var(--accent)">+ Добавить аккаунт</summary>
+            <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                <div><label>Метка</label><input type="text" id="tgNewLabel" placeholder="acc-1 / Бруно"></div>
+                <div><label>Телефон</label><input type="text" id="tgNewPhone" placeholder="+79991234567"></div>
+              </div>
+              <div><label>Прокси (host:port:user:pass)</label><input type="text" id="tgNewProxy" placeholder="1.2.3.4:1080:user:pass" style="font-family:monospace;font-size:12px"></div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                <div>
+                  <label>Тип прокси</label>
+                  <select id="tgNewProxyType"><option value="socks5">SOCKS5</option><option value="mtproxy">MTProxy (заготовка)</option></select>
+                </div>
+                <div><label>Дневной лимит</label><input type="number" id="tgNewCap" placeholder="50" value="50"></div>
+              </div>
+              <details style="font-size:11px;color:var(--text-dim)">
+                <summary style="cursor:pointer">API креды для этого аккаунта (опц.)</summary>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
+                  <div><label>api_id</label><input type="text" id="tgNewApiId" placeholder="из .env если пусто"></div>
+                  <div><label>api_hash</label><input type="text" id="tgNewApiHash" placeholder="из .env если пусто"></div>
+                </div>
+              </details>
+              <div><button class="btn-primary btn-sm" onclick="tgCreateAccount()">Создать аккаунт</button></div>
             </div>
-          </div>
+          </details>
 
-          <div id="tgPasswordInput" style="display:none;margin-top:14px">
-            <label>2FA пароль</label>
-            <div style="display:flex;gap:8px">
-              <input type="password" id="tgPassword" placeholder="••••••••" autocomplete="off">
-              <button class="btn-blue btn-sm" onclick="tgSubmitPassword()">Отправить</button>
-            </div>
-          </div>
+          <div id="tgAccountsList"><div style="font-size:12px;color:var(--text-dim)">Загрузка…</div></div>
         </div>
 
         <!-- Email config (per-workspace) -->
@@ -7008,82 +7034,193 @@ async function testEmailSend() {
   } catch(e) { st.innerHTML = '<span style="color:var(--red)">❌ ' + escapeHtml(e.message) + '</span>'; }
 }
 
-// ─── Settings: Telegram login (Phase D) ───────────────
+// ─── Settings: Telegram account pool (Phase 2) ─────────
 
 let tgPollTimer = null;
+let tgAccountsCache = [];
 
-async function loadTgStatus() {
+// Точка входа из секции Настроек (имя сохранено для совместимости вызова).
+async function loadTgStatus() { return loadTgAccounts(); }
+
+async function loadTgAccounts() {
   try {
-    const r = await fetch('/api/telegram/status');
+    const r = await fetch('/api/telegram/accounts');
     const j = await r.json();
-    renderTgStatus(j);
+    tgAccountsCache = j.accounts || [];
+    renderTgAccounts(tgAccountsCache);
 
-    if (j.loginInProgress && !tgPollTimer) {
-      tgPollTimer = setInterval(loadTgStatus, 2000);
-    } else if (!j.loginInProgress && tgPollTimer) {
+    // Поллим, пока хоть один аккаунт в процессе логина (ждёт код/пароль).
+    const anyLoggingIn = tgAccountsCache.some(a => a.loginInProgress);
+    if (anyLoggingIn && !tgPollTimer) {
+      tgPollTimer = setInterval(loadTgAccounts, 2000);
+    } else if (!anyLoggingIn && tgPollTimer) {
       clearInterval(tgPollTimer); tgPollTimer = null;
     }
-  } catch(e) {}
+  } catch(e) { console.error('loadTgAccounts', e); }
 }
 
-function renderTgStatus(s) {
-  const box = document.getElementById('tgStatusBox');
-  let html = '';
-  if (s.ready) {
-    html = `<div style="padding:10px;background:var(--green-dim);border:1px solid rgba(74,222,128,0.3);border-radius:6px;font-size:12px">
-      <strong style="color:var(--green)">● Connected</strong> as @${escapeHtml(s.username || '?')}
-    </div>`;
-  } else if (s.loginInProgress) {
-    let waiting = s.waitingFor === 'code' ? 'SMS-кода' : (s.waitingFor === 'password' ? '2FA пароля' : 'ответа');
-    html = `<div style="padding:10px;background:var(--blue-dim);border:1px solid rgba(59,130,246,0.3);border-radius:6px;font-size:12px">
-      <strong style="color:var(--blue)">⏳ Login...</strong> ждём ${waiting}
-    </div>`;
-  } else if (!s.hasCreds) {
-    html = `<div style="padding:10px;background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);border-radius:6px;font-size:12px;color:var(--yellow)">
-      ⚠ TG_API_ID, TG_API_HASH или TG_PHONE не заданы в .env
-    </div>`;
-  } else {
-    html = `<div style="padding:10px;background:#2a3540;border-radius:6px;font-size:12px;color:var(--text-dim)">
-      ○ Disconnected
-    </div>`;
-  }
-  if (s.error) {
-    html += `<div style="margin-top:8px;padding:10px;background:var(--red-dim);border:1px solid rgba(239,68,68,0.3);border-radius:6px;font-size:11px;color:var(--red)">Error: ${escapeHtml(s.error)}</div>`;
-  }
-  box.innerHTML = html;
-
-  document.getElementById('tgCodeInput').style.display = (s.loginInProgress && s.waitingFor === 'code') ? '' : 'none';
-  document.getElementById('tgPasswordInput').style.display = (s.loginInProgress && s.waitingFor === 'password') ? '' : 'none';
-  document.getElementById('tgLoginBtn').style.display = (s.ready || s.loginInProgress || !s.hasCreds) ? 'none' : '';
-  document.getElementById('tgLogoutBtn').style.display = s.ready ? '' : 'none';
+// Карта аккаунтов account_id → label/username (для индикаторов в чате).
+function tgAccountLabel(id) {
+  const a = tgAccountsCache.find(x => x.id === id);
+  if (!a) return 'acc#' + id;
+  return a.label || (a.username ? '@'+a.username : 'acc#'+id);
 }
 
-async function tgLogin() {
+function tgAccStatePill(a) {
+  // Приоритет: банан/флуд/disabled из статуса БД, иначе ready/offline по live-состоянию.
+  if (a.status === 'banned') return '<span class="tg-acc-pill banned">banned</span>';
+  if (a.status === 'disabled') return '<span class="tg-acc-pill disabled">disabled</span>';
+  if (a.flood_until) return '<span class="tg-acc-pill flood">flood</span>';
+  if (a.ready) return '<span class="tg-acc-pill ready">● online</span>';
+  if (a.loginInProgress) return '<span class="tg-acc-pill flood">login…</span>';
+  return '<span class="tg-acc-pill offline">offline</span>';
+}
+
+function renderTgAccounts(list) {
+  const box = document.getElementById('tgAccountsList');
+  if (!box) return;
+  if (!list.length) {
+    box.innerHTML = '<div style="font-size:12px;color:var(--text-dim);padding:8px 0">Аккаунтов нет. Добавь первый через «+ Добавить аккаунт».</div>';
+    return;
+  }
+  box.innerHTML = list.map(a => {
+    const cap = a.effective_cap || a.daily_cap || 0;
+    const pct = cap ? Math.min(100, Math.round((a.sent_today / cap) * 100)) : 0;
+    const proxy = a.hasProxy ? `прокси: ${escapeHtml(a.proxy_type||'socks5')}` : '<span style="color:var(--red)">без прокси</span>';
+    const floodInfo = a.flood_until ? ` · флуд до ${new Date(a.flood_until).toLocaleString('ru')}` : '';
+    // Шаг логина (инлайн): ждём код / пароль
+    let loginStep = '';
+    if (a.loginInProgress && a.waitingFor === 'code') {
+      loginStep = `<div class="tg-acc-login-step">
+        <label style="font-size:11px">SMS-код для ${escapeHtml(a.label||a.phone||('acc#'+a.id))}</label>
+        <div style="display:flex;gap:8px;margin-top:4px">
+          <input type="text" id="tgCode_${a.id}" placeholder="12345" inputmode="numeric" autocomplete="off">
+          <button class="btn-blue btn-sm" onclick="tgSubmitCode(${a.id})">Отправить</button>
+        </div></div>`;
+    } else if (a.loginInProgress && a.waitingFor === 'password') {
+      loginStep = `<div class="tg-acc-login-step">
+        <label style="font-size:11px">2FA-пароль для ${escapeHtml(a.label||a.phone||('acc#'+a.id))}</label>
+        <div style="display:flex;gap:8px;margin-top:4px">
+          <input type="password" id="tgPass_${a.id}" placeholder="••••••••" autocomplete="off">
+          <button class="btn-blue btn-sm" onclick="tgSubmitPassword(${a.id})">Отправить</button>
+        </div></div>`;
+    } else if (a.loginInProgress) {
+      loginStep = `<div class="tg-acc-login-step" style="font-size:11px;color:var(--blue)">⏳ Логин… ждём ответа Telegram</div>`;
+    }
+    const err = a.error ? `<div style="margin-top:8px;font-size:11px;color:var(--red)">Error: ${escapeHtml(a.error)}</div>` : '';
+    return `<div class="tg-acc">
+      <div class="tg-acc-head">
+        <span class="tg-acc-title">${escapeHtml(a.label || ('acc#'+a.id))}</span>
+        ${a.username ? `<span class="tg-acc-phone">@${escapeHtml(a.username)}</span>` : ''}
+        <span class="tg-acc-phone">${escapeHtml(a.phone || '')}</span>
+        ${tgAccStatePill(a)}
+      </div>
+      <div class="tg-acc-meta">
+        <span>${proxy}</span>
+        <span>отправлено сегодня: ${a.sent_today}/${cap}${a.effective_cap && a.effective_cap < a.daily_cap ? ' (прогрев)' : ''}</span>
+        ${floodInfo ? `<span style="color:var(--yellow)">${floodInfo}</span>` : ''}
+      </div>
+      <div class="tg-cap-bar"><div style="width:${pct}%"></div></div>
+      ${loginStep}${err}
+      <div class="tg-acc-actions">
+        ${a.ready
+          ? `<button class="btn-secondary btn-sm" onclick="tgLogout(${a.id})">Logout</button>`
+          : `<button class="btn-primary btn-sm" onclick="tgLogin(${a.id})"${a.loginInProgress?' disabled':''}>▶ Login</button>`}
+        <button class="btn-secondary btn-sm" onclick="tgToggleEdit(${a.id})">✎ Прокси/лимит</button>
+        <button class="btn-danger btn-sm" onclick="tgDeleteAccount(${a.id})">🗑</button>
+      </div>
+      <div class="tg-acc-edit" id="tgEdit_${a.id}">
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div><label>Прокси (host:port:user:pass)</label><input type="text" id="tgEditProxy_${a.id}" placeholder="оставь пустым — без изменений" style="font-family:monospace;font-size:12px"></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+            <div><label>Тип</label><select id="tgEditProxyType_${a.id}"><option value="socks5"${(a.proxy_type||'socks5')==='socks5'?' selected':''}>SOCKS5</option><option value="mtproxy"${a.proxy_type==='mtproxy'?' selected':''}>MTProxy</option></select></div>
+            <div><label>Лимит</label><input type="number" id="tgEditCap_${a.id}" value="${a.daily_cap||50}"></div>
+            <div><label>Статус</label><select id="tgEditStatus_${a.id}">
+              ${['active','disabled','banned'].map(s=>`<option value="${s}"${a.status===s?' selected':''}>${s}</option>`).join('')}
+            </select></div>
+          </div>
+          <div><button class="btn-primary btn-sm" onclick="tgSaveEdit(${a.id})">Сохранить</button></div>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function tgCreateAccount() {
+  const label = document.getElementById('tgNewLabel').value.trim();
+  const phone = document.getElementById('tgNewPhone').value.trim();
+  const proxy_string = document.getElementById('tgNewProxy').value.trim();
+  const proxy_type = document.getElementById('tgNewProxyType').value;
+  const daily_cap = document.getElementById('tgNewCap').value;
+  const api_id = document.getElementById('tgNewApiId').value.trim();
+  const api_hash = document.getElementById('tgNewApiHash').value.trim();
+  if (!phone) { toast('Укажи телефон','warning'); return; }
+  const body = { label, phone, proxy_type, daily_cap };
+  if (proxy_string) body.proxy_string = proxy_string;
+  if (api_id) body.api_id = api_id;
+  if (api_hash) body.api_hash = api_hash;
   try {
-    const r = await fetch('/api/telegram/login', { method:'POST' });
+    const r = await fetch('/api/telegram/accounts', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
     const j = await r.json();
-    if (!j.success) { alert('Ошибка: ' + j.error); return; }
-    setTimeout(loadTgStatus, 800);
+    if (!j.success) { toast('Ошибка: '+(j.error||'unknown'),'error'); return; }
+    ['tgNewLabel','tgNewPhone','tgNewProxy','tgNewApiId','tgNewApiHash'].forEach(id=>document.getElementById(id).value='');
+    document.getElementById('tgNewCap').value = '50';
+    const box = document.getElementById('tgAddAccBox'); if (box) box.open = false;
+    toast('Аккаунт создан','success');
+    loadTgAccounts();
   } catch(e) { toast('Ошибка: '+e.message,'error'); }
 }
-async function tgSubmitCode() {
-  const code = document.getElementById('tgCode').value.trim();
+
+async function tgLogin(id) {
+  try {
+    const r = await fetch(`/api/telegram/accounts/${id}/login`, { method:'POST' });
+    const j = await r.json();
+    if (!j.success) { toast('Ошибка: '+(j.error||'unknown'),'error'); }
+    else toast(j.message || 'SMS отправлен','info');
+    setTimeout(loadTgAccounts, 800);
+  } catch(e) { toast('Ошибка: '+e.message,'error'); }
+}
+async function tgSubmitCode(id) {
+  const code = (document.getElementById('tgCode_'+id)||{}).value?.trim();
   if (!code) return;
-  await fetch('/api/telegram/code', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ code }) });
-  document.getElementById('tgCode').value = '';
-  setTimeout(loadTgStatus, 800);
+  await fetch(`/api/telegram/accounts/${id}/code`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ code }) });
+  setTimeout(loadTgAccounts, 800);
 }
-async function tgSubmitPassword() {
-  const password = document.getElementById('tgPassword').value;
+async function tgSubmitPassword(id) {
+  const password = (document.getElementById('tgPass_'+id)||{}).value;
   if (!password) return;
-  await fetch('/api/telegram/password', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ password }) });
-  document.getElementById('tgPassword').value = '';
-  setTimeout(loadTgStatus, 800);
+  await fetch(`/api/telegram/accounts/${id}/password`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ password }) });
+  setTimeout(loadTgAccounts, 800);
 }
-async function tgLogout() {
-  if (!await confirmDialog('Logout from Telegram?','Сессия будет удалена.')) return;
-  await fetch('/api/telegram/logout', { method:'POST' });
-  loadTgStatus();
+async function tgLogout(id) {
+  if (!await confirmDialog('Logout аккаунта?','Сессия будет удалена, потребуется повторный логин.')) return;
+  await fetch(`/api/telegram/accounts/${id}/logout`, { method:'POST' });
+  loadTgAccounts();
+}
+async function tgDeleteAccount(id) {
+  if (!await confirmDialog('Удалить аккаунт?','Аккаунт и его сессия будут удалены безвозвратно.')) return;
+  await fetch(`/api/telegram/accounts/${id}`, { method:'DELETE' });
+  toast('Аккаунт удалён','success');
+  loadTgAccounts();
+}
+function tgToggleEdit(id) {
+  const el = document.getElementById('tgEdit_'+id);
+  if (el) el.classList.toggle('open');
+}
+async function tgSaveEdit(id) {
+  const proxy_string = (document.getElementById('tgEditProxy_'+id)||{}).value?.trim();
+  const proxy_type = (document.getElementById('tgEditProxyType_'+id)||{}).value;
+  const daily_cap = (document.getElementById('tgEditCap_'+id)||{}).value;
+  const status = (document.getElementById('tgEditStatus_'+id)||{}).value;
+  const body = { proxy_type, daily_cap, status };
+  if (proxy_string) body.proxy_string = proxy_string;
+  try {
+    const r = await fetch(`/api/telegram/accounts/${id}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const j = await r.json();
+    if (!j.success) { toast('Ошибка: '+(j.error||'unknown'),'error'); return; }
+    toast('Сохранено','success');
+    loadTgAccounts();
+  } catch(e) { toast('Ошибка: '+e.message,'error'); }
 }
 
 async function loadWorkerLogs() {
