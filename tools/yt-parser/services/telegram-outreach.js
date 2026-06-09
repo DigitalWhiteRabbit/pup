@@ -495,9 +495,81 @@ async function _rawSendVia(accountId, usernameOrPhone, text) {
   }
 }
 
-// Отправка от конкретного аккаунта. В шаге 4 оборачивается в пейсинг-очередь.
+// ─── Pacing queue (анти-бан) ────────────────────────────────────────
+// Все TG-отправки идут через одну общую очередь с человеческим джиттером
+// между отправками (не пачкой). Джиттер настраивается env (дефолт 30–90с).
+const PACING_MIN_MS = parseInt(process.env.TG_PACING_MIN_MS || "30000", 10);
+const PACING_MAX_MS = parseInt(process.env.TG_PACING_MAX_MS || "90000", 10);
+const sendQueue = [];
+let queueRunning = false;
+let lastSendAt = 0;
+
+function pacingGapMs() {
+  const lo = Math.min(PACING_MIN_MS, PACING_MAX_MS);
+  const hi = Math.max(PACING_MIN_MS, PACING_MAX_MS);
+  return lo + Math.floor(Math.random() * (hi - lo + 1));
+}
+
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+// Поставить задачу-отправку в очередь; вернётся промис с её результатом.
+function enqueueSend(task) {
+  return new Promise((resolve, reject) => {
+    sendQueue.push({ task, resolve, reject });
+    runQueue();
+  });
+}
+
+async function runQueue() {
+  if (queueRunning) return;
+  queueRunning = true;
+  try {
+    while (sendQueue.length) {
+      const { task, resolve, reject } = sendQueue.shift();
+      // Пауза-джиттер между отправками; перед первой (после простоя) — без паузы.
+      if (lastSendAt) {
+        const since = Date.now() - lastSendAt;
+        const gap = pacingGapMs();
+        if (since < gap) await sleep(gap - since);
+      }
+      try {
+        const r = await task();
+        resolve(r);
+      } catch (e) {
+        reject(e);
+      } finally {
+        lastSendAt = Date.now();
+      }
+    }
+  } finally {
+    queueRunning = false;
+  }
+}
+
+function pacingStatus() {
+  return {
+    queued: sendQueue.length,
+    running: queueRunning,
+    last_send_at: lastSendAt ? new Date(lastSendAt).toISOString() : null,
+    min_ms: PACING_MIN_MS,
+    max_ms: PACING_MAX_MS,
+  };
+}
+
+// Отправка от конкретного аккаунта — всегда через пейсинг-очередь.
 async function sendMessageVia(accountId, usernameOrPhone, text) {
-  return _rawSendVia(accountId, usernameOrPhone, text);
+  return enqueueSend(() => _rawSendVia(accountId, usernameOrPhone, text));
+}
+
+// ─── Тест-сим (только для проверки логики пула без реального Telegram) ─
+function __testInjectReady(id, ready = true) {
+  const st = ensurePoolEntry(id);
+  st.client = st.client || { __fake: true };
+  st.ready = ready;
+  st.username = st.username || `fake_${id}`;
+  return st;
 }
 
 // ─── Status ─────────────────────────────────────────────────────────
@@ -564,6 +636,7 @@ function status() {
       hasSession: s.hasSession,
       hasCreds: !!(envApiCreds().apiId && envApiCreds().apiHash),
       accounts: listAccounts(),
+      pacing: pacingStatus(),
     };
   }
   const { apiId, apiHash, phone } = envApiCreds();
@@ -655,6 +728,10 @@ module.exports = {
   floodSeconds,
   buildProxyOpts,
   parseProxyString,
+  pacingStatus,
+  enqueueSend,
+  recoverFlooded,
+  __testInjectReady,
   // messaging
   onMessage,
   // legacy single-account API
