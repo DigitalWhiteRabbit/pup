@@ -6,8 +6,8 @@
 ## Чек-лист шагов
 
 - [x] **Шаг 1 — Схема БД**: таблица `tg_account` + `dialogues.account_id` (идемпотентно).
-- [ ] **Шаг 2 — Пул аккаунтов**: рефактор `telegram-outreach.js` из single → пул (Map), per-account login/status/logout, автологин всех active, `pickAccount()` round-robin по здоровью, `sendMessageVia()`, per-account listener (тег account_id). API для CRUD аккаунтов.
-- [ ] **Шаг 3 — Прокси (SOCKS5)**: билдер proxy-опции для TelegramClient из полей `tg_account`; заготовка под MTProxy (`proxy_type`).
+- [x] **Шаг 2 — Пул аккаунтов**: рефактор `telegram-outreach.js` из single → пул (Map), per-account login/status/logout, автологин всех active, `pickAccount()` round-robin по здоровью, `sendMessageVia()`, per-account listener (тег account_id). API для CRUD аккаунтов.
+- [x] **Шаг 3 — Прокси (SOCKS5)**: билдер proxy-опции для TelegramClient из полей `tg_account`; заготовка под MTProxy (`proxy_type`).
 - [ ] **Шаг 4 — Анти-бан**: пейсинг-очередь TG с джиттером 30–90с; per-account дневной лимит + ramp-up по `first_used_at`; обработка `FloodWaitError` → `flood_until`.
 - [ ] **Шаг 5 — Выбор каналов**: `POST /api/leads/:id/run` принимает `channels[]`; доступность отдаётся в данных лида; рассылка по КАЖДОМУ выбранному каналу (своя запись dialogue+message, свой incrementDailyCount, account_id для TG); идемпотентность по каналу; ревью-режим — строка в pending_replies на канал.
 - [ ] **Шаг 6 — Входящие + approve под TG**: надёжный матч лида + тег account_id; approve шлёт через `sendMessageVia` тем же аккаунтом из `dialogues.account_id`.
