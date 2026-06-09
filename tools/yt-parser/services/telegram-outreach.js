@@ -649,6 +649,7 @@ function status() {
     hasSession: false,
     hasCreds: !!(apiId && apiHash && phone),
     accounts: [],
+    pacing: pacingStatus(),
   };
 }
 

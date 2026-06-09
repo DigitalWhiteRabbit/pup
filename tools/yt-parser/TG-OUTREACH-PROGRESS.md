@@ -11,7 +11,21 @@
 - [x] **Шаг 4 — Анти-бан**: пейсинг-очередь TG с джиттером 30–90с; per-account дневной лимит + ramp-up по `first_used_at`; обработка `FloodWaitError` → `flood_until`.
 - [x] **Шаг 5 — Выбор каналов**: `POST /api/leads/:id/run` принимает `channels[]`; доступность отдаётся в данных лида; рассылка по КАЖДОМУ выбранному каналу (своя запись dialogue+message, свой incrementDailyCount, account_id для TG); идемпотентность по каналу; ревью-режим — строка в pending_replies на канал.
 - [x] **Шаг 6 — Входящие + approve под TG**: надёжный матч лида + тег account_id; approve шлёт через `sendMessageVia` тем же аккаунтом из `dialogues.account_id`.
-- [ ] **Шаг 7 — Проверка**: curl всех новых эндпоинтов при DRY_RUN, lint, рестарт dev-сервера, обновление этого файла.
+- [x] **Шаг 7 — Проверка**: curl всех новых эндпоинтов при DRY_RUN, lint, рестарт dev-сервера, обновление этого файла.
+
+## Проверка (шаг 7) — что прогнано при DRY_RUN
+
+Все проверки — без реальных отправок (DRY_RUN=true) и без реальных аккаунтов
+(тест-сим `__testInjectReady` делает аккаунт «готовым» без коннекта к Telegram).
+
+- **Миграции**: применяются на существующей и пустой БД без ошибок (`tg_account`, `dialogues.account_id`).
+- **Пул/прокси (API)**: создание 3 аккаунтов (SOCKS5 / MTProxy / без прокси), `status` показывает все; PATCH/DELETE/login/code — graceful (локально TG-креды в `.env` пустые → понятная ошибка).
+- **Анти-бан (unit)**: пейсинг — первая отправка сразу, зазоры в окне джиттера; round-robin альтернирует A/B; flood-пауза → `pickAccount` пропускает → `recoverFlooded` возвращает; over-cap по ramp-up (день1=5) исключает аккаунт.
+- **Мультиканал (DRY)**: лид email+telegram, channels=оба → 2 диалога + 2 сообщения, оба дневных счётчика +1, TG-диалог имеет `account_id`; идемпотентность по каналу (повтор не плодит).
+- **Ревью-режим (DRY)**: по строке `pending_replies` на канал (email с subject, TG без); стадия `awaiting_review`; повтор не плодит (`hasPendingForChannel`).
+- **Входящие + approve (DRY)**: входящее TG → запись + стадия `replied` (затем продвигается reply-генерацией, как в email) + строка в `pending_replies`; диалог тегируется `account_id` получателя; approve уходит **тем же аккаунтом-владельцем** диалога (A), не получателем (B); fresh-входящее без диалога → диалог создаётся с `account_id` получателя.
+- **HTTP-смоук**: `GET /api/telegram/status` (с `pacing`), `accounts` CRUD, `GET /api/leads` отдаёт `channels_available`/`channels_sent`, `POST /leads/:id/run` и `/bulk-run` принимают и возвращают `channels[]`, воркер получает вызов.
+- **Lint/синтаксис**: `node --check` зелёный по всем файлам; prettier (husky lint-staged) зелёный на каждом коммите. Репозиторный eslint — конфиг Next.js/TS (`no-require-imports`) — к CommonJS-инструменту `yt-parser` неприменим (в нём `require()` везде; 4 unused-var — пре-существующие, не из этой работы).
 
 ## Принятые дефолты
 
@@ -21,8 +35,24 @@
 - Ramp-up: день1=5, день2=10, … шаг +5/день до `daily_cap` (по `first_used_at`; если null — день1).
 - Авто-очередь (`processOutreachQueue`) без явных каналов → шлёт по ВСЕМ доступным каналам лида (раньше слала только один). Идемпотентность — по каналу.
 - Легаси-эндпоинты `/api/telegram/status|login|code|password|logout` сохранены (мапятся на первый аккаунт пула) до Фазы 2.
+- Ramp-up настраивается env `TG_RAMP_DAY1` (дефолт 5) и `TG_RAMP_STEP` (дефолт 5).
+- При логине/автологине без сессии и с реальной legacy-`settings.telegram_session` — одноразовая миграция в `tg_account` (чтобы не потерять уже залогиненный прод-аккаунт). Если legacy-сессии нет — миграция не срабатывает.
+- На живой отправке у `tg_account` должен быть прокси: без прокси клиент создаётся, но в лог пишется предупреждение (для прод TG прокси обязателен).
+
+## Новые/изменённые эндпоинты
+
+- `GET  /api/telegram/accounts` — список со статусом (без секретов).
+- `GET  /api/telegram/accounts/:id`
+- `POST /api/telegram/accounts` — `{label,phone,api_id?,api_hash?,proxy_type?,proxy_host?,proxy_port?,proxy_user?,proxy_pass?,proxy_string?,daily_cap?}` (`proxy_string` = `host:port:user:pass`).
+- `PATCH /api/telegram/accounts/:id` — прокси/лимит/статус/label (`proxy_string` тоже принимается).
+- `DELETE /api/telegram/accounts/:id`
+- `POST /api/telegram/accounts/:id/login|code|password|logout`
+- `POST /api/leads/:id/run` и `POST /api/leads/bulk-run` — доп. поле `channels: ["email","telegram"]`.
+- `GET  /api/leads` — у лида добавлены `channels_available {email,telegram}` и `channels_sent [...]`.
 
 ## Осталось на живой тест (нужно от Бруно)
 
-- 3 реальных TG-аккаунта (phone/code/2FA) + 3 прокси (тип уточнить: SOCKS5/MTProxy).
-- Снятие `DRY_RUN` и реальная отправка на одном тестовом контакте.
+- 3 реальных TG-аккаунта (phone/code/2FA) + 3 прокси. **Уточнить тип прокси** (SOCKS5 уже готов; MTProxy — заготовка, нужно дореализовать при необходимости).
+- API-креды: либо общий `TG_API_ID`/`TG_API_HASH` в `.env` (локально сейчас ПУСТЫЕ), либо per-account `api_id`/`api_hash` при создании аккаунта.
+- Снятие `DRY_RUN` и реальная отправка на одном тестовом контакте (вместе, на живом тесте).
+- Фаза 2 (UI): попап-пикер каналов, управление 3 аккаунтами/прокси, переключатель канала в чате.
