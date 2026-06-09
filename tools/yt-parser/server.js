@@ -31,6 +31,16 @@ const apiKeysDb = require("./db/api-keys");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Local dev: прод-nginx проксирует /yt-parser/ → корень сервера (срезает префикс).
+// Без nginx фронт зовёт /yt-parser/api/... напрямую — снимаем префикс, чтобы
+// маршруты совпали. В проде сервер этот префикс никогда не видит → безвредно.
+app.use((req, res, next) => {
+  if (req.url === "/yt-parser" || req.url.startsWith("/yt-parser/")) {
+    req.url = req.url.slice("/yt-parser".length) || "/";
+  }
+  next();
+});
+
 app.use(express.json({ limit: "2mb" }));
 
 // Auth routes (открытые) — до gate

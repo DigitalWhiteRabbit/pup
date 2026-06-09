@@ -151,6 +151,21 @@ router.post("/accounts/:id/password", (req, res) => {
   }
 });
 
+// POST /api/telegram/accounts/:id/qa-ready — QA-ТОЛЬКО (при DRY_RUN): пометить
+// аккаунт «готовым» в пуле БЕЗ реального коннекта (для визуального QA статусов).
+router.post("/accounts/:id/qa-ready", (req, res) => {
+  const dry = process.env.DRY_RUN === "true" || process.env.DRY_RUN === "1";
+  if (!dry)
+    return res
+      .status(403)
+      .json({ success: false, error: "qa-ready доступен только при DRY_RUN" });
+  if (typeof tg.__testInjectReady !== "function")
+    return res.status(404).json({ success: false, error: "not available" });
+  const id = parseInt(req.params.id, 10);
+  tg.__testInjectReady(id, req.body?.ready !== false);
+  res.json({ success: true, account: tg.accountStatus(id) });
+});
+
 // POST /api/telegram/accounts/:id/logout
 router.post("/accounts/:id/logout", async (req, res) => {
   try {
