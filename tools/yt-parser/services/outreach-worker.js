@@ -1975,10 +1975,20 @@ async function handleIncomingTelegram(msg) {
         )
         .get(lead.id, '%"tg_message_id":"' + msg.messageId + '"%');
       if (dup) {
-        log(
-          "INFO",
-          `TG incoming dup skipped (lead #${lead.id}, msg ${msg.messageId})`,
-        );
+        // Сообщение уже записано. Если активного черновика ответа нет (был
+        // отклонён/удалён) — перегенерируем ответ; иначе просто выходим.
+        if (!hasActivePendingReply(lead.id, dialogue.id)) {
+          log(
+            "INFO",
+            `TG incoming dup (lead #${lead.id}) — нет активного черновика, регенерирую`,
+          );
+          await generatePendingReplies();
+        } else {
+          log(
+            "INFO",
+            `TG incoming dup skipped (lead #${lead.id}, msg ${msg.messageId})`,
+          );
+        }
         return;
       }
     }

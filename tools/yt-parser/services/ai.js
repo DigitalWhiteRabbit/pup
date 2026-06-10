@@ -989,6 +989,33 @@ async function generateReply(
     knowledgeContext,
   );
 
+  // ЯЗЫК ОТВЕТА: отвечаем на ТОМ ЖЕ языке, что и блогер. Детект по последнему
+  // входящему (кириллица → ru; латиница → не-ru). Fallback — страна/язык канала.
+  // Без этой директивы модель шла бы за русским системным промптом и отвечала
+  // по-русски даже на английскую переписку.
+  const lastInMsg = [...effectiveHistory]
+    .reverse()
+    .find((m) => m.direction === "in" && m.content && m.content.trim());
+  const ruCountriesReply = ["RU", "UA", "BY", "KZ"];
+  let bloggerWritesRu;
+  if (lastInMsg && /[а-яё]/i.test(lastInMsg.content)) {
+    bloggerWritesRu = true;
+  } else if (lastInMsg && /[a-z]/i.test(lastInMsg.content)) {
+    bloggerWritesRu = false;
+  } else {
+    bloggerWritesRu =
+      ruCountriesReply.includes((lead.country || "").toUpperCase()) ||
+      /рус|russian/i.test(lead.channel_language || "");
+  }
+  system.push({
+    type: "text",
+    text: `═══ ЯЗЫК ОТВЕТА ═══\nОтвечай на ТОМ ЖЕ языке, на котором блогер пишет в последних сообщениях. Сейчас блогер пишет ${
+      bloggerWritesRu
+        ? "по-русски — отвечай по-русски."
+        : "НЕ по-русски (английский/другой) — отвечай на этом же языке блогера (по-английски, если он пишет по-английски)."
+    } Никогда не переключай язык произвольно и не отвечай по-русски на английское сообщение.`,
+  });
+
   // Convert history → Claude messages. Входящие (in) оборачиваем в <blogger_message>
   const messages = [];
   for (const m of effectiveHistory) {
