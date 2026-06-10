@@ -30,6 +30,7 @@ model User {
   tgNotifyComment Boolean @default(true)
   tgNotifyMove    Boolean @default(true)
   tgNotifyProject Boolean @default(true) // kept for compat with existing records
+  tgNotifyContent Boolean @default(true) // контент-план: вычитка / правки / одобрено
 
   // Relations
   ownedWorkspaces    Workspace[]         @relation("WorkspaceOwner")
@@ -87,6 +88,11 @@ model User {
 
   // Member activity tracking
   memberActivities MemberActivity[]
+
+  // Content plan
+  contentCardsAuthored ContentCard[]        @relation("ContentCardAuthor")
+  contentCardsAssigned ContentCard[]        @relation("ContentCardAssignee")
+  contentCardHistory   ContentCardHistory[]
 
   @@index([lastSeenAt])
 }
@@ -167,6 +173,9 @@ model Workspace {
 
   // Member activity tracking
   memberActivities MemberActivity[]
+
+  // Content plan
+  contentCards ContentCard[]
 
   @@index([ownerId])
 }
@@ -562,14 +571,16 @@ model Notification {
   actorId     String?
   type        NotificationType
   taskId      String?
+  cardId      String? // карточка контент-плана
   workspaceId String?
   isRead      Boolean          @default(false)
   createdAt   DateTime         @default(now())
 
-  recipient User       @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
-  actor     User?      @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
-  task      Task?      @relation(fields: [taskId], references: [id], onDelete: SetNull)
-  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  recipient User         @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  actor     User?        @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
+  task      Task?        @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  card      ContentCard? @relation(fields: [cardId], references: [id], onDelete: SetNull)
+  workspace Workspace?   @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
 
   @@index([recipientId, isRead])
   @@index([recipientId, createdAt])
@@ -580,6 +591,9 @@ enum NotificationType {
   COMMENTED
   MOVED
   PROJECT_ADDED
+  CONTENT_REVIEW // карточка пришла на вычитку (модератору)
+  CONTENT_CHANGES // карточку вернули на правки (автору)
+  CONTENT_APPROVED // карточку одобрили (автору)
 }
 
 // ─────────────────────────────────────────
@@ -2037,4 +2051,128 @@ model MktSetting {
 
   @@unique([workspaceId, key])
   @@index([workspaceId])
+}
+
+// ─────────────────────────────────────────
+// КОНТЕНТ-ПЛАН
+// ─────────────────────────────────────────
+
+enum CardStatus {
+  IDEA // Идея
+  DRAFT // Черновик
+  REVIEW // На вычитке
+  READY // Готово
+  PUBLISHED // Опубликовано
+  PAUSED // На паузе
+}
+
+enum VisualStatus {
+  NONE // Нет визуала
+  IN_REVIEW // Визуал на проверке
+  OK // Визуал ок
+}
+
+enum CardPriority {
+  LOW // Низкий
+  MEDIUM // Средний
+  HIGH // Высокий
+}
+
+enum CardChannel {
+  ALL // Все каналы
+  TELEGRAM
+  INSTAGRAM
+  X
+  TIKTOK
+  YOUTUBE
+  FACEBOOK
+}
+
+enum CardFormat {
+  POST // Пост
+  CAROUSEL // Карусель
+  REELS // Рилс
+  STORIES // Сторис
+  VIDEO // Видео
+}
+
+enum MediaType {
+  IMAGE
+  VIDEO
+}
+
+model ContentCard {
+  id          String @id @default(cuid())
+  workspaceId String
+
+  authorId   String
+  assigneeId String? // ответственный (owner)
+
+  title   String
+  channel CardChannel
+  format  CardFormat
+
+  priority     CardPriority @default(MEDIUM)
+  status       CardStatus   @default(DRAFT)
+  visualStatus VisualStatus @default(NONE)
+
+  publishDate DateTime?
+
+  visualBrief String? // ТЗ визуала
+  visualLink  String? // ссылка на визуал / макет / файл
+  text        String? // финальный текст / сценарий / тезисы
+  workComment String? // рабочий комментарий автора
+  adminComment String? // админ-комментарий (модератор)
+
+  publishedUrl        String? // ссылка на опубликованный пост
+  publishedExternalId String? // id поста во внешней системе (для автопубликации)
+
+  // Гейты публикации (текст считается на лету по наличию text)
+  autoPublish     Boolean @default(false)
+  proofChecked    Boolean @default(false)
+  visualApproved  Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspace     Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  author        User                 @relation("ContentCardAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  assignee      User?                @relation("ContentCardAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  media         ContentMedia[]
+  history       ContentCardHistory[]
+  notifications Notification[]
+
+  @@index([workspaceId])
+  @@index([status])
+  @@index([publishDate])
+}
+
+model ContentMedia {
+  id        String    @id @default(cuid())
+  cardId    String
+  type      MediaType
+  url       String // image: storagePath; video: внешняя ссылка
+  name      String?
+  order     Int       @default(0)
+  createdAt DateTime  @default(now())
+
+  card ContentCard @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@index([cardId])
+}
+
+model ContentCardHistory {
+  id        String   @id @default(cuid())
+  cardId    String
+  userId    String
+  action    String // человекочитаемая запись, напр. «изменил «Тема»: «…» → «…»»
+  field     String? // ключ поля при пополевом diff
+  oldValue  String?
+  newValue  String?
+  createdAt DateTime @default(now())
+
+  card ContentCard @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  user User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([cardId, createdAt])
 }

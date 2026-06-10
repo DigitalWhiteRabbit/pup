@@ -6,6 +6,7 @@ import {
   ScrollText,
   MessageSquare,
   Megaphone,
+  CalendarDays,
   BarChart3,
   Users,
 } from "lucide-react";
@@ -48,6 +49,11 @@ const MODULE_META: Record<ModuleKey, ModuleMeta> = {
     label: "Маркетинг",
     description: "Инструменты для управления маркетинговыми кампаниями",
     icon: <Megaphone className="h-16 w-16" />,
+  },
+  content: {
+    label: "Контент-план",
+    description: "Карточки публикаций, модерация и автопубликация",
+    icon: <CalendarDays className="h-16 w-16" />,
   },
   analytics: {
     label: "Аналитика",

@@ -122,6 +122,9 @@ export function formatNotificationMessage(n: NotificationPayload): string {
         `<b>${actor}</b> добавил вас в проект:`,
         `<i>${project}</i>`,
       ].join("\n");
+    default:
+      // Контент-план уведомления формируются в lib/services/content/notify.ts
+      return `<b>${actor}</b>: ${task}`;
   }
 }
 

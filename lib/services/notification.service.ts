@@ -14,6 +14,8 @@ export type NotificationItem = {
   type: NotificationType;
   taskId: string | null;
   taskTitle: string | null;
+  cardId: string | null;
+  cardTitle: string | null;
   workspaceId: string | null;
   workspaceName: string | null;
   actorLogin: string | null;
@@ -33,13 +35,19 @@ type TgPrefKey =
   | "tgNotifyAssign"
   | "tgNotifyComment"
   | "tgNotifyMove"
-  | "tgNotifyProject";
+  | "tgNotifyProject"
+  | "tgNotifyContent";
 
 const TG_PREF_MAP: Record<NotificationType, TgPrefKey> = {
   ASSIGNED: "tgNotifyAssign",
   COMMENTED: "tgNotifyComment",
   MOVED: "tgNotifyMove",
   PROJECT_ADDED: "tgNotifyProject",
+  // Контент-план уведомления отправляются через lib/services/content/notify.ts,
+  // здесь — для полноты карты и совместимости типов.
+  CONTENT_REVIEW: "tgNotifyContent",
+  CONTENT_CHANGES: "tgNotifyContent",
+  CONTENT_APPROVED: "tgNotifyContent",
 };
 
 // ─── notify ───────────────────────────────────────────────────────────────────
@@ -75,6 +83,7 @@ export async function notify(input: {
       tgNotifyComment: true,
       tgNotifyMove: true,
       tgNotifyProject: true,
+      tgNotifyContent: true,
     },
   });
 
@@ -163,6 +172,7 @@ export async function getNotifications(
       include: {
         actor: { select: { login: true } },
         task: { select: { title: true } },
+        card: { select: { title: true } },
         workspace: { select: { name: true } },
       },
     }),
@@ -178,6 +188,8 @@ export async function getNotifications(
       type: n.type,
       taskId: n.taskId,
       taskTitle: n.task?.title ?? null,
+      cardId: n.cardId,
+      cardTitle: n.card?.title ?? null,
       workspaceId: n.workspaceId,
       workspaceName: n.workspace?.name ?? null,
       actorLogin: n.actor?.login ?? null,

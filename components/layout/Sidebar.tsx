@@ -24,6 +24,7 @@ import {
   ScrollText,
   MessageSquare,
   Megaphone,
+  CalendarDays,
   BarChart3,
   ChevronsUpDown,
   Check,
@@ -61,6 +62,10 @@ const MODULE_META: Record<ModuleKey, ModuleMeta> = {
   logs: { label: "Логи", icon: <ScrollText className="h-4 w-4" /> },
   chat: { label: "Чат", icon: <MessageSquare className="h-4 w-4" /> },
   marketing: { label: "Маркетинг", icon: <Megaphone className="h-4 w-4" /> },
+  content: {
+    label: "Контент-план",
+    icon: <CalendarDays className="h-4 w-4" />,
+  },
   analytics: { label: "Аналитика", icon: <BarChart3 className="h-4 w-4" /> },
   users: {
     label: "Пользователи проекта",
@@ -75,6 +80,7 @@ const MODULE_ORDER: ModuleKey[] = [
   "logs",
   "chat",
   "marketing",
+  "content",
   "analytics",
   "users",
 ];

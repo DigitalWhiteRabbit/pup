@@ -9,6 +9,9 @@ import {
   MessageSquare,
   ArrowRightLeft,
   FolderPlus,
+  ClipboardCheck,
+  Undo2,
+  CheckCircle2,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
@@ -22,10 +25,20 @@ import { cn } from "@/lib/utils";
 
 type NotificationItem = {
   id: string;
-  type: "ASSIGNED" | "COMMENTED" | "MOVED" | "PROJECT_ADDED";
+  type:
+    | "ASSIGNED"
+    | "COMMENTED"
+    | "MOVED"
+    | "PROJECT_ADDED"
+    | "CONTENT_REVIEW"
+    | "CONTENT_CHANGES"
+    | "CONTENT_APPROVED";
   taskId: string | null;
   taskTitle: string | null;
+  cardId: string | null;
+  cardTitle: string | null;
   workspaceId: string | null;
+  workspaceName: string | null;
   projectName: string | null;
   actorLogin: string | null;
   isRead: boolean;
@@ -37,6 +50,12 @@ const TYPE_CONFIG = {
   COMMENTED: { icon: MessageSquare, label: "прокомментировал задачу" },
   MOVED: { icon: ArrowRightLeft, label: "переместил задачу" },
   PROJECT_ADDED: { icon: FolderPlus, label: "добавил вас в проект" },
+  CONTENT_REVIEW: {
+    icon: ClipboardCheck,
+    label: "отправил карточку на вычитку",
+  },
+  CONTENT_CHANGES: { icon: Undo2, label: "вернул карточку на правки" },
+  CONTENT_APPROVED: { icon: CheckCircle2, label: "одобрил карточку" },
 } as const;
 
 export function NotificationBell() {
@@ -78,7 +97,9 @@ export function NotificationBell() {
 
   function handleClick(n: NotificationItem) {
     setOpen(false);
-    if (n.taskId && n.workspaceId) {
+    if (n.cardId && n.workspaceId) {
+      router.push(`/workspaces/${n.workspaceId}/content`);
+    } else if (n.taskId && n.workspaceId) {
       router.push(`/workspaces/${n.workspaceId}/crm?taskId=${n.taskId}`);
     } else if (n.workspaceId) {
       router.push(`/workspaces/${n.workspaceId}/crm`);
@@ -147,6 +168,12 @@ export function NotificationBell() {
                         <>
                           {" "}
                           <span className="font-medium">{n.projectName}</span>
+                        </>
+                      )}
+                      {n.cardTitle && (
+                        <>
+                          {" "}
+                          <span className="font-medium">{n.cardTitle}</span>
                         </>
                       )}
                     </p>
