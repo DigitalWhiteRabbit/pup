@@ -49,3 +49,6 @@ tools/yt-parser/history.json
 tools/yt-parser/cache.json
 tools/yt-parser/errors.log
 tools/yt-parser/data/
+
+# Local claude-code scheduling artifact (not code)
+.claude/scheduled_tasks.lock
