@@ -13,6 +13,7 @@ import {
   ScrollText,
   MessageSquare,
   Megaphone,
+  CalendarDays,
   BarChart3,
   Users,
   UserPlus,
@@ -106,6 +107,11 @@ const MODULE_META: Record<ModuleKey, ModuleMeta> = {
     label: "Маркетинг",
     description: "Управление маркетинговыми кампаниями",
     icon: <Megaphone className="h-8 w-8" />,
+  },
+  content: {
+    label: "Контент-план",
+    description: "Карточки публикаций, модерация и автопубликация",
+    icon: <CalendarDays className="h-8 w-8" />,
   },
   analytics: {
     label: "Аналитика",

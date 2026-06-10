@@ -51,6 +51,7 @@ const DEFAULT_MODULES = [
   "logs",
   "chat",
   "marketing",
+  "content",
   "analytics",
   "users",
 ] as const;

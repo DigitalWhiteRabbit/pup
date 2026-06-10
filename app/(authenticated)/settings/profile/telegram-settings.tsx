@@ -20,6 +20,7 @@ type Preferences = {
   tgNotifyComment: boolean;
   tgNotifyMove: boolean;
   tgNotifyProject: boolean;
+  tgNotifyContent: boolean;
   tgNotifyTaskDeleted: boolean;
   tgNotifyMemberRemoved: boolean;
   tgNotifyWorkspaceDeleted: boolean;
@@ -38,6 +39,7 @@ const PREF_LABELS: Record<keyof Preferences, string> = {
   tgNotifyComment: "Комментарии к моим задачам",
   tgNotifyMove: "Перемещение моих задач",
   tgNotifyProject: "Добавление в проект",
+  tgNotifyContent: "Контент-план: вычитка / правки / одобрено",
   tgNotifyTaskDeleted: "Удаление задачи в workspace",
   tgNotifyMemberRemoved: "Удаление меня из workspace",
   tgNotifyWorkspaceDeleted: "Удаление workspace",
@@ -58,6 +60,7 @@ const PREF_GROUPS: Record<string, Array<keyof Preferences>> = {
     "tgNotifyWorkspaceDeleted",
     "tgNotifyRoleChanged",
   ],
+  "Контент-план": ["tgNotifyContent"],
   "Деплой (только для админов)": ["tgNotifyDeploy"],
 };
 
@@ -93,6 +96,7 @@ export function TelegramSettings({
         tgNotifyComment: statusData.tgNotifyComment,
         tgNotifyMove: statusData.tgNotifyMove,
         tgNotifyProject: statusData.tgNotifyProject,
+        tgNotifyContent: statusData.tgNotifyContent ?? true,
         tgNotifyTaskDeleted: statusData.tgNotifyTaskDeleted ?? false,
         tgNotifyMemberRemoved: statusData.tgNotifyMemberRemoved ?? false,
         tgNotifyWorkspaceDeleted: statusData.tgNotifyWorkspaceDeleted ?? false,

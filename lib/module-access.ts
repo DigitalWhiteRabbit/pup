@@ -82,6 +82,16 @@ export const MODULE_ACCESS_TREE: ModuleTreeNode[] = [
       { key: "marketing:settings", label: "Настройки" },
     ],
   },
+  {
+    // Полный доступ ("content") = старший менеджер (вкл. модерацию).
+    // Для SMM-автора выдают подключ "content:author" (видит модуль, но без модерации).
+    key: "content",
+    label: "Контент-план (полный / старший менеджер)",
+    children: [
+      { key: "content:author", label: "Автор (SMM) — без модерации" },
+      { key: "content:moderate", label: "Модерация (старший менеджер)" },
+    ],
+  },
   { key: "analytics", label: "Аналитика" },
   { key: "users", label: "Пользователи" },
 ];
