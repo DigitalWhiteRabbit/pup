@@ -52,3 +52,6 @@ tools/yt-parser/data/
 
 # Local claude-code scheduling artifact (not code)
 .claude/scheduled_tasks.lock
+
+# QA screenshots (dev artifacts, not for prod)
+public/qa-screenshots/

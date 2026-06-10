@@ -7,3 +7,6 @@ cache.json
 Архив парсинг/
 tmp/
 *.db
+
+# QA screenshots (dev artifacts)
+qa-screens/
