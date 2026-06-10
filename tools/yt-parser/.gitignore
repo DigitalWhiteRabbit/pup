@@ -5,4 +5,5 @@ cache.json
 .env.qa-backup
 .env.local
 Архив парсинг/
+tmp/
 *.db

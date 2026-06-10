@@ -61,6 +61,23 @@ UI строится и проверяется структурно; реальн
 - [x] **Шаг 4 — Бейджи каналов в списке лидов**: existing контакт-иконки увязать с состоянием доступен/отправлено.
 - [x] **Шаг 5 — Проверка**: нет ошибок в консоли, fetch-вызовы по контрактам, рестарт dev-сервера, обновление PROGRESS.
 
+## Фаза 3 (импорт Telethon-сессий)
+
+Реальность онбординга: аккаунты покупаются как пакет Telethon-сессии (`.session`
+SQLite + `.json` метаданные). yt-parser на GramJS (StringSession) — нужен импорт-
+конвертер (вход по телефону/коду для таких аккаунтов не используем). Секреты
+(auth_key/2FA/api_hash) не логируем и не отдаём в API.
+
+- [x] **Шаг 1 — Утилита конвертации**: `services/telethon-import.js` —
+      `telethonSessionToStringSession(path)` читает better-sqlite3 `sessions(dc_id,
+server_address, port, auth_key[256])` → GramJS `StringSession` (setDC + AuthKey)
+      → `save()`. Round-trip тест (`scripts/test-telethon-import.js`): dc/ip/port
+      сохраняются, auth_key байт-в-байт, кривой ключ → ошибка. `tmp/` в .gitignore.
+- [ ] **Шаг 2 — Эндпоинт импорта**: `POST /api/telegram/accounts/import` (multipart).
+- [ ] **Шаг 3 — Параметры клиента из сессии** (device/systemVersion/appVersion/lang).
+- [ ] **Шаг 4 — UI «Импорт сессии»** в пуле аккаунтов.
+- [ ] **Шаг 5 — Проверка** (без живого коннекта).
+
 ## Проверка Фазы 2 (UI)
 
 - **Синтаксис**: `node --check` главного inline-скрипта (~4900 строк) зелёный после каждого шага; prettier (husky) зелёный на коммитах.
