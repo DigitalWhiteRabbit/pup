@@ -1886,6 +1886,56 @@ function onPendingReplyRejected(pendingReplyId) {
 
 // ─── Telegram incoming handler ──────────────────────────────────────
 
+// Дебаунс генерации ответа: если блогер шлёт пачку сообщений подряд, генерируем
+// ОДИН ответ после «тишины» TG_REPLY_DEBOUNCE_MS, чтобы прочитать всю пачку.
+const TG_REPLY_DEBOUNCE_MS = parseInt(
+  process.env.TG_REPLY_DEBOUNCE_MS || "12000",
+  10,
+);
+const _tgReplyTimers = new Map(); // key `${wsId}:${leadId}` → timeout
+
+// Запуск generatePendingReplies в контексте нужного воркспейса (таймер срабатывает
+// уже после восстановления контекста в handleIncomingTelegram).
+async function _runReplyGenForWorkspace(wsId) {
+  const savedStmts = stmts;
+  const savedDb = db;
+  const savedWsId = currentWorkspaceId;
+  const ws = dbModule.getDb(wsId);
+  stmts = ws.stmts;
+  db = ws.db;
+  currentWorkspaceId = wsId;
+  try {
+    await generatePendingReplies();
+  } finally {
+    stmts = savedStmts;
+    db = savedDb;
+    currentWorkspaceId = savedWsId;
+  }
+}
+
+// Поставить/сбросить per-lead дебаунс-таймер генерации ответа. Каждое новое
+// входящее по этому лиду сбрасывает таймер → ответ читает уже всю пачку.
+function scheduleTgReplyGeneration(wsId, leadId) {
+  const key = `${wsId}:${leadId}`;
+  const existing = _tgReplyTimers.get(key);
+  if (existing) clearTimeout(existing);
+  const t = setTimeout(() => {
+    _tgReplyTimers.delete(key);
+    _runReplyGenForWorkspace(wsId).catch((e) =>
+      log(
+        "ERR",
+        `debounced TG reply gen failed (lead #${leadId}): ${e.message}`,
+      ),
+    );
+  }, TG_REPLY_DEBOUNCE_MS);
+  if (typeof t.unref === "function") t.unref(); // не держим event loop
+  _tgReplyTimers.set(key, t);
+  log(
+    "DEBUG",
+    `TG reply debounce armed (lead #${leadId}, ws ${wsId}, ${TG_REPLY_DEBOUNCE_MS}ms)`,
+  );
+}
+
 // Найти TG-лида по username/chat_id ВО ВСЕХ воркспейсах (TG-аккаунты общие,
 // а лиды разнесены по ws-БД). Возвращает { lead, ws, wsId } или null.
 function findTgLeadAcrossWorkspaces(username, chatId) {
@@ -1980,9 +2030,9 @@ async function handleIncomingTelegram(msg) {
         if (!hasActivePendingReply(lead.id, dialogue.id)) {
           log(
             "INFO",
-            `TG incoming dup (lead #${lead.id}) — нет активного черновика, регенерирую`,
+            `TG incoming dup (lead #${lead.id}) — нет активного черновика, дебаунс-регенерация`,
           );
-          await generatePendingReplies();
+          scheduleTgReplyGeneration(match.wsId, lead.id);
         } else {
           log(
             "INFO",
@@ -2039,13 +2089,70 @@ async function handleIncomingTelegram(msg) {
       `TG reply from @${msg.username} (lead #${lead.id}, ws: ${match.wsId})`,
     );
 
-    await generatePendingReplies();
+    // Дебаунс: не генерируем ответ сразу — ждём «тишины», чтобы прочитать всю
+    // пачку. Запись входящего и стадия replied уже зафиксированы выше (мгновенно).
+    scheduleTgReplyGeneration(match.wsId, lead.id);
   } catch (e) {
     log("ERR", `TG handler failed: ${e.message}`);
   } finally {
     stmts = savedStmts;
     db = savedDb;
     currentWorkspaceId = savedWsId;
+  }
+}
+
+// Startup-sweep: дебаунс-таймеры in-memory и теряются при рестарте. Один проход
+// generatePendingReplies по воркспейсам, где есть «зависшая» TG-пачка (входящие
+// после последнего исходящего, без активного черновика) — подберём её. Reentrancy-
+// guard + review-дедуп защищают от дублей. Сканируем только ws с реальной TG-
+// пачкой, чтобы не трогать остальные воркспейсы.
+function _hasStrandedTgBatch(wsDb) {
+  try {
+    return !!wsDb
+      .prepare(
+        `SELECT 1 FROM leads l
+         JOIN dialogues d ON d.lead_id = l.id AND d.channel = 'telegram'
+         WHERE l.lead_status IN ('ready','in_work')
+           AND l.dialogue_stage NOT IN ('won','lost','deal_pending','moved_to_tg')
+           AND (SELECT MAX(created_at) FROM messages WHERE dialogue_id = d.id AND direction = 'in') >
+               COALESCE((SELECT MAX(created_at) FROM messages WHERE dialogue_id = d.id AND direction = 'out'), '1970-01-01')
+           AND NOT EXISTS (
+             SELECT 1 FROM pending_replies pr
+             WHERE pr.lead_id = l.id AND pr.status IN ('pending','approved')
+           )
+         LIMIT 1`,
+      )
+      .get();
+  } catch {
+    return false;
+  }
+}
+
+async function sweepStrandedTgReplies() {
+  const fs = require("fs");
+  const path = require("path");
+  const dataDir = path.join(__dirname, "..", "data");
+  let files = [];
+  try {
+    files = fs
+      .readdirSync(dataDir)
+      .filter((f) => f.startsWith("ws-") && f.endsWith(".db"));
+  } catch {
+    return;
+  }
+  for (const file of files) {
+    const wsId = file.replace(/^ws-/, "").replace(/\.db$/, "");
+    const ws = dbModule.getDb(wsId);
+    if (!_hasStrandedTgBatch(ws.db)) continue;
+    log(
+      "INFO",
+      `[sweep] зависшая TG-пачка в ws ${wsId} → generatePendingReplies`,
+    );
+    try {
+      await _runReplyGenForWorkspace(wsId);
+    } catch (e) {
+      log("ERR", `[sweep] ws ${wsId}: ${e.message}`);
+    }
   }
 }
 
@@ -2061,6 +2168,12 @@ function enableTelegramListener() {
     "INFO",
     "TG incoming listener enabled (listener-only, без outreach-цикла)",
   );
+  // Подобрать пачки, пришедшие пока сервер был выключен (таймеры теряются на рестарт).
+  setTimeout(() => {
+    sweepStrandedTgReplies().catch((e) =>
+      log("ERR", `startup TG sweep failed: ${e.message}`),
+    );
+  }, 5000);
 }
 
 // ─── Control ────────────────────────────────────────────────────────
