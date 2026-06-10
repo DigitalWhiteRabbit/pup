@@ -1,10 +1,26 @@
 const express = require("express");
+const multer = require("multer");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+const crypto = require("crypto");
 const tg = require("../services/telegram-outreach");
 const { adminAuth } = require("../utils/auth");
 const router = express.Router();
 
-// Все TG-мутации (login/code/password/logout) требуют admin token
-router.use(["/login", "/code", "/password", "/logout"], adminAuth);
+// Импорт пакета аккаунта: .session (SQLite) + .json (метаданные). До 5 МБ.
+const uploadSession = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+});
+
+// Все TG-мутации требуют admin token. (GET-статусы — открыты.)
+router.use((req, res, next) => {
+  if (req.method === "GET" || req.method === "HEAD") return next();
+  return adminAuth(req, res, next);
+});
+
+// ─── Legacy single-account API (текущий UI до Фазы 2) ───────────────
 
 router.get("/status", (req, res) => {
   res.json({ success: true, ...tg.status() });
@@ -25,8 +41,6 @@ router.post("/code", (req, res) => {
     if (!code)
       return res.status(400).json({ success: false, error: "code required" });
     tg.provideCode(String(code));
-    // Wait briefly so frontend can re-poll status
-    setTimeout(() => {}, 500);
     res.json({ success: true, ...tg.status() });
   } catch (e) {
     res.status(400).json({ success: false, error: e.message });
@@ -50,6 +64,207 @@ router.post("/password", (req, res) => {
 router.post("/logout", async (req, res) => {
   await tg.logout();
   res.json({ success: true });
+});
+
+// ─── Multi-account pool API (Фаза 1) ────────────────────────────────
+
+// GET /api/telegram/accounts — список аккаунтов со статусом (без секретов)
+router.get("/accounts", (req, res) => {
+  res.json({ success: true, accounts: tg.listAccounts() });
+});
+
+// GET /api/telegram/accounts/:id
+router.get("/accounts/:id", (req, res) => {
+  const s = tg.accountStatus(parseInt(req.params.id, 10));
+  if (!s) return res.status(404).json({ success: false, error: "not found" });
+  res.json({ success: true, account: s });
+});
+
+// POST /api/telegram/accounts — создать аккаунт
+// { label?, phone?, api_id?, api_hash?, proxy_type?, proxy_host?, proxy_port?,
+//   proxy_user?, proxy_pass?, proxy_string?, daily_cap? }
+router.post("/accounts", (req, res) => {
+  try {
+    let fields = { ...req.body };
+    if (fields.proxy_string) {
+      Object.assign(fields, tg.parseProxyString(fields.proxy_string));
+      delete fields.proxy_string;
+    }
+    const account = tg.createAccount(fields);
+    res.json({ success: true, account: tg.accountStatus(account.id) });
+  } catch (e) {
+    res.status(400).json({ success: false, error: e.message });
+  }
+});
+
+// POST /api/telegram/accounts/import — импорт готовой Telethon-сессии.
+// multipart: files session (.session SQLite) + json (.json метаданные);
+// поля: proxy_string ("host:port:user:pass"), label?, daily_cap?.
+router.post(
+  "/accounts/import",
+  uploadSession.fields([
+    { name: "session", maxCount: 1 },
+    { name: "json", maxCount: 1 },
+  ]),
+  async (req, res) => {
+    const sessionFile = req.files?.session?.[0];
+    const jsonFile = req.files?.json?.[0];
+    if (!sessionFile)
+      return res
+        .status(400)
+        .json({ success: false, error: "файл session обязателен" });
+
+    // Метаданные: из загруженного .json или (фолбэк) из полей формы.
+    let meta = {};
+    if (jsonFile) {
+      try {
+        meta = JSON.parse(jsonFile.buffer.toString("utf-8"));
+      } catch {
+        return res
+          .status(400)
+          .json({ success: false, error: "json не парсится" });
+      }
+    }
+
+    // Пишем .session-буфер во временный файл (better-sqlite3 нужен путь).
+    const tmpPath = path.join(
+      os.tmpdir(),
+      "import-" + crypto.randomBytes(8).toString("hex") + ".session",
+    );
+    try {
+      fs.writeFileSync(tmpPath, sessionFile.buffer);
+      const account = await tg.importAccount({
+        sessionFilePath: tmpPath,
+        meta,
+        proxy_string: req.body?.proxy_string,
+        label: req.body?.label,
+        daily_cap: req.body?.daily_cap,
+        phone: req.body?.phone,
+      });
+      res.json({ success: true, account: tg.accountStatus(account.id) });
+    } catch (e) {
+      res.status(400).json({ success: false, error: e.message });
+    } finally {
+      try {
+        fs.unlinkSync(tmpPath);
+      } catch {}
+    }
+  },
+);
+
+// PATCH /api/telegram/accounts/:id — обновить поля (прокси/лимит/статус/label)
+router.patch("/accounts/:id", (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    tg.updateAccount(id, req.body || {});
+    res.json({ success: true, account: tg.accountStatus(id) });
+  } catch (e) {
+    res.status(400).json({ success: false, error: e.message });
+  }
+});
+
+// DELETE /api/telegram/accounts/:id
+router.delete("/accounts/:id", async (req, res) => {
+  try {
+    await tg.deleteAccount(parseInt(req.params.id, 10));
+    res.json({ success: true });
+  } catch (e) {
+    res.status(400).json({ success: false, error: e.message });
+  }
+});
+
+// POST /api/telegram/accounts/:id/login
+router.post("/accounts/:id/login", async (req, res) => {
+  try {
+    const result = await tg.loginAccount(parseInt(req.params.id, 10));
+    res.json({ success: true, ...result });
+  } catch (e) {
+    res.status(400).json({ success: false, error: e.message });
+  }
+});
+
+// POST /api/telegram/accounts/:id/code { code }
+router.post("/accounts/:id/code", (req, res) => {
+  try {
+    const { code } = req.body;
+    if (!code)
+      return res.status(400).json({ success: false, error: "code required" });
+    tg.provideCodeFor(parseInt(req.params.id, 10), String(code));
+    res.json({
+      success: true,
+      account: tg.accountStatus(parseInt(req.params.id, 10)),
+    });
+  } catch (e) {
+    res.status(400).json({ success: false, error: e.message });
+  }
+});
+
+// POST /api/telegram/accounts/:id/password { password }
+router.post("/accounts/:id/password", (req, res) => {
+  try {
+    const { password } = req.body;
+    if (!password)
+      return res
+        .status(400)
+        .json({ success: false, error: "password required" });
+    tg.providePasswordFor(parseInt(req.params.id, 10), String(password));
+    res.json({
+      success: true,
+      account: tg.accountStatus(parseInt(req.params.id, 10)),
+    });
+  } catch (e) {
+    res.status(400).json({ success: false, error: e.message });
+  }
+});
+
+// POST /api/telegram/accounts/:id/qa-ready — QA-ТОЛЬКО (при DRY_RUN): пометить
+// аккаунт «готовым» в пуле БЕЗ реального коннекта (для визуального QA статусов).
+router.post("/accounts/:id/qa-ready", (req, res) => {
+  const dry = process.env.DRY_RUN === "true" || process.env.DRY_RUN === "1";
+  const isProd = process.env.NODE_ENV === "production";
+  // Двойной гейт: только не-прод И DRY_RUN. В проде (NODE_ENV=production или
+  // DRY_RUN!=true) — инертен.
+  if (isProd || !dry)
+    return res.status(403).json({
+      success: false,
+      error: "qa-ready доступен только в dev при DRY_RUN",
+    });
+  if (typeof tg.__testInjectReady !== "function")
+    return res.status(404).json({ success: false, error: "not available" });
+  const id = parseInt(req.params.id, 10);
+  tg.__testInjectReady(id, req.body?.ready !== false);
+  res.json({ success: true, account: tg.accountStatus(id) });
+});
+
+// POST /api/telegram/accounts/:id/fetch-incoming { peer, limit? }
+// Catch-up: дозабрать последние входящие из чата через уже открытое соединение
+// аккаунта и прогнать через incoming-handler (на случай сообщений, пришедших до
+// подключения listener). Read-only, ничего не отправляет.
+router.post("/accounts/:id/fetch-incoming", async (req, res) => {
+  try {
+    const peer = req.body?.peer;
+    if (!peer)
+      return res.status(400).json({ success: false, error: "peer required" });
+    const limit = Math.min(parseInt(req.body?.limit, 10) || 5, 20);
+    const ingested = await tg.fetchRecentIncoming(
+      parseInt(req.params.id, 10),
+      String(peer),
+      limit,
+    );
+    res.json({ success: true, ingested });
+  } catch (e) {
+    res.status(400).json({ success: false, error: e.message });
+  }
+});
+
+// POST /api/telegram/accounts/:id/logout
+router.post("/accounts/:id/logout", async (req, res) => {
+  try {
+    await tg.logoutAccount(parseInt(req.params.id, 10));
+    res.json({ success: true });
+  } catch (e) {
+    res.status(400).json({ success: false, error: e.message });
+  }
 });
 
 module.exports = router;

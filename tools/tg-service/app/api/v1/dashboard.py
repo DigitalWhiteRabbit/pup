@@ -89,6 +89,95 @@ async def dashboard_stats(
                 event["metadata"] = None
         recent_events.append(event)
 
+    # --- Parser stats (last 30 days + total) ---
+    parsers: list[dict[str, Any]] = []
+    parser_month_found = 0
+    parser_month_tasks = 0
+    try:
+        parser_rows = db.execute(
+            """SELECT name, total_found FROM tg_parsing_tasks
+               WHERE status = 'COMPLETED' AND total_found > 0
+               ORDER BY total_found DESC LIMIT 5"""
+        ).fetchall()
+        parsers = [{"name": r["name"], "total_found": r["total_found"]} for r in parser_rows]
+
+        # Contacts found in the last 30 days
+        month_row = db.execute(
+            """SELECT COUNT(*) AS tasks, COALESCE(SUM(total_found), 0) AS found
+               FROM tg_parsing_tasks
+               WHERE status = 'COMPLETED'
+                 AND created_at >= datetime('now', '-30 days')"""
+        ).fetchone()
+        if month_row:
+            parser_month_tasks = month_row["tasks"] or 0
+            parser_month_found = month_row["found"] or 0
+    except Exception:
+        pass
+
+    # --- Phone-checker stats (last 30 days) ---
+    checker_month_checked = 0
+    checker_month_found = 0
+    try:
+        chk_row = db.execute(
+            """SELECT COUNT(*) AS tasks,
+                      COALESCE(SUM(input_count), 0) AS checked,
+                      COALESCE(SUM(found_count), 0) AS found
+               FROM tg_phone_checks
+               WHERE created_at >= datetime('now', '-30 days')"""
+        ).fetchone()
+        if chk_row:
+            checker_month_checked = chk_row["checked"] or 0
+            checker_month_found = chk_row["found"] or 0
+    except Exception:
+        pass
+
+    # --- Audience stats ---
+    audiences_total = 0
+    audiences_total_contacts = 0
+    try:
+        aud_row = db.execute(
+            "SELECT COUNT(*) AS cnt, COALESCE(SUM(total_count), 0) AS contacts FROM tg_audiences"
+        ).fetchone()
+        if aud_row:
+            audiences_total = aud_row["cnt"] or 0
+            audiences_total_contacts = aud_row["contacts"] or 0
+    except Exception:
+        pass
+
+    # --- Active campaigns (DM) ---
+    campaigns: list[dict[str, Any]] = []
+    try:
+        camp_rows = db.execute(
+            """SELECT name, sent_count, total_recipients, replied_count
+               FROM tg_dm_campaigns
+               WHERE status IN ('RUNNING', 'COMPLETED')
+               ORDER BY updated_at DESC LIMIT 3"""
+        ).fetchall()
+        campaigns = [dict(r) for r in camp_rows]
+    except Exception:
+        pass
+
+    # --- AI spent this month ---
+    ai_spent = 0.0
+    try:
+        stg = db.execute(
+            "SELECT ai_spent_this_month_usd FROM tg_settings WHERE id = 'default'"
+        ).fetchone()
+        if stg:
+            ai_spent = stg["ai_spent_this_month_usd"] or 0.0
+    except Exception:
+        pass
+
+    # --- Pending approval (AI messages) ---
+    pending_approval = 0
+    try:
+        pa_row = db.execute(
+            "SELECT COUNT(*) AS cnt FROM tg_ai_messages WHERE status = 'PENDING'"
+        ).fetchone()
+        pending_approval = pa_row["cnt"] if pa_row else 0
+    except Exception:
+        pass
+
     return {
         "accounts_total": accounts_total,
         "accounts_by_status": accounts_by_status,
@@ -96,8 +185,29 @@ async def dashboard_stats(
         "accounts_without_proxy": accounts_total - accounts_with_proxy,
         "accounts_premium": accounts_premium,
         "avg_warmup_level": avg_warmup_level,
+        "proxies": {
+            "total": proxies_total,
+            "active": proxies_by_status.get("ACTIVE", 0),
+            "unchecked": 0,
+        },
         "proxies_total": proxies_total,
         "proxies_by_status": proxies_by_status,
         "proxies_by_type": proxies_by_type,
+        "parsers": parsers,
+        "parser_month": {
+            "tasks": parser_month_tasks,
+            "found": parser_month_found,
+        },
+        "checker_month": {
+            "checked": checker_month_checked,
+            "found": checker_month_found,
+        },
+        "audiences": {
+            "total": audiences_total,
+            "total_contacts": audiences_total_contacts,
+        },
+        "campaigns": campaigns,
+        "ai_spent": ai_spent,
+        "pending_approval": pending_approval,
         "recent_events": recent_events,
     }

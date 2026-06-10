@@ -42,16 +42,76 @@ function pickPersona(country) {
 
 // ─── Sanitization (anti prompt-injection) ─────────────────────────
 
+// Удаляет непарные UTF-16 суррогаты — появляются, когда slice() режет посреди
+// emoji/𝗯𝗼𝗹𝗱-юникода. Иначе Anthropic API отвергает тело запроса с ошибкой
+// "The request body is not valid JSON: no low surrogate in string".
+function stripLoneSurrogates(s) {
+  return s.replace(
+    /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g,
+    "",
+  );
+}
+
 function sanitize(v, maxLen = 200) {
   if (v === undefined || v === null) return "";
-  return String(v)
-    .replace(/[\r\n]{2,}/g, "\n")
-    .slice(0, maxLen);
+  return stripLoneSurrogates(
+    String(v)
+      .replace(/[\r\n]{2,}/g, "\n")
+      .slice(0, maxLen),
+  );
 }
 
 function sanitizeLong(v, maxLen = 2000) {
   if (v === undefined || v === null) return "";
-  return String(v).replace(/\r/g, "").slice(0, maxLen);
+  return stripLoneSurrogates(String(v).replace(/\r/g, "").slice(0, maxLen));
+}
+
+// ─── Тема письма из статичного пула кампании (round-robin) ─────────
+let _subjectCounter = 0;
+// Достаём имя адресата из приветствия письма («Hey Vishal —» / «Привет, Иван!»),
+// чтобы корректно подставить {name}. Имя отправителя (Daniel/Cross/Atlas) исключаем.
+function extractGreetingName(body) {
+  const m = String(body || "").match(
+    /^\s*(?:hey|hi|hello|привет|здравствуй(?:те)?)[,!]?\s+([^\s,!—–-][^\s,!—–]{0,24})/i,
+  );
+  if (!m) return "";
+  const cand = m[1].replace(/[!,.;:]+$/, "").trim();
+  if (cand.length < 2) return "";
+  if (/daniel|cross|atlas/i.test(cand)) return "";
+  if (!/^[\p{L}][\p{L}.\-']*$/u.test(cand)) return "";
+  return cand;
+}
+// Возвращает тему из project.subject_pool (или null, если пул не задан/пуст).
+// Ротация по lead.id (стабильно и без «загрязнения» от фоновых тиков воркера);
+// fallback — глобальный счётчик, если id не передан.
+function pickPoolSubject(subjectPoolRaw, body, leadId) {
+  let pool;
+  try {
+    pool = JSON.parse(subjectPoolRaw);
+  } catch {
+    return null;
+  }
+  if (!pool) return null;
+  const isRu = /[а-яё]/i.test(String(body || ""));
+  const list = (isRu ? pool.ru : pool.en) || pool.en || pool.ru || [];
+  if (!Array.isArray(list) || list.length === 0) return null;
+
+  const name = extractGreetingName(body);
+  const base = Number.isFinite(leadId) ? leadId : _subjectCounter++;
+  const idx = ((base % list.length) + list.length) % list.length;
+  let subj = list[idx];
+  if (subj.includes("{name}")) {
+    if (name) {
+      subj = subj.replace(/\{name\}/g, name);
+    } else {
+      // имени нет — берём ближайшую тему без {name}
+      const noName = list.filter((s) => !s.includes("{name}"));
+      subj = noName.length
+        ? noName[base % noName.length]
+        : subj.replace(/\{name\}[,!]?\s*/g, "").trim();
+    }
+  }
+  return subj;
 }
 
 // ─── System prompt (split for prompt caching) ─────────────────────
@@ -608,12 +668,14 @@ async function generateInitialPitch(
 
 Вызови инструмент send_reply.${angleHint}`;
 
+  // §9: temperature под кампанию (промо=0.75; платная pitch_temperature=NULL → 0.6)
+  const temp = project.pitch_temperature ?? 0.6;
   const response = await withBackoff(
     () =>
       c.messages.create({
         model: MODEL_COMPLEX,
         max_tokens: 1024,
-        temperature: 0.6,
+        temperature: temp,
         system,
         tools: [COLD_PITCH_TOOL],
         tool_choice: { type: "tool", name: "send_reply" },
@@ -651,6 +713,15 @@ async function generateInitialPitch(
     }
   } catch (e) {
     console.error("[critique]", e.message);
+  }
+  // Тема — из статичного пула кампании (если задан). Стабильнее генерации моделью.
+  if (project.subject_pool) {
+    const s = pickPoolSubject(
+      project.subject_pool,
+      pitch.body,
+      lead && lead.id,
+    );
+    if (s) pitch.subject = s;
   }
   return pitch;
 }
@@ -917,6 +988,33 @@ async function generateReply(
     adminDirective,
     knowledgeContext,
   );
+
+  // ЯЗЫК ОТВЕТА: отвечаем на ТОМ ЖЕ языке, что и блогер. Детект по последнему
+  // входящему (кириллица → ru; латиница → не-ru). Fallback — страна/язык канала.
+  // Без этой директивы модель шла бы за русским системным промптом и отвечала
+  // по-русски даже на английскую переписку.
+  const lastInMsg = [...effectiveHistory]
+    .reverse()
+    .find((m) => m.direction === "in" && m.content && m.content.trim());
+  const ruCountriesReply = ["RU", "UA", "BY", "KZ"];
+  let bloggerWritesRu;
+  if (lastInMsg && /[а-яё]/i.test(lastInMsg.content)) {
+    bloggerWritesRu = true;
+  } else if (lastInMsg && /[a-z]/i.test(lastInMsg.content)) {
+    bloggerWritesRu = false;
+  } else {
+    bloggerWritesRu =
+      ruCountriesReply.includes((lead.country || "").toUpperCase()) ||
+      /рус|russian/i.test(lead.channel_language || "");
+  }
+  system.push({
+    type: "text",
+    text: `═══ ЯЗЫК ОТВЕТА ═══\nОтвечай на ТОМ ЖЕ языке, на котором блогер пишет в последних сообщениях. Сейчас блогер пишет ${
+      bloggerWritesRu
+        ? "по-русски — отвечай по-русски."
+        : "НЕ по-русски (английский/другой) — отвечай на этом же языке блогера (по-английски, если он пишет по-английски)."
+    } Никогда не переключай язык произвольно и не отвечай по-русски на английское сообщение.`,
+  });
 
   // Convert history → Claude messages. Входящие (in) оборачиваем в <blogger_message>
   const messages = [];

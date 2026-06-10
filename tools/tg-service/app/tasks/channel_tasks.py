@@ -34,43 +34,23 @@ def _now() -> str:
 
 
 def _build_proxy_kwargs(db: Any, proxy_id: str) -> dict[str, Any]:
-    """Build Telethon proxy kwargs from a stored proxy row."""
-    import python_socks  # type: ignore[import-untyped]
+    # P5-02: delegate to the shared builder (was duplicated across ~10 modules).
+    from app.services.tg_runner import build_proxy_kwargs
+    return build_proxy_kwargs(db, proxy_id)
 
-    proxy_row = db.execute(
-        "SELECT * FROM tg_proxies WHERE id = ?", [proxy_id]
-    ).fetchone()
-    if not proxy_row or proxy_row["status"] != "ACTIVE":
-        return {}
-
-    scheme = (proxy_row["scheme"] or "http").lower()
-    if "socks5" in scheme:
-        proxy_type = python_socks.ProxyType.SOCKS5
-    elif "socks4" in scheme:
-        proxy_type = python_socks.ProxyType.SOCKS4
-    else:
-        proxy_type = python_socks.ProxyType.HTTP
-
-    return {
-        "proxy": {
-            "proxy_type": proxy_type,
-            "addr": proxy_row["host"],
-            "port": int(proxy_row["port"]),
-            "username": proxy_row["username"],
-            "password": proxy_row["password"],
-            "rdns": True,
-        }
-    }
 
 
 def _pick_account(db: Any) -> dict[str, Any] | None:
-    """Pick an ACTIVE account, preferring those with a proxy assigned."""
+    """Pick an ACTIVE account that has a proxy assigned.
+
+    Accounts without a proxy_id are excluded entirely: a proxy-less account
+    must never connect over the server's real IP. The proxy must also be
+    ACTIVE — this is verified by the NO_PROXY guard at the connect site.
+    """
     row = db.execute(
         """SELECT * FROM tg_accounts
-           WHERE status = 'ACTIVE'
-           ORDER BY
-               CASE WHEN proxy_id IS NOT NULL THEN 0 ELSE 1 END,
-               RANDOM()
+           WHERE status = 'ACTIVE' AND proxy_id IS NOT NULL
+           ORDER BY RANDOM()
            LIMIT 1"""
     ).fetchone()
     return dict(row) if row else None
@@ -148,6 +128,11 @@ async def _resolve_channel_async(workspace_id: str, link: str) -> dict[str, Any]
                 account_id=account["id"],
                 error=str(exc),
             )
+
+    # ── NO_PROXY guard: never connect over the server's real IP ─────────
+    if "proxy" not in proxy_kwargs:
+        log.warning("no_proxy_skip", account_id=account["id"], workspace_id=workspace_id)
+        return {"ok": False, "error": "NO_PROXY: нет активного прокси"}
 
     # ── Write temp session ─────────────────────────────────────────────
     tmp_dir = tempfile.mkdtemp(prefix="tg_resolve_")

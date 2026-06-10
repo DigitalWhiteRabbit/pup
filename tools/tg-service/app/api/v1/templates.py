@@ -338,3 +338,93 @@ async def delete_variant(
 
     log.info("variant_deleted", template_id=template_id, variant_id=variant_id)
     return {"status": "deleted", "id": variant_id}
+
+
+@router.post("/{template_id}/generate-variants")
+async def generate_ai_variants(
+    template_id: str,
+    _token: AdminAuth,
+    db: WorkspaceDB,
+    count: int = 3,
+) -> dict:
+    """Generate N AI variants for a template using Claude Haiku (P4-26)."""
+    import uuid as _uuid
+
+    row = db.execute(
+        "SELECT * FROM tg_templates WHERE id = ?", [template_id]
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    name = row["name"] or ""
+    description = row["description"] or ""
+    category = row["category"] or ""
+    tags_raw = row["tags"] or "[]"
+
+    # Build a context hint from existing variants
+    existing_vars = db.execute(
+        "SELECT text FROM tg_template_variants WHERE template_id = ? LIMIT 3", [template_id]
+    ).fetchall()
+    examples = "\n".join(f"- {r['text'][:120]}" for r in existing_vars)
+
+    from app.ai.anthropic_client import generate_message
+
+    system_prompt = (
+        "You are a copywriter for Telegram DM campaigns. Generate varied, human-sounding "
+        "message templates in Russian. Each variant should be different in tone and phrasing "
+        "but convey the same core offer. Use placeholders like {first_name}, {username} where natural. "
+        "Reply ONLY with a JSON array of strings — no prose, no markdown. "
+        f"Generate exactly {count} variants."
+    )
+    user_message = (
+        f"Template: {name}\n"
+        f"Category: {category}\n"
+        f"Description: {description}\n"
+        f"Tags: {tags_raw}\n"
+        + (f"Existing variants for reference:\n{examples}" if examples else "")
+    )
+
+    try:
+        result = generate_message(
+            system_prompt=system_prompt,
+            user_message=user_message,
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1000,
+            temperature=1.0,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"AI generation failed: {exc}") from exc
+
+    import json as _json
+    import re as _re
+    text = (result.get("text") or "").strip()
+    match = _re.search(r"\[.*\]", text, _re.DOTALL)
+    if not match:
+        raise HTTPException(status_code=502, detail="AI returned unparseable response")
+
+    try:
+        variants = _json.loads(match.group(0))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"AI JSON parse error: {exc}") from exc
+
+    now = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
+    saved = 0
+    for v in variants[:count]:
+        if not isinstance(v, str) or not v.strip():
+            continue
+        try:
+            db.execute(
+                "INSERT INTO tg_template_variants (id, template_id, text, created_at) VALUES (?, ?, ?, ?)",
+                [str(_uuid.uuid4()), template_id, v.strip(), now],
+            )
+            saved += 1
+        except Exception:
+            pass
+
+    db.execute(
+        "UPDATE tg_templates SET updated_at=? WHERE id=?", [now, template_id]
+    )
+    db.commit()
+
+    log.info("template_ai_variants_generated", template_id=template_id, count=saved)
+    return {"generated": saved, "cost_usd": result.get("cost_usd")}

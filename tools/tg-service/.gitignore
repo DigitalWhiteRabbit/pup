@@ -12,3 +12,7 @@ data/
 dist/
 build/
 logs/
+# Celery filesystem-broker runtime artifacts (создаются воркером в cwd)
+control/
+processed/
+processed

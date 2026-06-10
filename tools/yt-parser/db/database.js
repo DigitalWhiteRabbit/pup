@@ -107,6 +107,10 @@ function getDb(workspaceId = "default") {
     safeExec(`ALTER TABLE projects ADD COLUMN admin_directive TEXT`);
   if (!columnExists("projects", "system_prompt"))
     safeExec(`ALTER TABLE projects ADD COLUMN system_prompt TEXT`);
+  if (!columnExists("projects", "pitch_temperature"))
+    safeExec(`ALTER TABLE projects ADD COLUMN pitch_temperature REAL`);
+  if (!columnExists("projects", "subject_pool"))
+    safeExec(`ALTER TABLE projects ADD COLUMN subject_pool TEXT`);
   if (!columnExists("projects", "reply_delay_min"))
     safeExec(
       `ALTER TABLE projects ADD COLUMN reply_delay_min INTEGER DEFAULT 30`,
@@ -117,6 +121,59 @@ function getDb(workspaceId = "default") {
     );
   if (!columnExists("pending_replies", "send_after"))
     safeExec(`ALTER TABLE pending_replies ADD COLUMN send_after TEXT`);
+
+  // ─── TG multichannel: account pool + per-dialogue binding ──────────
+  // Какой TG-аккаунт ведёт диалог (nullable; для email-диалогов остаётся NULL).
+  if (!columnExists("dialogues", "account_id"))
+    safeExec(`ALTER TABLE dialogues ADD COLUMN account_id INTEGER`);
+
+  // Пул TG-аккаунтов (1 аккаунт = 1 сессия + 1 прокси). Живёт в default-БД,
+  // но миграция создаёт таблицу во всех ws-БД — безвредно.
+  safeExec(`CREATE TABLE IF NOT EXISTS tg_account (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    label TEXT,
+    phone TEXT,
+    api_id INTEGER,
+    api_hash TEXT,
+    session TEXT,
+    proxy_type TEXT DEFAULT 'socks5',
+    proxy_host TEXT,
+    proxy_port INTEGER,
+    proxy_user TEXT,
+    proxy_pass TEXT,
+    status TEXT DEFAULT 'active',
+    first_used_at TEXT,
+    sent_today INTEGER DEFAULT 0,
+    sent_today_date TEXT,
+    daily_cap INTEGER DEFAULT 50,
+    flood_until INTEGER,
+    last_sent_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`);
+  safeExec(
+    `CREATE INDEX IF NOT EXISTS idx_tg_account_status ON tg_account(status)`,
+  );
+  safeExec(
+    `CREATE INDEX IF NOT EXISTS idx_dialogues_account ON dialogues(account_id)`,
+  );
+  // Фаза 3: импорт Telethon-сессий — поля устройства/метаданных и 2FA/user_id.
+  if (!columnExists("tg_account", "two_fa"))
+    safeExec(`ALTER TABLE tg_account ADD COLUMN two_fa TEXT`);
+  if (!columnExists("tg_account", "user_id"))
+    safeExec(`ALTER TABLE tg_account ADD COLUMN user_id TEXT`);
+  if (!columnExists("tg_account", "device_model"))
+    safeExec(`ALTER TABLE tg_account ADD COLUMN device_model TEXT`);
+  if (!columnExists("tg_account", "system_version"))
+    safeExec(`ALTER TABLE tg_account ADD COLUMN system_version TEXT`);
+  if (!columnExists("tg_account", "app_version"))
+    safeExec(`ALTER TABLE tg_account ADD COLUMN app_version TEXT`);
+  if (!columnExists("tg_account", "lang_code"))
+    safeExec(`ALTER TABLE tg_account ADD COLUMN lang_code TEXT`);
+  if (!columnExists("tg_account", "system_lang_code"))
+    safeExec(`ALTER TABLE tg_account ADD COLUMN system_lang_code TEXT`);
+  if (!columnExists("tg_account", "source"))
+    safeExec(`ALTER TABLE tg_account ADD COLUMN source TEXT`);
 
   // Seed: default red_flags for project CopyBanner (id=3) — only for default workspace
   if (workspaceId === "default") {
@@ -383,6 +440,23 @@ function getDb(workspaceId = "default") {
     `CREATE INDEX IF NOT EXISTS idx_dev_tasks_parent ON dev_tasks(parent_task_id)`,
   );
 
+  // ─── Channel tags (catalog + per-channel assignment) ──────────────
+  safeExec(`CREATE TABLE IF NOT EXISTS tags (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    color TEXT NOT NULL DEFAULT '#3b82f6',
+    created_at TEXT NOT NULL
+  )`);
+  safeExec(`CREATE TABLE IF NOT EXISTS channel_tags (
+    channel_id TEXT PRIMARY KEY,
+    tag_id INTEGER NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(tag_id) REFERENCES tags(id) ON DELETE CASCADE
+  )`);
+  safeExec(
+    `CREATE INDEX IF NOT EXISTS idx_channel_tags_tag ON channel_tags(tag_id)`,
+  );
+
   // ─── Prepared Statements ──────────────────────────────────────────
   const stmts = buildStmts(db);
 
@@ -526,6 +600,9 @@ function buildStmts(db) {
       VALUES (?, ?, ?, ?)
     `),
     getDialogue: db.prepare(`SELECT * FROM dialogues WHERE id = ?`),
+    setDialogueAccount: db.prepare(
+      `UPDATE dialogues SET account_id = ? WHERE id = ?`,
+    ),
     getDialogueByLead: db.prepare(
       `SELECT * FROM dialogues WHERE lead_id = ? AND channel = ? ORDER BY created_at DESC LIMIT 1`,
     ),
@@ -557,6 +634,15 @@ function buildStmts(db) {
     `),
     listMessagesByDialogue: db.prepare(
       `SELECT * FROM messages WHERE dialogue_id = ? ORDER BY created_at ASC`,
+    ),
+    // Все сообщения лида по ВСЕМ его диалогам (слитно по времени). Нужно, когда
+    // у лида несколько диалогов (например, ответ блогера в старой ветке другой
+    // кампании) — чтобы окно диалога показывало полную переписку.
+    listMessagesByLead: db.prepare(
+      `SELECT m.* FROM messages m
+       JOIN dialogues d ON d.id = m.dialogue_id
+       WHERE d.lead_id = ?
+       ORDER BY m.created_at ASC, m.id ASC`,
     ),
     // Email open tracking: get last outgoing message open status per lead
     getLastOutgoingMessageOpen: db.prepare(`
@@ -674,7 +760,7 @@ function buildStmts(db) {
     `),
     getPendingReply: db.prepare(`SELECT * FROM pending_replies WHERE id = ?`),
     listPendingReplies: db.prepare(`
-      SELECT pr.*, l.channel_name, l.country, l.subscribers
+      SELECT pr.*, l.channel_name, l.country, l.subscribers, l.channel_url
       FROM pending_replies pr
       LEFT JOIN leads l ON l.id = pr.lead_id
       WHERE (@status IS NULL OR pr.status = @status)
@@ -738,6 +824,72 @@ function buildStmts(db) {
     incrementLeadFollowUp: db.prepare(`
       UPDATE leads SET followup_attempts = COALESCE(followup_attempts,0) + 1, last_followup_at = ?, updated_at = ? WHERE id = ?
     `),
+
+    // ─── TG account pool ──────────────────────────────────────────────
+    insertTgAccount: db.prepare(`
+      INSERT INTO tg_account (
+        label, phone, api_id, api_hash, proxy_type, proxy_host, proxy_port,
+        proxy_user, proxy_pass, status, daily_cap, created_at, updated_at
+      ) VALUES (
+        @label, @phone, @api_id, @api_hash, @proxy_type, @proxy_host, @proxy_port,
+        @proxy_user, @proxy_pass, @status, @daily_cap, @created_at, @updated_at
+      )
+    `),
+    // Импорт готовой Telethon-сессии (с session + device-параметрами).
+    insertImportedTgAccount: db.prepare(`
+      INSERT INTO tg_account (
+        label, phone, api_id, api_hash, session, proxy_type, proxy_host, proxy_port,
+        proxy_user, proxy_pass, status, daily_cap, two_fa, user_id, device_model,
+        system_version, app_version, lang_code, system_lang_code, source,
+        created_at, updated_at
+      ) VALUES (
+        @label, @phone, @api_id, @api_hash, @session, @proxy_type, @proxy_host, @proxy_port,
+        @proxy_user, @proxy_pass, @status, @daily_cap, @two_fa, @user_id, @device_model,
+        @system_version, @app_version, @lang_code, @system_lang_code, @source,
+        @created_at, @updated_at
+      )
+    `),
+    getTgAccount: db.prepare(`SELECT * FROM tg_account WHERE id = ?`),
+    listTgAccounts: db.prepare(`SELECT * FROM tg_account ORDER BY id ASC`),
+    listActiveTgAccounts: db.prepare(
+      `SELECT * FROM tg_account WHERE status = 'active' ORDER BY id ASC`,
+    ),
+    updateTgAccountFields: db.prepare(`
+      UPDATE tg_account SET
+        label = COALESCE(@label, label),
+        phone = COALESCE(@phone, phone),
+        api_id = COALESCE(@api_id, api_id),
+        api_hash = COALESCE(@api_hash, api_hash),
+        proxy_type = COALESCE(@proxy_type, proxy_type),
+        proxy_host = COALESCE(@proxy_host, proxy_host),
+        proxy_port = COALESCE(@proxy_port, proxy_port),
+        proxy_user = COALESCE(@proxy_user, proxy_user),
+        proxy_pass = COALESCE(@proxy_pass, proxy_pass),
+        status = COALESCE(@status, status),
+        daily_cap = COALESCE(@daily_cap, daily_cap),
+        updated_at = @updated_at
+      WHERE id = @id
+    `),
+    setTgAccountSession: db.prepare(
+      `UPDATE tg_account SET session = ?, updated_at = ? WHERE id = ?`,
+    ),
+    setTgAccountStatus: db.prepare(
+      `UPDATE tg_account SET status = ?, updated_at = ? WHERE id = ?`,
+    ),
+    setTgAccountFlood: db.prepare(
+      `UPDATE tg_account SET flood_until = ?, status = ?, updated_at = ? WHERE id = ?`,
+    ),
+    // Учёт отправки: сброс дневного счётчика при смене даты + инкремент.
+    recordTgAccountSend: db.prepare(`
+      UPDATE tg_account SET
+        sent_today = CASE WHEN sent_today_date = @date THEN sent_today + 1 ELSE 1 END,
+        sent_today_date = @date,
+        last_sent_at = @now,
+        first_used_at = COALESCE(first_used_at, @now),
+        updated_at = @now
+      WHERE id = @id
+    `),
+    deleteTgAccount: db.prepare(`DELETE FROM tg_account WHERE id = ?`),
 
     // Knowledge
     insertKnowledgeDoc: db.prepare(`

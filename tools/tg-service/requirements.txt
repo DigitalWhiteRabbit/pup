@@ -11,9 +11,21 @@ redis==5.2.0
 
 # Telegram
 telethon==1.37.0
+python-socks[asyncio]==2.5.3
 
 # AI
 anthropic==0.39.0
+
+# Document text extraction (KB file upload)
+pypdf==5.1.0
+python-docx==1.1.2
+
+# HTML parsing (KB website crawler)
+beautifulsoup4==4.12.3
+
+# JS-rendering crawler (KB website crawler) — run `playwright install chromium`
+# after install to download the headless browser binary.
+playwright==1.48.0
 
 # Security
 cryptography==43.0.0
@@ -22,11 +34,17 @@ cryptography==43.0.0
 structlog==24.4.0
 
 # HTTP client
-httpx==0.27.2
+httpx[socks]==0.27.2
 
 # Utils
 tenacity==9.0.0
 phonenumbers==8.13.49
+
+# RAG — local embeddings for hybrid KB search (P6-01). fastembed pulls
+# onnxruntime + tokenizers; the model (~0.22 GB) downloads on first use.
+# RAG degrades to keyword-only if these are absent (see app/ai/embeddings.py).
+fastembed==0.8.0
+numpy==2.4.6
 
 # Dev / Test
 pytest==8.3.0
@@ -35,3 +53,6 @@ pytest-cov==5.0.0
 ruff==0.7.0
 black==24.10.0
 PySocks==1.7.1
+
+# Optional — session format conversion (TDATA → SESSION)
+# opentele==1.15.1

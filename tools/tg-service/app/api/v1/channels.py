@@ -269,6 +269,7 @@ async def resolve_channel(
         return data
 
     # Try Telethon resolve (requires an active account)
+    client = None
     try:
         from app.telegram.client_pool import get_any_client
 
@@ -318,6 +319,14 @@ async def resolve_channel(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Could not resolve channel '@{username}': {exc}",
         )
+    finally:
+        # Always release the MTProto connection so it doesn't accumulate
+        # on the real account (FloodWait risk). disconnect_client is
+        # idempotent and swallows/debug-logs its own errors.
+        if client is not None:
+            from app.telegram.client_pool import disconnect_client
+
+            await disconnect_client(client)
 
 
 @router.patch("/{channel_id}")

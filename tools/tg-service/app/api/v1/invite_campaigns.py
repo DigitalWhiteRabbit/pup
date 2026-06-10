@@ -11,7 +11,7 @@ import structlog
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from app.deps import AdminAuth, WorkspaceDB
+from app.deps import AdminAuth, WorkspaceDB, WorkspaceId
 
 router = APIRouter(prefix="/invite-campaigns", tags=["invite-campaigns"])
 
@@ -242,8 +242,9 @@ async def start_campaign(
     campaign_id: str,
     _token: AdminAuth,
     db: WorkspaceDB,
+    workspace_id: WorkspaceId,
 ) -> dict[str, Any]:
-    """Set campaign status to RUNNING."""
+    """Set campaign status to RUNNING and dispatch Celery task."""
     row = db.execute(
         "SELECT * FROM tg_invite_campaigns WHERE id = ?", [campaign_id]
     ).fetchone()
@@ -257,6 +258,13 @@ async def start_campaign(
         )
 
     now = _now()
+
+    # Dispatch first: a down engine raises 503 and leaves the campaign in its
+    # prior status instead of falsely showing RUNNING.
+    from app.tasks.dispatch import dispatch_task
+
+    dispatch_task("pup_tg.invite_campaign", args=[workspace_id, campaign_id])
+
     try:
         db.execute(
             """UPDATE tg_invite_campaigns
@@ -359,3 +367,48 @@ async def list_attempts(
 
     items = [_row_to_attempt(r) for r in rows]
     return {"items": items, "total": total, "limit": limit, "offset": offset}
+
+
+@router.post("/{campaign_id}/pause")
+async def pause_campaign(
+    campaign_id: str,
+    _token: AdminAuth,
+    db: WorkspaceDB,
+) -> dict[str, Any]:
+    """Pause a RUNNING invite campaign (P4-24)."""
+    row = db.execute("SELECT * FROM tg_invite_campaigns WHERE id = ?", [campaign_id]).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Invite campaign not found")
+    if row["status"] != "RUNNING":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot pause campaign in status '{row['status']}'. Must be RUNNING.",
+        )
+    db.execute("UPDATE tg_invite_campaigns SET status='PAUSED', updated_at=? WHERE id=?", [_now(), campaign_id])
+    db.commit()
+    log.info("invite_campaign_paused", campaign_id=campaign_id)
+    return _row_to_dict(db.execute("SELECT * FROM tg_invite_campaigns WHERE id=?", [campaign_id]).fetchone())
+
+
+@router.post("/{campaign_id}/resume")
+async def resume_campaign(
+    campaign_id: str,
+    _token: AdminAuth,
+    db: WorkspaceDB,
+    workspace_id: WorkspaceId,
+) -> dict[str, Any]:
+    """Resume a PAUSED invite campaign (P4-24)."""
+    row = db.execute("SELECT * FROM tg_invite_campaigns WHERE id = ?", [campaign_id]).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Invite campaign not found")
+    if row["status"] != "PAUSED":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot resume campaign in status '{row['status']}'. Must be PAUSED.",
+        )
+    from app.tasks.dispatch import dispatch_task
+    dispatch_task("pup_tg.invite_campaign", args=[workspace_id, campaign_id])
+    db.execute("UPDATE tg_invite_campaigns SET status='RUNNING', updated_at=? WHERE id=?", [_now(), campaign_id])
+    db.commit()
+    log.info("invite_campaign_resumed", campaign_id=campaign_id)
+    return _row_to_dict(db.execute("SELECT * FROM tg_invite_campaigns WHERE id=?", [campaign_id]).fetchone())

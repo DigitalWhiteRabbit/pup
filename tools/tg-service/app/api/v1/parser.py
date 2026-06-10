@@ -11,7 +11,7 @@ import structlog
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from app.deps import AdminAuth, WorkspaceDB
+from app.deps import AdminAuth, WorkspaceDB, WorkspaceId
 
 router = APIRouter(prefix="/parser", tags=["parser"])
 
@@ -197,6 +197,7 @@ async def start_task(
     task_id: str,
     _token: AdminAuth,
     db: WorkspaceDB,
+    workspace_id: WorkspaceId,
 ) -> dict[str, Any]:
     """Set task status to RUNNING and dispatch Celery task."""
     row = db.execute(
@@ -213,19 +214,12 @@ async def start_task(
         )
 
     now = _now()
-    celery_task_id: str | None = None
 
-    # Dispatch Celery task (placeholder — actual Celery integration in Stage 2+)
-    try:
-        from app.tasks.celery_app import celery_app
-        result = celery_app.send_task(
-            "app.tasks.parsing.run_parsing_task",
-            args=[task_id],
-        )
-        celery_task_id = result.id
-    except Exception as exc:
-        log.warning("celery_dispatch_skipped", task_id=task_id, error=str(exc))
-        # Continue even if Celery is not available — task status is still updated
+    # Dispatch first: if the engine is down this raises 503 and the task stays
+    # in its current (PENDING/PAUSED) status instead of falsely showing RUNNING.
+    from app.tasks.dispatch import dispatch_task
+
+    celery_task_id = dispatch_task("pup_tg.parse_audience", args=[workspace_id, task_id])
 
     try:
         db.execute(

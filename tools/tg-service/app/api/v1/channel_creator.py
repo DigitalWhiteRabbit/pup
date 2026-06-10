@@ -11,7 +11,7 @@ import structlog
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from app.deps import AdminAuth, WorkspaceDB
+from app.deps import AdminAuth, WorkspaceDB, WorkspaceId
 
 router = APIRouter(prefix="/channel-creator", tags=["channel-creator"])
 
@@ -33,6 +33,9 @@ class ChannelCreatorCreate(BaseModel):
     username_pattern: str | None = None
     description: str | None = None
     creator_account_ids: list[str] = Field(default_factory=list)
+    # The UI sends `account_ids`; accept it as an alias so the operator's
+    # account selection isn't silently dropped (P2-09).
+    account_ids: list[str] | None = None
     permissions: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -127,6 +130,8 @@ async def create_task(
 
     now = _now()
     task_id = str(uuid.uuid4())
+    # Prefer the explicit field; fall back to the UI's `account_ids` alias.
+    creator_ids = body.creator_account_ids or body.account_ids or []
 
     try:
         db.execute(
@@ -138,7 +143,7 @@ async def create_task(
             [
                 task_id, body.name, body.channel_type, body.count,
                 body.naming_pattern, body.username_pattern,
-                body.description, json.dumps(body.creator_account_ids),
+                body.description, json.dumps(creator_ids),
                 json.dumps(body.permissions), "DRAFT", now, now,
             ],
         )
@@ -184,8 +189,9 @@ async def start_task(
     task_id: str,
     _token: AdminAuth,
     db: WorkspaceDB,
+    workspace_id: WorkspaceId,
 ) -> dict[str, Any]:
-    """Set channel creation task status to RUNNING."""
+    """Set channel creation task status to RUNNING and dispatch Celery task."""
     row = db.execute(
         "SELECT * FROM tg_channel_creation_tasks WHERE id = ?", [task_id]
     ).fetchone()
@@ -199,6 +205,13 @@ async def start_task(
         )
 
     now = _now()
+
+    # Dispatch first: a down engine raises 503 and leaves the task in its prior
+    # status instead of falsely showing RUNNING.
+    from app.tasks.dispatch import dispatch_task
+
+    dispatch_task("pup_tg.channel_creator", args=[workspace_id, task_id])
+
     try:
         db.execute(
             """UPDATE tg_channel_creation_tasks

@@ -11,9 +11,18 @@ import structlog
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from app.deps import AdminAuth, WorkspaceDB
+from app.deps import AdminAuth, WorkspaceDB, WorkspaceId
+from app.services.dm_ownership import any_active_dm_agent
 
 router = APIRouter(prefix="/ai-sales", tags=["ai-sales"])
+
+# Engine consolidation: AI Sales is off-runtime while the AI Agent owns incoming
+# DMs. The runtime entry points refuse to start a parallel poller. See
+# ENGINE-CONSOLIDATION.md.
+_CONSOLIDATED_DETAIL = (
+    "AI Агент — единственный движок обработки входящих ЛС (движки консолидированы). "
+    "Чтобы запустить AI Продажник отдельно, остановите персону Агента (dm_enabled)."
+)
 
 log = structlog.get_logger(__name__)
 
@@ -383,3 +392,174 @@ async def sales_stats(
         "total_scripts": total_scripts,
         "active_scripts": active_scripts,
     }
+
+
+@router.get("/knowledge-base")
+async def sales_knowledge_base(
+    _token: AdminAuth,
+    db: WorkspaceDB,
+    limit: int = Query(100, ge=1, le=1000),
+) -> dict[str, Any]:
+    """List KB documents available to AI Sales scripts (RAG corpus).
+
+    The AI Sales UI has a "База знаний" tab that fetches this; it is a thin
+    read-only view over the same ``tg_kb_documents`` the ``/kb`` router owns.
+    Returns ``{items: [...]}`` shaped like the KB documents list so the existing
+    UI render (title/description/created_at) works unchanged.
+    """
+    rows = db.execute(
+        """SELECT id, title, path, metadata, chunks_count, created_at, updated_at
+           FROM tg_kb_documents
+           ORDER BY created_at DESC LIMIT ?""",
+        [limit],
+    ).fetchall()
+
+    items: list[dict[str, Any]] = []
+    for r in rows:
+        meta: dict[str, Any] = {}
+        if r["metadata"]:
+            try:
+                meta = json.loads(r["metadata"])
+            except (json.JSONDecodeError, TypeError):
+                meta = {}
+        items.append(
+            {
+                "id": r["id"],
+                "title": r["title"],
+                "path": r["path"],
+                "description": meta.get("source") or meta.get("url") or r["path"] or "",
+                "chunks_count": r["chunks_count"],
+                "created_at": r["created_at"],
+            }
+        )
+
+    return {"items": items, "total": len(items)}
+
+
+# ---------------------------------------------------------------------------
+# Start / Stop / Monitor
+# ---------------------------------------------------------------------------
+
+@router.post("/scripts/{script_id}/start")
+async def start_script(
+    script_id: str,
+    _token: AdminAuth,
+    db: WorkspaceDB,
+    workspace_id: WorkspaceId,
+) -> dict[str, Any]:
+    """Set script status to ACTIVE and dispatch the AI sales monitor task."""
+    row = db.execute(
+        "SELECT * FROM tg_sales_scripts WHERE id = ?", [script_id]
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Script not found")
+
+    if row["status"] not in ("DRAFT", "PAUSED"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot start script in status '{row['status']}'.",
+        )
+
+    if any_active_dm_agent(db):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_CONSOLIDATED_DETAIL)
+
+    now = _now()
+    # Dispatch BEFORE commit: if the dispatch fails we roll back the UPDATE so
+    # the script is never left ACTIVE without a monitoring task running.
+    db.execute(
+        "UPDATE tg_sales_scripts SET status = ?, updated_at = ? WHERE id = ?",
+        ["ACTIVE", now, script_id],
+    )
+    # Reuse the shared fail-fast dispatch; the UPDATE is rolled back on failure
+    # so the script is never left ACTIVE without a monitor task running.
+    from app.tasks.dispatch import dispatch_task
+
+    try:
+        dispatch_task("pup_tg.ai_sales_monitor", args=[workspace_id])
+        db.commit()
+        log.info("ai_sales_monitor_dispatched", script_id=script_id)
+    except HTTPException:
+        db.rollback()
+        log.error("ai_sales_monitor_dispatch_failed", script_id=script_id)
+        raise
+
+    row = db.execute(
+        "SELECT * FROM tg_sales_scripts WHERE id = ?", [script_id]
+    ).fetchone()
+    log.info("sales_script_started", script_id=script_id)
+    return _row_to_script(row)
+
+
+@router.post("/scripts/{script_id}/stop")
+async def stop_script(
+    script_id: str,
+    _token: AdminAuth,
+    db: WorkspaceDB,
+) -> dict[str, Any]:
+    """Pause a sales script."""
+    row = db.execute(
+        "SELECT * FROM tg_sales_scripts WHERE id = ?", [script_id]
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Script not found")
+
+    now = _now()
+    try:
+        db.execute(
+            "UPDATE tg_sales_scripts SET status = ?, updated_at = ? WHERE id = ?",
+            ["PAUSED", now, script_id],
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    row = db.execute(
+        "SELECT * FROM tg_sales_scripts WHERE id = ?", [script_id]
+    ).fetchone()
+    log.info("sales_script_stopped", script_id=script_id)
+    return _row_to_script(row)
+
+
+@router.post("/monitor")
+async def trigger_monitor(
+    _token: AdminAuth,
+    db: WorkspaceDB,
+    workspace_id: WorkspaceId,
+) -> dict[str, Any]:
+    """Manually trigger the AI sales monitor cycle (scans all ACTIVE scripts for incoming DMs)."""
+    if any_active_dm_agent(db):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_CONSOLIDATED_DETAIL)
+
+    from app.tasks.dispatch import dispatch_task
+
+    celery_task_id = dispatch_task("pup_tg.ai_sales_monitor", args=[workspace_id])
+    log.info("ai_sales_monitor_dispatched", celery_task_id=celery_task_id)
+    return {"status": "dispatched", "celery_task_id": celery_task_id}
+
+
+@router.post("/dialogs/{dialog_id}/reply")
+async def trigger_reply(
+    dialog_id: str,
+    _token: AdminAuth,
+    db: WorkspaceDB,
+    workspace_id: WorkspaceId,
+) -> dict[str, Any]:
+    """Manually trigger an AI reply for a specific dialog."""
+    row = db.execute(
+        "SELECT * FROM tg_sales_dialogs WHERE id = ?", [dialog_id]
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Dialog not found")
+
+    terminal = {"CONVERTED", "LOST", "HANDED_OFF"}
+    if row["lead_status"] in terminal:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot reply to dialog in status '{row['lead_status']}'.",
+        )
+
+    from app.tasks.dispatch import dispatch_task
+
+    celery_task_id = dispatch_task("pup_tg.ai_sales_reply", args=[workspace_id, dialog_id])
+    return {"status": "dispatched", "celery_task_id": celery_task_id}
