@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import socket
 import time
 import uuid
@@ -103,6 +104,14 @@ class BulkProxyCheckResult(BaseModel):
     results: list[ProxyCheckResult]
 
 
+class BulkProxyDeleteRequest(BaseModel):
+    ids: list[str] = Field(default_factory=list)
+
+
+class BulkProxyCreateRequest(BaseModel):
+    proxies: list[ProxyCreate] = Field(default_factory=list)
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -124,19 +133,69 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _parse_proxy_line(line: str) -> tuple[str, int, str | None, str | None]:
-    """Parse a proxy line in host:port:user:pass or host:port format.
+_URI_RE = re.compile(
+    r"^(?P<scheme>socks5|socks4|http|https)://"
+    r"(?:(?P<user>[^:@/]*)(?::(?P<pass>[^@/]*))?@)?"
+    r"(?P<host>[^:/]+):(?P<port>\d+)",
+    re.IGNORECASE,
+)
+_ROT_RE = re.compile(r"^https?://", re.IGNORECASE)
 
-    Returns (host, port, username, password).
+
+def _parse_proxy_line(line: str) -> dict[str, Any]:
+    """Parse a proxy line into a dict of proxy fields.
+
+    Supported formats:
+    - ``host:port``
+    - ``host:port:user:pass``
+    - ``socks5://[user:pass@]host:port``
+    - ``http://[user:pass@]host:port``
+    - ``https://...`` URL without host:port → stored as rotation_url
     """
-    parts = line.strip().split(":")
+    line = line.strip()
+
+    # URI format: scheme://[user:pass@]host:port
+    m = _URI_RE.match(line)
+    if m:
+        scheme = m.group("scheme").lower()
+        if scheme == "https":
+            scheme = "http"
+        return {
+            "host": m.group("host"),
+            "port": int(m.group("port")),
+            "username": m.group("user") or None,
+            "password": m.group("pass") or None,
+            "scheme": scheme,
+            "rotation_url": None,
+        }
+
+    # Rotation URL: bare https?:// endpoint (no parseable host:port at end)
+    if _ROT_RE.match(line):
+        return {
+            "host": "rotating",
+            "port": 0,
+            "username": None,
+            "password": None,
+            "scheme": "http",
+            "rotation_url": line,
+        }
+
+    # Legacy: host:port[:user[:pass]]
+    parts = line.split(":")
     if len(parts) < 2:
-        raise ValueError(f"Invalid proxy format: {line}")
-    host = parts[0]
-    port = int(parts[1])
-    username = parts[2] if len(parts) > 2 else None
-    password = parts[3] if len(parts) > 3 else None
-    return host, port, username, password
+        raise ValueError(f"Invalid proxy format: {line!r}")
+    try:
+        port = int(parts[1])
+    except ValueError as exc:
+        raise ValueError(f"Invalid port in: {line!r}") from exc
+    return {
+        "host": parts[0],
+        "port": port,
+        "username": parts[2] if len(parts) > 2 else None,
+        "password": parts[3] if len(parts) > 3 else None,
+        "scheme": None,
+        "rotation_url": None,
+    }
 
 
 def _check_proxy_connectivity(host: str, port: int, timeout: float = 10.0) -> tuple[bool, int, str | None]:
@@ -154,6 +213,152 @@ def _check_proxy_connectivity(host: str, port: int, timeout: float = 10.0) -> tu
         return False, 0, "Connection timed out"
     except OSError as exc:
         return False, 0, str(exc)
+
+
+# Telegram production data-centre endpoints (port 443). A real proxy check must
+# reach one of these THROUGH the proxy (auth handshake + DC reachability), not
+# just open a TCP socket to the proxy itself.
+_TELEGRAM_DCS = [
+    ("149.154.167.51", 443),  # DC2 (primary)
+    ("149.154.175.50", 443),  # DC1
+    ("91.108.56.130", 443),   # DC5
+]
+
+
+def _proxy_type_for(scheme: str):
+    """Map a proxy scheme string → python_socks ProxyType."""
+    import python_socks
+
+    s = (scheme or "http").lower()
+    if "socks5" in s:
+        return python_socks.ProxyType.SOCKS5
+    if "socks4" in s:
+        return python_socks.ProxyType.SOCKS4
+    return python_socks.ProxyType.HTTP
+
+
+def _proxy_egress_geo(ptype, host, port, user, pwd, timeout: float) -> dict | None:
+    """Best-effort egress IP + geo as seen by the outside world, THROUGH the proxy.
+
+    Does a minimal HTTP/1.1 GET to ip-api.com over a proxied socket. Returns
+    ``{egress_ip, geo_country, geo_city, geo_isp}`` or None on any failure
+    (enrichment must never fail the check).
+    """
+    from python_socks.sync import Proxy
+
+    try:
+        proxy = Proxy.create(proxy_type=ptype, host=host, port=port,
+                             username=user, password=pwd, rdns=True)
+        sock = proxy.connect(dest_host="ip-api.com", dest_port=80, timeout=timeout)
+        try:
+            sock.settimeout(timeout)
+            sock.sendall(
+                b"GET /json/?fields=status,country,city,query,isp HTTP/1.1\r\n"
+                b"Host: ip-api.com\r\nUser-Agent: tg-svc\r\nConnection: close\r\n\r\n"
+            )
+            buf = b""
+            while len(buf) < 65536:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    break
+                buf += chunk
+        finally:
+            try:
+                sock.close()
+            except Exception:  # noqa: BLE001
+                pass
+        text = buf.decode("utf-8", "ignore")
+        i, j = text.find("{"), text.rfind("}")
+        if i >= 0 and j > i:
+            data = json.loads(text[i:j + 1])
+            if data.get("status") == "success":
+                return {
+                    "egress_ip": data.get("query"),
+                    "geo_country": data.get("country"),
+                    "geo_city": data.get("city"),
+                    "geo_isp": data.get("isp"),
+                }
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
+def _check_proxy_real(proxy_row: dict[str, Any], timeout: float = 12.0) -> tuple[bool, int, str | None, dict | None]:
+    """Real proxy check: auth + Telegram DC reachability + egress geo (P6-08).
+
+    Connects THROUGH the proxy (credentials → handshake) to a Telegram DC. On
+    success, latency is measured and egress geo is enriched (best-effort).
+    Returns ``(alive, latency_ms, error, geo)``.
+    """
+    from python_socks.sync import Proxy
+
+    ptype = _proxy_type_for(proxy_row.get("scheme"))
+    host = proxy_row["host"]
+    port = int(proxy_row["port"])
+    user = proxy_row.get("username") or None
+    pwd = proxy_row.get("password") or None
+
+    last_err: str | None = None
+    for dc_host, dc_port in _TELEGRAM_DCS:
+        start = time.monotonic()
+        try:
+            proxy = Proxy.create(proxy_type=ptype, host=host, port=port,
+                                 username=user, password=pwd, rdns=True)
+            sock = proxy.connect(dest_host=dc_host, dest_port=dc_port, timeout=timeout)
+            latency = int((time.monotonic() - start) * 1000)
+            try:
+                sock.close()
+            except Exception:  # noqa: BLE001
+                pass
+            geo = _proxy_egress_geo(ptype, host, port, user, pwd, timeout)
+            return True, latency, None, geo
+        except Exception as exc:  # noqa: BLE001 — try next DC, report last error
+            last_err = str(exc)[:200]
+            continue
+    return False, 0, last_err or "Telegram DC unreachable via proxy", None
+
+
+def _persist_proxy_check(db: Any, proxy_row: dict[str, Any], alive: bool,
+                         latency_ms: int, geo: dict | None) -> str:
+    """Persist a real-check result (status + latency + geo metadata + geo cols).
+
+    Returns the new status. Geo enrichment is stored in metadata.geo and
+    backfills empty country/city columns. Best-effort; never raises here.
+    """
+    now = _now()
+    new_status = "ACTIVE" if alive else "DEAD"
+    try:
+        meta = json.loads(proxy_row["metadata"]) if proxy_row.get("metadata") else {}
+        if not isinstance(meta, dict):
+            meta = {}
+    except (json.JSONDecodeError, TypeError):
+        meta = {}
+
+    country = proxy_row.get("country")
+    city = proxy_row.get("city")
+    if geo:
+        meta["geo"] = {
+            "egress_ip": geo.get("egress_ip"),
+            "country": geo.get("geo_country"),
+            "city": geo.get("geo_city"),
+            "isp": geo.get("geo_isp"),
+            "checked_at": now,
+        }
+        if not country and geo.get("geo_country"):
+            country = geo["geo_country"]
+        if not city and geo.get("geo_city"):
+            city = geo["geo_city"]
+
+    db.execute(
+        """UPDATE tg_proxies
+           SET last_checked_at = ?, last_latency_ms = ?, status = ?,
+               country = ?, city = ?, metadata = ?, updated_at = ?
+           WHERE id = ?""",
+        [now, latency_ms, new_status, country, city,
+         json.dumps(meta, ensure_ascii=False), now, proxy_row["id"]],
+    )
+    db.commit()
+    return new_status
 
 
 # ---------------------------------------------------------------------------
@@ -619,31 +824,149 @@ async def delete_proxy(
     _token: AdminAuth,
     db: WorkspaceDB,
 ) -> dict:
-    """Delete a proxy. Returns 409 if accounts still reference it."""
+    """Delete a proxy, cascade-unbinding any accounts that reference it.
+
+    Accounts referencing the proxy have their ``proxy_id`` set to NULL
+    (cascade-unbind) before the proxy row is deleted. Leaving an account
+    proxy-less is now safe: the NO_PROXY pre-connect guard refuses to
+    connect such accounts (flagged "needs proxy") instead of leaking the
+    server's real IP. Returns the number of detached accounts so the UI can
+    surface it. Returns 404 if the proxy does not exist.
+    """
     existing = db.execute(
         "SELECT id FROM tg_proxies WHERE id = ?", [proxy_id]
     ).fetchone()
     if not existing:
         raise HTTPException(status_code=404, detail="Proxy not found")
 
-    # Check for linked accounts
-    linked = db.execute(
-        "SELECT COUNT(*) AS cnt FROM tg_accounts WHERE proxy_id = ?", [proxy_id]
-    ).fetchone()
-    if linked and linked["cnt"] > 0:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Cannot delete: {linked['cnt']} account(s) still reference this proxy. "
-                   "Unlink them first or set their proxy_id to null.",
-        )
-
     try:
+        unbound = db.execute(
+            "SELECT COUNT(*) AS c FROM tg_accounts WHERE proxy_id = ?", [proxy_id]
+        ).fetchone()["c"]
+        db.execute(
+            "UPDATE tg_accounts SET proxy_id = NULL, updated_at = ? WHERE proxy_id = ?",
+            [_now(), proxy_id],
+        )
         db.execute("DELETE FROM tg_proxies WHERE id = ?", [proxy_id])
         db.commit()
     except Exception:
         db.rollback()
         raise
-    return {"status": "deleted", "id": proxy_id}
+
+    log.info("proxy_deleted", proxy_id=proxy_id, unbound_accounts=unbound)
+    return {"status": "deleted", "id": proxy_id, "unbound_accounts": unbound}
+
+
+@router.post("/bulk", status_code=status.HTTP_201_CREATED)
+async def bulk_create_proxies(
+    body: BulkProxyCreateRequest,
+    _token: AdminAuth,
+    db: WorkspaceDB,
+) -> BulkProxyImportResult:
+    """Bulk-create proxies from a JSON list of ProxyCreate objects.
+
+    Used by the UI «Массовый импорт» dialog. Duplicates (host+port) are silently
+    skipped; the response includes counts of imported, skipped, and any errors.
+    """
+    now = _now()
+    imported = 0
+    skipped = 0
+    errors: list[str] = []
+
+    for proxy in body.proxies:
+        proxy_id = str(uuid.uuid4())
+        metadata_json = json.dumps(proxy.metadata) if proxy.metadata else None
+        try:
+            db.execute(
+                """
+                INSERT INTO tg_proxies
+                    (id, provider, provider_order_id, type, scheme,
+                     host, port, username, password, country, city,
+                     expires_at, rotation_url, metadata,
+                     created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    proxy_id, proxy.provider, proxy.provider_order_id, proxy.type,
+                    proxy.scheme, proxy.host, proxy.port, proxy.username, proxy.password,
+                    proxy.country, proxy.city, proxy.expires_at, proxy.rotation_url,
+                    metadata_json, now, now,
+                ],
+            )
+            imported += 1
+        except Exception as exc:
+            if "UNIQUE constraint failed" in str(exc):
+                skipped += 1
+            else:
+                errors.append(f"{proxy.host}:{proxy.port}: {exc}")
+
+    try:
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        errors.append(f"commit failed: {exc}")
+
+    log.info("proxies_bulk_created", imported=imported, skipped=skipped, errors=len(errors))
+    return BulkProxyImportResult(imported=imported, skipped=skipped, errors=errors)
+
+
+@router.post("/bulk-delete")
+async def bulk_delete_proxies(
+    body: BulkProxyDeleteRequest,
+    _token: AdminAuth,
+    db: WorkspaceDB,
+) -> dict:
+    """Cascade-delete multiple proxies in a single atomic transaction.
+
+    For each id: accounts referencing it are cascade-unbound (``proxy_id``
+    set to NULL — safe via the NO_PROXY pre-connect guard) and the proxy row
+    is deleted. Unknown ids are reported in ``not_found`` rather than raising.
+    The whole batch commits once; on any error it rolls back and re-raises.
+
+    Returns ``{"success": True, "deleted": X, "unbound_accounts": Y,
+    "not_found": [...ids...]}``.
+    """
+    deleted = 0
+    unbound_total = 0
+    not_found: list[str] = []
+
+    try:
+        for proxy_id in body.ids:
+            existing = db.execute(
+                "SELECT id FROM tg_proxies WHERE id = ?", [proxy_id]
+            ).fetchone()
+            if not existing:
+                not_found.append(proxy_id)
+                continue
+
+            unbound = db.execute(
+                "SELECT COUNT(*) AS c FROM tg_accounts WHERE proxy_id = ?", [proxy_id]
+            ).fetchone()["c"]
+            db.execute(
+                "UPDATE tg_accounts SET proxy_id = NULL, updated_at = ? WHERE proxy_id = ?",
+                [_now(), proxy_id],
+            )
+            db.execute("DELETE FROM tg_proxies WHERE id = ?", [proxy_id])
+            deleted += 1
+            unbound_total += unbound
+
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    log.info(
+        "proxies_bulk_deleted",
+        deleted=deleted,
+        unbound_accounts=unbound_total,
+        not_found=len(not_found),
+    )
+    return {
+        "success": True,
+        "deleted": deleted,
+        "unbound_accounts": unbound_total,
+        "not_found": not_found,
+    }
 
 
 @router.post("/bulk-import")
@@ -659,8 +982,11 @@ async def bulk_import_proxies(
     """Bulk-import proxies from a text block (one per line).
 
     Formats accepted:
-    - host:port
-    - host:port:username:password
+    - ``host:port``
+    - ``host:port:username:password``
+    - ``socks5://[user:pass@]host:port``
+    - ``http://[user:pass@]host:port``
+    - ``https://rotation-endpoint/...`` (stored as rotation_url)
     """
     imported = 0
     skipped = 0
@@ -671,24 +997,28 @@ async def bulk_import_proxies(
 
     for idx, line in enumerate(lines):
         try:
-            host, port, username, password = _parse_proxy_line(line)
+            parsed = _parse_proxy_line(line)
         except (ValueError, IndexError) as exc:
             errors.append(f"[{idx}] {line}: {exc}")
             continue
 
+        eff_scheme = parsed["scheme"] or scheme
         proxy_id = str(uuid.uuid4())
         try:
             db.execute(
                 """
                 INSERT INTO tg_proxies
                     (id, provider, type, scheme, host, port,
-                     username, password, country,
+                     username, password, country, rotation_url,
                      created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
-                    proxy_id, provider, type_, scheme, host, port,
-                    username, password, country, now, now,
+                    proxy_id, provider, type_, eff_scheme,
+                    parsed["host"], parsed["port"],
+                    parsed["username"], parsed["password"],
+                    country, parsed["rotation_url"],
+                    now, now,
                 ],
             )
             imported += 1
@@ -713,44 +1043,38 @@ async def check_proxy(
     _token: AdminAuth,
     db: WorkspaceDB,
 ) -> dict[str, Any]:
-    """Test real TCP connectivity to a proxy and update its status."""
+    """Real proxy check (P6-08): auth + Telegram DC reachability + egress geo.
+
+    Connects THROUGH the proxy to a Telegram DC (verifies credentials + DC
+    reachability), measures latency, enriches egress IP/geo (best-effort), and
+    updates status / last_checked_at / last_latency_ms / geo metadata.
+    """
     existing = db.execute(
         "SELECT * FROM tg_proxies WHERE id = ?", [proxy_id]
     ).fetchone()
     if not existing:
         raise HTTPException(status_code=404, detail="Proxy not found")
 
-    host = existing["host"]
-    port = existing["port"]
+    proxy_row = dict(existing)
+    host, port = proxy_row["host"], proxy_row["port"]
 
-    # Run the blocking socket check in a thread to avoid blocking the event loop
+    # Run the blocking proxy/DC check in a thread to avoid blocking the event loop.
     loop = asyncio.get_event_loop()
-    alive, latency_ms, error = await loop.run_in_executor(
-        None, _check_proxy_connectivity, host, port,
+    alive, latency_ms, error, geo = await loop.run_in_executor(
+        None, _check_proxy_real, proxy_row,
     )
 
-    now = _now()
-    new_status = "ACTIVE" if alive else "DEAD"
-
     try:
-        db.execute(
-            """UPDATE tg_proxies
-               SET last_checked_at = ?, last_latency_ms = ?, status = ?, updated_at = ?
-               WHERE id = ?""",
-            [now, latency_ms, new_status, now, proxy_id],
-        )
-        db.commit()
+        new_status = _persist_proxy_check(db, proxy_row, alive, latency_ms, geo)
     except Exception:
         db.rollback()
         raise
 
     log.info(
         "proxy_check_complete",
-        proxy_id=proxy_id,
-        host=host,
-        port=port,
-        alive=alive,
-        latency_ms=latency_ms,
+        proxy_id=proxy_id, host=host, port=port,
+        alive=alive, latency_ms=latency_ms, status=new_status,
+        geo=bool(geo), error=error,
     )
 
     row = db.execute(
@@ -781,28 +1105,21 @@ async def check_all_proxies(
     loop = asyncio.get_event_loop()
 
     for idx, proxy_row in enumerate(rows):
-        proxy_id = proxy_row["id"]
-        host = proxy_row["host"]
-        port = proxy_row["port"]
+        prow = dict(proxy_row)
+        proxy_id = prow["id"]
+        host = prow["host"]
+        port = prow["port"]
 
-        # Run connectivity check in thread pool
-        alive, latency_ms, error = await loop.run_in_executor(
-            None, _check_proxy_connectivity, host, port,
+        # Real proxy check (auth + Telegram DC + egress geo) in thread pool.
+        alive, latency_ms, error, geo = await loop.run_in_executor(
+            None, _check_proxy_real, prow,
         )
 
-        now = _now()
-        new_status = "ACTIVE" if alive else "DEAD"
-
         try:
-            db.execute(
-                """UPDATE tg_proxies
-                   SET last_checked_at = ?, last_latency_ms = ?, status = ?, updated_at = ?
-                   WHERE id = ?""",
-                [now, latency_ms, new_status, now, proxy_id],
-            )
-            db.commit()
+            new_status = _persist_proxy_check(db, prow, alive, latency_ms, geo)
         except Exception:
             db.rollback()
+            new_status = "ACTIVE" if alive else "DEAD"
 
         if alive:
             alive_count += 1

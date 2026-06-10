@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { withErrorHandler, apiError } from "@/lib/api-error";
-import { renameColumn, deleteColumn } from "@/lib/services/workspace.service";
+import { renameColumn, deleteColumn } from "@/lib/services/column.service";
 import { updateColumnSchema } from "@/lib/schemas/column.schema";
 import { NextResponse } from "next/server";
 

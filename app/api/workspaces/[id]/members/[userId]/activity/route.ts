@@ -1,26 +1,35 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { withErrorHandler, ApiError } from "@/lib/api-error";
-import { checkMembership } from "@/lib/services/member.service";
 import { NextResponse } from "next/server";
 
 type Params = { params: { id: string; userId: string } };
 
 export async function GET(request: Request, { params }: Params) {
-  return withErrorHandler(async () => {
+  try {
     const session = await auth();
-    if (!session) throw new ApiError("Не авторизован", "UNAUTHORIZED", 401);
+    if (!session)
+      return NextResponse.json(
+        { error: "Не авторизован", code: "UNAUTHORIZED" },
+        { status: 401 },
+      );
 
     const workspaceId = params.id;
     const memberId = params.userId;
 
     // Check requester is OWNER or ADMIN (only owners/admins can view member activity)
-    const role = await checkMembership(workspaceId, session.user.id);
+    const membership = await db.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId: session.user.id } },
+      select: { role: true },
+    });
+    const role = membership?.role ?? null;
     if (role !== "OWNER" && session.user.role !== "ADMIN") {
-      throw new ApiError(
-        "Только владелец или администратор может просматривать активность",
-        "FORBIDDEN",
-        403,
+      return NextResponse.json(
+        {
+          error:
+            "Только владелец или администратор может просматривать активность",
+          code: "FORBIDDEN",
+        },
+        { status: 403 },
       );
     }
 
@@ -39,7 +48,10 @@ export async function GET(request: Request, { params }: Params) {
         select: { ownerId: true },
       });
       if (workspace?.ownerId !== memberId) {
-        throw new ApiError("Участник не найден", "MEMBER_NOT_FOUND", 404);
+        return NextResponse.json(
+          { error: "Участник не найден", code: "MEMBER_NOT_FOUND" },
+          { status: 404 },
+        );
       }
     }
 
@@ -155,5 +167,11 @@ export async function GET(request: Request, { params }: Params) {
         daysActive,
       },
     });
-  });
+  } catch (err) {
+    console.error("[activity] GET error:", err);
+    return NextResponse.json(
+      { error: "Internal server error", code: "INTERNAL_ERROR" },
+      { status: 500 },
+    );
+  }
 }

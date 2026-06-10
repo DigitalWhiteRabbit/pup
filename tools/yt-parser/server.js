@@ -25,10 +25,21 @@ const { importFromCsv } = require("./db/lead-importer");
 const tgOutreach = require("./services/telegram-outreach");
 const adminBot = require("./services/admin-bot");
 const apiKeysRouter = require("./routes/api-keys");
+const tagsRouter = require("./routes/tags");
 const apiKeysDb = require("./db/api-keys");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Local dev: прод-nginx проксирует /yt-parser/ → корень сервера (срезает префикс).
+// Без nginx фронт зовёт /yt-parser/api/... напрямую — снимаем префикс, чтобы
+// маршруты совпали. В проде сервер этот префикс никогда не видит → безвредно.
+app.use((req, res, next) => {
+  if (req.url === "/yt-parser" || req.url.startsWith("/yt-parser/")) {
+    req.url = req.url.slice("/yt-parser".length) || "/";
+  }
+  next();
+});
 
 app.use(express.json({ limit: "2mb" }));
 
@@ -68,6 +79,7 @@ app.use("/api/health", healthRouter);
 app.use("/api/knowledge", knowledgeRouter);
 app.use("/api/dev-tasks", devTasksRouter);
 app.use("/api/api-keys", apiKeysRouter);
+app.use("/api/tags", tagsRouter);
 
 const ARCHIVE_DIR = path.join(__dirname, "Архив парсинг");
 // Per-workspace CSV path
@@ -944,6 +956,18 @@ app.listen(PORT, async () => {
       console.log(
         "  [worker] Outreach worker skipped — RESEND_API_KEY or IMAP_HOST not set",
       );
+      // Приём входящих TG не зависит от email-воркера: если есть живой TG-аккаунт,
+      // подключаем listener-only (без outreach/inbox/followup циклов).
+      try {
+        if (tgOutreach.isReady && tgOutreach.isReady()) {
+          worker.enableTelegramListener();
+          console.log(
+            "  [worker] TG incoming listener enabled (listener-only)",
+          );
+        }
+      } catch (e) {
+        console.error("  [worker] TG listener enable error:", e.message);
+      }
     }
   } catch (e) {
     console.error("  [worker] start error:", e.message);

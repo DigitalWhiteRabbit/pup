@@ -22,7 +22,9 @@ router.get("/:id/messages", (req, res) => {
   const dialogue = req.stmts.getDialogue.get(req.params.id);
   if (!dialogue)
     return res.status(404).json({ success: false, error: "not found" });
-  const messages = req.stmts.listMessagesByDialogue.all(req.params.id);
+  // Показываем ВСЕ сообщения лида (по всем его диалогам), а не только этого
+  // треда — иначе ответ блогера из старой ветки другой кампании не виден.
+  const messages = req.stmts.listMessagesByLead.all(dialogue.lead_id);
   const lead = req.stmts.getLead.get(dialogue.lead_id);
   res.json({ success: true, dialogue, lead, messages });
 });

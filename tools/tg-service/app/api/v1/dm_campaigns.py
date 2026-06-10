@@ -11,7 +11,7 @@ import structlog
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from app.deps import AdminAuth, WorkspaceDB
+from app.deps import AdminAuth, WorkspaceDB, WorkspaceId
 
 router = APIRouter(prefix="/dm-campaigns", tags=["dm-campaigns"])
 
@@ -318,8 +318,9 @@ async def start_campaign(
     campaign_id: str,
     _token: AdminAuth,
     db: WorkspaceDB,
+    workspace_id: WorkspaceId,
 ) -> dict[str, Any]:
-    """Set campaign status to RUNNING."""
+    """Set campaign status to RUNNING and dispatch Celery task."""
     row = db.execute(
         "SELECT * FROM tg_dm_campaigns WHERE id = ?", [campaign_id]
     ).fetchone()
@@ -333,6 +334,14 @@ async def start_campaign(
         )
 
     now = _now()
+
+    # Dispatch first: a down engine raises 503 and leaves the campaign in its
+    # prior status (DRAFT/PAUSED) instead of falsely showing RUNNING.
+    from app.tasks.dispatch import dispatch_task
+
+    dispatch_task("pup_tg.dm_campaign", args=[workspace_id, campaign_id])
+    log.info("dm_campaign_dispatched", campaign_id=campaign_id)
+
     try:
         db.execute(
             """UPDATE tg_dm_campaigns
@@ -473,3 +482,86 @@ async def list_messages(
 
     items = [_row_to_msg(r) for r in rows]
     return {"items": items, "total": total, "limit": limit, "offset": offset}
+
+
+@router.post("/{campaign_id}/check-replies")
+async def check_replies(
+    campaign_id: str,
+    _token: AdminAuth,
+    db: WorkspaceDB,
+) -> dict:
+    """Check sent DM messages for replies (P4-20).
+
+    For each SENT message, connects the sender account and checks if the
+    recipient has replied. Updates status to REPLIED and increments
+    campaign.replied_count. Best-effort — failures per account are logged
+    and skipped. Uses NO_PROXY guard.
+    """
+    row = db.execute(
+        "SELECT id, account_ids FROM tg_dm_campaigns WHERE id = ?", [campaign_id]
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+
+    sent_msgs = db.execute(
+        """SELECT id, account_id, recipient_user_id FROM tg_dm_messages
+           WHERE campaign_id = ? AND status = 'SENT'
+           LIMIT 100""",
+        [campaign_id],
+    ).fetchall()
+
+    if not sent_msgs:
+        return {"checked": 0, "newly_replied": 0}
+
+    from app.telegram.client_pool import disconnect_client, get_client_for_account
+
+    import asyncio as _asyncio
+    checked = 0
+    newly_replied = 0
+    now = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
+
+    # Group by account to reuse connections
+    by_account: dict = {}
+    for msg in sent_msgs:
+        by_account.setdefault(msg["account_id"], []).append(msg)
+
+    for acc_id, msgs in by_account.items():
+        client = None
+        try:
+            client = await get_client_for_account(acc_id, db)
+            for msg in msgs:
+                uid = msg["recipient_user_id"]
+                if not uid:
+                    continue
+                try:
+                    recent = await client.get_messages(uid, limit=3)
+                    for m in recent:
+                        if m and getattr(m, "out", False) is False and m.text:
+                            # Received message (not sent by us) → reply
+                            db.execute(
+                                """UPDATE tg_dm_messages
+                                   SET status='REPLIED', replied_at=?, reply_text=?
+                                   WHERE id=?""",
+                                [now, (m.text or "")[:500], msg["id"]],
+                            )
+                            db.execute(
+                                """UPDATE tg_dm_campaigns
+                                   SET replied_count = replied_count + 1, updated_at=?
+                                   WHERE id=?""",
+                                [now, campaign_id],
+                            )
+                            newly_replied += 1
+                            break
+                    checked += 1
+                except Exception:
+                    pass
+            db.commit()
+        except HTTPException:
+            pass
+        except Exception as exc:
+            import structlog as _sl
+            _sl.get_logger(__name__).warning("check_replies_acc_failed", account_id=acc_id, error=str(exc)[:100])
+        finally:
+            await disconnect_client(client)
+
+    return {"checked": checked, "newly_replied": newly_replied}

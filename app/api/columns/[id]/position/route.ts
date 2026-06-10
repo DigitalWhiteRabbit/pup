@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { withErrorHandler, apiError } from "@/lib/api-error";
-import { reorderColumn } from "@/lib/services/workspace.service";
+import { reorderColumn } from "@/lib/services/column.service";
 import { reorderColumnSchema } from "@/lib/schemas/column.schema";
 import { NextResponse } from "next/server";
 

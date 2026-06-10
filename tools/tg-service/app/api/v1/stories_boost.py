@@ -11,7 +11,7 @@ import structlog
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from app.deps import AdminAuth, WorkspaceDB
+from app.deps import AdminAuth, WorkspaceDB, WorkspaceId
 
 router = APIRouter(prefix="/stories-boost", tags=["stories-boost"])
 
@@ -167,8 +167,9 @@ async def start_task(
     task_id: str,
     _token: AdminAuth,
     db: WorkspaceDB,
+    workspace_id: WorkspaceId,
 ) -> dict[str, Any]:
-    """Set stories boost task status to RUNNING."""
+    """Set stories boost task status to RUNNING and dispatch Celery task."""
     row = db.execute(
         "SELECT * FROM tg_stories_boost_tasks WHERE id = ?", [task_id]
     ).fetchone()
@@ -182,6 +183,12 @@ async def start_task(
         )
 
     now = _now()
+    # Dispatch first: a down engine raises 503 and leaves the task in its prior
+    # status instead of falsely showing RUNNING.
+    from app.tasks.dispatch import dispatch_task
+
+    dispatch_task("pup_tg.stories_boost", args=[workspace_id, task_id])
+
     try:
         db.execute(
             """UPDATE tg_stories_boost_tasks

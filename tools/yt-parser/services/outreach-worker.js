@@ -187,6 +187,96 @@ function parseTelegramHandle(raw) {
   return String(raw).split(/[;,]/)[0].trim().replace(/^@/, "").toLowerCase();
 }
 
+// ─── Multichannel helpers ───────────────────────────────────────────
+
+// Доступность каналов у лида: email — есть адрес; telegram — есть хендл И
+// есть живой TG-аккаунт под лимитом. Используется и для рассылки, и для
+// подсветки кнопок пикера на фронте.
+function channelAvailability(lead) {
+  return {
+    email: !!(lead.email && String(lead.email).trim()),
+    telegram:
+      !!(lead.telegram && String(lead.telegram).trim()) &&
+      tg.anyReadyUnderLimit(),
+  };
+}
+
+// Каналы, по которым лиду уже уходило исходящее (для идемпотентности).
+function existingOutChannels(leadId) {
+  try {
+    const rows = db
+      .prepare(
+        `SELECT DISTINCT d.channel FROM dialogues d
+         JOIN messages m ON m.dialogue_id = d.id
+         WHERE d.lead_id = ? AND m.direction = 'out'`,
+      )
+      .all(leadId);
+    return new Set(rows.map((r) => r.channel));
+  } catch {
+    return new Set();
+  }
+}
+
+// Есть ли уже активная (pending/approved) очередь по каналу для лида —
+// чтобы повторный «Запустить» не плодил дубли в ревью-режиме.
+function hasPendingForChannel(leadId, channel) {
+  try {
+    const row = db
+      .prepare(
+        `SELECT id FROM pending_replies
+         WHERE lead_id = ? AND channel = ? AND status IN ('pending','approved') LIMIT 1`,
+      )
+      .get(leadId, channel);
+    return !!row;
+  } catch {
+    return false;
+  }
+}
+
+const ALL_CHANNELS = ["email", "telegram"];
+
+// Разрешить итоговый набор каналов для отправки: (запрошенные|все доступные)
+// ∩ доступные − уже отправленные − уже в очереди.
+function resolveChannels(lead, requested) {
+  const avail = channelAvailability(lead);
+  const available = ALL_CHANNELS.filter((c) => avail[c]);
+  const want =
+    Array.isArray(requested) && requested.length
+      ? requested.filter((c) => available.includes(c))
+      : available;
+  const alreadyOut = existingOutChannels(lead.id);
+  const selected = want.filter(
+    (c) => !alreadyOut.has(c) && !hasPendingForChannel(lead.id, c),
+  );
+  return { available, want, alreadyOut, selected };
+}
+
+function recipientFor(lead, channel) {
+  return channel === "email"
+    ? parseEmailList(lead.email)[0]
+    : parseTelegramHandle(lead.telegram);
+}
+
+// Отправка ответа в TG ТЕМ ЖЕ аккаунтом, что ведёт диалог (dialogues.account_id).
+// Если у диалога ещё нет привязки — выбираем здоровый аккаунт и фиксируем его.
+async function sendTelegramBound(dialogueId, recipient, text) {
+  let accountId = null;
+  if (dialogueId) {
+    const d = stmts.getDialogue.get(dialogueId);
+    if (d && d.account_id != null) accountId = d.account_id;
+  }
+  if (accountId == null) accountId = tg.pickAccount();
+  if (accountId == null)
+    throw new Error("нет доступного TG-аккаунта (залогинен/под лимитом)");
+  const result = await tg.sendMessageVia(accountId, recipient, text);
+  if (dialogueId) {
+    const d = stmts.getDialogue.get(dialogueId);
+    if (d && d.account_id == null)
+      stmts.setDialogueAccount.run(result.accountId, dialogueId);
+  }
+  return result;
+}
+
 // Match lead by exact email address (lowercase). Берём lead'ов с lead_status in work/done и потом фильтруем.
 function findLeadByEmail(fromAddr) {
   if (!fromAddr) return null;
@@ -291,8 +381,112 @@ async function processOutreachQueue() {
   }
 }
 
+// Отправка одного initial-питча по конкретному каналу: реальная/DRY отправка,
+// запись dialogue + message, инкремент дневного счётчика. Для TG — привязка
+// диалога к аккаунту (account_id) и отправка через пейсинг-очередь.
+// Возвращает true при успехе.
+async function _sendInitialOnChannel(lead, channel, recipient, pitch, now) {
+  let externalId = null;
+  let metadata = { recipient };
+  let trackingId = null;
+  let accountId = null;
+
+  // Для TG заранее выбираем здоровый аккаунт — он же фиксируется в диалоге.
+  if (channel === "telegram") {
+    accountId = tg.pickAccount();
+  }
+
+  if (DRY_RUN) {
+    log(
+      "INFO",
+      `[DRY_RUN] Would send ${channel} to ${recipient}${
+        accountId != null ? ` via acc#${accountId}` : ""
+      }\n${channel === "email" ? "Subject: " + (pitch.subject || "") + "\n" : ""}${pitch.body}`,
+    );
+    db.prepare(
+      `INSERT INTO dry_run_log (created_at, lead_id, channel, subject, body, would_send_to) VALUES (?,?,?,?,?,?)`,
+    ).run(
+      now,
+      lead.id,
+      channel,
+      channel === "email" ? pitch.subject || null : null,
+      pitch.body,
+      recipient,
+    );
+    externalId = `dry-run-${Date.now()}`;
+    metadata.dry_run = true;
+    if (channel === "email") {
+      metadata.subject = pitch.subject;
+      metadata.resend_id = externalId;
+    } else {
+      metadata.tg_message_id = externalId;
+      metadata.chat_id = externalId;
+      if (accountId != null) metadata.account_id = accountId;
+    }
+  } else if (channel === "email") {
+    trackingId = generateTrackingId();
+    const trackingPixelUrl = buildTrackingPixelUrl(
+      currentWorkspaceId,
+      trackingId,
+    );
+    const result = await email.sendEmail({
+      to: recipient,
+      subject: pitch.subject || "Hello",
+      body: pitch.body,
+      leadId: lead.id,
+      trackingPixelUrl,
+    });
+    externalId = result.messageId;
+    metadata.subject = pitch.subject;
+    metadata.resend_id = result.id;
+  } else if (channel === "telegram") {
+    if (accountId == null)
+      throw new Error("нет доступного TG-аккаунта (залогинен/под лимитом)");
+    const result = await tg.sendMessageVia(accountId, recipient, pitch.body);
+    externalId = result.chatId;
+    metadata.tg_message_id = result.messageId;
+    metadata.chat_id = result.chatId;
+    metadata.account_id = result.accountId;
+    accountId = result.accountId;
+  }
+
+  const tx = db.transaction(() => {
+    const dlgResult = stmts.insertDialogue.run(
+      lead.id,
+      channel,
+      externalId,
+      now,
+    );
+    if (channel === "telegram" && accountId != null)
+      stmts.setDialogueAccount.run(accountId, dlgResult.lastInsertRowid);
+    stmts.insertMessage.run({
+      dialogue_id: dlgResult.lastInsertRowid,
+      direction: "out",
+      sender: "agent",
+      content: pitch.body,
+      metadata: JSON.stringify(metadata),
+      created_at: now,
+      tracking_id: trackingId,
+    });
+    stmts.incrementDialogueMsgCount.run(dlgResult.lastInsertRowid);
+  });
+  tx();
+
+  incrementDailyCount(channel);
+  workerState.stats.sent++;
+  log(
+    "INFO",
+    `Sent ${channel} to ${recipient} (lead #${lead.id})${
+      accountId != null ? ` via acc#${accountId}` : ""
+    }`,
+  );
+  return true;
+}
+
 // Обработка конкретного (уже взятого и залоченного) лида.
-async function _processPickedLead(lead, project, counts) {
+// options.channels — каналы из пикера (["email","telegram"]); если не заданы —
+// все доступные каналы лида.
+async function _processPickedLead(lead, project, counts, options = {}) {
   try {
     log("INFO", `Processing lead #${lead.id} ${lead.channel_name}`);
 
@@ -329,6 +523,21 @@ async function _processPickedLead(lead, project, counts) {
       log("WARN", `Scoring failed for lead #${lead.id}: ${e.message}`);
     }
 
+    // ─── Авто-сводка (content_summary) перед генерацией питча (TZ §6) ──
+    // Только если пусто (сделанное человеком/ранее не трогаем). Ошибка не фатальна.
+    if (!lead.content_summary) {
+      try {
+        const summary = await ai.generateContentSummary(lead, project);
+        db.prepare(
+          "UPDATE leads SET content_summary = ?, updated_at = ? WHERE id = ?",
+        ).run(summary, new Date().toISOString(), lead.id);
+        lead.content_summary = summary;
+        log("INFO", `Lead #${lead.id} content_summary auto-generated`);
+      } catch (e) {
+        log("WARN", `summary failed lead #${lead.id}: ${e.message}`);
+      }
+    }
+
     // Opted-out check (GDPR)
     if (lead.opted_out) {
       log("INFO", `Lead #${lead.id} opted out — skipping`);
@@ -336,42 +545,28 @@ async function _processPickedLead(lead, project, counts) {
       return;
     }
 
-    let channel = null,
-      recipient = null;
-    if (
-      lead.email &&
-      lead.email.trim() &&
-      counts.sent_email < DAILY_CAP_EMAIL
-    ) {
-      channel = "email";
-      recipient = parseEmailList(lead.email)[0];
-    } else if (
-      lead.telegram &&
-      lead.telegram.trim() &&
-      tg.isReady() &&
-      counts.sent_tg < DAILY_CAP_TG
-    ) {
-      channel = "telegram";
-      recipient = parseTelegramHandle(lead.telegram);
-    } else if (lead.telegram && lead.telegram.trim() && !tg.isReady()) {
+    // ─── Каналы для отправки (мультиканал) ───────────────────────────
+    const { available, want, alreadyOut, selected } = resolveChannels(
+      lead,
+      options.channels,
+    );
+    if (selected.length === 0) {
       log(
         "WARN",
-        `Lead #${lead.id} has only telegram but TG client not ready, skipping`,
+        `Lead #${lead.id}: нечего слать — доступно=[${available}] запрошено=[${want}] уже_отправлено=[${[...alreadyOut]}]; пропуск`,
       );
-      stmts.lockLead.run(Date.now() + LOCK_DURATION_ERR_MS, lead.id);
-      return;
-    } else {
-      log(
-        "WARN",
-        `Lead #${lead.id} has no usable contacts — skipping (not rejecting)`,
-      );
-      stmts.lockLead.run(Date.now() + LOCK_DURATION_ERR_MS, lead.id);
-      return;
-    }
-
-    if (!recipient) {
-      log("WARN", `Lead #${lead.id} empty recipient, skipping`);
-      stmts.lockLead.run(Date.now() + LOCK_DURATION_ERR_MS, lead.id);
+      // Если у лида в принципе нет контактов/живых каналов — длинный лок.
+      // Если просто всё уже отправлено — помечаем contacted, чтобы не зацикливать.
+      if (alreadyOut.size > 0) {
+        stmts.updateLeadStage.run(
+          "contacted",
+          new Date().toISOString(),
+          lead.id,
+        );
+        stmts.unlockLead.run(lead.id);
+      } else {
+        stmts.lockLead.run(Date.now() + LOCK_DURATION_ERR_MS, lead.id);
+      }
       return;
     }
 
@@ -391,9 +586,11 @@ async function _processPickedLead(lead, project, counts) {
       );
     }
 
+    // Питч генерим ОДИН раз в email-стиле (subject + body). Для TG берём тело
+    // как есть, без subject (решение ТЗ §3.2).
     let pitch;
     try {
-      pitch = await ai.generateInitialPitch(lead, project, channel, pitchAngle);
+      pitch = await ai.generateInitialPitch(lead, project, "email", pitchAngle);
     } catch (e) {
       log("ERR", `AI generation failed for lead #${lead.id}: ${e.message}`);
       workerState.lastError = e.message;
@@ -410,112 +607,77 @@ async function _processPickedLead(lead, project, counts) {
 
     const now = new Date().toISOString();
 
-    // Review mode: положить в очередь на проверку, не отправлять сейчас.
-    // Лид остаётся locked на час чтобы не перегенерили; после approve+send или reject — unlock.
+    // ─── Review mode: по строке pending_reply на каждый выбранный канал ──
     if (isReviewMode()) {
-      queueReply({
-        lead_id: lead.id,
-        dialogue_id: null,
-        channel,
-        recipient,
-        subject: pitch.subject,
-        body: pitch.body,
-        context: {
-          type: "initial",
-          project_id: project.id,
-          conversation_stage: pitch.conversation_stage || "introduction",
-        },
-      });
-      stmts.updateLeadStage.run("awaiting_review", now, lead.id);
-      stmts.updateLeadStatus.run("in_work", now, lead.id);
-      stmts.lockLead.run(Date.now() + 60 * 60 * 1000, lead.id);
+      let queued = 0;
+      for (const channel of selected) {
+        const recipient = recipientFor(lead, channel);
+        if (!recipient) continue;
+        queueReply({
+          lead_id: lead.id,
+          dialogue_id: null,
+          channel,
+          recipient,
+          subject: channel === "email" ? pitch.subject : null,
+          body: pitch.body,
+          context: {
+            type: "initial",
+            project_id: project.id,
+            conversation_stage: pitch.conversation_stage || "introduction",
+          },
+        });
+        queued++;
+      }
+      if (queued > 0) {
+        stmts.updateLeadStage.run("awaiting_review", now, lead.id);
+        stmts.updateLeadStatus.run("in_work", now, lead.id);
+        stmts.lockLead.run(Date.now() + 60 * 60 * 1000, lead.id);
+      } else {
+        stmts.lockLead.run(Date.now() + LOCK_DURATION_ERR_MS, lead.id);
+      }
       return;
     }
 
-    try {
-      let externalId = null;
-      let metadata = { recipient };
-      let trackingId = null;
-
-      if (DRY_RUN) {
-        log(
-          "INFO",
-          `[DRY_RUN] Would send ${channel} to ${recipient}\nSubject: ${pitch.subject || ""}\n${pitch.body}`,
-        );
-        db.prepare(
-          `INSERT INTO dry_run_log (created_at, lead_id, channel, subject, body, would_send_to) VALUES (?,?,?,?,?,?)`,
-        ).run(
-          now,
-          lead.id,
-          channel,
-          pitch.subject || null,
-          pitch.body,
-          recipient,
-        );
-        externalId = `dry-run-${Date.now()}`;
-        metadata.dry_run = true;
-        metadata.subject = pitch.subject;
-        if (channel === "email") metadata.resend_id = externalId;
-        else if (channel === "telegram") {
-          metadata.tg_message_id = externalId;
-          metadata.chat_id = externalId;
-        }
-      } else if (channel === "email") {
-        trackingId = generateTrackingId();
-        const trackingPixelUrl = buildTrackingPixelUrl(
-          currentWorkspaceId,
-          trackingId,
-        );
-        const result = await email.sendEmail({
-          to: recipient,
-          subject: pitch.subject || "Hello",
-          body: pitch.body,
-          leadId: lead.id,
-          trackingPixelUrl,
-        });
-        externalId = result.messageId;
-        metadata.subject = pitch.subject;
-        metadata.resend_id = result.id;
-      } else if (channel === "telegram") {
-        const result = await tg.sendMessage(recipient, pitch.body);
-        externalId = result.chatId;
-        metadata.tg_message_id = result.messageId;
-        metadata.chat_id = result.chatId;
+    // ─── Прямая отправка по каждому выбранному каналу ────────────────
+    let sentAny = false;
+    for (const channel of selected) {
+      const recipient = recipientFor(lead, channel);
+      if (!recipient) {
+        log("WARN", `Lead #${lead.id} пустой recipient для ${channel}`);
+        continue;
       }
-
-      // Insert dialogue + message + updates в одной транзакции
-      const tx = db.transaction(() => {
-        const dlgResult = stmts.insertDialogue.run(
-          lead.id,
+      const dc = getDailyCounts();
+      if (channel === "email" && dc.sent_email >= DAILY_CAP_EMAIL) {
+        log("INFO", `email daily cap reached — пропуск email lead #${lead.id}`);
+        continue;
+      }
+      if (channel === "telegram" && dc.sent_tg >= DAILY_CAP_TG) {
+        log("INFO", `tg daily cap reached — пропуск tg lead #${lead.id}`);
+        continue;
+      }
+      try {
+        const ok = await _sendInitialOnChannel(
+          lead,
           channel,
-          externalId,
+          recipient,
+          pitch,
           now,
         );
-        stmts.insertMessage.run({
-          dialogue_id: dlgResult.lastInsertRowid,
-          direction: "out",
-          sender: "agent",
-          content: pitch.body,
-          metadata: JSON.stringify(metadata),
-          created_at: now,
-          tracking_id: trackingId,
-        });
-        stmts.incrementDialogueMsgCount.run(dlgResult.lastInsertRowid);
-        stmts.updateLeadStage.run("awaiting_reply", now, lead.id);
-        stmts.updateLeadStatus.run("in_work", now, lead.id);
-        stmts.updateLeadProject.run(project.id, now, lead.id);
-        stmts.unlockLead.run(lead.id);
-      });
-      tx();
+        if (ok) sentAny = true;
+      } catch (e) {
+        log("ERR", `${channel} send failed for lead #${lead.id}: ${e.message}`);
+        workerState.lastError = e.message;
+        workerState.stats.errors++;
+      }
+    }
 
-      incrementDailyCount(channel);
-      workerState.stats.sent++;
-      log("INFO", `Sent ${channel} to ${recipient} (lead #${lead.id})`);
-    } catch (e) {
-      log("ERR", `${channel} send failed for lead #${lead.id}: ${e.message}`);
-      workerState.lastError = e.message;
-      workerState.stats.errors++;
-      // Оставить lock на longer → не ретраим сразу
+    if (sentAny) {
+      const ts = new Date().toISOString();
+      stmts.updateLeadStage.run("awaiting_reply", ts, lead.id);
+      stmts.updateLeadStatus.run("in_work", ts, lead.id);
+      stmts.updateLeadProject.run(project.id, ts, lead.id);
+      stmts.unlockLead.run(lead.id);
+    } else {
       stmts.lockLead.run(Date.now() + LOCK_DURATION_ERR_MS, lead.id);
     }
   } catch (e) {
@@ -526,8 +688,9 @@ async function _processPickedLead(lead, project, counts) {
   }
 }
 
-// Немедленная обработка конкретного лида (по кнопке «Запустить» в UI)
-async function runLeadNow(leadId, workspaceId) {
+// Немедленная обработка конкретного лида (по кнопке «Запустить» в UI).
+// channels — выбор каналов из пикера (["email","telegram"]) или null = все доступные.
+async function runLeadNow(leadId, workspaceId, channels = null) {
   // Swap module-level stmts/db to workspace-specific ones
   const savedStmts = stmts;
   const savedDb = db;
@@ -554,11 +717,24 @@ async function runLeadNow(leadId, workspaceId) {
       { ...lead, locked_until: Date.now() + LOCK_DURATION_MS },
       project,
       counts,
+      { channels },
     );
   } finally {
     stmts = savedStmts;
     db = savedDb;
     currentWorkspaceId = savedWsId;
+  }
+}
+
+// Последовательный запуск нескольких лидов (bulk «Запустить»): по очереди,
+// без параллелизма — чтобы не было гонки stmts-свопа и всплеска вызовов API.
+async function runLeadsNow(leadIds, workspaceId, channels = null) {
+  for (const id of leadIds || []) {
+    try {
+      await runLeadNow(id, workspaceId, channels);
+    } catch (e) {
+      log("WARN", `bulk-run lead #${id}: ${e.message}`);
+    }
   }
 }
 
@@ -982,11 +1158,16 @@ async function processOneLeadReply(lead, project) {
       metadata = { subject: reply.subject, resend_id: result.id };
       incrementDailyCount("email");
     } else if (dialogue.channel === "telegram") {
-      const tgResult = await tg.sendMessage(
+      const tgResult = await sendTelegramBound(
+        dialogue.id,
         parseTelegramHandle(lead.telegram),
         reply.body,
       );
-      metadata = { tg_message_id: tgResult.messageId };
+      metadata = {
+        tg_message_id: tgResult.messageId,
+        chat_id: tgResult.chatId,
+        account_id: tgResult.accountId,
+      };
       incrementDailyCount("telegram");
     }
 
@@ -1103,11 +1284,16 @@ async function processDecidedDeals() {
         metadata = { subject: reply.subject, resend_id: result.id };
         incrementDailyCount("email");
       } else if (dialogue.channel === "telegram") {
-        const tgResult = await tg.sendMessage(
+        const tgResult = await sendTelegramBound(
+          dialogue.id,
           parseTelegramHandle(lead.telegram),
           reply.body,
         );
-        metadata = { tg_message_id: tgResult.messageId };
+        metadata = {
+          tg_message_id: tgResult.messageId,
+          chat_id: tgResult.chatId,
+          account_id: tgResult.accountId,
+        };
         incrementDailyCount("telegram");
       }
 
@@ -1228,11 +1414,14 @@ async function processAnsweredConsultations() {
         metadata.resend_id = result.id;
         incrementDailyCount("email");
       } else if (dialogue.channel === "telegram") {
-        const tgResult = await tg.sendMessage(
+        const tgResult = await sendTelegramBound(
+          dialogue.id,
           parseTelegramHandle(lead.telegram),
           reply.body,
         );
         metadata.tg_message_id = tgResult.messageId;
+        metadata.chat_id = tgResult.chatId;
+        metadata.account_id = tgResult.accountId;
         incrementDailyCount("telegram");
       }
 
@@ -1360,6 +1549,16 @@ async function sendApprovedPendingReply(item) {
     if (lastOut) replyToHeader = safeJsonParse(lastOut.metadata).resend_id;
   }
 
+  // Для TG: аккаунт-владелец диалога (или выбранный, если привязки ещё нет).
+  let tgAccountId = null;
+  if (item.channel === "telegram") {
+    if (item.dialogue_id) {
+      const d = stmts.getDialogue.get(item.dialogue_id);
+      if (d && d.account_id != null) tgAccountId = d.account_id;
+    }
+    if (tgAccountId == null) tgAccountId = tg.pickAccount();
+  }
+
   // Отправка
   let externalId = null;
   let sendMeta = {};
@@ -1367,7 +1566,11 @@ async function sendApprovedPendingReply(item) {
   if (DRY_RUN) {
     log(
       "INFO",
-      `[DRY_RUN] Would send ${item.channel} to ${item.recipient}\nSubject: ${subject || ""}\n${body}`,
+      `[DRY_RUN] Would send ${item.channel} to ${item.recipient}${
+        item.channel === "telegram" && tgAccountId != null
+          ? ` via acc#${tgAccountId}`
+          : ""
+      }\nSubject: ${subject || ""}\n${body}`,
     );
     db.prepare(
       `INSERT INTO dry_run_log (created_at, lead_id, channel, subject, body, would_send_to) VALUES (?,?,?,?,?,?)`,
@@ -1385,6 +1588,7 @@ async function sendApprovedPendingReply(item) {
     else if (item.channel === "telegram") {
       sendMeta.tg_message_id = externalId;
       sendMeta.chat_id = externalId;
+      if (tgAccountId != null) sendMeta.account_id = tgAccountId;
     }
   } else if (item.channel === "email") {
     trackingId = generateTrackingId();
@@ -1403,9 +1607,16 @@ async function sendApprovedPendingReply(item) {
     externalId = result.messageId;
     sendMeta = { subject, resend_id: result.id };
   } else if (item.channel === "telegram") {
-    const result = await tg.sendMessage(item.recipient, body);
+    if (tgAccountId == null)
+      throw new Error("нет доступного TG-аккаунта (залогинен/под лимитом)");
+    const result = await tg.sendMessageVia(tgAccountId, item.recipient, body);
     externalId = result.chatId;
-    sendMeta = { tg_message_id: result.messageId, chat_id: result.chatId };
+    sendMeta = {
+      tg_message_id: result.messageId,
+      chat_id: result.chatId,
+      account_id: result.accountId,
+    };
+    tgAccountId = result.accountId;
   } else {
     throw new Error("unknown channel " + item.channel);
   }
@@ -1420,6 +1631,8 @@ async function sendApprovedPendingReply(item) {
         externalId,
         now,
       );
+      if (item.channel === "telegram" && tgAccountId != null)
+        stmts.setDialogueAccount.run(tgAccountId, dlgResult.lastInsertRowid);
       stmts.insertMessage.run({
         dialogue_id: dlgResult.lastInsertRowid,
         direction: "out",
@@ -1444,6 +1657,12 @@ async function sendApprovedPendingReply(item) {
       if (type === "deal_accept") metaExtra.deal_decision = ctx.deal_decision;
       if (type === "consultation_answer")
         metaExtra.consultation_id = ctx.consultation_id;
+      if (
+        item.channel === "telegram" &&
+        tgAccountId != null &&
+        item.dialogue_id
+      )
+        stmts.setDialogueAccount.run(tgAccountId, item.dialogue_id);
       stmts.insertMessage.run({
         dialogue_id: item.dialogue_id,
         direction: "out",
@@ -1606,8 +1825,14 @@ async function processFollowUps() {
           metadata.resend_id = result.id;
           incrementDailyCount("email");
         } else if (row.dlg_channel === "telegram") {
-          const result = await tg.sendMessage(recipient, reply.body);
+          const result = await sendTelegramBound(
+            row.dlg_id,
+            recipient,
+            reply.body,
+          );
           metadata.tg_message_id = result.messageId;
+          metadata.chat_id = result.chatId;
+          metadata.account_id = result.accountId;
           incrementDailyCount("telegram");
         }
 
@@ -1661,59 +1886,162 @@ function onPendingReplyRejected(pendingReplyId) {
 
 // ─── Telegram incoming handler ──────────────────────────────────────
 
-async function handleIncomingTelegram(msg) {
-  try {
-    if (!msg.username && !msg.senderId) return;
+// Дебаунс генерации ответа: если блогер шлёт пачку сообщений подряд, генерируем
+// ОДИН ответ после «тишины» TG_REPLY_DEBOUNCE_MS, чтобы прочитать всю пачку.
+const TG_REPLY_DEBOUNCE_MS = parseInt(
+  process.env.TG_REPLY_DEBOUNCE_MS || "12000",
+  10,
+);
+const _tgReplyTimers = new Map(); // key `${wsId}:${leadId}` → timeout
 
-    // 1) Точный матч по username (lowercase)
-    let lead = null;
-    if (msg.username) {
-      const needle = String(msg.username)
-        .toLowerCase()
-        .trim()
-        .replace(/^@/, "");
-      const candidates = db
+// Запуск generatePendingReplies в контексте нужного воркспейса (таймер срабатывает
+// уже после восстановления контекста в handleIncomingTelegram).
+async function _runReplyGenForWorkspace(wsId) {
+  const savedStmts = stmts;
+  const savedDb = db;
+  const savedWsId = currentWorkspaceId;
+  const ws = dbModule.getDb(wsId);
+  stmts = ws.stmts;
+  db = ws.db;
+  currentWorkspaceId = wsId;
+  try {
+    await generatePendingReplies();
+  } finally {
+    stmts = savedStmts;
+    db = savedDb;
+    currentWorkspaceId = savedWsId;
+  }
+}
+
+// Поставить/сбросить per-lead дебаунс-таймер генерации ответа. Каждое новое
+// входящее по этому лиду сбрасывает таймер → ответ читает уже всю пачку.
+function scheduleTgReplyGeneration(wsId, leadId) {
+  const key = `${wsId}:${leadId}`;
+  const existing = _tgReplyTimers.get(key);
+  if (existing) clearTimeout(existing);
+  const t = setTimeout(() => {
+    _tgReplyTimers.delete(key);
+    _runReplyGenForWorkspace(wsId).catch((e) =>
+      log(
+        "ERR",
+        `debounced TG reply gen failed (lead #${leadId}): ${e.message}`,
+      ),
+    );
+  }, TG_REPLY_DEBOUNCE_MS);
+  if (typeof t.unref === "function") t.unref(); // не держим event loop
+  _tgReplyTimers.set(key, t);
+  log(
+    "DEBUG",
+    `TG reply debounce armed (lead #${leadId}, ws ${wsId}, ${TG_REPLY_DEBOUNCE_MS}ms)`,
+  );
+}
+
+// Найти TG-лида по username/chat_id ВО ВСЕХ воркспейсах (TG-аккаунты общие,
+// а лиды разнесены по ws-БД). Возвращает { lead, ws, wsId } или null.
+function findTgLeadAcrossWorkspaces(username, chatId) {
+  const fs = require("fs");
+  const path = require("path");
+  const dataDir = path.join(__dirname, "..", "data");
+  let files = [];
+  try {
+    files = fs
+      .readdirSync(dataDir)
+      .filter((f) => f.startsWith("ws-") && f.endsWith(".db"));
+  } catch {
+    return null;
+  }
+  const needle = username
+    ? String(username).toLowerCase().trim().replace(/^@/, "")
+    : null;
+
+  for (const file of files) {
+    const wsId = file.replace(/^ws-/, "").replace(/\.db$/, "");
+    const ws = dbModule.getDb(wsId);
+    // 1) точный матч по username (несколько хендлов через ;/,)
+    if (needle) {
+      const cands = ws.db
         .prepare(
           `SELECT * FROM leads WHERE telegram IS NOT NULL AND telegram != ''`,
         )
         .all();
-      for (const l of candidates) {
+      for (const l of cands) {
         const handles = String(l.telegram)
           .split(/[;,]/)
           .map((h) => h.trim().replace(/^@/, "").toLowerCase())
           .filter(Boolean);
-        if (handles.includes(needle)) {
-          lead = l;
-          break;
-        }
+        if (handles.includes(needle)) return { lead: l, ws, wsId };
       }
     }
-
-    // 2) Fallback — матч по chat_id в metadata диалога
-    if (!lead && msg.chatId) {
-      const row = db
+    // 2) fallback — по chat_id (external_thread_id или metadata)
+    if (chatId) {
+      const row = ws.db
         .prepare(
-          `
-        SELECT l.* FROM dialogues d
-        JOIN messages m ON m.dialogue_id = d.id
-        JOIN leads l ON l.id = d.lead_id
-        WHERE d.channel = 'telegram' AND (d.external_thread_id = ? OR m.metadata LIKE ?)
-        LIMIT 1
-      `,
+          `SELECT l.* FROM dialogues d
+           JOIN messages m ON m.dialogue_id = d.id
+           JOIN leads l ON l.id = d.lead_id
+           WHERE d.channel = 'telegram' AND (d.external_thread_id = ? OR m.metadata LIKE ?)
+           LIMIT 1`,
         )
-        .get(String(msg.chatId), '%"chat_id":"' + msg.chatId + '"%');
-      if (row) lead = row;
+        .get(String(chatId), '%"chat_id":"' + chatId + '"%');
+      if (row) return { lead: row, ws, wsId };
     }
+  }
+  return null;
+}
 
-    if (!lead) {
-      log(
-        "WARN",
-        `TG message from @${msg.username || msg.senderId} — no matching lead`,
-      );
-      return;
-    }
+async function handleIncomingTelegram(msg) {
+  if (!msg.username && !msg.senderId) return;
 
+  // Матч лида по всем воркспейсам (TG общий, лиды разнесены).
+  const match = findTgLeadAcrossWorkspaces(msg.username, msg.chatId);
+  if (!match) {
+    log(
+      "WARN",
+      `TG message from @${msg.username || msg.senderId} — no matching lead (любой ws)`,
+    );
+    return;
+  }
+
+  // Свопаем контекст БД на воркспейс лида (как processInbox для email).
+  const savedStmts = stmts;
+  const savedDb = db;
+  const savedWsId = currentWorkspaceId;
+  stmts = match.ws.stmts;
+  db = match.ws.db;
+  currentWorkspaceId = match.wsId;
+  try {
+    const lead = match.lead;
     let dialogue = stmts.getDialogueByLead.get(lead.id, "telegram");
+
+    // Дедуп: если сообщение с таким tg_message_id уже записано у лида — пропускаем
+    // (защита от двойного приёма live-листенером и catch-up fetchRecentIncoming).
+    if (msg.messageId && dialogue) {
+      const dup = db
+        .prepare(
+          `SELECT m.id FROM messages m
+           JOIN dialogues d ON d.id = m.dialogue_id
+           WHERE d.lead_id = ? AND d.channel = 'telegram'
+             AND m.direction = 'in' AND m.metadata LIKE ? LIMIT 1`,
+        )
+        .get(lead.id, '%"tg_message_id":"' + msg.messageId + '"%');
+      if (dup) {
+        // Сообщение уже записано. Если активного черновика ответа нет (был
+        // отклонён/удалён) — перегенерируем ответ; иначе просто выходим.
+        if (!hasActivePendingReply(lead.id, dialogue.id)) {
+          log(
+            "INFO",
+            `TG incoming dup (lead #${lead.id}) — нет активного черновика, дебаунс-регенерация`,
+          );
+          scheduleTgReplyGeneration(match.wsId, lead.id);
+        } else {
+          log(
+            "INFO",
+            `TG incoming dup skipped (lead #${lead.id}, msg ${msg.messageId})`,
+          );
+        }
+        return;
+      }
+    }
 
     const now = new Date().toISOString();
     const tx = db.transaction(() => {
@@ -1728,7 +2056,13 @@ async function handleIncomingTelegram(msg) {
           id: r.lastInsertRowid,
           lead_id: lead.id,
           channel: "telegram",
+          account_id: null,
         };
+      }
+      // Привязка диалога к аккаунту, ПОЛУЧИВШЕМУ входящее (или backfill).
+      if (msg.accountId != null && dialogue.account_id == null) {
+        stmts.setDialogueAccount.run(msg.accountId, dialogue.id);
+        dialogue.account_id = msg.accountId;
       }
       stmts.insertMessage.run({
         dialogue_id: dialogue.id,
@@ -1739,6 +2073,7 @@ async function handleIncomingTelegram(msg) {
           username: msg.username,
           tg_message_id: msg.messageId,
           chat_id: msg.chatId,
+          account_id: msg.accountId ?? null,
         }),
         created_at: now,
         tracking_id: null,
@@ -1749,12 +2084,96 @@ async function handleIncomingTelegram(msg) {
     tx();
 
     workerState.stats.replied++;
-    log("INFO", `TG reply from @${msg.username} (lead #${lead.id})`);
+    log(
+      "INFO",
+      `TG reply from @${msg.username} (lead #${lead.id}, ws: ${match.wsId})`,
+    );
 
-    await generatePendingReplies();
+    // Дебаунс: не генерируем ответ сразу — ждём «тишины», чтобы прочитать всю
+    // пачку. Запись входящего и стадия replied уже зафиксированы выше (мгновенно).
+    scheduleTgReplyGeneration(match.wsId, lead.id);
   } catch (e) {
     log("ERR", `TG handler failed: ${e.message}`);
+  } finally {
+    stmts = savedStmts;
+    db = savedDb;
+    currentWorkspaceId = savedWsId;
   }
+}
+
+// Startup-sweep: дебаунс-таймеры in-memory и теряются при рестарте. Один проход
+// generatePendingReplies по воркспейсам, где есть «зависшая» TG-пачка (входящие
+// после последнего исходящего, без активного черновика) — подберём её. Reentrancy-
+// guard + review-дедуп защищают от дублей. Сканируем только ws с реальной TG-
+// пачкой, чтобы не трогать остальные воркспейсы.
+function _hasStrandedTgBatch(wsDb) {
+  try {
+    return !!wsDb
+      .prepare(
+        `SELECT 1 FROM leads l
+         JOIN dialogues d ON d.lead_id = l.id AND d.channel = 'telegram'
+         WHERE l.lead_status IN ('ready','in_work')
+           AND l.dialogue_stage NOT IN ('won','lost','deal_pending','moved_to_tg')
+           AND (SELECT MAX(created_at) FROM messages WHERE dialogue_id = d.id AND direction = 'in') >
+               COALESCE((SELECT MAX(created_at) FROM messages WHERE dialogue_id = d.id AND direction = 'out'), '1970-01-01')
+           AND NOT EXISTS (
+             SELECT 1 FROM pending_replies pr
+             WHERE pr.lead_id = l.id AND pr.status IN ('pending','approved')
+           )
+         LIMIT 1`,
+      )
+      .get();
+  } catch {
+    return false;
+  }
+}
+
+async function sweepStrandedTgReplies() {
+  const fs = require("fs");
+  const path = require("path");
+  const dataDir = path.join(__dirname, "..", "data");
+  let files = [];
+  try {
+    files = fs
+      .readdirSync(dataDir)
+      .filter((f) => f.startsWith("ws-") && f.endsWith(".db"));
+  } catch {
+    return;
+  }
+  for (const file of files) {
+    const wsId = file.replace(/^ws-/, "").replace(/\.db$/, "");
+    const ws = dbModule.getDb(wsId);
+    if (!_hasStrandedTgBatch(ws.db)) continue;
+    log(
+      "INFO",
+      `[sweep] зависшая TG-пачка в ws ${wsId} → generatePendingReplies`,
+    );
+    try {
+      await _runReplyGenForWorkspace(wsId);
+    } catch (e) {
+      log("ERR", `[sweep] ws ${wsId}: ${e.message}`);
+    }
+  }
+}
+
+// Подключить ТОЛЬКО приём входящих TG (без outreach/inbox/followup циклов).
+// Безопасно при DRY_RUN=false: ничего не рассылает, входящие в review-режиме
+// кладутся в pending_replies. Идемпотентно.
+let _tgListenerEnabled = false;
+function enableTelegramListener() {
+  if (_tgListenerEnabled) return;
+  tg.onMessage(handleIncomingTelegram);
+  _tgListenerEnabled = true;
+  log(
+    "INFO",
+    "TG incoming listener enabled (listener-only, без outreach-цикла)",
+  );
+  // Подобрать пачки, пришедшие пока сервер был выключен (таймеры теряются на рестарт).
+  setTimeout(() => {
+    sweepStrandedTgReplies().catch((e) =>
+      log("ERR", `startup TG sweep failed: ${e.message}`),
+    );
+  }, 5000);
 }
 
 // ─── Control ────────────────────────────────────────────────────────
@@ -1835,6 +2254,12 @@ module.exports = {
   processApprovedQueue,
   processFollowUps,
   runLeadNow,
+  runLeadsNow,
+  channelAvailability,
+  existingOutChannels,
+  handleIncomingTelegram,
+  enableTelegramListener,
+  sweepStrandedTgReplies,
   onPendingReplyRejected,
   isReviewMode,
   getFollowUpConfig,

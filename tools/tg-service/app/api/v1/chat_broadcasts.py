@@ -11,7 +11,7 @@ import structlog
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from app.deps import AdminAuth, WorkspaceDB
+from app.deps import AdminAuth, WorkspaceDB, WorkspaceId
 
 router = APIRouter(prefix="/chat-broadcasts", tags=["chat-broadcasts"])
 
@@ -228,8 +228,9 @@ async def start_broadcast(
     broadcast_id: str,
     _token: AdminAuth,
     db: WorkspaceDB,
+    workspace_id: WorkspaceId,
 ) -> dict[str, Any]:
-    """Set broadcast status to RUNNING."""
+    """Set broadcast status to RUNNING and dispatch Celery task."""
     row = db.execute(
         "SELECT * FROM tg_chat_broadcasts WHERE id = ?", [broadcast_id]
     ).fetchone()
@@ -243,6 +244,13 @@ async def start_broadcast(
         )
 
     now = _now()
+
+    # Dispatch first: a down engine raises 503 and leaves the broadcast in its
+    # prior status instead of falsely showing RUNNING.
+    from app.tasks.dispatch import dispatch_task
+
+    dispatch_task("pup_tg.chat_broadcast", args=[workspace_id, broadcast_id])
+
     try:
         db.execute(
             """UPDATE tg_chat_broadcasts
@@ -345,3 +353,129 @@ async def list_posts(
 
     items = [_row_to_post(r) for r in rows]
     return {"items": items, "total": total, "limit": limit, "offset": offset}
+
+
+@router.post("/{broadcast_id}/pause")
+async def pause_broadcast(
+    broadcast_id: str,
+    _token: AdminAuth,
+    db: WorkspaceDB,
+) -> dict[str, Any]:
+    """Pause a RUNNING broadcast (P4-23)."""
+    row = db.execute("SELECT * FROM tg_chat_broadcasts WHERE id = ?", [broadcast_id]).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Chat broadcast not found")
+    if row["status"] != "RUNNING":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot pause broadcast in status '{row['status']}'. Must be RUNNING.",
+        )
+    now = _now()
+    db.execute("UPDATE tg_chat_broadcasts SET status='PAUSED', updated_at=? WHERE id=?", [now, broadcast_id])
+    db.commit()
+    log.info("broadcast_paused", broadcast_id=broadcast_id)
+    return _row_to_broadcast(db.execute("SELECT * FROM tg_chat_broadcasts WHERE id=?", [broadcast_id]).fetchone())
+
+
+@router.post("/{broadcast_id}/resume")
+async def resume_broadcast(
+    broadcast_id: str,
+    _token: AdminAuth,
+    db: WorkspaceDB,
+    workspace_id: WorkspaceId,
+) -> dict[str, Any]:
+    """Resume a PAUSED broadcast — dispatches a new Celery task (P4-23)."""
+    row = db.execute("SELECT * FROM tg_chat_broadcasts WHERE id = ?", [broadcast_id]).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Chat broadcast not found")
+    if row["status"] != "PAUSED":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot resume broadcast in status '{row['status']}'. Must be PAUSED.",
+        )
+    from app.tasks.dispatch import dispatch_task
+    dispatch_task("pup_tg.chat_broadcast", args=[workspace_id, broadcast_id])
+    now = _now()
+    db.execute("UPDATE tg_chat_broadcasts SET status='RUNNING', updated_at=? WHERE id=?", [now, broadcast_id])
+    db.commit()
+    log.info("broadcast_resumed", broadcast_id=broadcast_id)
+    return _row_to_broadcast(db.execute("SELECT * FROM tg_chat_broadcasts WHERE id=?", [broadcast_id]).fetchone())
+
+
+@router.post("/{broadcast_id}/check-survival")
+async def check_survival(
+    broadcast_id: str,
+    _token: AdminAuth,
+    db: WorkspaceDB,
+) -> dict[str, Any]:
+    """Check if POSTED messages are still alive in their channels (P4-22).
+
+    Connects an active account, calls GetMessages for each posted tg_message_id,
+    marks as DELETED_BY_MODS if the message is gone, updates survival_rate.
+    Best-effort: failures per channel are skipped. NO_PROXY guard applies.
+    """
+    row = db.execute("SELECT * FROM tg_chat_broadcasts WHERE id = ?", [broadcast_id]).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Chat broadcast not found")
+
+    posts = db.execute(
+        """SELECT id, channel_id, channel_title, tg_message_id, account_id
+           FROM tg_chat_broadcast_posts
+           WHERE broadcast_id = ? AND status = 'POSTED' AND tg_message_id IS NOT NULL
+           LIMIT 100""",
+        [broadcast_id],
+    ).fetchall()
+
+    if not posts:
+        return {"checked": 0, "deleted": 0, "survival_rate": None}
+
+    from app.telegram.client_pool import disconnect_client, get_client_for_account
+
+    checked = 0
+    newly_deleted = 0
+    now = _now()
+
+    for post in posts:
+        acc_id = post["account_id"]
+        if not acc_id:
+            continue
+        channel_id = post["channel_id"]
+        msg_id = post["tg_message_id"]
+        if not channel_id or not msg_id:
+            continue
+
+        client = None
+        try:
+            client = await get_client_for_account(acc_id, db)
+            entity = await client.get_entity(int(channel_id) if channel_id.lstrip("-").isdigit() else channel_id)
+            msgs = await client.get_messages(entity, ids=[msg_id])
+            msg = msgs[0] if msgs else None
+            if msg is None:
+                # Message deleted
+                db.execute(
+                    "UPDATE tg_chat_broadcast_posts SET status='DELETED_BY_MODS', deleted_at=? WHERE id=?",
+                    [now, post["id"]],
+                )
+                newly_deleted += 1
+            checked += 1
+        except HTTPException:
+            pass
+        except Exception as exc:
+            log.warning("check_survival_failed", post_id=post["id"], error=str(exc)[:100])
+        finally:
+            await disconnect_client(client)
+
+    db.commit()
+
+    # Update survival_rate in broadcast
+    total_posted = db.execute(
+        "SELECT COUNT(*) AS c FROM tg_chat_broadcast_posts WHERE broadcast_id=? AND status IN ('POSTED','DELETED_BY_MODS')",
+        [broadcast_id],
+    ).fetchone()["c"]
+    total_deleted = db.execute(
+        "SELECT COUNT(*) AS c FROM tg_chat_broadcast_posts WHERE broadcast_id=? AND status='DELETED_BY_MODS'",
+        [broadcast_id],
+    ).fetchone()["c"]
+    survival_rate = round((total_posted - total_deleted) / total_posted * 100, 2) if total_posted > 0 else None
+
+    return {"checked": checked, "deleted": newly_deleted, "survival_rate": survival_rate}
