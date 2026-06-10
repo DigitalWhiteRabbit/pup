@@ -2259,6 +2259,7 @@ module.exports = {
   existingOutChannels,
   handleIncomingTelegram,
   enableTelegramListener,
+  sweepStrandedTgReplies,
   onPendingReplyRejected,
   isReviewMode,
   getFollowUpConfig,
