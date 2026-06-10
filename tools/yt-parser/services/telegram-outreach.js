@@ -93,6 +93,13 @@ function makeClient(row, session = "") {
       `[tg][acc#${row.id}] прокси не задан — для прод-TG прокси обязателен (1 акк = 1 прокси)`,
     );
   }
+  // Параметры устройства из импортированной сессии — чтобы не выглядеть «новым
+  // устройством» (Telegram сверяет device/app/lang при коннекте).
+  if (row.device_model) opts.deviceModel = row.device_model;
+  if (row.system_version) opts.systemVersion = row.system_version;
+  if (row.app_version) opts.appVersion = row.app_version;
+  if (row.lang_code) opts.langCode = row.lang_code;
+  if (row.system_lang_code) opts.systemLangCode = row.system_lang_code;
   return new TelegramClient(new StringSession(session), apiId, apiHash, opts);
 }
 
@@ -410,6 +417,74 @@ function createAccount(fields = {}) {
   return stmts.getTgAccount.get(r.lastInsertRowid);
 }
 
+// Импорт готовой Telethon-сессии: конвертим .session → StringSession и сохраняем
+// аккаунт с device-параметрами из .json. Вход по телефону/коду не нужен.
+// fields: { sessionFilePath, meta(json), proxy_string|proxy_*, label?, daily_cap? }
+async function importAccount(fields = {}) {
+  const { telethonSessionToStringSession } = require("./telethon-import");
+  const meta = fields.meta || {};
+  const sessionStr = await telethonSessionToStringSession(
+    fields.sessionFilePath,
+  );
+
+  const proxy = fields.proxy_string
+    ? parseProxyString(fields.proxy_string)
+    : {
+        proxy_host: fields.proxy_host || null,
+        proxy_port: fields.proxy_port || null,
+        proxy_user: fields.proxy_user || null,
+        proxy_pass: fields.proxy_pass || null,
+      };
+  const hasProxy = !!(proxy.proxy_host && proxy.proxy_port);
+
+  // label по умолчанию: "First Last (@username|phone)"
+  const name = [meta.first_name, meta.last_name]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  const handle = meta.username
+    ? "@" + meta.username
+    : meta.phone || fields.phone || "";
+  const label =
+    fields.label ||
+    (name
+      ? `${name}${handle ? " (" + handle + ")" : ""}`
+      : handle || "imported");
+
+  const now = new Date().toISOString();
+  const r = stmts.insertImportedTgAccount.run({
+    label,
+    phone: meta.phone || fields.phone || null,
+    api_id: meta.app_id != null ? parseInt(meta.app_id, 10) : null,
+    api_hash: meta.app_hash || null,
+    session: sessionStr,
+    proxy_type: "socks5",
+    proxy_host: proxy.proxy_host || null,
+    proxy_port:
+      proxy.proxy_port != null ? parseInt(proxy.proxy_port, 10) : null,
+    proxy_user: proxy.proxy_user || null,
+    proxy_pass: proxy.proxy_pass || null,
+    // Без прокси работать с прод-TG нельзя — помечаем needs_proxy, иначе active.
+    status: hasProxy ? "active" : "needs_proxy",
+    daily_cap:
+      fields.daily_cap != null
+        ? parseInt(fields.daily_cap, 10)
+        : parseInt(process.env.DAILY_CAP_TG || "50", 10),
+    two_fa: meta.twoFA || meta.two_fa || null,
+    user_id: meta.user_id != null ? String(meta.user_id) : null,
+    device_model: meta.device || meta.device_model || null,
+    system_version:
+      meta.sdk || meta.systemVersion || meta.system_version || null,
+    app_version: meta.app_version || null,
+    lang_code: meta.lang_code || null,
+    system_lang_code: meta.system_lang_code || null,
+    source: "telethon-import",
+    created_at: now,
+    updated_at: now,
+  });
+  return stmts.getTgAccount.get(r.lastInsertRowid);
+}
+
 // Принять прокси-строку формата host:port:user:pass и разложить по полям.
 function parseProxyString(raw) {
   if (!raw) return {};
@@ -602,6 +677,11 @@ function accountStatus(id) {
     flood_until:
       row.flood_until && row.flood_until > now ? row.flood_until : null,
     first_used_at: row.first_used_at,
+    // Несекретные метаданные импорта (для UI). Секреты (session/api_hash/two_fa)
+    // НЕ отдаём.
+    source: row.source || null,
+    device_model: row.device_model || null,
+    has_2fa: !!row.two_fa,
   };
 }
 
@@ -714,6 +794,7 @@ module.exports = {
   listAccounts,
   accountStatus,
   createAccount,
+  importAccount,
   updateAccount,
   deleteAccount,
   loginAccount,

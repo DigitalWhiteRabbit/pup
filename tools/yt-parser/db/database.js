@@ -157,6 +157,23 @@ function getDb(workspaceId = "default") {
   safeExec(
     `CREATE INDEX IF NOT EXISTS idx_dialogues_account ON dialogues(account_id)`,
   );
+  // Фаза 3: импорт Telethon-сессий — поля устройства/метаданных и 2FA/user_id.
+  if (!columnExists("tg_account", "two_fa"))
+    safeExec(`ALTER TABLE tg_account ADD COLUMN two_fa TEXT`);
+  if (!columnExists("tg_account", "user_id"))
+    safeExec(`ALTER TABLE tg_account ADD COLUMN user_id TEXT`);
+  if (!columnExists("tg_account", "device_model"))
+    safeExec(`ALTER TABLE tg_account ADD COLUMN device_model TEXT`);
+  if (!columnExists("tg_account", "system_version"))
+    safeExec(`ALTER TABLE tg_account ADD COLUMN system_version TEXT`);
+  if (!columnExists("tg_account", "app_version"))
+    safeExec(`ALTER TABLE tg_account ADD COLUMN app_version TEXT`);
+  if (!columnExists("tg_account", "lang_code"))
+    safeExec(`ALTER TABLE tg_account ADD COLUMN lang_code TEXT`);
+  if (!columnExists("tg_account", "system_lang_code"))
+    safeExec(`ALTER TABLE tg_account ADD COLUMN system_lang_code TEXT`);
+  if (!columnExists("tg_account", "source"))
+    safeExec(`ALTER TABLE tg_account ADD COLUMN source TEXT`);
 
   // Seed: default red_flags for project CopyBanner (id=3) — only for default workspace
   if (workspaceId === "default") {
@@ -816,6 +833,20 @@ function buildStmts(db) {
       ) VALUES (
         @label, @phone, @api_id, @api_hash, @proxy_type, @proxy_host, @proxy_port,
         @proxy_user, @proxy_pass, @status, @daily_cap, @created_at, @updated_at
+      )
+    `),
+    // Импорт готовой Telethon-сессии (с session + device-параметрами).
+    insertImportedTgAccount: db.prepare(`
+      INSERT INTO tg_account (
+        label, phone, api_id, api_hash, session, proxy_type, proxy_host, proxy_port,
+        proxy_user, proxy_pass, status, daily_cap, two_fa, user_id, device_model,
+        system_version, app_version, lang_code, system_lang_code, source,
+        created_at, updated_at
+      ) VALUES (
+        @label, @phone, @api_id, @api_hash, @session, @proxy_type, @proxy_host, @proxy_port,
+        @proxy_user, @proxy_pass, @status, @daily_cap, @two_fa, @user_id, @device_model,
+        @system_version, @app_version, @lang_code, @system_lang_code, @source,
+        @created_at, @updated_at
       )
     `),
     getTgAccount: db.prepare(`SELECT * FROM tg_account WHERE id = ?`),

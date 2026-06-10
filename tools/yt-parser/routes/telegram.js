@@ -1,7 +1,18 @@
 const express = require("express");
+const multer = require("multer");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+const crypto = require("crypto");
 const tg = require("../services/telegram-outreach");
 const { adminAuth } = require("../utils/auth");
 const router = express.Router();
+
+// Импорт пакета аккаунта: .session (SQLite) + .json (метаданные). До 5 МБ.
+const uploadSession = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+});
 
 // Все TG-мутации требуют admin token. (GET-статусы — открыты.)
 router.use((req, res, next) => {
@@ -85,6 +96,61 @@ router.post("/accounts", (req, res) => {
     res.status(400).json({ success: false, error: e.message });
   }
 });
+
+// POST /api/telegram/accounts/import — импорт готовой Telethon-сессии.
+// multipart: files session (.session SQLite) + json (.json метаданные);
+// поля: proxy_string ("host:port:user:pass"), label?, daily_cap?.
+router.post(
+  "/accounts/import",
+  uploadSession.fields([
+    { name: "session", maxCount: 1 },
+    { name: "json", maxCount: 1 },
+  ]),
+  async (req, res) => {
+    const sessionFile = req.files?.session?.[0];
+    const jsonFile = req.files?.json?.[0];
+    if (!sessionFile)
+      return res
+        .status(400)
+        .json({ success: false, error: "файл session обязателен" });
+
+    // Метаданные: из загруженного .json или (фолбэк) из полей формы.
+    let meta = {};
+    if (jsonFile) {
+      try {
+        meta = JSON.parse(jsonFile.buffer.toString("utf-8"));
+      } catch {
+        return res
+          .status(400)
+          .json({ success: false, error: "json не парсится" });
+      }
+    }
+
+    // Пишем .session-буфер во временный файл (better-sqlite3 нужен путь).
+    const tmpPath = path.join(
+      os.tmpdir(),
+      "import-" + crypto.randomBytes(8).toString("hex") + ".session",
+    );
+    try {
+      fs.writeFileSync(tmpPath, sessionFile.buffer);
+      const account = await tg.importAccount({
+        sessionFilePath: tmpPath,
+        meta,
+        proxy_string: req.body?.proxy_string,
+        label: req.body?.label,
+        daily_cap: req.body?.daily_cap,
+        phone: req.body?.phone,
+      });
+      res.json({ success: true, account: tg.accountStatus(account.id) });
+    } catch (e) {
+      res.status(400).json({ success: false, error: e.message });
+    } finally {
+      try {
+        fs.unlinkSync(tmpPath);
+      } catch {}
+    }
+  },
+);
 
 // PATCH /api/telegram/accounts/:id — обновить поля (прокси/лимит/статус/label)
 router.patch("/accounts/:id", (req, res) => {
