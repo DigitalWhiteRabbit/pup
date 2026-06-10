@@ -74,9 +74,49 @@ server_address, port, auth_key[256])` → GramJS `StringSession` (setDC + AuthKe
       → `save()`. Round-trip тест (`scripts/test-telethon-import.js`): dc/ip/port
       сохраняются, auth_key байт-в-байт, кривой ключ → ошибка. `tmp/` в .gitignore.
 - [x] **Шаг 2 — Эндпоинт импорта**: `POST /api/telegram/accounts/import` (multipart).
-- [x] **Шаг 3 — Параметры клиента из сессии** (device/systemVersion/appVersion/lang).
-- [ ] **Шаг 4 — UI «Импорт сессии»** в пуле аккаунтов.
-- [ ] **Шаг 5 — Проверка** (без живого коннекта).
+- [x] **Шаг 3 — Параметры клиента из сессии** (device/systemVersion/appVersion/lang):
+      `makeClient` прокидывает deviceModel/systemVersion/appVersion/langCode/systemLangCode
+      из сохранённых полей.
+- [x] **Шаг 4 — UI «Импорт сессии»** в пуле аккаунтов: форма (.session + .json + прокси + label/лимит) → `POST /accounts/import` (multipart FormData без ручного
+      Content-Type); карточка появляется со статусом. Импортированные (с сессией) не
+      показывают phone-Login — «коннект при старте через прокси». Пилюля `нужен прокси`.
+- [x] **Шаг 5 — Проверка** (без живого коннекта).
+
+### Проверка Фазы 3 (без коннекта к Telegram)
+
+- **Round-trip конвертация ВЕРНА**: на синтетической Telethon-сессии dc_id/ip/port
+  сохраняются, `auth_key` байт-в-байт совпадает (256 байт), кривой ключ → ошибка
+  (`scripts/test-telethon-import.js` — ALL OK).
+- **Миграция**: device/2FA/user_id/source-колонки `tg_account` применяются идемпотентно.
+- **importAccount (node)**: app_id→api_id, app_hash→api_hash, device/sdk/app_version/lang/
+  user_id/twoFA сохранены; label по умолчанию `First Last (@username)`; статус
+  `active` с прокси / `needs_proxy` без; `accountStatus` НЕ отдаёт секреты (только
+  `has_2fa`/`source`/`device_model`).
+- **HTTP `/accounts/import` (multipart)**: создаёт карточку с session+device, секреты
+  в ответе отсутствуют; без прокси → `needs_proxy`.
+- **UI**: форма импорта рендерится (скрин `qa-screens/e-import-session-form.png`),
+  отправляет multipart, карточка появляется.
+- **Синтаксис**: `node --check` по всем файлам + главный inline-скрипт зелёные.
+
+### Принятые дефолты (Фаза 3)
+
+- `.session` (multer memoryStorage) пишется во временный файл (better-sqlite3 нужен
+  путь), конвертится, временный файл удаляется в `finally`. Лимит файла 5 МБ.
+- proxy из `.json` ИГНОРИРУЕМ — прокси задаём отдельным полем (SOCKS5,
+  `host:port:user:pass`).
+- Без прокси аккаунт импортируется со статусом `needs_proxy` (в `pickAccount` не
+  попадёт, т.к. не active и не залогинен); прокси добавляется через «✎ Прокси/лимит».
+- 2FA-пароль (`twoFA`) сохраняется в `tg_account.two_fa` на случай запроса при
+  коннекте; в API/логи не отдаётся.
+- Секреты (auth_key/session/api_hash/two_fa) не логируются и не возвращаются клиенту.
+
+### Готово к совместному живому коннекту
+
+- Конвертер + импорт + device-параметры готовы. Для живого теста нужен **реальный
+  SOCKS5-прокси** на аккаунт (чтобы не светить с домашнего IP) и сами `.session`/`.json`
+  (кладём в `tools/yt-parser/tmp/`, оно в .gitignore). Дальше: импорт через UI →
+  задать прокси → рестарт сервера (автологин по сессии через прокси) → `getMe` для
+  проверки. Это делаем вместе.
 
 ## Проверка Фазы 2 (UI)
 

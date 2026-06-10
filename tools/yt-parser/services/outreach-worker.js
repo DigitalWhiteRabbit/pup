@@ -1886,59 +1886,102 @@ function onPendingReplyRejected(pendingReplyId) {
 
 // ─── Telegram incoming handler ──────────────────────────────────────
 
-async function handleIncomingTelegram(msg) {
+// Найти TG-лида по username/chat_id ВО ВСЕХ воркспейсах (TG-аккаунты общие,
+// а лиды разнесены по ws-БД). Возвращает { lead, ws, wsId } или null.
+function findTgLeadAcrossWorkspaces(username, chatId) {
+  const fs = require("fs");
+  const path = require("path");
+  const dataDir = path.join(__dirname, "..", "data");
+  let files = [];
   try {
-    if (!msg.username && !msg.senderId) return;
+    files = fs
+      .readdirSync(dataDir)
+      .filter((f) => f.startsWith("ws-") && f.endsWith(".db"));
+  } catch {
+    return null;
+  }
+  const needle = username
+    ? String(username).toLowerCase().trim().replace(/^@/, "")
+    : null;
 
-    // 1) Точный матч по username (lowercase)
-    let lead = null;
-    if (msg.username) {
-      const needle = String(msg.username)
-        .toLowerCase()
-        .trim()
-        .replace(/^@/, "");
-      const candidates = db
+  for (const file of files) {
+    const wsId = file.replace(/^ws-/, "").replace(/\.db$/, "");
+    const ws = dbModule.getDb(wsId);
+    // 1) точный матч по username (несколько хендлов через ;/,)
+    if (needle) {
+      const cands = ws.db
         .prepare(
           `SELECT * FROM leads WHERE telegram IS NOT NULL AND telegram != ''`,
         )
         .all();
-      for (const l of candidates) {
+      for (const l of cands) {
         const handles = String(l.telegram)
           .split(/[;,]/)
           .map((h) => h.trim().replace(/^@/, "").toLowerCase())
           .filter(Boolean);
-        if (handles.includes(needle)) {
-          lead = l;
-          break;
-        }
+        if (handles.includes(needle)) return { lead: l, ws, wsId };
       }
     }
-
-    // 2) Fallback — матч по chat_id в metadata диалога
-    if (!lead && msg.chatId) {
-      const row = db
+    // 2) fallback — по chat_id (external_thread_id или metadata)
+    if (chatId) {
+      const row = ws.db
         .prepare(
-          `
-        SELECT l.* FROM dialogues d
-        JOIN messages m ON m.dialogue_id = d.id
-        JOIN leads l ON l.id = d.lead_id
-        WHERE d.channel = 'telegram' AND (d.external_thread_id = ? OR m.metadata LIKE ?)
-        LIMIT 1
-      `,
+          `SELECT l.* FROM dialogues d
+           JOIN messages m ON m.dialogue_id = d.id
+           JOIN leads l ON l.id = d.lead_id
+           WHERE d.channel = 'telegram' AND (d.external_thread_id = ? OR m.metadata LIKE ?)
+           LIMIT 1`,
         )
-        .get(String(msg.chatId), '%"chat_id":"' + msg.chatId + '"%');
-      if (row) lead = row;
+        .get(String(chatId), '%"chat_id":"' + chatId + '"%');
+      if (row) return { lead: row, ws, wsId };
     }
+  }
+  return null;
+}
 
-    if (!lead) {
-      log(
-        "WARN",
-        `TG message from @${msg.username || msg.senderId} — no matching lead`,
-      );
-      return;
-    }
+async function handleIncomingTelegram(msg) {
+  if (!msg.username && !msg.senderId) return;
 
+  // Матч лида по всем воркспейсам (TG общий, лиды разнесены).
+  const match = findTgLeadAcrossWorkspaces(msg.username, msg.chatId);
+  if (!match) {
+    log(
+      "WARN",
+      `TG message from @${msg.username || msg.senderId} — no matching lead (любой ws)`,
+    );
+    return;
+  }
+
+  // Свопаем контекст БД на воркспейс лида (как processInbox для email).
+  const savedStmts = stmts;
+  const savedDb = db;
+  const savedWsId = currentWorkspaceId;
+  stmts = match.ws.stmts;
+  db = match.ws.db;
+  currentWorkspaceId = match.wsId;
+  try {
+    const lead = match.lead;
     let dialogue = stmts.getDialogueByLead.get(lead.id, "telegram");
+
+    // Дедуп: если сообщение с таким tg_message_id уже записано у лида — пропускаем
+    // (защита от двойного приёма live-листенером и catch-up fetchRecentIncoming).
+    if (msg.messageId && dialogue) {
+      const dup = db
+        .prepare(
+          `SELECT m.id FROM messages m
+           JOIN dialogues d ON d.id = m.dialogue_id
+           WHERE d.lead_id = ? AND d.channel = 'telegram'
+             AND m.direction = 'in' AND m.metadata LIKE ? LIMIT 1`,
+        )
+        .get(lead.id, '%"tg_message_id":"' + msg.messageId + '"%');
+      if (dup) {
+        log(
+          "INFO",
+          `TG incoming dup skipped (lead #${lead.id}, msg ${msg.messageId})`,
+        );
+        return;
+      }
+    }
 
     const now = new Date().toISOString();
     const tx = db.transaction(() => {
@@ -1956,8 +1999,7 @@ async function handleIncomingTelegram(msg) {
           account_id: null,
         };
       }
-      // Привязка диалога к аккаунту, ПОЛУЧИВШЕМУ входящее (или backfill, если
-      // диалог был создан без привязки). Так ответ уйдёт тем же аккаунтом.
+      // Привязка диалога к аккаунту, ПОЛУЧИВШЕМУ входящее (или backfill).
       if (msg.accountId != null && dialogue.account_id == null) {
         stmts.setDialogueAccount.run(msg.accountId, dialogue.id);
         dialogue.account_id = msg.accountId;
@@ -1982,12 +2024,33 @@ async function handleIncomingTelegram(msg) {
     tx();
 
     workerState.stats.replied++;
-    log("INFO", `TG reply from @${msg.username} (lead #${lead.id})`);
+    log(
+      "INFO",
+      `TG reply from @${msg.username} (lead #${lead.id}, ws: ${match.wsId})`,
+    );
 
     await generatePendingReplies();
   } catch (e) {
     log("ERR", `TG handler failed: ${e.message}`);
+  } finally {
+    stmts = savedStmts;
+    db = savedDb;
+    currentWorkspaceId = savedWsId;
   }
+}
+
+// Подключить ТОЛЬКО приём входящих TG (без outreach/inbox/followup циклов).
+// Безопасно при DRY_RUN=false: ничего не рассылает, входящие в review-режиме
+// кладутся в pending_replies. Идемпотентно.
+let _tgListenerEnabled = false;
+function enableTelegramListener() {
+  if (_tgListenerEnabled) return;
+  tg.onMessage(handleIncomingTelegram);
+  _tgListenerEnabled = true;
+  log(
+    "INFO",
+    "TG incoming listener enabled (listener-only, без outreach-цикла)",
+  );
 }
 
 // ─── Control ────────────────────────────────────────────────────────
@@ -2072,6 +2135,7 @@ module.exports = {
   channelAvailability,
   existingOutChannels,
   handleIncomingTelegram,
+  enableTelegramListener,
   onPendingReplyRejected,
   isReviewMode,
   getFollowUpConfig,

@@ -956,6 +956,18 @@ app.listen(PORT, async () => {
       console.log(
         "  [worker] Outreach worker skipped — RESEND_API_KEY or IMAP_HOST not set",
       );
+      // Приём входящих TG не зависит от email-воркера: если есть живой TG-аккаунт,
+      // подключаем listener-only (без outreach/inbox/followup циклов).
+      try {
+        if (tgOutreach.isReady && tgOutreach.isReady()) {
+          worker.enableTelegramListener();
+          console.log(
+            "  [worker] TG incoming listener enabled (listener-only)",
+          );
+        }
+      } catch (e) {
+        console.error("  [worker] TG listener enable error:", e.message);
+      }
     }
   } catch (e) {
     console.error("  [worker] start error:", e.message);

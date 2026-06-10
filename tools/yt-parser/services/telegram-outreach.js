@@ -225,6 +225,40 @@ function attachListenerFor(id) {
   st.listenerAttached = true;
 }
 
+// Catch-up: дозабрать последние ВХОДЯЩИЕ из конкретного чата через УЖЕ открытое
+// соединение аккаунта и прогнать их через тот же messageCallback (как live-листенер).
+// Нужно, когда сообщение пришло, пока callback не был подключён (реконнект не
+// переигрывает уже полученные апдейты). Read-only, ничего не отправляет.
+async function fetchRecentIncoming(accountId, peer, limit = 5) {
+  const st = pool.get(accountId);
+  if (!st || !st.ready || !st.client)
+    throw new Error(`TG account #${accountId} не готов`);
+  if (!messageCallback) throw new Error("listener callback не подключён");
+  const target = String(peer).replace(/^@/, "").trim();
+  const messages = await st.client.getMessages(target, { limit });
+  let ingested = 0;
+  // getMessages отдаёт от новых к старым — развернём, чтобы порядок был хронологический.
+  for (const msg of [...messages].reverse()) {
+    if (!msg || msg.out) continue; // только входящие
+    let sender = null;
+    try {
+      sender = await msg.getSender();
+    } catch {}
+    await messageCallback({
+      accountId,
+      username: sender?.username || null,
+      senderId: sender?.id?.toString(),
+      text: msg.message || "",
+      messageId: msg.id?.toString(),
+      chatId:
+        msg.peerId?.userId?.toString() || sender?.id?.toString() || target,
+      date: msg.date ? new Date(msg.date * 1000).toISOString() : null,
+    });
+    ingested++;
+  }
+  return ingested;
+}
+
 // ─── Auto-login ─────────────────────────────────────────────────────
 
 // Однократная миграция: если аккаунтов ещё нет, но в settings лежит
@@ -813,6 +847,7 @@ module.exports = {
   pacingStatus,
   enqueueSend,
   recoverFlooded,
+  fetchRecentIncoming,
   __testInjectReady,
   // messaging
   onMessage,

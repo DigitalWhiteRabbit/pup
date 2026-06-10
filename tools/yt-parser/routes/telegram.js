@@ -232,6 +232,27 @@ router.post("/accounts/:id/qa-ready", (req, res) => {
   res.json({ success: true, account: tg.accountStatus(id) });
 });
 
+// POST /api/telegram/accounts/:id/fetch-incoming { peer, limit? }
+// Catch-up: дозабрать последние входящие из чата через уже открытое соединение
+// аккаунта и прогнать через incoming-handler (на случай сообщений, пришедших до
+// подключения listener). Read-only, ничего не отправляет.
+router.post("/accounts/:id/fetch-incoming", async (req, res) => {
+  try {
+    const peer = req.body?.peer;
+    if (!peer)
+      return res.status(400).json({ success: false, error: "peer required" });
+    const limit = Math.min(parseInt(req.body?.limit, 10) || 5, 20);
+    const ingested = await tg.fetchRecentIncoming(
+      parseInt(req.params.id, 10),
+      String(peer),
+      limit,
+    );
+    res.json({ success: true, ingested });
+  } catch (e) {
+    res.status(400).json({ success: false, error: e.message });
+  }
+});
+
 // POST /api/telegram/accounts/:id/logout
 router.post("/accounts/:id/logout", async (req, res) => {
   try {

@@ -2366,6 +2366,27 @@ window.fetch = function(url, opts) {
             </div>
           </details>
 
+          <!-- Импорт готовой Telethon-сессии (.session + .json) -->
+          <details id="tgImportBox" style="margin-bottom:14px;border:1px solid var(--border);border-radius:8px;padding:10px 12px">
+            <summary style="cursor:pointer;font-size:12px;font-weight:700;color:var(--accent)">⬇ Импорт сессии (.session + .json)</summary>
+            <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
+              <div style="font-size:11px;color:var(--text-dim);line-height:1.6">
+                Купленный аккаунт = Telethon-пакет: файл <code>.session</code> (SQLite) + <code>.json</code> (метаданные).
+                Конвертим в GramJS-сессию — телефон/код не нужны. api_id/api_hash/device берём из .json.
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                <div><label>.session файл *</label><input type="file" id="tgImpSession" accept=".session"></div>
+                <div><label>.json файл</label><input type="file" id="tgImpJson" accept=".json,application/json"></div>
+              </div>
+              <div><label>Прокси (host:port:user:pass) <span style="color:var(--yellow)">— для прода обязателен</span></label><input type="text" id="tgImpProxy" placeholder="1.2.3.4:1080:user:pass" style="font-family:monospace;font-size:12px"></div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                <div><label>Метка (опц.)</label><input type="text" id="tgImpLabel" placeholder="из .json по умолчанию"></div>
+                <div><label>Дневной лимит</label><input type="number" id="tgImpCap" placeholder="50" value="50"></div>
+              </div>
+              <div><button class="btn-primary btn-sm" id="tgImpBtn" onclick="tgImportSession()">Импортировать</button></div>
+            </div>
+          </details>
+
           <div id="tgAccountsList"><div style="font-size:12px;color:var(--text-dim)">Загрузка…</div></div>
         </div>
 
@@ -7141,9 +7162,10 @@ function tgAccountLabel(id) {
 }
 
 function tgAccStatePill(a) {
-  // Приоритет: банан/флуд/disabled из статуса БД, иначе ready/offline по live-состоянию.
+  // Приоритет: банан/флуд/disabled/needs_proxy из статуса БД, иначе ready/offline по live-состоянию.
   if (a.status === 'banned') return '<span class="tg-acc-pill banned">banned</span>';
   if (a.status === 'disabled') return '<span class="tg-acc-pill disabled">disabled</span>';
+  if (a.status === 'needs_proxy') return '<span class="tg-acc-pill flood">нужен прокси</span>';
   if (a.flood_until) return '<span class="tg-acc-pill flood">flood</span>';
   if (a.ready) return '<span class="tg-acc-pill ready">● online</span>';
   if (a.loginInProgress) return '<span class="tg-acc-pill flood">login…</span>';
@@ -7199,7 +7221,9 @@ function renderTgAccounts(list) {
       <div class="tg-acc-actions">
         ${a.ready
           ? `<button class="btn-secondary btn-sm" onclick="tgLogout(${a.id})">Logout</button>`
-          : `<button class="btn-primary btn-sm" onclick="tgLogin(${a.id})"${a.loginInProgress?' disabled':''}>▶ Login</button>`}
+          : a.hasSession
+            ? `<span style="font-size:11px;color:var(--text-dim)" title="Сессия уже есть (импорт/прошлый логин) — подключится при старте сервера через прокси">↻ сессия загружена · коннект при старте</span>`
+            : `<button class="btn-primary btn-sm" onclick="tgLogin(${a.id})"${a.loginInProgress?' disabled':''}>▶ Login</button>`}
         <button class="btn-secondary btn-sm" onclick="tgToggleEdit(${a.id})">✎ Прокси/лимит</button>
         <button class="btn-danger btn-sm" onclick="tgDeleteAccount(${a.id})">🗑</button>
       </div>
@@ -7210,7 +7234,7 @@ function renderTgAccounts(list) {
             <div><label>Тип</label><select id="tgEditProxyType_${a.id}"><option value="socks5"${(a.proxy_type||'socks5')==='socks5'?' selected':''}>SOCKS5</option><option value="mtproxy"${a.proxy_type==='mtproxy'?' selected':''}>MTProxy</option></select></div>
             <div><label>Лимит</label><input type="number" id="tgEditCap_${a.id}" value="${a.daily_cap||50}"></div>
             <div><label>Статус</label><select id="tgEditStatus_${a.id}">
-              ${['active','disabled','banned'].map(s=>`<option value="${s}"${a.status===s?' selected':''}>${s}</option>`).join('')}
+              ${['active','disabled','banned','needs_proxy'].map(s=>`<option value="${s}"${a.status===s?' selected':''}>${s}</option>`).join('')}
             </select></div>
           </div>
           <div><button class="btn-primary btn-sm" onclick="tgSaveEdit(${a.id})">Сохранить</button></div>
@@ -7218,6 +7242,39 @@ function renderTgAccounts(list) {
       </div>
     </div>`;
   }).join('');
+}
+
+async function tgImportSession() {
+  const sessionFile = document.getElementById('tgImpSession').files[0];
+  const jsonFile = document.getElementById('tgImpJson').files[0];
+  const proxy_string = document.getElementById('tgImpProxy').value.trim();
+  const label = document.getElementById('tgImpLabel').value.trim();
+  const daily_cap = document.getElementById('tgImpCap').value;
+  if (!sessionFile) { toast('Выбери .session файл','warning'); return; }
+
+  const fd = new FormData();
+  fd.append('session', sessionFile);
+  if (jsonFile) fd.append('json', jsonFile);
+  if (proxy_string) fd.append('proxy_string', proxy_string);
+  if (label) fd.append('label', label);
+  if (daily_cap) fd.append('daily_cap', daily_cap);
+
+  const btn = document.getElementById('tgImpBtn');
+  btn.disabled = true; btn.textContent = 'Импорт…';
+  try {
+    // НЕ задаём Content-Type — браузер сам проставит multipart boundary.
+    const r = await fetch('/api/telegram/accounts/import', { method:'POST', body: fd });
+    const j = await r.json();
+    if (!j.success) { toast('Ошибка импорта: '+(j.error||'unknown'),'error'); return; }
+    ['tgImpProxy','tgImpLabel'].forEach(id=>document.getElementById(id).value='');
+    ['tgImpSession','tgImpJson'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+    document.getElementById('tgImpCap').value = '50';
+    const box = document.getElementById('tgImportBox'); if (box) box.open = false;
+    const st = j.account?.status;
+    toast(st === 'needs_proxy' ? 'Импортировано — но задай прокси перед запуском' : 'Аккаунт импортирован','success');
+    loadTgAccounts();
+  } catch(e) { toast('Ошибка: '+e.message,'error'); }
+  finally { btn.disabled = false; btn.textContent = 'Импортировать'; }
 }
 
 async function tgCreateAccount() {
