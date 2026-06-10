@@ -74,18 +74,25 @@ const check = (label, cond) => {
   }
   check("кривой auth_key → ошибка", threw);
 
-  // реальный файл, если положен в tmp/
-  const real = path.join(__dirname, "..", "tmp", "573009563951.session");
-  if (fs.existsSync(real)) {
+  // реальный файл, если положен в tmp/ (берём ЛЮБОЙ *.session — не хардкодим
+  // номер аккаунта, чтобы не светить PII в репозитории).
+  const tmpDir = path.join(__dirname, "..", "tmp");
+  let realFile = null;
+  try {
+    realFile = (fs.existsSync(tmpDir) ? fs.readdirSync(tmpDir) : []).find((f) =>
+      f.endsWith(".session"),
+    );
+  } catch {}
+  if (realFile) {
     const ri = await inspectStringSession(
-      await telethonSessionToStringSession(real),
+      await telethonSessionToStringSession(path.join(tmpDir, realFile)),
     );
     console.log(
       `  [real] dc=${ri.dcId} ip=${ri.serverAddress} port=${ri.port} keyLen=${ri.authKeyLen}`,
     );
     check("real: auth_key 256 байт", ri.authKeyLen === 256);
   } else {
-    console.log("  [real] tmp/573009563951.session не найден — пропуск (ок)");
+    console.log("  [real] *.session в tmp/ не найден — пропуск (ок)");
   }
 
   fs.rmSync(p, { force: true });

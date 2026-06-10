@@ -221,10 +221,14 @@ router.post("/accounts/:id/password", (req, res) => {
 // аккаунт «готовым» в пуле БЕЗ реального коннекта (для визуального QA статусов).
 router.post("/accounts/:id/qa-ready", (req, res) => {
   const dry = process.env.DRY_RUN === "true" || process.env.DRY_RUN === "1";
-  if (!dry)
-    return res
-      .status(403)
-      .json({ success: false, error: "qa-ready доступен только при DRY_RUN" });
+  const isProd = process.env.NODE_ENV === "production";
+  // Двойной гейт: только не-прод И DRY_RUN. В проде (NODE_ENV=production или
+  // DRY_RUN!=true) — инертен.
+  if (isProd || !dry)
+    return res.status(403).json({
+      success: false,
+      error: "qa-ready доступен только в dev при DRY_RUN",
+    });
   if (typeof tg.__testInjectReady !== "function")
     return res.status(404).json({ success: false, error: "not available" });
   const id = parseInt(req.params.id, 10);

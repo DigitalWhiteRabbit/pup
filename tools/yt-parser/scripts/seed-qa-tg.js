@@ -15,6 +15,20 @@
  * (qa-ready работает только при DRY_RUN=true).
  */
 require("dotenv").config();
+
+// Безопасность: QA-сидер не должен запускаться на проде (создаёт тестовых лидов/
+// аккаунты). Гейт по NODE_ENV; обойти осознанно можно ALLOW_QA_SEED=1.
+if (
+  process.env.NODE_ENV === "production" &&
+  process.env.ALLOW_QA_SEED !== "1"
+) {
+  console.error(
+    "[seed-qa-tg] отказ: NODE_ENV=production. Это QA-сидер (тестовые данные). " +
+      "Если действительно нужно — запусти с ALLOW_QA_SEED=1.",
+  );
+  process.exit(1);
+}
+
 const dbm = require("../db/database");
 const { localDateKey } = require("../utils/dates");
 
