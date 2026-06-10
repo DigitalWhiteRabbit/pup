@@ -10,9 +10,12 @@ export async function GET(_req: Request, { params }: Params) {
     if (!session)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+    // Контракт ответа (как на origin/main): { allowedModules: <массив | null> }.
+    // null = полный доступ. Потребители читают res.json().allowedModules.
+
     // ADMIN = full access
     if (session.user.role === "ADMIN") {
-      return NextResponse.json(null);
+      return NextResponse.json({ allowedModules: null });
     }
 
     const workspaceId = params.id;
@@ -21,23 +24,30 @@ export async function GET(_req: Request, { params }: Params) {
       select: { role: true, allowedModules: true },
     });
 
-    if (!membership)
-      return NextResponse.json({ error: "Not a member" }, { status: 403 });
+    // Не-участник — как на origin/main: полный доступ на уровне формы (реальный
+    // доступ к воркспейсу режут другие гейты).
+    if (!membership) {
+      return NextResponse.json({ allowedModules: null });
+    }
 
     // OWNER = full access
     if (membership.role === "OWNER") {
-      return NextResponse.json(null);
+      return NextResponse.json({ allowedModules: null });
     }
 
-    // Return parsed allowedModules or null (full access)
+    // Без ограничений = full access
     if (!membership.allowedModules) {
-      return NextResponse.json(null);
+      return NextResponse.json({ allowedModules: null });
     }
 
+    // Ограниченный член — отдаём распарсенный массив (битый JSON → null = full).
     try {
-      return NextResponse.json(JSON.parse(membership.allowedModules));
+      const parsed = JSON.parse(membership.allowedModules) as unknown;
+      return NextResponse.json({
+        allowedModules: Array.isArray(parsed) ? (parsed as string[]) : null,
+      });
     } catch {
-      return NextResponse.json(null);
+      return NextResponse.json({ allowedModules: null });
     }
   } catch (e) {
     return NextResponse.json(
