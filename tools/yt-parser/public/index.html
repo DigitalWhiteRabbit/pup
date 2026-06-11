@@ -5094,8 +5094,12 @@ function renderLeadsTable() {
     // Contacts
     const tdContacts = document.createElement('td');
     const contactRow = {
-      email:lead.email, telegram:lead.telegram, whatsapp:lead.whatsapp,
-      ...(lead.raw_contacts ? JSON.parse(lead.raw_contacts) : {})
+      ...(lead.raw_contacts ? JSON.parse(lead.raw_contacts) : {}),
+      // Явные поля имеют приоритет над raw_contacts: эндпоинт /contacts пишет только
+      // lead.email/telegram, а raw_contacts.email может быть "" от импорта и перезаписать их.
+      email: lead.email || '',
+      telegram: lead.telegram || '',
+      whatsapp: lead.whatsapp || '',
     };
     const chanStatusCtx = {
       available: lead.channels_available || null,

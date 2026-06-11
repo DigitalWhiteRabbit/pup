@@ -882,12 +882,10 @@ router.post("/:id/contacts", (req, res) => {
       .json({ success: false, error: "type и value обязательны" });
   }
   if (!["email", "telegram"].includes(type)) {
-    return res
-      .status(400)
-      .json({
-        success: false,
-        error: "канал не подключён (только email / telegram)",
-      });
+    return res.status(400).json({
+      success: false,
+      error: "канал не подключён (только email / telegram)",
+    });
   }
 
   const lead = req.stmts.getLead.get(id);
@@ -895,6 +893,18 @@ router.post("/:id/contacts", (req, res) => {
     return res.status(404).json({ success: false, error: "лид не найден" });
 
   const now = new Date().toISOString();
+
+  // Хелпер: обновить поле raw_contacts (JSON-объект в БД), синхронизируя его с lead.*
+  function patchRawContacts(field, value) {
+    let rc = {};
+    try {
+      if (lead.raw_contacts) rc = JSON.parse(lead.raw_contacts);
+    } catch {}
+    rc[field] = value;
+    req.db
+      .prepare("UPDATE leads SET raw_contacts = ?, updated_at = ? WHERE id = ?")
+      .run(JSON.stringify(rc), now, id);
+  }
 
   if (type === "email") {
     const raw = value.trim().toLowerCase();
@@ -917,6 +927,8 @@ router.post("/:id/contacts", (req, res) => {
         updated_at: now,
         id,
       });
+      // Синхронизируем raw_contacts.email, чтобы бейджи и все пути к данным совпадали
+      patchRawContacts("email", merged);
       try {
         syncLeadEmails(req.workspaceId, id, merged);
       } catch (e) {
@@ -943,6 +955,8 @@ router.post("/:id/contacts", (req, res) => {
         updated_at: now,
         id,
       });
+      // Синхронизируем raw_contacts.telegram
+      patchRawContacts("telegram", merged);
     }
   }
 
