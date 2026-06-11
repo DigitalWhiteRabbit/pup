@@ -5184,25 +5184,63 @@ function openLeadDialog(leadId) {
   }, 400);
 }
 
-// ─── Channel picker (TG multichannel) ──────────────────
-// Описание каналов для пикера. future:true → всегда disabled (транспорта нет).
+// ─── Channel picker (TG multichannel + история по каналу) ──────────────────
+// functional:true — реальный транспорт (email/telegram). Остальные показываем
+// по бейджам лида, но они задизейблены (транспорта нет).
 const CH_PICKER_CHANNELS = [
-  { key:'email',    label:'Email',    cls:'email', ico:'@'  },
-  { key:'telegram', label:'Telegram', cls:'tg',    ico:'TG' },
-  { key:'whatsapp', label:'WhatsApp', cls:'wa',    ico:'WA', future:true },
+  { key:'email',    label:'Email',     cls:'email', ico:'@',  functional:true },
+  { key:'telegram', label:'Telegram',  cls:'tg',    ico:'TG', functional:true },
+  { key:'twitter',  label:'Twitter/X', cls:'tw',    ico:'TW' },
+  { key:'discord',  label:'Discord',   cls:'dc',    ico:'DC' },
+  { key:'whatsapp', label:'WhatsApp',  cls:'wa',    ico:'WA' },
+  { key:'website',  label:'Web',       cls:'web',   ico:'WE' },
 ];
-let chanPickState = { mode:'single', leadId:null, ids:[], selected:new Set() };
+let chanPickState = { mode:'single', leadId:null, ids:[], selected:new Set(), lead:null };
+
+// Человекочитаемая дата/время (таймзона браузера, как в остальном UI).
+function fmtSentAt(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleString('ru', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
+}
+
+// Есть ли у лида контакт по данному каналу (плоское поле или raw_contacts).
+function leadHasContact(lead, key) {
+  if (!lead) return false;
+  if (lead[key] && String(lead[key]).trim()) return true;
+  try {
+    const rc = lead.raw_contacts ? (typeof lead.raw_contacts === 'string' ? JSON.parse(lead.raw_contacts) : lead.raw_contacts) : null;
+    if (!rc) return false;
+    if (rc._detailed) {
+      const arr = rc[key === 'email' ? 'emails' : key === 'website' ? 'websites' : key];
+      return Array.isArray(arr) && arr.length > 0;
+    }
+    return !!(rc[key] && String(rc[key]).trim());
+  } catch { return false; }
+}
+
+// channels_history → { channel: sent_at(ISO) }
+function leadHistoryMap(lead) {
+  const m = {};
+  (lead && Array.isArray(lead.channels_history) ? lead.channels_history : []).forEach(h => {
+    if (h && h.channel) m[h.channel] = h.sent_at;
+  });
+  return m;
+}
 
 // Открыть пикер для одного лида (кнопка «Запустить»).
 function runLead(id) {
   const lead = leadsData.find(l => l.id === id);
   if (!lead) { toast('Лид не найден','error'); return; }
   const avail = lead.channels_available || { email: !!lead.email, telegram:false };
-  const sent = new Set(lead.channels_sent || []);
-  chanPickState = { mode:'single', leadId:id, ids:[], selected:new Set() };
-  // по умолчанию выбираем доступные и ещё не отправленные
-  CH_PICKER_CHANNELS.forEach(c => { if (avail[c.key] && !sent.has(c.key)) chanPickState.selected.add(c.key); });
-  renderChannelPicker(avail, sent, `Запустить лида «${escapeHtml(lead.channel_name||'')}»`);
+  const hist = leadHistoryMap(lead);
+  chanPickState = { mode:'single', leadId:id, ids:[], selected:new Set(), lead };
+  // по умолчанию выбираем функциональные доступные каналы, ещё НЕ отправленные
+  CH_PICKER_CHANNELS.forEach(c => {
+    if (c.functional && leadHasContact(lead, c.key) && avail[c.key] && !hist[c.key]) chanPickState.selected.add(c.key);
+  });
+  renderChannelPicker({ mode:'single', lead, avail, hist, title:`Запустить лида «${escapeHtml(lead.channel_name||'')}»` });
 }
 
 // Открыть пикер для массового запуска выбранных лидов.
@@ -5218,36 +5256,43 @@ function openBulkChannelPicker() {
     if (a.email) avail.email = true;
     if (a.telegram) avail.telegram = true;
   });
-  chanPickState = { mode:'bulk', leadId:null, ids, selected:new Set() };
-  CH_PICKER_CHANNELS.forEach(c => { if (avail[c.key]) chanPickState.selected.add(c.key); });
-  renderChannelPicker(avail, new Set(), `Запустить выбранные (${ids.length})`);
+  chanPickState = { mode:'bulk', leadId:null, ids, selected:new Set(), lead:null };
+  CH_PICKER_CHANNELS.forEach(c => { if (c.functional && avail[c.key]) chanPickState.selected.add(c.key); });
+  renderChannelPicker({ mode:'bulk', avail, hist:{}, title:`Запустить выбранные (${ids.length})` });
 }
 
-function renderChannelPicker(avail, sent, title) {
+function renderChannelPicker(opts) {
+  const { mode, lead, avail, hist, title } = opts;
   document.getElementById('chanPickTitle').textContent = 'Выбор каналов';
   document.getElementById('chanPickSub').innerHTML = escapeHtml(title);
   const grid = document.getElementById('chanPickGrid');
-  grid.innerHTML = CH_PICKER_CHANNELS.map(c => {
-    const isAvail = !c.future && !!avail[c.key];
-    const isSent = sent.has(c.key);
+  const rows = CH_PICKER_CHANNELS.map(c => {
+    // single — показываем каналы, по которым у лида ЕСТЬ контакт (по бейджам);
+    // bulk — только функциональные (email/telegram).
+    const show = mode === 'single' ? leadHasContact(lead, c.key) : !!c.functional;
+    if (!show) return '';
+    const functional = !!c.functional;
+    const sentAt = hist ? hist[c.key] : undefined;
+    const isSent = !!sentAt;
+    const isAvail = functional && !!(avail && avail[c.key]);
     const isSelected = chanPickState.selected.has(c.key);
     const classes = ['chan-pick'];
-    let subtitle;
-    if (c.future) { classes.push('disabled'); subtitle = 'скоро — транспорт не подключён'; }
-    else if (!isAvail) { classes.push('disabled'); subtitle = c.key==='telegram' ? 'нет @username или нет живого аккаунта' : 'нет контакта'; }
-    else { classes.push('available'); subtitle = isSent ? 'уже отправлено — будет пропущено' : 'доступен'; }
-    if (isSent) classes.push('sent');
-    if (isSelected && isAvail) classes.push('selected');
-    const clickable = isAvail; // disabled/future нельзя выбрать
+    let subtitle, clickable = false;
+    if (!functional) { classes.push('disabled'); subtitle = 'скоро — канал не подключён'; }
+    else if (isSent) { classes.push('sent'); subtitle = '✓ Отправлено: ' + fmtSentAt(sentAt); }
+    else if (!isAvail) { classes.push('disabled'); subtitle = c.key === 'telegram' ? 'нет живого TG-аккаунта' : 'нет контакта'; }
+    else { classes.push('available'); subtitle = 'доступен'; clickable = true; }
+    if (isSelected && clickable) classes.push('selected');
     return `<div class="${classes.join(' ')}" ${clickable?`onclick="toggleChannelPick('${c.key}')"`:''} data-ch="${c.key}">
       <div class="chan-ico contact-icon ${c.cls}" style="opacity:1">${escapeHtml(c.ico)}</div>
       <div class="chan-body">
-        <div class="chan-name">${escapeHtml(c.label)}${isSent?' <span style="color:var(--blue);font-size:10px">● отправлено</span>':''}</div>
+        <div class="chan-name">${escapeHtml(c.label)}${isSent?' <span style="color:var(--blue);font-size:10px">● история</span>':''}</div>
         <div class="chan-sub">${escapeHtml(subtitle)}</div>
       </div>
       <div class="chan-check">✓</div>
     </div>`;
-  }).join('');
+  }).filter(Boolean).join('');
+  grid.innerHTML = rows || '<div style="font-size:12px;color:var(--text-dim);padding:8px 0">Нет контактных методов у лида.</div>';
   updateChanPickConfirm();
   document.getElementById('channelPickerOverlay').classList.add('open');
 }

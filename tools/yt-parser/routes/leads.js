@@ -72,6 +72,21 @@ router.get("/", (req, res) => {
      JOIN messages m ON m.dialogue_id = d.id
      WHERE d.lead_id = ? AND m.direction = 'out'`,
   );
+  // История отправки по каналу: sent_at = время первого исходящего по каналу
+  // (первый out-message; если out-сообщений нет — created_at диалога). Несколько
+  // диалогов по каналу агрегируются (берём самый ранний). Доп. поле, не ломает
+  // channels_sent/channels_available.
+  const channelsHistoryStmt = req.db.prepare(
+    `SELECT d.channel AS channel,
+            COALESCE(
+              MIN(CASE WHEN m.direction = 'out' THEN m.created_at END),
+              MIN(d.created_at)
+            ) AS sent_at
+     FROM dialogues d
+     LEFT JOIN messages m ON m.dialogue_id = d.id
+     WHERE d.lead_id = ?
+     GROUP BY d.channel`,
+  );
   // Доступность TG-канала зависит от наличия живого аккаунта под лимитом (общий пул).
   let tgReady = false;
   try {
@@ -104,6 +119,13 @@ router.get("/", (req, res) => {
       lead.channels_sent = sentChannelsStmt.all(lead.id).map((r) => r.channel);
     } catch {
       lead.channels_sent = [];
+    }
+    try {
+      lead.channels_history = channelsHistoryStmt
+        .all(lead.id)
+        .map((r) => ({ channel: r.channel, sent_at: r.sent_at }));
+    } catch {
+      lead.channels_history = [];
     }
   }
 
