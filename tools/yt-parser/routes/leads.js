@@ -837,6 +837,189 @@ router.post("/:id/deep-summary", async (req, res) => {
   }
 });
 
+// ─── Channel deep-analysis (ТЗ §5) ───────────────────────────────────────────
+
+// POST /api/leads/:id/analyze — анализ одного канала
+router.post("/:id/analyze", adminAuth, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const lead = req.stmts.getLead.get(id);
+  if (!lead)
+    return res.status(404).json({ success: false, error: "лид не найден" });
+  if (!lead.channel_id)
+    return res
+      .status(400)
+      .json({ success: false, error: "у лида нет channel_id" });
+
+  const force = req.query.force === "1";
+  // Кэш: если уже проанализирован и не force — вернуть сохранённые данные
+  if (!force && lead.analyzed_at) {
+    let metrics = null;
+    try {
+      metrics = JSON.parse(lead.analysis_metrics);
+    } catch {}
+    return res.json({
+      success: true,
+      cached: true,
+      verdict: lead.analysis_verdict,
+      recommendation: lead.analysis_recommendation,
+      score: lead.analysis_score,
+      reasoning: lead.analysis_reasoning,
+      metrics,
+      analyzed_at: lead.analyzed_at,
+    });
+  }
+
+  try {
+    const { analyzeChannel } = require("../services/channel-analysis");
+    const result = await analyzeChannel(lead.channel_id);
+    if (result.error)
+      return res.status(502).json({ success: false, error: result.error });
+
+    const now = new Date().toISOString();
+    req.db
+      .prepare(
+        `
+      UPDATE leads SET
+        analysis_verdict = ?, analysis_recommendation = ?, analysis_score = ?,
+        analysis_reasoning = ?, analysis_metrics = ?, analyzed_at = ?, updated_at = ?
+      WHERE id = ?
+    `,
+      )
+      .run(
+        result.verdict,
+        result.recommendation,
+        result.score,
+        result.reasoning,
+        JSON.stringify(result.metrics),
+        now,
+        now,
+        id,
+      );
+    res.json({
+      success: true,
+      cached: false,
+      verdict: result.verdict,
+      recommendation: result.recommendation,
+      score: result.score,
+      reasoning: result.reasoning,
+      metrics: result.metrics,
+      apiUnits: result.apiUnits,
+      analyzed_at: now,
+    });
+  } catch (e) {
+    console.error("[analyze]", id, e.message);
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// In-memory bulk-analyze job (одна задача за раз, как bulk-summary)
+let bulkAnalyzeJob = null;
+
+// POST /api/leads/bulk-analyze { ids: [] }
+router.post("/bulk-analyze", adminAuth, (req, res) => {
+  if (bulkAnalyzeJob && bulkAnalyzeJob.running) {
+    return res.status(409).json({
+      success: false,
+      error: "Bulk-analyze уже выполняется",
+      job_id: bulkAnalyzeJob.id,
+    });
+  }
+  const { ids, force } = req.body || {};
+  if (!ids || !Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ success: false, error: "ids[] обязателен" });
+  }
+
+  const { analyzeChannel } = require("../services/channel-analysis");
+  const job = {
+    id: Date.now(),
+    running: true,
+    processed: 0,
+    failed: 0,
+    total: ids.length,
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+    done: false,
+    errors: [],
+  };
+  bulkAnalyzeJob = job;
+
+  setImmediate(async () => {
+    for (const rawId of ids) {
+      const id = parseInt(rawId, 10);
+      const lead = req.stmts.getLead.get(id);
+      if (!lead || !lead.channel_id) {
+        job.failed++;
+        continue;
+      }
+      if (!force && lead.analyzed_at) {
+        job.processed++;
+        continue;
+      }
+      try {
+        const result = await analyzeChannel(lead.channel_id);
+        if (result.error) throw new Error(result.error);
+        const now = new Date().toISOString();
+        req.db
+          .prepare(
+            `
+          UPDATE leads SET
+            analysis_verdict = ?, analysis_recommendation = ?, analysis_score = ?,
+            analysis_reasoning = ?, analysis_metrics = ?, analyzed_at = ?, updated_at = ?
+          WHERE id = ?
+        `,
+          )
+          .run(
+            result.verdict,
+            result.recommendation,
+            result.score,
+            result.reasoning,
+            JSON.stringify(result.metrics),
+            now,
+            now,
+            id,
+          );
+        job.processed++;
+      } catch (err) {
+        console.error("[bulk-analyze] lead", id, err.message);
+        job.failed++;
+        job.errors.push({ id, error: err.message });
+      }
+      // Пейсинг: ждём 1.5 сек между каналами (API + LLM)
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+    job.running = false;
+    job.done = true;
+    job.finishedAt = new Date().toISOString();
+  });
+
+  res.status(202).json({
+    success: true,
+    job_id: job.id,
+    total: job.total,
+    message: "Анализ запущен в фоне",
+  });
+});
+
+// GET /api/leads/bulk-analyze/status
+router.get("/bulk-analyze/status", (req, res) => {
+  if (!bulkAnalyzeJob) return res.json({ success: true, job: null });
+  const j = bulkAnalyzeJob;
+  res.json({
+    success: true,
+    job: {
+      id: j.id,
+      running: j.running,
+      done: j.done,
+      processed: j.processed,
+      failed: j.failed,
+      total: j.total,
+      startedAt: j.startedAt,
+      finishedAt: j.finishedAt,
+      errors: j.errors.slice(-5),
+    },
+  });
+});
+
 // POST /api/leads/import-from-csv  — импорт текущего output.csv
 router.post("/import-from-csv", (req, res) => {
   try {

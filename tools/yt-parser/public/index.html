@@ -1941,6 +1941,7 @@ window.fetch = function(url, opts) {
         <div class="bulk-bar" id="leadsBulkBar">
           <span>Выбрано: <span class="count" id="leadsBulkCount">0</span></span>
           <button class="btn-primary btn-sm" onclick="leadsBulkRun()">▶ Запустить выбранные</button>
+          <button class="btn-secondary btn-sm" onclick="leadsBulkAnalyze()">🔍 Анализировать выбранных</button>
           <button class="btn-secondary btn-sm" onclick="leadsBulkSetStatus('ready')">→ В работу</button>
           <button class="btn-secondary btn-sm" onclick="leadsBulkSetStatus('pending')">→ В ожидание</button>
           <button class="btn-danger btn-sm" onclick="leadsBulkSetStatus('rejected')">✕ Отклонить</button>
@@ -1976,6 +1977,14 @@ window.fetch = function(url, opts) {
             <option value="vk">Только VK</option>
             <option value="website">Только Сайт</option>
           </select>
+          <select id="lFilterVerdict" onchange="renderLeadsTable()" title="Фильтр по вердикту анализа">
+            <option value="">🔍 Вердикт</option>
+            <option value="green">🟢 Реклама</option>
+            <option value="yellow">🟡 Проект</option>
+            <option value="red">🔴 Пропустить</option>
+            <option value="_analyzed">Проанализированные</option>
+            <option value="_unanalyzed">Без анализа</option>
+          </select>
         </div>
 
         <div class="table-wrap">
@@ -1990,6 +1999,7 @@ window.fetch = function(url, opts) {
               <th>Dialogue stage</th>
               <th>Сводка</th>
               <th>Тег</th>
+              <th>Анализ</th>
               <th>Действия</th>
             </tr></thead>
             <tbody id="leadsTableBody"></tbody>
@@ -5056,14 +5066,18 @@ function renderLeadsTable() {
   tbody.innerHTML = '';
   const contactFilter = (document.getElementById('lFilterContact') || {}).value || '';
   const tagF = (document.getElementById('lTagFilter') || {}).value || '';
+  const verdictF = (document.getElementById('lFilterVerdict') || {}).value || '';
   let rows = leadsData.filter(l => leadMatchesContactFilter(l, contactFilter));
   if (tagF === '__none__') rows = rows.filter(l => !getChannelTag(tagKey(l)));
   else if (tagF) rows = rows.filter(l => getChannelTag(tagKey(l)) === tagF);
+  if (verdictF === '_analyzed') rows = rows.filter(l => !!l.analysis_verdict);
+  else if (verdictF === '_unanalyzed') rows = rows.filter(l => !l.analysis_verdict);
+  else if (verdictF) rows = rows.filter(l => l.analysis_verdict === verdictF);
   if (rows.length === 0) {
     const msg = leadsData.length === 0
       ? 'Нет лидов. Запусти парсер или нажми "Импорт из CSV".'
       : 'Нет лидов с выбранным фильтром.';
-    tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;color:var(--text-dim);padding:30px">${msg}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="11" style="text-align:center;color:var(--text-dim);padding:30px">${msg}</td></tr>`;
     return;
   }
   rows.forEach(lead => {
@@ -5145,6 +5159,18 @@ function renderLeadsTable() {
     const tdTag = document.createElement('td');
     tdTag.appendChild(buildTagSelect(tagKey(lead)));
     tr.appendChild(tdTag);
+
+    // Analysis
+    const tdAnalysis = document.createElement('td');
+    tdAnalysis.style.whiteSpace = 'nowrap';
+    if (lead.analysis_verdict) {
+      const vEmoji = {green:'🟢',yellow:'🟡',red:'🔴'}[lead.analysis_verdict] || '⚪';
+      const vColor = {green:'#22c55e',yellow:'#eab308',red:'#ef4444'}[lead.analysis_verdict] || '#888';
+      tdAnalysis.innerHTML = `<span id="analysisBadge_${lead.id}" style="cursor:pointer;display:inline-flex;align-items:center;gap:3px;padding:3px 7px;border-radius:6px;font-size:12px;font-weight:700;background:${vColor}20;color:${vColor};border:1px solid ${vColor}40" onclick="showAnalysisDrawer(${lead.id})" title="Нажми для подробностей">${vEmoji} ${lead.analysis_score ?? ''}</span>`;
+    } else {
+      tdAnalysis.innerHTML = `<button id="analyzeBtn_${lead.id}" class="btn-xs" style="cursor:pointer;color:var(--accent);font-size:12px;white-space:nowrap;background:none;border:none;padding:0" onclick="analyzeLeadChannel(${lead.id})" title="Анализировать канал (YouTube API + AI)">🔍 Анализ</button>`;
+    }
+    tr.appendChild(tdAnalysis);
 
     // Actions
     const tdAct = document.createElement('td');
@@ -5689,6 +5715,130 @@ async function bulkGenSummaries() {
   } catch(e) {
     toast('Ошибка: '+e.message,'error');
   }
+}
+
+// ─── Channel analysis ───────────────────────────────────────────────────────
+
+async function analyzeLeadChannel(id, force) {
+  closeAnalysisDrawer();
+  const btn = document.getElementById('analyzeBtn_' + id);
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ ...'; }
+  const badge = document.getElementById('analysisBadge_' + id);
+  if (badge) { badge.style.opacity = '0.5'; badge.style.cursor = 'default'; }
+  try {
+    const url = '/api/leads/' + id + '/analyze' + (force ? '?force=1' : '');
+    const r = await fetch(url, { method: 'POST' });
+    const j = await r.json();
+    if (!j.success) { toast('Ошибка анализа: ' + (j.error || 'unknown'), 'error'); if (btn) { btn.disabled = false; btn.textContent = '🔍 Анализ'; } return; }
+    const lead = leadsData.find(l => l.id == id);
+    if (lead) {
+      lead.analysis_verdict = j.verdict;
+      lead.analysis_recommendation = j.recommendation;
+      lead.analysis_score = j.score;
+      lead.analysis_reasoning = j.reasoning;
+      lead.analysis_metrics = j.metrics ? JSON.stringify(j.metrics) : null;
+      lead.analyzed_at = j.analyzed_at;
+    }
+    renderLeadsTable();
+    toast('Анализ завершён: ' + ({green:'🟢 Реклама', yellow:'🟡 Проект', red:'🔴 Пропустить'}[j.verdict] || j.verdict), 'success');
+  } catch(e) { toast('Ошибка: ' + e.message, 'error'); if (btn) { btn.disabled = false; btn.textContent = '🔍 Анализ'; } }
+}
+
+function showAnalysisDrawer(id) {
+  const lead = leadsData.find(l => l.id == id);
+  if (!lead || !lead.analysis_verdict) return;
+  let metrics = null;
+  try { if (lead.analysis_metrics) metrics = JSON.parse(lead.analysis_metrics); } catch {}
+  const vEmoji = {green:'🟢',yellow:'🟡',red:'🔴'}[lead.analysis_verdict] || '⚪';
+  const vLabel = {green:'Писать по рекламе',yellow:'Рассказать о проекте (без оплаты)',red:'Пропустить'}[lead.analysis_verdict] || '';
+  const vColor = {green:'#22c55e',yellow:'#eab308',red:'#ef4444'}[lead.analysis_verdict] || '#888';
+  const fEmoji = f => ({green:'🟢',yellow:'🟡',red:'🔴'}[f] || '⚪');
+
+  let metricsHtml = '';
+  if (metrics && metrics.flags) {
+    const f = metrics.flags;
+    metricsHtml = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 14px;font-size:12px;margin-top:10px">
+      <div>${fEmoji(f.views_subs?.flag)} просм./подп.: <b>${metrics.views_subs_pct ?? '?'}%</b></div>
+      <div>${fEmoji(f.like_view?.flag)} лайки/просм.: <b>${metrics.like_view_pct ?? '?'}%</b></div>
+      <div>${fEmoji(f.comment_view?.flag)} комм./просм.: <b>${metrics.comment_view_pct ?? '?'}%</b></div>
+      <div>${fEmoji(f.view_cv?.flag)} CV просмотров: <b>${metrics.view_cv ?? '?'}</b></div>
+      ${f.viral_outlier ? `<div>${fEmoji(f.viral_outlier.flag)} медиана/avg: <b>${metrics.median_avg_ratio ?? '?'}</b></div>` : ''}
+      <div>${fEmoji(f.growth?.flag)} прирост: <b>${f.growth?.value ?? '?'} подп/день</b></div>
+    </div>
+    <div style="margin-top:8px;font-size:12px;color:var(--text-mid)">
+      Живость комментов: <b>${metrics.comment_authenticity ?? '?'}/100</b> (накрутка ~${metrics.comment_bot_share ?? '?'}%)
+      · ${metrics.comments_checked ?? 0} комм. с ${metrics.comment_videos ?? 0} видео
+      ${metrics.comment_note ? `<br><span style="color:var(--text-dim)">${escapeHtml(metrics.comment_note)}</span>` : ''}
+    </div>`;
+  }
+
+  const html = `<div id="analysisOverlay" style="position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:10000;display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow-y:auto" onclick="if(event.target===this)closeAnalysisDrawer()">
+    <div style="background:var(--card-bg,#1e1e2e);border:1px solid var(--border,rgba(255,255,255,.1));border-radius:12px;padding:24px;max-width:560px;width:100%;position:relative">
+      <button onclick="closeAnalysisDrawer()" style="position:absolute;top:14px;right:14px;background:none;border:none;font-size:18px;cursor:pointer;color:var(--text-dim)">✕</button>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+        <span style="font-size:22px">${vEmoji}</span>
+        <div>
+          <div style="font-size:15px;font-weight:700">${escapeHtml(lead.channel_name || '')}</div>
+          <div style="font-size:12px;color:${vColor};font-weight:600">${vLabel}</div>
+        </div>
+        <div style="margin-left:auto;padding:4px 10px;border-radius:8px;font-size:22px;font-weight:800;background:${vColor}20;color:${vColor}">${lead.analysis_score ?? ''}</div>
+      </div>
+      <div style="font-size:13px;line-height:1.55;color:var(--text-mid);background:var(--bg,#13131f);border-radius:8px;padding:12px;margin-bottom:12px">${escapeHtml(lead.analysis_reasoning || '—')}</div>
+      ${metricsHtml}
+      <div style="margin-top:16px;display:flex;gap:8px">
+        <button class="btn-secondary btn-sm" onclick="analyzeLeadChannel(${id}, true)" style="flex:1">↺ Переанализировать</button>
+        <button class="btn-secondary btn-sm" onclick="closeAnalysisDrawer()">Закрыть</button>
+      </div>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+function closeAnalysisDrawer() {
+  const el = document.getElementById('analysisOverlay');
+  if (el) el.remove();
+}
+
+async function leadsBulkAnalyze() {
+  if (leadsSelected.size === 0) return;
+  const ids = [...leadsSelected];
+  const unanalyzed = ids.filter(id => {
+    const lead = leadsData.find(l => l.id == id);
+    return lead && !lead.analyzed_at;
+  });
+  const msg = unanalyzed.length === ids.length
+    ? `Анализировать ${ids.length} лидов (YouTube API + AI)?`
+    : `${ids.length} выбрано, из них ${unanalyzed.length} ещё без анализа. Анализировать всех?`;
+  if (!await confirmDialog('Анализ каналов', msg)) return;
+  try {
+    const r = await fetch('/api/leads/bulk-analyze', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ ids })
+    });
+    const j = await r.json();
+    if (!r.ok || !j.success) { toast('Ошибка: ' + (j.error || 'unknown'), 'error'); return; }
+    toast(`Анализ запущен в фоне (${j.total} каналов, ~${Math.ceil(j.total * 15)} API-юнитов)`, 'info');
+    leadsSelected.clear();
+    leadsUpdateBulkBar();
+    pollBulkAnalyze();
+  } catch(e) { toast('Ошибка: ' + e.message, 'error'); }
+}
+
+function pollBulkAnalyze() {
+  const poll = setInterval(async () => {
+    try {
+      const s = await fetch('/api/leads/bulk-analyze/status').then(r => r.json());
+      if (!s || !s.success || !s.job) { clearInterval(poll); return; }
+      const job = s.job;
+      if (job.done || !job.running) {
+        clearInterval(poll);
+        toast(`Анализ завершён: обработано ${job.processed}, ошибок ${job.failed}`, 'success');
+        loadLeads();
+      } else if (job.total > 0 && (job.processed + job.failed) % 5 === 0 && (job.processed + job.failed) > 0) {
+        toast(`Анализ: ${job.processed + job.failed}/${job.total}`, 'info');
+        loadLeads();
+      }
+    } catch(e) { /* ignore transient */ }
+  }, 3000);
 }
 
 function openTestLeadModal() {
