@@ -8046,6 +8046,8 @@ async function runTestPitch() {
     return origFetch.apply(this, arguments).finally(()=>window.nprogress.done());
   };
 
+})();
+
 // ─── TG Account Profiles ──────────────────────────────────────────────────
 
 let _tgProfileAccounts = [];
@@ -8387,8 +8389,6 @@ async function tgPApply(id) {
   }
   btn.disabled = false; btn.textContent = prev;
 }
-
-})();
 </script>
 </body>
 </html>
