@@ -1759,6 +1759,7 @@ window.fetch = function(url, opts) {
           <button class="btn-secondary btn-sm" onclick="bulkToggleFav()">В избранное</button>
           <button class="btn-danger btn-sm" onclick="bulkDelete()">Удалить</button>
           <button class="btn-secondary btn-sm" onclick="bulkExportCsv()">Экспорт</button>
+          <button class="btn-secondary btn-sm" onclick="dashboardBulkAnalyze()">🔍 Анализировать</button>
           <div style="flex:1"></div>
           <button class="btn-secondary btn-sm" onclick="clearSelection()">Сброс</button>
         </div>
@@ -1800,6 +1801,17 @@ window.fetch = function(url, opts) {
           <div class="tc-group">
             <span class="tc-icon">🔖</span>
             <select id="tTagFilter" onchange="renderTable()"><option value="">Тег</option></select>
+          </div>
+          <div class="tc-group">
+            <span class="tc-icon">🔍</span>
+            <select id="tVerdictFilter" onchange="renderTable()">
+              <option value="">Вердикт</option>
+              <option value="green">🟢 Реклама</option>
+              <option value="yellow">🟡 Проект</option>
+              <option value="red">🔴 Пропустить</option>
+              <option value="_analyzed">Есть анализ</option>
+              <option value="_unanalyzed">Без анализа</option>
+            </select>
           </div>
           <button class="btn-secondary btn-sm" onclick="openTagManager()" title="Создать / переименовать / удалить теги">✎ Теги</button>
           <label class="tc-fav"><input type="checkbox" id="tFavOnly" onchange="renderTable()"><span>⭐</span></label>
@@ -2856,7 +2868,7 @@ const columns=[
   {key:'last_video_date',label:'Посл. видео',sortable:true},
   {key:'last_longform_date',label:'Посл. long',sortable:true},
   {key:'_tag',label:'Тег',sortable:true},
-  {key:'lead_score',label:'Скор',sortable:true},
+  {key:'_analysis',label:'Анализ',sortable:false},
   {key:'_actions',label:'Действия',sortable:false},
 ];
 
@@ -4626,9 +4638,7 @@ function getFilteredData(){
 
   let data=allData;
   if(currentTab==='active') {
-    // Активная вкладка = необработанные каналы (не удалены И не промоутнуты в лиды)
     data=data.filter(d=>!deletedIds.has(getChannelId(d)));
-    data=data.filter(d=>!d.lead_id);
   } else {
     data=data.filter(d=>deletedIds.has(getChannelId(d)));
   }
@@ -4648,6 +4658,10 @@ function getFilteredData(){
   const tagFilter=document.getElementById('tTagFilter')?.value||'';
   if(tagFilter==='__none__') data=data.filter(d=>!getChannelTag(tagKey(d)));
   else if(tagFilter) data=data.filter(d=>getChannelTag(tagKey(d))===tagFilter);
+  const verdictFilter=document.getElementById('tVerdictFilter')?.value||'';
+  if(verdictFilter==='_analyzed') data=data.filter(d=>!!d.analysis_verdict);
+  else if(verdictFilter==='_unanalyzed') data=data.filter(d=>!d.analysis_verdict);
+  else if(verdictFilter) data=data.filter(d=>d.analysis_verdict===verdictFilter);
 
   data=[...data].sort((a,b)=>{
     let va,vb;
@@ -4696,11 +4710,24 @@ function renderTable(){
         const d = row.last_longform_date;
         if (d) { td.textContent = d; td.style.fontSize = '11px'; }
         else { td.innerHTML = '<span style="color:var(--text-dim);font-size:11px">—</span>'; }
-      }else if(col.key==='lead_score'){
-        const score = row.lead_score;
-        if (score != null && score > 0) {
-          const color = score >= 70 ? 'var(--green,#10b981)' : score >= 40 ? 'var(--accent)' : score >= 20 ? 'var(--yellow,#f59e0b)' : 'var(--red,#ef4444)';
-          td.innerHTML = `<span style="display:inline-flex;align-items:center;justify-content:center;min-width:34px;padding:3px 6px;border-radius:6px;font-size:12px;font-weight:700;background:${color}20;color:${color};border:1px solid ${color}40" title="Shorts: ${Math.round((row.shorts_ratio||0)*100)}% · ER: ${((row.er_normalized||row.engagement_rate||0)*100).toFixed(1)}%">${score}</span>`;
+      }else if(col.key==='_analysis'){
+        if (row.analysis_verdict) {
+          const vEmoji = {green:'🟢',yellow:'🟡',red:'🔴'}[row.analysis_verdict] || '⚪';
+          const vColor = {green:'#22c55e',yellow:'#eab308',red:'#ef4444'}[row.analysis_verdict] || '#888';
+          const sp = document.createElement('span');
+          sp.style.cssText = `cursor:pointer;display:inline-flex;align-items:center;gap:3px;padding:3px 7px;border-radius:6px;font-size:12px;font-weight:700;background:${vColor}20;color:${vColor};border:1px solid ${vColor}40`;
+          sp.title = 'Нажми для подробностей';
+          sp.textContent = `${vEmoji} ${row.analysis_score ?? ''}`;
+          sp.onclick = () => showDashboardAnalysisDrawer(row);
+          td.appendChild(sp);
+        } else if (row.lead_id) {
+          const btn = document.createElement('button');
+          btn.className = 'btn-xs';
+          btn.style.cssText = 'cursor:pointer;color:var(--accent);font-size:12px;white-space:nowrap;background:none;border:none;padding:0';
+          btn.title = 'Анализировать канал (YouTube API + AI)';
+          btn.textContent = '🔍 Анализ';
+          btn.onclick = () => analyzeDashboardChannel(row);
+          td.appendChild(btn);
         } else {
           td.innerHTML = '<span style="color:var(--text-dim);font-size:11px">—</span>';
         }
@@ -5796,6 +5823,118 @@ function showAnalysisDrawer(id) {
 function closeAnalysisDrawer() {
   const el = document.getElementById('analysisOverlay');
   if (el) el.remove();
+}
+
+let _dashboardDrawerRow = null;
+function showDashboardAnalysisDrawer(row) {
+  _dashboardDrawerRow = row;
+  if (!row || !row.analysis_verdict) return;
+  let metrics = null;
+  try { if (row.analysis_metrics) metrics = JSON.parse(row.analysis_metrics); } catch {}
+  const vEmoji = {green:'🟢',yellow:'🟡',red:'🔴'}[row.analysis_verdict] || '⚪';
+  const vLabel = {green:'Писать по рекламе',yellow:'Рассказать о проекте (без оплаты)',red:'Пропустить'}[row.analysis_verdict] || '';
+  const vColor = {green:'#22c55e',yellow:'#eab308',red:'#ef4444'}[row.analysis_verdict] || '#888';
+  const fEmoji = f => ({green:'🟢',yellow:'🟡',red:'🔴'}[f] || '⚪');
+
+  let metricsHtml = '';
+  if (metrics && metrics.flags) {
+    const f = metrics.flags;
+    metricsHtml = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 14px;font-size:12px;margin-top:10px">
+      <div>${fEmoji(f.views_subs?.flag)} просм./подп.: <b>${metrics.views_subs_pct ?? '?'}%</b></div>
+      <div>${fEmoji(f.like_view?.flag)} лайки/просм.: <b>${metrics.like_view_pct ?? '?'}%</b></div>
+      <div>${fEmoji(f.comment_view?.flag)} комм./просм.: <b>${metrics.comment_view_pct ?? '?'}%</b></div>
+      <div>${fEmoji(f.view_cv?.flag)} CV просмотров: <b>${metrics.view_cv ?? '?'}</b></div>
+      ${f.viral_outlier ? `<div>${fEmoji(f.viral_outlier.flag)} медиана/avg: <b>${metrics.median_avg_ratio ?? '?'}</b></div>` : ''}
+      <div>${fEmoji(f.growth?.flag)} прирост: <b>${f.growth?.value ?? '?'} подп/день</b></div>
+    </div>
+    <div style="margin-top:8px;font-size:12px;color:var(--text-mid)">
+      Живость комментов: <b>${metrics.comment_authenticity ?? '?'}/100</b> (накрутка ~${metrics.comment_bot_share ?? '?'}%)
+      · ${metrics.comments_checked ?? 0} комм. с ${metrics.comment_videos ?? 0} видео
+      ${metrics.comment_note ? `<br><span style="color:var(--text-dim)">${escapeHtml(metrics.comment_note)}</span>` : ''}
+    </div>`;
+  }
+
+  const html = `<div id="analysisOverlay" style="position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:10000;display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow-y:auto" onclick="if(event.target===this)closeAnalysisDrawer()">
+    <div style="background:var(--card-bg,#1e1e2e);border:1px solid var(--border,rgba(255,255,255,.1));border-radius:12px;padding:24px;max-width:560px;width:100%;position:relative">
+      <button onclick="closeAnalysisDrawer()" style="position:absolute;top:14px;right:14px;background:none;border:none;font-size:18px;cursor:pointer;color:var(--text-dim)">✕</button>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+        <span style="font-size:22px">${vEmoji}</span>
+        <div>
+          <div style="font-size:15px;font-weight:700">${escapeHtml(row.channel_name || '')}</div>
+          <div style="font-size:12px;color:${vColor};font-weight:600">${vLabel}</div>
+        </div>
+        <div style="margin-left:auto;padding:4px 10px;border-radius:8px;font-size:22px;font-weight:800;background:${vColor}20;color:${vColor}">${row.analysis_score ?? ''}</div>
+      </div>
+      <div style="font-size:13px;line-height:1.55;color:var(--text-mid);background:var(--bg,#13131f);border-radius:8px;padding:12px;margin-bottom:12px">${escapeHtml(row.analysis_reasoning || '—')}</div>
+      ${metricsHtml}
+      <div style="margin-top:16px;display:flex;gap:8px">
+        <button class="btn-secondary btn-sm" onclick="reanalyzeDashboardFromDrawer()" style="flex:1">↺ Переанализировать</button>
+        <button class="btn-secondary btn-sm" onclick="closeAnalysisDrawer()">Закрыть</button>
+      </div>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+function reanalyzeDashboardFromDrawer() {
+  closeAnalysisDrawer();
+  if (_dashboardDrawerRow) analyzeDashboardChannel(_dashboardDrawerRow, true);
+}
+async function analyzeDashboardChannel(row, force) {
+  const leadId = row.lead_id;
+  if (!leadId) { toast('Канал не в лидах — сначала нажми «→ В работу»', 'warning'); return; }
+  const chId = getChannelId(row);
+  try {
+    const url = `/api/leads/${leadId}/analyze${force ? '?force=1' : ''}`;
+    const r = await fetch(url, { method: 'POST' });
+    const j = await r.json();
+    if (!r.ok || !j.success) { toast('Ошибка анализа: ' + (j.error || 'unknown'), 'error'); return; }
+    const target = allData.find(d => getChannelId(d) === chId);
+    if (target) {
+      target.analysis_verdict = j.verdict;
+      target.analysis_score = j.score;
+      target.analysis_recommendation = j.recommendation;
+      target.analysis_reasoning = j.reasoning;
+      target.analysis_metrics = typeof j.metrics === 'string' ? j.metrics : JSON.stringify(j.metrics);
+      target.analyzed_at = j.analyzed_at;
+    }
+    renderTable();
+    toast(`Анализ: ${({green:'🟢',yellow:'🟡',red:'🔴'}[j.verdict]||'⚪')} ${j.verdict} (${j.score})`, 'success');
+  } catch(e) { toast('Ошибка: ' + e.message, 'error'); }
+}
+async function dashboardBulkAnalyze() {
+  if (selectedRows.size === 0) return;
+  const toAnalyze = [...selectedRows]
+    .map(chId => allData.find(d => getChannelId(d) === chId))
+    .filter(r => r && r.lead_id);
+  if (toAnalyze.length === 0) { toast('Нет каналов с лид-записью для анализа (сначала «→ В работу»)', 'warning'); return; }
+  const ids = toAnalyze.map(r => r.lead_id);
+  if (!await confirmDialog('Анализ каналов', `Анализировать ${ids.length} каналов (YouTube API + AI)?`)) return;
+  try {
+    const r = await fetch('/api/leads/bulk-analyze', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ ids })
+    });
+    const j = await r.json();
+    if (!r.ok || !j.success) { toast('Ошибка: ' + (j.error || 'unknown'), 'error'); return; }
+    toast(`Анализ запущен в фоне (${j.total} каналов, ~${Math.ceil(j.total * 15)} API-юнитов)`, 'info');
+    pollDashboardBulkAnalyze();
+  } catch(e) { toast('Ошибка: ' + e.message, 'error'); }
+}
+function pollDashboardBulkAnalyze() {
+  const poll = setInterval(async () => {
+    try {
+      const s = await fetch('/api/leads/bulk-analyze/status').then(r => r.json());
+      if (!s || !s.success || !s.job) { clearInterval(poll); return; }
+      const job = s.job;
+      if (job.done || !job.running) {
+        clearInterval(poll);
+        toast(`Анализ завершён: обработано ${job.processed}, ошибок ${job.failed}`, 'success');
+        loadData();
+      } else if (job.total > 0 && (job.processed + job.failed) % 3 === 0 && (job.processed + job.failed) > 0) {
+        toast(`Анализ: ${job.processed + job.failed}/${job.total}`, 'info');
+      }
+    } catch { /* ignore transient */ }
+  }, 3000);
 }
 
 async function leadsBulkAnalyze() {

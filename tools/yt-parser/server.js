@@ -341,7 +341,7 @@ app.get("/api/results", (req, res) => {
       const { db } = getDb(req.workspaceId);
       const leadRows = db
         .prepare(
-          "SELECT id, channel_id, lead_status, dialogue_stage, lead_score, shorts_ratio, er_normalized, engagement_rate FROM leads",
+          "SELECT id, channel_id, lead_status, dialogue_stage, lead_score, shorts_ratio, er_normalized, engagement_rate, analysis_verdict, analysis_score, analysis_recommendation, analysis_reasoning, analysis_metrics, analyzed_at FROM leads",
         )
         .all();
       const byChannelId = {};
@@ -354,6 +354,12 @@ app.get("/api/results", (req, res) => {
         row.lead_score = l ? l.lead_score : null;
         row.shorts_ratio = l ? l.shorts_ratio : null;
         row.er_normalized = l ? l.er_normalized : null;
+        row.analysis_verdict = l ? l.analysis_verdict : null;
+        row.analysis_score = l ? l.analysis_score : null;
+        row.analysis_recommendation = l ? l.analysis_recommendation : null;
+        row.analysis_reasoning = l ? l.analysis_reasoning : null;
+        row.analysis_metrics = l ? l.analysis_metrics : null;
+        row.analyzed_at = l ? l.analyzed_at : null;
       }
     } catch {}
     res.json({ success: true, data });
