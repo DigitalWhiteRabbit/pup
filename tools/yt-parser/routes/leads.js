@@ -870,4 +870,96 @@ router.post("/score-all", adminAuth, async (req, res) => {
   }
 });
 
+// POST /api/leads/:id/contacts  { type: "email"|"telegram", value: "..." }
+// Добавляет контакт лиду (дедуп, нормализация, обновление lead_emails).
+router.post("/:id/contacts", (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const { type, value } = req.body || {};
+
+  if (!type || !value || typeof value !== "string") {
+    return res
+      .status(400)
+      .json({ success: false, error: "type и value обязательны" });
+  }
+  if (!["email", "telegram"].includes(type)) {
+    return res
+      .status(400)
+      .json({
+        success: false,
+        error: "канал не подключён (только email / telegram)",
+      });
+  }
+
+  const lead = req.stmts.getLead.get(id);
+  if (!lead)
+    return res.status(404).json({ success: false, error: "лид не найден" });
+
+  const now = new Date().toISOString();
+
+  if (type === "email") {
+    const raw = value.trim().toLowerCase();
+    // Базовая валидация формата
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw)) {
+      return res
+        .status(400)
+        .json({ success: false, error: "невалидный email" });
+    }
+    // Дедуп: уже есть в списке?
+    const existing = (lead.email || "")
+      .split(/[;,]/)
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean);
+    if (!existing.includes(raw)) {
+      const merged = [...existing, raw].join(";");
+      req.stmts.updateLeadContacts.run({
+        email: merged,
+        telegram: lead.telegram || "",
+        updated_at: now,
+        id,
+      });
+      try {
+        syncLeadEmails(req.workspaceId, id, merged);
+      } catch (e) {
+        console.error("[contacts] syncLeadEmails:", e.message);
+      }
+    }
+  } else {
+    // telegram: срезать @, lowercase
+    const raw = value.trim().toLowerCase().replace(/^@/, "");
+    if (!raw)
+      return res
+        .status(400)
+        .json({ success: false, error: "пустое значение telegram" });
+    // Дедуп
+    const existing = (lead.telegram || "")
+      .split(/[;,]/)
+      .map((e) => e.trim().toLowerCase().replace(/^@/, ""))
+      .filter(Boolean);
+    if (!existing.includes(raw)) {
+      const merged = [...existing, raw].join(";");
+      req.stmts.updateLeadContacts.run({
+        email: lead.email || "",
+        telegram: merged,
+        updated_at: now,
+        id,
+      });
+    }
+  }
+
+  const updated = req.stmts.getLead.get(id);
+  // Пересчитываем channels_available прямо здесь
+  let tgReady = false;
+  try {
+    tgReady = require("../services/telegram-outreach").anyReadyUnderLimit();
+  } catch {
+    tgReady = false;
+  }
+  updated.channels_available = {
+    email: !!(updated.email && String(updated.email).trim()),
+    telegram:
+      !!(updated.telegram && String(updated.telegram).trim()) && tgReady,
+  };
+  res.json({ success: true, lead: updated });
+});
+
 module.exports = router;

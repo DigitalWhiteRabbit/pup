@@ -2533,6 +2533,32 @@ window.fetch = function(url, opts) {
   </div>
 </div>
 
+<!-- ─── Add Contact Modal ─────────────────────────────── -->
+<div class="modal-overlay" id="addContactOverlay" onclick="if(event.target===this)closeAddContact()">
+  <div class="modal" style="width:360px">
+    <button class="modal-close" onclick="closeAddContact()">&times;</button>
+    <h2 style="margin-bottom:16px">Добавить контакт</h2>
+    <div style="margin-bottom:12px">
+      <label style="font-size:12px;color:var(--text-dim);display:block;margin-bottom:4px">Тип</label>
+      <select id="addContactType" class="lead-status-select" style="width:100%;padding:6px 8px">
+        <option value="email">Email</option>
+        <option value="telegram">Telegram</option>
+      </select>
+    </div>
+    <div style="margin-bottom:16px">
+      <label style="font-size:12px;color:var(--text-dim);display:block;margin-bottom:4px">Значение</label>
+      <input id="addContactValue" type="text" placeholder="user@example.com или @username"
+        style="width:100%;box-sizing:border-box;padding:6px 8px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px"
+        onkeydown="if(event.key==='Enter')submitAddContact()">
+    </div>
+    <div class="btn-row">
+      <button class="btn-primary" onclick="submitAddContact()">Добавить</button>
+      <button class="btn-secondary" onclick="closeAddContact()">Отмена</button>
+    </div>
+    <div id="addContactError" style="color:var(--red);font-size:12px;margin-top:8px;display:none"></div>
+  </div>
+</div>
+
 <!-- ─── Notes Modal ──────────────────────────────────────── -->
 <div class="modal-overlay" id="modalOverlay" onclick="if(event.target===this)closeModal()">
   <div class="modal">
@@ -5075,7 +5101,9 @@ function renderLeadsTable() {
       available: lead.channels_available || null,
       sent: new Set(lead.channels_sent || []),
     };
-    tdContacts.innerHTML = '<div class="contact-icons">' + buildContactIcons(contactRow, chanStatusCtx) + '</div>';
+    tdContacts.innerHTML = '<div class="contact-icons">' + buildContactIcons(contactRow, chanStatusCtx) +
+      `<button class="contact-icon" onclick="openAddContact(${lead.id})" title="Добавить контакт" style="background:rgba(99,102,241,.15);color:var(--accent);font-weight:700;cursor:pointer;border:none;font-size:13px">+</button>` +
+      '</div>';
     tr.appendChild(tdContacts);
 
     // Lead status (dropdown)
@@ -5240,6 +5268,63 @@ function leadHasUnsentChannel(lead) {
   const hist = leadHistoryMap(lead);
   return Object.keys(avail).some(ch => avail[ch] === true && !hist[ch]);
 }
+
+// ─── Добавление контакта ──────────────────────────────────────
+let _addContactLeadId = null;
+
+function openAddContact(leadId) {
+  _addContactLeadId = leadId;
+  document.getElementById('addContactValue').value = '';
+  document.getElementById('addContactType').value = 'email';
+  document.getElementById('addContactError').style.display = 'none';
+  document.getElementById('addContactOverlay').classList.add('open');
+  setTimeout(() => document.getElementById('addContactValue').focus(), 80);
+}
+
+function closeAddContact() {
+  document.getElementById('addContactOverlay').classList.remove('open');
+  _addContactLeadId = null;
+}
+
+async function submitAddContact() {
+  const id = _addContactLeadId;
+  if (!id) return;
+  const type = document.getElementById('addContactType').value;
+  const value = document.getElementById('addContactValue').value.trim();
+  const errEl = document.getElementById('addContactError');
+  errEl.style.display = 'none';
+  if (!value) { errEl.textContent = 'Введите значение'; errEl.style.display = 'block'; return; }
+  try {
+    const r = await fetch(`/api/leads/${id}/contacts`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({type, value})
+    });
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      errEl.textContent = j.error || 'Ошибка сервера';
+      errEl.style.display = 'block';
+      return;
+    }
+    const j = await r.json();
+    // Обновить лид в leadsData и перерисовать ряд
+    const idx = leadsData.findIndex(l => l.id === id);
+    if (idx !== -1) leadsData[idx] = { ...leadsData[idx], ...j.lead };
+    renderLeadRow(id);
+    closeAddContact();
+    toast(`Контакт добавлен`, 'success');
+  } catch(e) {
+    errEl.textContent = e.message || 'Ошибка сети';
+    errEl.style.display = 'block';
+  }
+}
+
+// Перерисовать таблицу лидов с актуальными leadsData (данные уже в памяти — быстро).
+function renderLeadRow() {
+  renderLeadsTable();
+}
+
+// ─── / Добавление контакта ────────────────────────────────────
 
 // Открыть пикер для одного лида (кнопка «Запустить»).
 function runLead(id) {
