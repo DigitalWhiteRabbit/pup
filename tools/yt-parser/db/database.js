@@ -174,6 +174,15 @@ function getDb(workspaceId = "default") {
     safeExec(`ALTER TABLE tg_account ADD COLUMN system_lang_code TEXT`);
   if (!columnExists("tg_account", "source"))
     safeExec(`ALTER TABLE tg_account ADD COLUMN source TEXT`);
+  // Фаза 4: поля профиля аккаунта (account_profile)
+  if (!columnExists("tg_account", "first_name"))
+    safeExec(`ALTER TABLE tg_account ADD COLUMN first_name TEXT`);
+  if (!columnExists("tg_account", "last_name"))
+    safeExec(`ALTER TABLE tg_account ADD COLUMN last_name TEXT`);
+  if (!columnExists("tg_account", "username"))
+    safeExec(`ALTER TABLE tg_account ADD COLUMN username TEXT`);
+  if (!columnExists("tg_account", "metadata"))
+    safeExec(`ALTER TABLE tg_account ADD COLUMN metadata TEXT`);
 
   // Seed: default red_flags for project CopyBanner (id=3) — only for default workspace
   if (workspaceId === "default") {
@@ -913,6 +922,18 @@ function buildStmts(db) {
       WHERE id = @id
     `),
     deleteTgAccount: db.prepare(`DELETE FROM tg_account WHERE id = ?`),
+    getTgAccountMeta: db.prepare(
+      `SELECT metadata FROM tg_account WHERE id = ?`,
+    ),
+    updateTgAccountProfile: db.prepare(`
+      UPDATE tg_account SET
+        first_name = COALESCE(@first_name, first_name),
+        last_name   = COALESCE(@last_name, last_name),
+        username    = COALESCE(@username, username),
+        metadata    = COALESCE(@metadata, metadata),
+        updated_at  = @updated_at
+      WHERE id = @id
+    `),
 
     // Knowledge
     insertKnowledgeDoc: db.prepare(`

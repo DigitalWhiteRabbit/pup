@@ -823,6 +823,43 @@ async function sendMessage(usernameOrPhone, text) {
   return sendMessageVia(id, usernameOrPhone, text);
 }
 
+// ─── Хелпер для операций с профилем аккаунта ────────────────────────
+// Предоставляет подключённый client для произвольного fn(client).
+// Использует пул, если аккаунт уже залогинен, иначе создаёт временный клиент.
+// NO_PROXY guard: запрещает работу без прокси (реальный IP).
+async function withAccountClient(rowOrId, fn) {
+  const row =
+    typeof rowOrId === "number" || typeof rowOrId === "string"
+      ? stmts.getTgAccount.get(Number(rowOrId))
+      : rowOrId;
+  if (!row)
+    throw Object.assign(new Error("Account not found"), { status: 404 });
+
+  if (!buildProxyOpts(row)) {
+    throw Object.assign(
+      new Error("У аккаунта нет proxy — операция через реальный IP запрещена"),
+      { status: 403 },
+    );
+  }
+
+  // Reuse pool client if already ready
+  const st = pool.get(row.id);
+  if (st && st.ready && st.client) {
+    return fn(st.client);
+  }
+
+  // Temporary client for one-shot profile operations
+  const client = makeClient(row, row.session || "");
+  try {
+    await client.connect();
+    return await fn(client);
+  } finally {
+    try {
+      await client.disconnect();
+    } catch {}
+  }
+}
+
 module.exports = {
   // pool / multi-account
   listAccounts,
@@ -860,4 +897,6 @@ module.exports = {
   status,
   isReady,
   logout,
+  // profile operations
+  withAccountClient,
 };

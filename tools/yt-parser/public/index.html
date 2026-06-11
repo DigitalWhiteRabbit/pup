@@ -1537,6 +1537,10 @@ window.fetch = function(url, opts) {
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
         Задачи<span class="sb-count" id="sbTasksCount"></span>
       </button>
+      <button class="sb-item" onclick="switchNav('tgaccounts')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.65 3.34a2 2 0 0 1 2-2.18h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.72a16 16 0 0 0 6 6l.94-.94a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+        TG аккаунты
+      </button>
       <button class="sb-item" onclick="switchNav('settings')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         Настройки
@@ -2507,6 +2511,20 @@ window.fetch = function(url, opts) {
         </div>
       </div>
       <div id="devStagesContainer" style="display:flex;flex-direction:column;gap:14px">
+        <div style="color:var(--text-dim);text-align:center;padding:40px">Загрузка...</div>
+      </div>
+    </div>
+
+    <!-- ═══════════════════ TG АККАУНТЫ ═══════════════════ -->
+    <div id="navTgaccounts" class="nav-section">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;gap:12px;flex-wrap:wrap">
+        <div>
+          <div style="font-size:12px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px">Профили аккаунтов</div>
+          <div style="font-size:13px;color:var(--text-dim);margin-top:4px">Имя, фото, bio, приватность — AI-генерация и прямой деплой в Telegram.</div>
+        </div>
+        <button class="btn-secondary btn-sm" onclick="loadTgAccountsPage()">↺ Обновить</button>
+      </div>
+      <div id="tgAccountsContainer">
         <div style="color:var(--text-dim);text-align:center;padding:40px">Загрузка...</div>
       </div>
     </div>
@@ -3535,7 +3553,7 @@ async function knPreview(id) {
 
 // ─── Navigation ───────────────────────────────────────
 
-const NAV_TITLES = { main:'Dashboard', campaigns:'Кампания агента', knowledge:'База знаний', chat:'Live чат с агентом', leads:'Лиды', dialogues:'Диалоги', deals:'Сделки', review:'На проверке', health:'Здоровье', stats:'Аналитика', history:'History', tasks:'Задачи', settings:'Настройки' };
+const NAV_TITLES = { main:'Dashboard', campaigns:'Кампания агента', knowledge:'База знаний', chat:'Live чат с агентом', leads:'Лиды', dialogues:'Диалоги', deals:'Сделки', review:'На проверке', health:'Здоровье', stats:'Аналитика', history:'History', tasks:'Задачи', tgaccounts:'Telegram аккаунты', settings:'Настройки' };
 function switchNav(section) {
   // Запомнить текущую вкладку — при reload вернёмся сюда
   try { localStorage.setItem('activeNav', section); } catch {}
@@ -3544,7 +3562,7 @@ function switchNav(section) {
   }
   document.querySelectorAll('.sb-item').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.nav-section').forEach(s => s.classList.remove('active'));
-  const map = {main:'navMain', campaigns:'navCampaigns', knowledge:'navKnowledge', chat:'navChat', leads:'navLeads', dialogues:'navDialogues', deals:'navDeals', review:'navReview', health:'navHealth', stats:'navStats', history:'navHistory', tasks:'navTasks', settings:'navSettings'};
+  const map = {main:'navMain', campaigns:'navCampaigns', knowledge:'navKnowledge', chat:'navChat', leads:'navLeads', dialogues:'navDialogues', deals:'navDeals', review:'navReview', health:'navHealth', stats:'navStats', history:'navHistory', tasks:'navTasks', tgaccounts:'navTgaccounts', settings:'navSettings'};
   document.getElementById(map[section]).classList.add('active');
   document.querySelector(`.sb-item[onclick*="${section}"]`).classList.add('active');
   document.getElementById('pageTitle').textContent = NAV_TITLES[section];
@@ -3558,6 +3576,7 @@ function switchNav(section) {
   if (section === 'stats') { updateStats(); updateCharts(); loadAnalytics(); }
   if (section === 'history') { loadHistory(); loadErrors(); }
   if (section === 'tasks') { loadDevTasks(); }
+  if (section === 'tgaccounts') { loadTgAccountsPage(); }
   if (section === 'settings') { loadTgStatus(); loadWorkerLogs(); initAdminTokenUI(); loadReviewModeSetting(); loadApiKeyPool(); loadEmailConfig(); }
 }
 
@@ -8026,6 +8045,348 @@ async function runTestPitch() {
     window.nprogress.start();
     return origFetch.apply(this, arguments).finally(()=>window.nprogress.done());
   };
+
+// ─── TG Account Profiles ──────────────────────────────────────────────────
+
+let _tgProfileAccounts = [];
+
+async function loadTgAccountsPage() {
+  const cont = document.getElementById('tgAccountsContainer');
+  if (!cont) return;
+  cont.innerHTML = '<div style="color:var(--text-dim);text-align:center;padding:40px">Загрузка...</div>';
+  try {
+    const r = await fetch('/api/telegram/accounts');
+    const j = await r.json();
+    if (!j.success) throw new Error(j.error || 'load failed');
+    _tgProfileAccounts = j.accounts || [];
+    renderTgAccountsPage();
+  } catch(e) {
+    cont.innerHTML = `<div style="color:var(--text-dim);padding:20px">Ошибка загрузки: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function renderTgAccountsPage() {
+  const cont = document.getElementById('tgAccountsContainer');
+  if (!cont) return;
+  if (!_tgProfileAccounts.length) {
+    cont.innerHTML = '<div style="color:var(--text-dim);padding:30px;text-align:center">Нет аккаунтов. Добавьте их в Настройках → Telegram.</div>';
+    return;
+  }
+  cont.innerHTML = _tgProfileAccounts.map(a => tgProfileCardHtml(a)).join('');
+  // Подгружаем профиль для каждого
+  _tgProfileAccounts.forEach(a => tgLoadProfileInto(a.id));
+}
+
+function tgProfileCardHtml(acc) {
+  const id = acc.id;
+  const label = escapeHtml(acc.label || acc.phone || `#${id}`);
+  const statusColor = {active:'#22c55e', flood:'#ef4444', disabled:'#888'}[acc.status] || '#888';
+  return `<div class="card" id="tgPCard_${id}" style="margin-bottom:16px;position:relative">
+  <div style="display:flex;align-items:center;gap:14px">
+    <div style="width:46px;height:46px;border-radius:50%;background:var(--bg);overflow:hidden;flex-shrink:0;border:2px solid var(--border);cursor:pointer" onclick="document.getElementById('tgPEditor_${id}').style.display=document.getElementById('tgPEditor_${id}').style.display==='none'?'block':'none'">
+      <img id="tgPAvatar_${id}" src="" style="width:100%;height:100%;object-fit:cover;display:none" onerror="this.style.display='none';document.getElementById('tgPAvatarIcon_${id}').style.display='flex'" onload="this.style.display='block';document.getElementById('tgPAvatarIcon_${id}').style.display='none'">
+      <div id="tgPAvatarIcon_${id}" style="display:flex;align-items:center;justify-content:center;height:100%;font-size:22px">👤</div>
+    </div>
+    <div style="flex:1;min-width:0">
+      <div style="font-weight:700;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${label}</div>
+      <div id="tgPSubtitle_${id}" style="font-size:12px;color:${statusColor}">${escapeHtml(acc.status || '')}</div>
+    </div>
+    <button class="btn-secondary btn-sm" onclick="tgPToggleEditor(${id})" id="tgPToggleBtn_${id}">✎ Профиль</button>
+  </div>
+  <div id="tgPEditor_${id}" style="display:none;margin-top:16px;border-top:1px solid var(--border);padding-top:16px">
+    ${tgProfileEditorHtml(id)}
+  </div>
+</div>`;
+}
+
+function tgProfileEditorHtml(id) {
+  return `<div>
+  <!-- Name row -->
+  <div style="display:flex;gap:8px;margin-bottom:10px">
+    <div style="flex:1"><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:3px">Имя</label>
+      <input id="tgPFirstName_${id}" class="input-field" style="width:100%" placeholder="Имя">
+    </div>
+    <div style="flex:1"><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:3px">Фамилия</label>
+      <input id="tgPLastName_${id}" class="input-field" style="width:100%" placeholder="Фамилия">
+    </div>
+  </div>
+  <!-- Username -->
+  <div style="display:flex;gap:8px;margin-bottom:10px;align-items:flex-end">
+    <div style="flex:1"><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:3px">Username (@)</label>
+      <input id="tgPUsername_${id}" class="input-field" style="width:100%" placeholder="username_5to32" oninput="tgPClearUsernameHint(${id})">
+    </div>
+    <button class="btn-secondary btn-sm" style="flex-shrink:0;margin-bottom:1px" onclick="tgPCheckUsername(${id})" title="Проверить доступность">Проверить</button>
+  </div>
+  <div id="tgPUsernameHint_${id}" style="font-size:11px;margin-bottom:10px;display:none"></div>
+  <!-- Bio -->
+  <div style="margin-bottom:10px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
+      <label style="font-size:11px;color:var(--text-dim)">Bio (макс 70 символов)</label>
+      <span id="tgPBioCount_${id}" style="font-size:11px;color:var(--text-dim)">0/70</span>
+    </div>
+    <textarea id="tgPBio_${id}" class="input-field" rows="2" style="width:100%;resize:vertical" maxlength="70" placeholder="Краткое описание" oninput="tgPBioCount(${id})"></textarea>
+    <div id="tgPBioRu_${id}" style="font-size:11px;color:var(--text-dim);margin-top:3px;min-height:14px"></div>
+  </div>
+  <!-- Privacy -->
+  <div style="margin-bottom:12px">
+    <div style="font-size:11px;color:var(--text-dim);margin-bottom:6px">Приватность</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      ${['phone','photo','last_seen'].map(k => `
+      <div style="flex:1;min-width:130px"><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:3px">${{phone:'Телефон',photo:'Фото',last_seen:'Был онлайн'}[k]}</label>
+        <select id="tgPPriv_${k}_${id}" class="input-field" style="width:100%">
+          <option value="everybody">Все</option>
+          <option value="contacts" selected>Контакты</option>
+          <option value="nobody">Никто</option>
+        </select>
+      </div>`).join('')}
+    </div>
+  </div>
+  <!-- Avatar -->
+  <div style="margin-bottom:14px">
+    <div style="font-size:11px;color:var(--text-dim);margin-bottom:6px">Аватар</div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <img id="tgPAvatarPreview_${id}" src="" style="width:56px;height:56px;border-radius:50%;object-fit:cover;border:2px solid var(--border);display:none">
+      <button class="btn-secondary btn-sm" onclick="tgPGenAvatar(${id})">🎲 AI-аватар</button>
+      <label class="btn-secondary btn-sm" style="cursor:pointer;margin:0">
+        ↑ Загрузить
+        <input type="file" accept="image/*" style="display:none" onchange="tgPUploadAvatar(${id}, this)">
+      </label>
+    </div>
+  </div>
+  <!-- AI generate -->
+  <div style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:14px;background:var(--bg)">
+    <div style="font-size:12px;font-weight:600;margin-bottom:8px">AI-генерация личности</div>
+    <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+      <div style="flex:1;min-width:100px">
+        <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:3px">Пол</label>
+        <select id="tgPGenGender_${id}" class="input-field" style="width:100%">
+          <option value="">Любой</option><option value="male">Мужской</option><option value="female">Женский</option>
+        </select>
+      </div>
+      <div style="flex:2;min-width:160px">
+        <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:3px">Ниша / образ</label>
+        <input id="tgPGenNiche_${id}" class="input-field" style="width:100%" placeholder="маркетолог, крипто-инвестор...">
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:6px;font-size:11px;flex-wrap:wrap">
+      <label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="tgPGenKeepFirst_${id}"> Сохранить имя</label>
+      <label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="tgPGenKeepLast_${id}"> Сохранить фамилию</label>
+    </div>
+    <button class="btn-secondary btn-sm" onclick="tgPGenIdentity(${id})">✨ Сгенерировать личность</button>
+    <div id="tgPGenStatus_${id}" style="font-size:11px;color:var(--text-dim);margin-top:6px;display:none"></div>
+  </div>
+  <!-- Action buttons -->
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <button class="btn-secondary btn-sm" onclick="tgPSave(${id})">💾 Сохранить</button>
+    <button class="btn-primary btn-sm" onclick="tgPApply(${id})">▶ Применить в TG</button>
+    <div id="tgPApplyStatus_${id}" style="font-size:12px;color:var(--text-dim);align-self:center;display:none"></div>
+  </div>
+</div>`;
+}
+
+function tgPToggleEditor(id) {
+  const ed = document.getElementById(`tgPEditor_${id}`);
+  if (!ed) return;
+  const open = ed.style.display === 'none' || ed.style.display === '';
+  ed.style.display = open ? 'block' : 'none';
+  if (open) tgLoadProfileInto(id);
+}
+
+async function tgLoadProfileInto(id) {
+  try {
+    const r = await fetch(`/api/telegram/accounts/${id}/profile`);
+    const j = await r.json();
+    if (!j.success) return;
+    const p = j.profile;
+    const set = (sel, val) => { const el = document.getElementById(sel); if (el) el.value = val || ''; };
+    set(`tgPFirstName_${id}`, p.first_name);
+    set(`tgPLastName_${id}`, p.last_name);
+    set(`tgPUsername_${id}`, p.username);
+    set(`tgPBio_${id}`, p.bio);
+    tgPBioCount(id);
+    if (p.bio_ru) {
+      const ruel = document.getElementById(`tgPBioRu_${id}`);
+      if (ruel) ruel.textContent = `RU: ${p.bio_ru}`;
+    }
+    // privacy
+    for (const k of ['phone','photo','last_seen']) {
+      set(`tgPPriv_${k}_${id}`, p.privacy?.[k] || 'contacts');
+    }
+    // avatar
+    if (p.avatar_url) tgPSetAvatarPreview(id, p.avatar_url + '?v=' + Date.now());
+    // subtitle
+    const sub = document.getElementById(`tgPSubtitle_${id}`);
+    if (sub && (p.first_name || p.username)) {
+      const name = [p.first_name, p.last_name].filter(Boolean).join(' ');
+      const u = p.username ? ` · @${p.username}` : '';
+      const prev = sub.textContent.split('·')[0].trim();
+      sub.textContent = prev + (name ? ` · ${name}${u}` : u);
+    }
+  } catch {}
+}
+
+function tgPSetAvatarPreview(id, url) {
+  const preview = document.getElementById(`tgPAvatarPreview_${id}`);
+  const cardImg = document.getElementById(`tgPAvatar_${id}`);
+  if (preview) { preview.src = url; preview.style.display = 'block'; }
+  if (cardImg) { cardImg.src = url; }
+}
+
+function tgPBioCount(id) {
+  const ta = document.getElementById(`tgPBio_${id}`);
+  const cnt = document.getElementById(`tgPBioCount_${id}`);
+  if (!ta || !cnt) return;
+  const len = ta.value.length;
+  cnt.textContent = `${len}/70`;
+  cnt.style.color = len > 60 ? (len >= 70 ? 'var(--danger,#ef4444)' : '#f59e0b') : 'var(--text-dim)';
+}
+
+function tgPClearUsernameHint(id) {
+  const h = document.getElementById(`tgPUsernameHint_${id}`);
+  if (h) h.style.display = 'none';
+}
+
+async function tgPCheckUsername(id) {
+  const usernameEl = document.getElementById(`tgPUsername_${id}`);
+  const hint = document.getElementById(`tgPUsernameHint_${id}`);
+  if (!usernameEl || !hint) return;
+  const username = usernameEl.value.trim().replace(/^@/, '');
+  if (!username) { hint.textContent = 'Введите username'; hint.style.color = 'var(--text-dim)'; hint.style.display = 'block'; return; }
+  hint.textContent = 'Проверяем...'; hint.style.color = 'var(--text-dim)'; hint.style.display = 'block';
+  try {
+    const r = await fetch(`/api/telegram/accounts/${id}/profile/check-username`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ username }) });
+    const j = await r.json();
+    if (!j.success) { hint.textContent = `Ошибка: ${j.error}`; hint.style.color = '#f59e0b'; }
+    else if (j.available) { hint.textContent = `@${j.username} — свободен ✓`; hint.style.color = '#22c55e'; }
+    else { hint.textContent = `@${j.username} — занят`; hint.style.color = '#ef4444'; }
+  } catch(e) { hint.textContent = `Ошибка: ${e.message}`; hint.style.color = '#ef4444'; }
+}
+
+async function tgPGenAvatar(id) {
+  const btn = event.target;
+  const prev = btn.textContent;
+  btn.disabled = true; btn.textContent = '⏳ Генерация...';
+  try {
+    const r = await fetch(`/api/telegram/accounts/${id}/profile/generate-avatar`, { method:'POST', headers:{'Content-Type':'application/json'} });
+    const j = await r.json();
+    if (!j.success) throw new Error(j.error);
+    tgPSetAvatarPreview(id, j.avatar_url + '?v=' + Date.now());
+    toast('Аватар сгенерирован', 'success');
+  } catch(e) { toast('Ошибка генерации аватара: ' + e.message, 'error'); }
+  finally { btn.disabled = false; btn.textContent = prev; }
+}
+
+async function tgPUploadAvatar(id, input) {
+  if (!input.files || !input.files[0]) return;
+  const formData = new FormData();
+  formData.append('file', input.files[0]);
+  try {
+    const r = await fetch(`/api/telegram/accounts/${id}/profile/upload-avatar`, { method:'POST', body: formData });
+    const j = await r.json();
+    if (!j.success) throw new Error(j.error);
+    tgPSetAvatarPreview(id, j.avatar_url + '?v=' + Date.now());
+    toast('Аватар загружен', 'success');
+  } catch(e) { toast('Ошибка загрузки аватара: ' + e.message, 'error'); }
+  input.value = '';
+}
+
+async function tgPGenIdentity(id) {
+  const btn = event.target;
+  const statusEl = document.getElementById(`tgPGenStatus_${id}`);
+  const prev = btn.textContent;
+  btn.disabled = true; btn.textContent = '⏳ Генерирую...';
+  if (statusEl) { statusEl.textContent = 'Запрос к AI...'; statusEl.style.display = 'block'; statusEl.style.color = 'var(--text-dim)'; }
+  try {
+    const gender = document.getElementById(`tgPGenGender_${id}`)?.value || '';
+    const niche = document.getElementById(`tgPGenNiche_${id}`)?.value || '';
+    const keepFirst = document.getElementById(`tgPGenKeepFirst_${id}`)?.checked || false;
+    const keepLast = document.getElementById(`tgPGenKeepLast_${id}`)?.checked || false;
+    const first_name = document.getElementById(`tgPFirstName_${id}`)?.value || '';
+    const last_name = document.getElementById(`tgPLastName_${id}`)?.value || '';
+
+    const r = await fetch(`/api/telegram/accounts/${id}/profile/generate-identity`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ gender: gender||null, niche, gen_first: !keepFirst, gen_last: !keepLast, first_name, last_name })
+    });
+    const j = await r.json();
+    if (!j.success) throw new Error(j.error);
+    const s = j.suggestion;
+    const setVal = (sel, val) => { const el = document.getElementById(sel); if (el) el.value = val || ''; };
+    setVal(`tgPFirstName_${id}`, s.first_name);
+    setVal(`tgPLastName_${id}`, s.last_name);
+    setVal(`tgPUsername_${id}`, s.username);
+    setVal(`tgPBio_${id}`, s.bio);
+    tgPBioCount(id);
+    tgPClearUsernameHint(id);
+    const ruel = document.getElementById(`tgPBioRu_${id}`);
+    if (ruel && s.bio_ru) ruel.textContent = `RU: ${s.bio_ru}`;
+    if (statusEl) { statusEl.textContent = 'Личность сгенерирована ✓'; statusEl.style.color = '#22c55e'; }
+    toast('Личность сгенерирована', 'success');
+  } catch(e) {
+    if (statusEl) { statusEl.textContent = `Ошибка: ${e.message}`; statusEl.style.color = '#ef4444'; }
+    toast('Ошибка генерации: ' + e.message, 'error');
+  }
+  btn.disabled = false; btn.textContent = prev;
+}
+
+async function tgPSave(id) {
+  const getVal = sel => document.getElementById(sel)?.value?.trim() || null;
+  const privacy = {};
+  for (const k of ['phone','photo','last_seen']) {
+    const v = document.getElementById(`tgPPriv_${k}_${id}`)?.value;
+    if (v) privacy[k] = v;
+  }
+  const bioRuEl = document.getElementById(`tgPBioRu_${id}`);
+  const bioRuText = (bioRuEl?.textContent || '').replace(/^RU:\s*/, '').trim() || null;
+  const body = {
+    first_name: getVal(`tgPFirstName_${id}`),
+    last_name: getVal(`tgPLastName_${id}`),
+    username: getVal(`tgPUsername_${id}`),
+    bio: getVal(`tgPBio_${id}`),
+    bio_ru: bioRuText,
+    privacy,
+  };
+  try {
+    const r = await fetch(`/api/telegram/accounts/${id}/profile`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const j = await r.json();
+    if (!j.success) throw new Error(j.error);
+    toast('Сохранено', 'success');
+    // Update card subtitle
+    const sub = document.getElementById(`tgPSubtitle_${id}`);
+    if (sub && (j.profile.first_name || j.profile.username)) {
+      const name = [j.profile.first_name, j.profile.last_name].filter(Boolean).join(' ');
+      const u = j.profile.username ? ` · @${j.profile.username}` : '';
+      const statusPart = sub.textContent.split('·')[0].trim();
+      sub.textContent = statusPart + (name ? ` · ${name}${u}` : u);
+    }
+  } catch(e) { toast('Ошибка сохранения: ' + e.message, 'error'); }
+}
+
+async function tgPApply(id) {
+  const btn = event.target;
+  const statusEl = document.getElementById(`tgPApplyStatus_${id}`);
+  const prev = btn.textContent;
+  btn.disabled = true; btn.textContent = '⏳ Применяю...';
+  if (statusEl) { statusEl.textContent = 'Отправка в Telegram...'; statusEl.style.display = 'block'; statusEl.style.color = 'var(--text-dim)'; }
+  try {
+    // Сначала сохраняем локально
+    await tgPSave(id);
+    const r = await fetch(`/api/telegram/accounts/${id}/profile/apply`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({}) });
+    const j = await r.json();
+    if (!j.success) throw new Error(j.error);
+    const parts = j.applied || {};
+    const ok = Object.entries(parts).filter(([,v]) => v === 'ok').map(([k]) => k);
+    const fail = Object.entries(parts).filter(([,v]) => v !== 'ok').map(([k,v]) => `${k}: ${v}`);
+    let msg = ok.length ? `✓ ${ok.join(', ')}` : '';
+    if (fail.length) msg += (msg ? '; ' : '') + `✗ ${fail.join('; ')}`;
+    if (statusEl) { statusEl.textContent = msg || 'Готово'; statusEl.style.color = fail.length ? '#f59e0b' : '#22c55e'; }
+    toast(fail.length ? 'Применено с ошибками' : 'Профиль применён в Telegram', fail.length ? 'warning' : 'success');
+  } catch(e) {
+    if (statusEl) { statusEl.textContent = `Ошибка: ${e.message}`; statusEl.style.color = '#ef4444'; }
+    toast('Ошибка применения: ' + e.message, 'error');
+  }
+  btn.disabled = false; btn.textContent = prev;
+}
 
 })();
 </script>
