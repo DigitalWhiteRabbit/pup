@@ -217,6 +217,29 @@ function getDb(workspaceId = "default") {
     safeExec(`ALTER TABLE leads ADD COLUMN posting_frequency REAL`);
   if (!columnExists("leads", "scored_at"))
     safeExec(`ALTER TABLE leads ADD COLUMN scored_at TEXT`);
+
+  // TG-draft cache (кэш сгенерированного TG-текста)
+  if (!columnExists("leads", "tg_draft"))
+    safeExec(`ALTER TABLE leads ADD COLUMN tg_draft TEXT`);
+  if (!columnExists("leads", "tg_draft_ru"))
+    safeExec(`ALTER TABLE leads ADD COLUMN tg_draft_ru TEXT`);
+
+  // Channel deep-analysis results (§4 ТЗ)
+  if (!columnExists("leads", "analysis_verdict"))
+    safeExec(`ALTER TABLE leads ADD COLUMN analysis_verdict TEXT`);
+  if (!columnExists("leads", "analysis_recommendation"))
+    safeExec(`ALTER TABLE leads ADD COLUMN analysis_recommendation TEXT`);
+  if (!columnExists("leads", "analysis_score"))
+    safeExec(`ALTER TABLE leads ADD COLUMN analysis_score INTEGER`);
+  if (!columnExists("leads", "analysis_reasoning"))
+    safeExec(`ALTER TABLE leads ADD COLUMN analysis_reasoning TEXT`);
+  if (!columnExists("leads", "analysis_metrics"))
+    safeExec(`ALTER TABLE leads ADD COLUMN analysis_metrics TEXT`);
+  if (!columnExists("leads", "analyzed_at"))
+    safeExec(`ALTER TABLE leads ADD COLUMN analyzed_at TEXT`);
+  safeExec(
+    `CREATE INDEX IF NOT EXISTS idx_leads_verdict ON leads(analysis_verdict)`,
+  );
   if (!columnExists("leads", "opted_out"))
     safeExec(`ALTER TABLE leads ADD COLUMN opted_out INTEGER DEFAULT 0`);
   // Кэш русского перевода сообщения (для просмотра истории на «На проверке»)

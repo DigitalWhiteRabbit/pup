@@ -20,8 +20,8 @@
  *   CA_VIDEOS              (25)   — сколько последних видео тянуть (20-30)
  *   CA_COMMENT_VIDEOS     (10)   — с какого числа свежих видео брать комменты (8-12)
  *   CA_COMMENTS_PER_VIDEO (100)  — топ комментов на видео (max 100)
- *   CA_SCAN_MODEL    (CLAUDE_MODEL_SUMMARY | claude-haiku-4-5)  — модель AI-скана комментов
- *   CA_VERDICT_MODEL (CLAUDE_MODEL_SUMMARY | claude-haiku-4-5)  — модель синтеза вердикта (можно sonnet)
+ *   CA_SCAN_MODEL    (CLAUDE_MODEL_SUMMARY | claude-haiku-4-5)   — модель AI-скана комментов (дефолт: haiku)
+ *   CA_VERDICT_MODEL (claude-sonnet-4-6)                        — модель синтеза вердикта (дефолт: sonnet)
  */
 const { google } = require("googleapis");
 const Anthropic = require("@anthropic-ai/sdk");
@@ -38,10 +38,8 @@ const SCAN_MODEL =
   process.env.CA_SCAN_MODEL ||
   process.env.CLAUDE_MODEL_SUMMARY ||
   "claude-haiku-4-5";
-const VERDICT_MODEL =
-  process.env.CA_VERDICT_MODEL ||
-  process.env.CLAUDE_MODEL_SUMMARY ||
-  "claude-haiku-4-5";
+// Sonnet по умолчанию для вердикта — лучше справляется с граничными кейсами
+const VERDICT_MODEL = process.env.CA_VERDICT_MODEL || "claude-sonnet-4-6";
 
 function ytClient() {
   if (!YT_KEY) throw new Error("YOUTUBE_API_KEY/YT_API_KEY не задан");
@@ -239,6 +237,19 @@ function heuristics(channel, videos) {
     note: growthNote,
   };
 
+  // «Одно вирусное, остальное мёртвое»: медиана сильно ниже среднего при высоком CV
+  const medAvgRatio = avgViews > 0 ? medViews / avgViews : 1;
+  flags.viral_outlier = {
+    value: round(medAvgRatio),
+    flag:
+      cv >= 1.0 && medAvgRatio < 0.3
+        ? "red"
+        : cv >= 0.6 && medAvgRatio < 0.5
+          ? "yellow"
+          : "green",
+    note: "медиана/среднее просмотров; низкое+высокий CV = одно вирусное, остальное мёртвое",
+  };
+
   return {
     subs: channel.subs,
     age_days: ageDays,
@@ -246,6 +257,7 @@ function heuristics(channel, videos) {
     videos_checked: videos.length,
     avg_views: Math.round(avgViews),
     median_views: Math.round(medViews),
+    median_avg_ratio: round(medAvgRatio),
     view_cv: round(cv),
     views_subs_pct: round(viewsSubsPct),
     like_view_pct: round(likeViewPct),
@@ -282,6 +294,7 @@ async function scanComments(channel, commentSets) {
       total_comments: 0,
       videos_with_comments: 0,
       samples: 0,
+      few_data: true,
       usage: { in: 0, out: 0 },
     };
   }
@@ -321,6 +334,7 @@ ${sample.join("\n")}
     total_comments: totalComments,
     videos_with_comments: withComments,
     samples: sample.length,
+    few_data: totalComments < 20,
     usage: {
       in: resp.usage?.input_tokens || 0,
       out: resp.usage?.output_tokens || 0,
@@ -329,7 +343,7 @@ ${sample.join("\n")}
 }
 
 // ═════════════════════ Этап 4: синтез вердикта ════════════════════
-async function synthesize(channel, metrics, commentScan) {
+async function synthesize(channel, metrics, commentScan, opts = {}) {
   const ai = aiClient();
   const f = metrics.flags;
   const sys =
@@ -339,10 +353,14 @@ async function synthesize(channel, metrics, commentScan) {
     "- yellow / project_intro: спорно (часть метрик слабая, но не мёртвый) → рассказать о проекте без оплаты, быстро досмотреть вручную;\n" +
     "- red / skip: явная накрутка или мёртвая аудитория → пропустить.\n" +
     "Вердикт = ассистивный пре-фильтр, не приговор. Верни СТРОГО JSON.";
+  const fewDataWarning = commentScan.few_data
+    ? `\n⚠ МАЛО ДАННЫХ: всего ${commentScan.total_comments ?? 0} комментов проверено (< 20) — при сомнениях выбирай yellow, а не red.`
+    : "";
   const user = `КАНАЛ: ${channel.name} | подписчиков: ${channel.subs} | страна: ${channel.country || "?"} | возраст: ${metrics.age_days ?? "?"} дн | видео проверено: ${metrics.videos_checked}
 
 МЕТРИКИ (детерминированно):
 - avg просмотры: ${metrics.avg_views} (медиана ${metrics.median_views}) → ${metrics.views_subs_pct}% от подписчиков [${f.views_subs.flag}]
+- медиана/среднее просмотров: ${metrics.median_avg_ratio ?? "?"} [${f.viral_outlier?.flag ?? "?"}] (низкое+высокий CV = одно вирусное видео, остальные мёртвые)
 - лайки/просмотры: ${metrics.like_view_pct}% [${f.like_view.flag}] (органика обычно 1-5%)
 - комменты/просмотры: ${metrics.comment_view_pct}% [${f.comment_view.flag}]
 - разброс просмотров (CV): ${metrics.view_cv} [${f.view_cv.flag}] (низкий+ровный = подозрительно)
@@ -351,7 +369,7 @@ async function synthesize(channel, metrics, commentScan) {
 AI-СКАН КОММЕНТОВ:
 - живость/органика: ${commentScan.authenticity}/100; оценка доли накрутки: ${commentScan.bot_share ?? "?"}%
 - заметка: ${commentScan.note || "—"}
-- проверено: ${commentScan.total_comments ?? 0} комментов с ${commentScan.videos_with_comments ?? 0} видео
+- проверено: ${commentScan.total_comments ?? 0} комментов с ${commentScan.videos_with_comments ?? 0} видео${fewDataWarning}
 
 Верни JSON:
 {"verdict":"green|yellow|red","recommendation":"ads|project_intro|skip","score":<0-100 здоровье канала>,"reasoning":"<2-4 строки с КОНКРЕТНЫМИ цифрами, почему такой вердикт>"}`;
@@ -414,6 +432,26 @@ async function analyzeChannel(channelId, opts = {}) {
     const metrics = heuristics(channel, videos);
     const commentScan = await scanComments(channel, commentSets);
     const verdict = await synthesize(channel, metrics, commentScan);
+
+    // Guard: если вердикт RED, но данных по комментариям мало (< 20) и эвристики не красные
+    // → понижаем до yellow, чтобы не отсеивать каналы без комментариев.
+    if (verdict.verdict === "red" && commentScan.few_data) {
+      const f = metrics.flags;
+      const hardRedSignals = [
+        "views_subs",
+        "like_view",
+        "comment_view",
+        "growth",
+      ].filter((k) => f[k]?.flag === "red");
+      if (hardRedSignals.length === 0) {
+        verdict.verdict = "yellow";
+        verdict.recommendation = "project_intro";
+        verdict.reasoning =
+          `[мало данных по комментариям — ${commentScan.total_comments ?? 0} шт., вердикт снижен до yellow] ` +
+          verdict.reasoning;
+        verdict.score = Math.min(verdict.score + 20, 65);
+      }
+    }
 
     metrics.comment_authenticity = commentScan.authenticity;
     metrics.comment_bot_share = commentScan.bot_share;
