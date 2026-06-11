@@ -871,7 +871,11 @@ router.post("/:id/analyze", adminAuth, async (req, res) => {
 
   try {
     const { analyzeChannel } = require("../services/channel-analysis");
-    const result = await analyzeChannel(lead.channel_id);
+    const project =
+      (lead.project_id ? req.stmts.getProject.get(lead.project_id) : null) ||
+      req.stmts.getActiveProject.get() ||
+      null;
+    const result = await analyzeChannel(lead.channel_id, { project });
     if (result.error)
       return res.status(502).json({ success: false, error: result.error });
 
@@ -956,7 +960,15 @@ router.post("/bulk-analyze", adminAuth, (req, res) => {
         continue;
       }
       try {
-        const result = await analyzeChannel(lead.channel_id);
+        const bulkProject =
+          (lead.project_id
+            ? req.stmts.getProject.get(lead.project_id)
+            : null) ||
+          req.stmts.getActiveProject.get() ||
+          null;
+        const result = await analyzeChannel(lead.channel_id, {
+          project: bulkProject,
+        });
         if (result.error) throw new Error(result.error);
         const now = new Date().toISOString();
         req.db

@@ -291,6 +291,8 @@ async function scanComments(channel, commentSets) {
       authenticity: 0,
       bot_share: null,
       note: "Комментарии отсутствуют или выключены на проверенных видео",
+      comment_summary: "Комментарии недоступны — проверить вручную.",
+      comment_examples: [],
       total_comments: 0,
       videos_with_comments: 0,
       samples: 0,
@@ -301,18 +303,27 @@ async function scanComments(channel, commentSets) {
   const sys =
     "Ты — аналитик аутентичности аудитории YouTube. Оцени, насколько комментарии под видео ЖИВЫЕ и органические, а не накрученные. " +
     "Признаки накрутки: генерик-фразы («nice video», «great», «❤️»), спам эмодзи, повторяющиеся однотипные комменты, офтоп, иностранный спам не по теме канала, ноль лайков и обсуждения. " +
-    "Признаки живости: предметные комментарии по теме, вопросы, дискуссия, лайки на комментах, ответы (↩). Верни СТРОГО JSON, без пояснений вокруг.";
+    "Признаки живости: предметные комментарии по теме, вопросы, дискуссия, лайки на комментах, ответы (↩). Верни СТРОГО JSON без пояснений вокруг.";
   const user = `Канал: ${channel.name}
 Тематика (из описания): ${channel.about.slice(0, 160) || "?"}
 Выборка комментариев (${sample.length} шт. с ${withComments} видео; формат [♥лайки/↩ответы] автор: текст):
 
 ${sample.join("\n")}
 
-Верни JSON:
-{"authenticity": <0-100, насколько комменты живые/органические>, "bot_share": <0-100, оценка доли накрученных/мусорных>, "note": "<1-2 предложения с конкретикой: что видно в комментах>"}`;
+Верни СТРОГО JSON:
+{
+  "authenticity": <0-100, насколько комменты живые/органические>,
+  "bot_share": <0-100, оценка доли накрученных/мусорных>,
+  "note": "<1-2 предложения с конкретикой: что видно в комментах>",
+  "comment_summary": "<3-4 предложения своими словами: о чём говорят люди, какой тон, что характерно — конкретно по этому каналу>",
+  "comment_examples": [
+    {"text": "<точная цитата из выборки, до 150 символов>", "author": "<имя автора>", "likes": <число лайков>, "tag": "<good если живой/содержательный, bad если спам/накрутка/мусор>"}
+  ]
+}
+В comment_examples включи 3-5 самых показательных комментариев — и хорошие примеры (живые, по теме), и плохие (спам, боты). Только реальные цитаты из выборки выше.`;
   const resp = await ai.messages.create({
     model: SCAN_MODEL,
-    max_tokens: 400,
+    max_tokens: 900,
     temperature: 0.2,
     system: sys,
     messages: [{ role: "user", content: user }],
@@ -331,6 +342,15 @@ ${sample.join("\n")}
         ? null
         : Math.max(0, Math.min(100, Math.round(p.bot_share))),
     note: (p.note || "").slice(0, 300),
+    comment_summary: (p.comment_summary || "").slice(0, 500),
+    comment_examples: Array.isArray(p.comment_examples)
+      ? p.comment_examples.slice(0, 5).map((e) => ({
+          text: String(e.text || "").slice(0, 200),
+          author: String(e.author || "").slice(0, 60),
+          likes: Math.max(0, parseInt(e.likes || 0, 10)),
+          tag: ["good", "bad"].includes(e.tag) ? e.tag : "good",
+        }))
+      : [],
     total_comments: totalComments,
     videos_with_comments: withComments,
     samples: sample.length,
@@ -346,36 +366,84 @@ ${sample.join("\n")}
 async function synthesize(channel, metrics, commentScan, opts = {}) {
   const ai = aiClient();
   const f = metrics.flags;
+  const { project } = opts;
+
+  // Блок контекста проекта для project_fit
+  let projectBlock = "";
+  if (
+    project &&
+    (project.name || project.value_prop_short || project.ideal_channel_profile)
+  ) {
+    let samplePitch = "";
+    if (project.sample_pitches) {
+      try {
+        const pp = JSON.parse(project.sample_pitches);
+        if (Array.isArray(pp) && pp.length > 0) {
+          const first = String(pp[0] || "")
+            .trim()
+            .slice(0, 250);
+          if (first) samplePitch = `\n- Пример питча: ${first}`;
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    projectBlock =
+      `\nПРОЕКТ/КАМПАНИЯ (для оценки совпадения с каналом):` +
+      `\n- Название: ${project.name || "?"}` +
+      `\n- УТП: ${project.value_prop_short || "?"}` +
+      `\n- Идеальный профиль канала: ${project.ideal_channel_profile || "?"}` +
+      samplePitch;
+  }
+
   const sys =
     "Ты — старший аналитик инфлюенс-маркетинга. На входе детерминированные метрики канала и AI-оценка живости комментариев. " +
     "Дай ИТОГОВЫЙ вердикт по блогеру для холодного аутрича, опираясь на КОНКРЕТНЫЕ цифры. Три тира:\n" +
     "- green / ads: здоровый канал, живая вовлечённая аудитория → писать по рекламе;\n" +
     "- yellow / project_intro: спорно (часть метрик слабая, но не мёртвый) → рассказать о проекте без оплаты, быстро досмотреть вручную;\n" +
     "- red / skip: явная накрутка или мёртвая аудитория → пропустить.\n" +
-    "Вердикт = ассистивный пре-фильтр, не приговор. Верни СТРОГО JSON.";
+    "Вердикт = ассистивный пре-фильтр, не приговор. Верни СТРОГО JSON без пояснений.";
+
   const fewDataWarning = commentScan.few_data
-    ? `\n⚠ МАЛО ДАННЫХ: всего ${commentScan.total_comments ?? 0} комментов проверено (< 20) — при сомнениях выбирай yellow, а не red.`
+    ? `\n⚠ МАЛО ДАННЫХ: всего ${commentScan.total_comments ?? 0} комментов (< 20) — при сомнениях выбирай yellow, не red.`
     : "";
-  const user = `КАНАЛ: ${channel.name} | подписчиков: ${channel.subs} | страна: ${channel.country || "?"} | возраст: ${metrics.age_days ?? "?"} дн | видео проверено: ${metrics.videos_checked}
 
-МЕТРИКИ (детерминированно):
-- avg просмотры: ${metrics.avg_views} (медиана ${metrics.median_views}) → ${metrics.views_subs_pct}% от подписчиков [${f.views_subs.flag}]
-- медиана/среднее просмотров: ${metrics.median_avg_ratio ?? "?"} [${f.viral_outlier?.flag ?? "?"}] (низкое+высокий CV = одно вирусное видео, остальные мёртвые)
-- лайки/просмотры: ${metrics.like_view_pct}% [${f.like_view.flag}] (органика обычно 1-5%)
-- комменты/просмотры: ${metrics.comment_view_pct}% [${f.comment_view.flag}]
-- разброс просмотров (CV): ${metrics.view_cv} [${f.view_cv.flag}] (низкий+ровный = подозрительно)
-- прирост: ${f.growth.value ?? "?"} подп/день [${f.growth.flag}] ${f.growth.note ? "(" + f.growth.note + ")" : ""}
+  const user =
+    `КАНАЛ: ${channel.name} | подписчиков: ${channel.subs} | страна: ${channel.country || "?"} | возраст: ${metrics.age_days ?? "?"} дн | видео проверено: ${metrics.videos_checked}\n` +
+    `\nМЕТРИКИ (детерминированно):` +
+    `\n- avg просмотры: ${metrics.avg_views} (медиана ${metrics.median_views}) → ${metrics.views_subs_pct}% от подписчиков [${f.views_subs.flag}]` +
+    `\n- медиана/среднее просмотров: ${metrics.median_avg_ratio ?? "?"} [${f.viral_outlier?.flag ?? "?"}] (низкое+высокий CV = одно вирусное видео, остальные мёртвые)` +
+    `\n- лайки/просмотры: ${metrics.like_view_pct}% [${f.like_view.flag}] (органика обычно 1-5%)` +
+    `\n- комменты/просмотры: ${metrics.comment_view_pct}% [${f.comment_view.flag}]` +
+    `\n- разброс просмотров (CV): ${metrics.view_cv} [${f.view_cv.flag}] (низкий+ровный = подозрительно)` +
+    `\n- прирост: ${f.growth.value ?? "?"} подп/день [${f.growth.flag}] ${f.growth.note ? "(" + f.growth.note + ")" : ""}` +
+    `\n\nAI-СКАН КОММЕНТОВ:` +
+    `\n- живость/органика: ${commentScan.authenticity}/100; оценка доли накрутки: ${commentScan.bot_share ?? "?"}%` +
+    `\n- заметка: ${commentScan.note || "—"}` +
+    `\n- проверено: ${commentScan.total_comments ?? 0} комментов с ${commentScan.videos_with_comments ?? 0} видео${fewDataWarning}` +
+    projectBlock +
+    `\n\nВерни СТРОГО JSON:
+{
+  "verdict": "green|yellow|red",
+  "recommendation": "ads|project_intro|skip",
+  "score": <0-100 здоровье канала>,
+  "reasoning": "<2-4 строки с КОНКРЕТНЫМИ цифрами, почему такой вердикт>",
+  "bottom_line": "<ОДНА строка итога простым языком: что канал из себя представляет и стоит ли работать>",
+  "strengths": ["<сильная сторона 1>", "<2>", "<3 при наличии>"],
+  "red_flags": ["<флаг 1>", "<2>", "<3 при наличии>"],
+  "metrics_explained": [
+    {"label": "<название метрики>", "value": "<значение>", "norm": "<норма для здорового канала>", "meaning": "<что это значит для данного канала простым языком>"}
+  ],
+  "confidence": "high|medium|low",
+  "confidence_note": "<почему: мало данных → low с пояснением, всё проверено → high>",
+  "project_fit": {"match": "yes|partial|no", "note": "<почему ниша/аудитория/гео совпадает или нет>", "how_to_approach": "<конкретный совет как заходить с питчем>"}
+}
+В metrics_explained включи 4-6 ключевых метрик с нормами и человеческим объяснением.
+Если данных о проекте нет — в project_fit.match ставь "partial", note и how_to_approach — общие советы.`;
 
-AI-СКАН КОММЕНТОВ:
-- живость/органика: ${commentScan.authenticity}/100; оценка доли накрутки: ${commentScan.bot_share ?? "?"}%
-- заметка: ${commentScan.note || "—"}
-- проверено: ${commentScan.total_comments ?? 0} комментов с ${commentScan.videos_with_comments ?? 0} видео${fewDataWarning}
-
-Верни JSON:
-{"verdict":"green|yellow|red","recommendation":"ads|project_intro|skip","score":<0-100 здоровье канала>,"reasoning":"<2-4 строки с КОНКРЕТНЫМИ цифрами, почему такой вердикт>"}`;
   const resp = await ai.messages.create({
     model: VERDICT_MODEL,
-    max_tokens: 500,
+    max_tokens: 1500,
     temperature: 0.2,
     system: sys,
     messages: [{ role: "user", content: user }],
@@ -399,11 +467,45 @@ AI-СКАН КОММЕНТОВ:
   // согласованность verdict ↔ recommendation (verdict — ведущий)
   recommendation = recMap[verdict];
   const score = Math.max(0, Math.min(100, Math.round(p.score ?? 50)));
+
+  const safeStrArr = (v) =>
+    Array.isArray(v) ? v.slice(0, 6).map((s) => String(s).slice(0, 200)) : [];
+  const safeMetricsExplained = Array.isArray(p.metrics_explained)
+    ? p.metrics_explained.slice(0, 8).map((m) => ({
+        label: String(m.label || "").slice(0, 60),
+        value: String(m.value || "").slice(0, 40),
+        norm: String(m.norm || "").slice(0, 80),
+        meaning: String(m.meaning || "").slice(0, 200),
+      }))
+    : [];
+  const safeFit =
+    p.project_fit && typeof p.project_fit === "object"
+      ? {
+          match: ["yes", "partial", "no"].includes(p.project_fit.match)
+            ? p.project_fit.match
+            : "partial",
+          note: String(p.project_fit.note || "").slice(0, 300),
+          how_to_approach: String(p.project_fit.how_to_approach || "").slice(
+            0,
+            300,
+          ),
+        }
+      : null;
+
   return {
     verdict,
     recommendation,
     score,
     reasoning: (p.reasoning || "").slice(0, 600),
+    bottom_line: (p.bottom_line || "").slice(0, 250),
+    strengths: safeStrArr(p.strengths),
+    red_flags: safeStrArr(p.red_flags),
+    metrics_explained: safeMetricsExplained,
+    confidence: ["high", "medium", "low"].includes(p.confidence)
+      ? p.confidence
+      : "medium",
+    confidence_note: (p.confidence_note || "").slice(0, 200),
+    project_fit: safeFit,
     usage: {
       in: resp.usage?.input_tokens || 0,
       out: resp.usage?.output_tokens || 0,
@@ -431,7 +533,9 @@ async function analyzeChannel(channelId, opts = {}) {
     }
     const metrics = heuristics(channel, videos);
     const commentScan = await scanComments(channel, commentSets);
-    const verdict = await synthesize(channel, metrics, commentScan);
+    const verdict = await synthesize(channel, metrics, commentScan, {
+      project: opts.project || null,
+    });
 
     // Guard: если вердикт RED, но данных по комментариям мало (< 20) и эвристики не красные
     // → понижаем до yellow, чтобы не отсеивать каналы без комментариев.
@@ -456,8 +560,18 @@ async function analyzeChannel(channelId, opts = {}) {
     metrics.comment_authenticity = commentScan.authenticity;
     metrics.comment_bot_share = commentScan.bot_share;
     metrics.comment_note = commentScan.note;
+    metrics.comment_summary = commentScan.comment_summary;
+    metrics.comment_examples = commentScan.comment_examples;
     metrics.comments_checked = commentScan.total_comments;
     metrics.comment_videos = commentScan.videos_with_comments;
+    // расширенные поля синтеза
+    metrics.bottom_line = verdict.bottom_line;
+    metrics.strengths = verdict.strengths;
+    metrics.red_flags = verdict.red_flags;
+    metrics.metrics_explained = verdict.metrics_explained;
+    metrics.confidence = verdict.confidence;
+    metrics.confidence_note = verdict.confidence_note;
+    metrics.project_fit = verdict.project_fit;
 
     const out = {
       channelId,
