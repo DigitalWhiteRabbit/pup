@@ -52,3 +52,11 @@ shadcn/ui · TanStack Query · dnd-kit · next-auth · Telegram Bot API
 - API contracts: specs/001-crm-kanban-system/contracts/api.md
 - Quickstart: specs/001-crm-kanban-system/quickstart.md
 <!-- SPECKIT END -->
+
+## Working style
+
+- Для аудитов, исследований и разработки **ОБЯЗАТЕЛЬНО используй субагентов** (Task-агентов): разбивай работу и запускай их **ПАРАЛЛЕЛЬНО** (fan-out), затем синтезируй результат. Не делай большие обзоры в одиночку линейно.
+- Используй доступные **скиллы (skills)** где уместно: `security-review` для аудита безопасности, `review` для разбора изменений, и др.
+- Большие задачи делай **тщательно и многопроходно**, а не поверхностно.
+
+_(EN) For audits, research, and development you MUST use subagents (Task agents): split the work and run them IN PARALLEL (fan-out), then synthesize. Don't do large reviews linearly on your own. Use available skills where relevant (`security-review` for security audits, `review` for change review, etc.). Do large tasks thoroughly and in multiple passes, not superficially._
