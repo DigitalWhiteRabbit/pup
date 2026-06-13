@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import Anthropic from "@anthropic-ai/sdk";
+import {
+  assertMember,
+  loadRoomInWorkspace,
+  voiceErrorResponse,
+} from "@/lib/services/voice-access";
 
 type RouteParams = { params: Promise<{ id: string; roomId: string }> };
 
@@ -17,27 +22,30 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   if (!session?.user?.id)
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { roomId } = await params;
+  const { id: workspaceId, roomId } = await params;
+
+  try {
+    await assertMember(workspaceId, session.user.id, session.user.role);
+    await loadRoomInWorkspace(roomId, workspaceId);
+  } catch (err) {
+    const { status, body } = voiceErrorResponse(err);
+    return NextResponse.json(body, { status });
+  }
 
   const formData = await req.formData();
   const file = formData.get("file") as File | null;
   const sessionId = formData.get("sessionId") as string | null;
 
-  console.log("[VOICE RECORDING] Upload received:", {
-    fileSize: file?.size,
-    fileType: file?.type,
-    sessionId,
-    roomId,
-  });
-
   if (!file)
     return NextResponse.json({ error: "No audio file" }, { status: 400 });
 
-  // Find the voice session
+  // Find the voice session (scoped to this workspace+room to avoid cross-ws IDOR)
   const voiceSession = sessionId
-    ? await db.voiceSession.findUnique({ where: { id: sessionId } })
+    ? await db.voiceSession.findFirst({
+        where: { id: sessionId, workspaceId, roomId },
+      })
     : await db.voiceSession.findFirst({
-        where: { roomId },
+        where: { roomId, workspaceId },
         orderBy: { startedAt: "desc" },
       });
 
