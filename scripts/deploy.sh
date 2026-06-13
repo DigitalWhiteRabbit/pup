@@ -1,14 +1,28 @@
 #!/bin/bash
-# deploy.sh — Production deploy for PUP + YT-Parser
-# Called via webhook (nohup detached) or manually.
+# deploy.sh — Production deploy for PUP + YT-Parser (unified Prisma/Postgres).
+# Called via webhook (/var/www/deploy.sh wrapper → exec this) or manually.
 # Features: flock, timeout, guaranteed restart, logging.
+#
+# Архитектура после Батча 3 (унификация БД):
+#   - парсер запускается IN-PLACE из /var/www/pup/tools/yt-parser (НЕ /var/www/yt-parser);
+#   - схема приводится через `prisma migrate deploy` (история resolved, обычно no-op);
+#   - нативные модули (better-sqlite3/sharp/bcrypt) собираются pnpm-ом благодаря
+#     pnpm.onlyBuiltDependencies в package.json (корневой и tools/yt-parser).
 
 set -o pipefail
+
+# --- Self-snapshot: Step 1 делает `git reset --hard`, который может перезаписать
+# этот файл на лету (webhook запускает нас как exec репо-скрипта). Запускаемся из
+# неизменяемой копии в /tmp, чтобы git не «выдернул ковёр» из-под исполнения. ---
+if [ "${DEPLOY_REEXEC:-}" != "1" ]; then
+  SNAP="/tmp/deploy-run.$$.sh"
+  cp "$0" "$SNAP" 2>/dev/null && DEPLOY_REEXEC=1 exec bash "$SNAP" "$@"
+fi
 
 LOCKFILE="/tmp/deploy.lock"
 LOGFILE="/var/www/deploy.log"
 PUP_DIR="/var/www/pup"
-YT_DIR="/var/www/yt-parser"
+YT_DIR="$PUP_DIR/tools/yt-parser"   # парсер in-place внутри репо (НЕ /var/www/yt-parser)
 BUILD_TIMEOUT=300  # 5 minutes
 
 # --- Logging helpers ---
@@ -38,16 +52,20 @@ log "========================================="
 log "DEPLOY STARTED (PID $$)"
 
 # --- Guaranteed restart on ANY exit ---
+# Перезапускаем оба процесса ИЗ их сохранённого pm2-конфига (cwd), а НЕ
+# пересоздаём из старых путей. yt-parser живёт из /var/www/pup/tools/yt-parser.
 cleanup() {
   local exit_code=$?
   log "Cleanup triggered (exit_code=$exit_code)"
 
   # Progress: services coming back up (step 3 = "Запуск контейнера").
-  # Sent before pm2 start so it lands before pup's onDeployCompleted shows "done".
   tg_progress 3
-  # Always start services back
-  pm2 start pup >> "$LOGFILE" 2>&1 || true
-  pm2 delete yt-parser >> "$LOGFILE" 2>&1 || true; ( cd "$YT_DIR" && pm2 start ecosystem.config.js >> "$LOGFILE" 2>&1 ) || true
+
+  # pup
+  pm2 restart pup >> "$LOGFILE" 2>&1 || pm2 start pup >> "$LOGFILE" 2>&1 || true
+  # yt-parser — restart из сохранённого cwd; fallback: старт из репо-пути
+  pm2 restart yt-parser >> "$LOGFILE" 2>&1 \
+    || ( cd "$YT_DIR" && pm2 start ecosystem.config.js >> "$LOGFILE" 2>&1 ) || true
 
   # Wait a bit and verify they are running
   sleep 3
@@ -62,10 +80,12 @@ cleanup() {
     log "yt-parser: RUNNING (pid $(pm2 pid yt-parser))"
   else
     log "yt-parser: FAILED TO START — attempting restart"
-    pm2 delete yt-parser >> "$LOGFILE" 2>&1 || true; ( cd "$YT_DIR" && pm2 start ecosystem.config.js >> "$LOGFILE" 2>&1 ) || true
+    pm2 restart yt-parser >> "$LOGFILE" 2>&1 \
+      || ( cd "$YT_DIR" && pm2 start ecosystem.config.js >> "$LOGFILE" 2>&1 ) || true
   fi
 
   pm2 save >> "$LOGFILE" 2>&1 || true
+  rm -f "$SNAP" 2>/dev/null || true
   if [ $exit_code -eq 0 ]; then
     log "DEPLOY FINISHED: OK"
   else
@@ -78,34 +98,33 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# --- Step 1: Git pull ---
-log "Step 1/6: git pull"
+# --- Step 1: Git — чистое отслеживание main ---
+# fetch + checkout main + hard-reset на origin/main; снимаем легаси-stash'и
+# (включая P4b-хотфикс — он уже в main как коммит).
+log "Step 1/5: git fetch + checkout main + reset --hard origin/main"
 cd "$PUP_DIR" || exit 1
-git stash >> "$LOGFILE" 2>&1 || true
-if ! git pull origin main >> "$LOGFILE" 2>&1; then
-  log "FATAL: git pull failed"
-  exit 1
-fi
+git fetch origin >> "$LOGFILE" 2>&1 || { log "FATAL: git fetch failed"; exit 1; }
+git checkout main >> "$LOGFILE" 2>&1 || { log "FATAL: git checkout main failed"; exit 1; }
+git reset --hard origin/main >> "$LOGFILE" 2>&1 || { log "FATAL: git reset failed"; exit 1; }
+git stash clear >> "$LOGFILE" 2>&1 || true
 
-# --- Step 2: Fix Prisma provider for PostgreSQL ---
-log "Step 2/6: prisma provider swap"
-sed -i 's/provider = "sqlite"/provider = "postgresql"/' prisma/schema.prisma 2>/dev/null
-
-# --- Step 3: Stop services to free RAM ---
-log "Step 3/6: stopping services"
+# --- Step 2: Stop services to free RAM ---
+log "Step 2/5: stopping services"
 pm2 stop pup >> "$LOGFILE" 2>&1 || true
 pm2 stop yt-parser >> "$LOGFILE" 2>&1 || true
 sleep 2
 
-# --- Step 4: Install deps + Prisma ---
-log "Step 4/6: pnpm install + prisma"
+# --- Step 3: PUP deps + Prisma (схема уже postgresql в репо — sed не нужен) ---
+log "Step 3/5: pnpm install + prisma generate + migrate deploy (PUP)"
 tg_progress 1  # "Установка зависимостей"
 pnpm install --frozen-lockfile >> "$LOGFILE" 2>&1
 npx prisma generate >> "$LOGFILE" 2>&1
-npx prisma db push --accept-data-loss >> "$LOGFILE" 2>&1 || true
+# migrate deploy — применяет pending-миграции; история resolved → обычно no-op.
+# (Заменяет прежний `db push --accept-data-loss`, который мог снести данные.)
+npx prisma migrate deploy >> "$LOGFILE" 2>&1 || log "WARN: prisma migrate deploy non-zero (см. лог)"
 
-# --- Step 5: Build with timeout ---
-log "Step 5/6: building (timeout=${BUILD_TIMEOUT}s)"
+# --- Step 4: Build with timeout ---
+log "Step 4/5: building (timeout=${BUILD_TIMEOUT}s)"
 tg_progress 2  # "Сборка проекта"
 rm -rf .next
 
@@ -124,18 +143,14 @@ else
 fi
 unset NODE_OPTIONS
 
-# --- Step 6: Sync yt-parser ---
-log "Step 6/6: syncing yt-parser"
-rsync -a --delete \
-  --exclude=node_modules \
-  --exclude=data \
-  --exclude=.env \
-  --exclude=cache.json \
-  --exclude="*.db" \
-  --exclude=presets.json \
-  "$PUP_DIR/tools/yt-parser/" "$YT_DIR/" 2>> "$LOGFILE"
+# --- Step 5: Парсер in-place (deps) — БЕЗ rsync на /var/www/yt-parser ---
+# Код парсера обновился вместе с git pull (он внутри репо tools/yt-parser).
+# Его .env / data / api-keys.db остаются (gitignored). Нативные модули
+# (better-sqlite3/sharp) соберутся через pnpm.onlyBuiltDependencies.
+# Prisma-клиент парсера уже сгенерён шагом 3 (общий `prisma generate`).
+log "Step 5/5: yt-parser deps (in-place)"
+( cd "$YT_DIR" && pnpm install --frozen-lockfile >> "$LOGFILE" 2>&1 ) \
+  || log "WARN: yt-parser pnpm install non-zero (см. лог)"
 
-cd "$YT_DIR" && npm install --production >> "$LOGFILE" 2>&1
-
-# cleanup trap will start both services
+# cleanup trap will restart both services
 exit 0
