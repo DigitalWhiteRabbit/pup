@@ -76,7 +76,10 @@ export function GuestJoinClient({
   const [showChat, setShowChat] = useState(true);
   const [chatText, setChatText] = useState("");
   const [elapsed, setElapsed] = useState(0);
-  const [guestToken] = useState(token || crypto.randomUUID());
+  // Per-guest identity key (NOT the credential). Access is granted by the
+  // signed invite `token` (validated server-side), passed separately below.
+  const [guestToken] = useState(() => crypto.randomUUID());
+  const tokenQS = `token=${encodeURIComponent(token)}`;
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const elapsedRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -87,7 +90,7 @@ export function GuestJoinClient({
   const { data: participants = [] } = useQuery<Participant[]>({
     queryKey: ["voice-guest-participants", roomId],
     queryFn: async () => {
-      const res = await fetch(`${base}/participants`);
+      const res = await fetch(`${base}/participants?${tokenQS}`);
       if (!res.ok) return [];
       const raw = await res.json();
       return (
@@ -113,7 +116,7 @@ export function GuestJoinClient({
   const { data: messages = [] } = useQuery<VoiceMsg[]>({
     queryKey: ["voice-guest-messages", roomId],
     queryFn: async () => {
-      const res = await fetch(`${base}/messages`);
+      const res = await fetch(`${base}/messages?${tokenQS}`);
       if (!res.ok) return [];
       const raw = await res.json();
       return (
@@ -144,7 +147,7 @@ export function GuestJoinClient({
       const res = await fetch(`${base}/participants`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ guestName: name.trim(), guestToken }),
+        body: JSON.stringify({ guestName: name.trim(), guestToken, token }),
       });
       if (res.ok) {
         setJoined(true);
@@ -169,7 +172,7 @@ export function GuestJoinClient({
     void fetch(`${base}/participants`, {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ guestToken }),
+      body: JSON.stringify({ guestToken, token }),
     });
     mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
     mediaStreamRef.current = null;
@@ -184,13 +187,13 @@ export function GuestJoinClient({
       void fetch(`${base}/heartbeat`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ isMuted, guestToken }),
+        body: JSON.stringify({ isMuted, guestToken, token }),
       });
     }, 5000);
     return () => {
       if (heartbeatRef.current) clearInterval(heartbeatRef.current);
     };
-  }, [joined, isMuted, base, guestToken]);
+  }, [joined, isMuted, base, guestToken, token]);
 
   /* ── Timer ── */
   useEffect(() => {
@@ -220,7 +223,7 @@ export function GuestJoinClient({
     await fetch(`${base}/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content: t, guestName: name }),
+      body: JSON.stringify({ content: t, guestName: name, token }),
     });
     setChatText("");
     void qc.invalidateQueries({ queryKey: ["voice-guest-messages", roomId] });
