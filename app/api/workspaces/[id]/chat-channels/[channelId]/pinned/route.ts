@@ -1,6 +1,8 @@
 import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { ApiError } from "@/lib/api-error";
+import { assertChannelAccess } from "@/lib/services/chat-internal/channel-access";
 
 type RouteParams = {
   params: Promise<{ id: string; channelId: string }>;
@@ -12,7 +14,15 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const session = await auth();
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const { channelId } = await params;
+    const { id: workspaceId, channelId } = await params;
+    // Was previously unauthenticated beyond session → leaked private-channel
+    // pinned content. Enforce channel access.
+    await assertChannelAccess(
+      channelId,
+      workspaceId,
+      session.user.id,
+      session.user.role,
+    );
 
     const messages = await db.chatMsg.findMany({
       where: {
@@ -41,7 +51,9 @@ export async function GET(_req: Request, { params }: RouteParams) {
         attachments: m.attachments,
       })),
     });
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError)
+      return NextResponse.json({ error: err.message }, { status: err.status });
     return NextResponse.json({ error: "Ошибка" }, { status: 500 });
   }
 }

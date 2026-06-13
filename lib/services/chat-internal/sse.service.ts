@@ -116,6 +116,40 @@ export function broadcastToWorkspace(
 }
 
 /**
+ * Send an event ONLY to clients whose userId is in `memberUserIds`.
+ * Pass `null` to broadcast to ALL workspace clients (PUBLIC/GENERAL channels).
+ * For PRIVATE/DM channels pass the channel members so non-members never receive
+ * the content over the wire (the core PRIVATE/DM leak fix). `excludeUserId`
+ * optionally drops the sender (used for typing).
+ */
+export function broadcastToChannelMembers(
+  workspaceId: string,
+  memberUserIds: string[] | null,
+  event: SSEEvent,
+  excludeUserId?: string,
+): void {
+  const wsClients = clients.get(workspaceId);
+  if (!wsClients || wsClients.size === 0) return;
+
+  const allowed = memberUserIds ? new Set(memberUserIds) : null;
+  const payload = `data: ${JSON.stringify(event)}\n\n`;
+  const dead: string[] = [];
+
+  wsClients.forEach((client, id) => {
+    if (allowed && !allowed.has(client.userId)) return;
+    if (excludeUserId && client.userId === excludeUserId) return;
+    try {
+      client.controller.enqueue(client.encoder.encode(payload));
+    } catch {
+      dead.push(id);
+    }
+  });
+
+  dead.forEach((id) => wsClients.delete(id));
+  if (wsClients.size === 0) clients.delete(workspaceId);
+}
+
+/**
  * Send an event to all clients in a workspace EXCEPT the sender.
  * Useful for typing indicators — the sender already knows they are typing.
  */

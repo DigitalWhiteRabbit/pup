@@ -13,8 +13,13 @@ export async function GET(
     const session = await auth();
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const { messageId } = await params;
-    const replies = await getThreadReplies(messageId, session.user.id);
+    const { id: workspaceId, messageId } = await params;
+    const replies = await getThreadReplies(
+      messageId,
+      session.user.id,
+      workspaceId,
+      session.user.role,
+    );
     return NextResponse.json({ data: replies });
   } catch (err) {
     if (err instanceof ApiError)

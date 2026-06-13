@@ -2,6 +2,8 @@ import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { storage } from "@/lib/services/storage";
+import { ApiError } from "@/lib/api-error";
+import { assertMessageChannelAccess } from "@/lib/services/chat-internal/channel-access";
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB
 const ALLOWED_TYPES = [
@@ -34,12 +36,15 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const { id: workspaceId, channelId, messageId } = await params;
 
-    // Verify message exists and belongs to user
-    const msg = await db.chatMsg.findUnique({
-      where: { id: messageId },
-      select: { authorId: true, channelId: true },
-    });
-    if (!msg || msg.channelId !== channelId)
+    // Channel-level access (ws-scoped; PRIVATE/DM require membership) — closes
+    // the cross-ws authenticated-write + storage tenant-mismatch hole.
+    const msg = await assertMessageChannelAccess(
+      messageId,
+      workspaceId,
+      session.user.id,
+      session.user.role,
+    );
+    if (msg.channelId !== channelId)
       return NextResponse.json({ error: "Не найдено" }, { status: 404 });
     if (msg.authorId !== session.user.id)
       return NextResponse.json({ error: "Нет доступа" }, { status: 403 });
@@ -91,7 +96,9 @@ export async function POST(req: Request, { params }: RouteParams) {
       },
       { status: 201 },
     );
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError)
+      return NextResponse.json({ error: err.message }, { status: err.status });
     return NextResponse.json({ error: "Ошибка загрузки" }, { status: 500 });
   }
 }

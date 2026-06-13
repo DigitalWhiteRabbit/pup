@@ -1,6 +1,8 @@
 import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { ApiError } from "@/lib/api-error";
+import { assertMessageChannelAccess } from "@/lib/services/chat-internal/channel-access";
 
 type RouteParams = {
   params: Promise<{ id: string; channelId: string; messageId: string }>;
@@ -12,20 +14,15 @@ export async function POST(_req: Request, { params }: RouteParams) {
     const session = await auth();
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const { channelId, messageId } = await params;
+    const { id: workspaceId, messageId } = await params;
 
-    // Verify channel access
-    const membership = await db.chatChannelMember.findUnique({
-      where: { channelId_userId: { channelId, userId: session.user.id } },
-    });
-    if (!membership) {
-      const ch = await db.chatChannel.findUnique({
-        where: { id: channelId },
-        select: { type: true },
-      });
-      if (!ch || (ch.type !== "PUBLIC" && ch.type !== "GENERAL"))
-        return NextResponse.json({ error: "Нет доступа" }, { status: 403 });
-    }
+    // Channel-level access (ws-scoped; PRIVATE/DM require membership).
+    await assertMessageChannelAccess(
+      messageId,
+      workspaceId,
+      session.user.id,
+      session.user.role,
+    );
 
     const existing = await db.chatMsgBookmark.findUnique({
       where: {
@@ -42,7 +39,9 @@ export async function POST(_req: Request, { params }: RouteParams) {
       data: { messageId, userId: session.user.id },
     });
     return NextResponse.json({ bookmarked: true });
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError)
+      return NextResponse.json({ error: err.message }, { status: err.status });
     return NextResponse.json({ error: "Ошибка" }, { status: 500 });
   }
 }

@@ -23,17 +23,19 @@ export async function GET(
     const session = await auth();
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const { channelId } = await params;
+    const { id: workspaceId, channelId } = await params;
     const url = new URL(req.url);
     const before = url.searchParams.get("before") ?? undefined;
     const limit = Math.min(
       Math.max(parseInt(url.searchParams.get("limit") ?? "50", 10) || 50, 1),
       100,
     );
-    const messages = await listMessages(channelId, session.user.id, {
-      limit,
-      before,
-    });
+    const messages = await listMessages(
+      channelId,
+      session.user.id,
+      workspaceId,
+      { limit, before, role: session.user.role },
+    );
     return NextResponse.json({ data: messages });
   } catch (err) {
     if (err instanceof ApiError)
@@ -50,10 +52,16 @@ export async function POST(
     const session = await auth();
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const { channelId } = await params;
+    const { id: workspaceId, channelId } = await params;
     const body: unknown = await req.json();
     const data = sendSchema.parse(body);
-    const msg = await sendMessage(channelId, session.user.id, data);
+    const msg = await sendMessage(
+      channelId,
+      session.user.id,
+      workspaceId,
+      data,
+      session.user.role,
+    );
     return NextResponse.json(msg, { status: 201 });
   } catch (err) {
     if (err instanceof z.ZodError)

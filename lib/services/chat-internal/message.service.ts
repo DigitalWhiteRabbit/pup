@@ -2,7 +2,12 @@ import "server-only";
 import { db } from "@/lib/db";
 import { ApiError } from "@/lib/api-error";
 import { sendTelegramNotification } from "../telegram/sender";
-import { broadcastToWorkspace } from "./sse.service";
+import { broadcastToChannelMembers } from "./sse.service";
+import {
+  assertChannelAccess,
+  assertMessageChannelAccess,
+  resolveChannelDelivery,
+} from "./channel-access";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -42,22 +47,11 @@ export type ChatMsgView = {
 export async function listMessages(
   channelId: string,
   userId: string,
-  opts: { limit?: number; before?: string } = {},
+  workspaceId: string,
+  opts: { limit?: number; before?: string; role?: string } = {},
 ): Promise<ChatMsgView[]> {
-  // Verify membership
-  const membership = await db.chatChannelMember.findUnique({
-    where: { channelId_userId: { channelId, userId } },
-  });
-  if (!membership) {
-    // Check if public/general
-    const ch = await db.chatChannel.findUnique({
-      where: { id: channelId },
-      select: { type: true },
-    });
-    if (!ch || (ch.type !== "PUBLIC" && ch.type !== "GENERAL")) {
-      throw new ApiError("Нет доступа", "FORBIDDEN", 403);
-    }
-  }
+  // Channel-level access (workspace-scoped; PRIVATE/DM require membership).
+  await assertChannelAccess(channelId, workspaceId, userId, opts.role);
 
   const limit = opts.limit ?? 50;
   const where: Record<string, unknown> = {
@@ -170,26 +164,11 @@ export async function listMessages(
 export async function getThreadReplies(
   messageId: string,
   userId: string,
+  workspaceId: string,
+  role?: string,
 ): Promise<ChatMsgView[]> {
-  const parent = await db.chatMsg.findUnique({
-    where: { id: messageId },
-    select: { channelId: true },
-  });
-  if (!parent) throw new ApiError("Сообщение не найдено", "NOT_FOUND", 404);
-
-  // Verify channel access
-  const membership = await db.chatChannelMember.findUnique({
-    where: { channelId_userId: { channelId: parent.channelId, userId } },
-  });
-  if (!membership) {
-    const ch = await db.chatChannel.findUnique({
-      where: { id: parent.channelId },
-      select: { type: true },
-    });
-    if (!ch || (ch.type !== "PUBLIC" && ch.type !== "GENERAL")) {
-      throw new ApiError("Нет доступа", "FORBIDDEN", 403);
-    }
-  }
+  // Channel/workspace scope + access.
+  await assertMessageChannelAccess(messageId, workspaceId, userId, role);
 
   const replies = await db.chatMsg.findMany({
     where: { parentId: messageId, deletedAt: null },
@@ -258,6 +237,7 @@ export async function getThreadReplies(
 export async function sendMessage(
   channelId: string,
   userId: string,
+  workspaceId: string,
   input: {
     content: string;
     parentId?: string;
@@ -265,23 +245,26 @@ export async function sendMessage(
     linkedTaskId?: string;
     forwardedFromId?: string;
   },
+  role?: string,
 ): Promise<ChatMsgView> {
-  // Verify membership (auto-join for public/general)
-  let membership = await db.chatChannelMember.findUnique({
-    where: { channelId_userId: { channelId, userId } },
-  });
-  if (!membership) {
-    const ch = await db.chatChannel.findUnique({
-      where: { id: channelId },
-      select: { type: true },
+  // Channel-level access: channel must be in this workspace; PRIVATE/DM require
+  // membership; PUBLIC/GENERAL require workspace membership. No silent auto-join
+  // into arbitrary channels — access is decided here.
+  const channel = await assertChannelAccess(
+    channelId,
+    workspaceId,
+    userId,
+    role,
+  );
+
+  // Bookkeeping: ensure a membership row exists on open channels so read-receipt
+  // tracking works (access is already granted above).
+  if (channel.type === "PUBLIC" || channel.type === "GENERAL") {
+    await db.chatChannelMember.upsert({
+      where: { channelId_userId: { channelId, userId } },
+      create: { channelId, userId },
+      update: {},
     });
-    if (ch && (ch.type === "PUBLIC" || ch.type === "GENERAL")) {
-      membership = await db.chatChannelMember.create({
-        data: { channelId, userId },
-      });
-    } else {
-      throw new ApiError("Нет доступа", "FORBIDDEN", 403);
-    }
   }
 
   const msg = await db.chatMsg.create({
@@ -306,9 +289,10 @@ export async function sendMessage(
     data: { updatedAt: new Date() },
   });
 
-  // Update sender's lastReadAt
-  await db.chatChannelMember.update({
-    where: { channelId_userId: { channelId, userId } },
+  // Update sender's lastReadAt (updateMany → no-op if no membership row, e.g.
+  // an ADMIN posting to a private channel they're not a member of).
+  await db.chatChannelMember.updateMany({
+    where: { channelId, userId },
     data: { lastReadAt: new Date() },
   });
 
@@ -345,13 +329,18 @@ export async function sendMessage(
 export async function editMessage(
   messageId: string,
   userId: string,
+  workspaceId: string,
   content: string,
+  role?: string,
 ): Promise<void> {
-  const msg = await db.chatMsg.findUnique({
-    where: { id: messageId },
-    select: { authorId: true, channelId: true },
-  });
-  if (!msg) throw new ApiError("Не найдено", "NOT_FOUND", 404);
+  // Channel/workspace scope + access (also 404s a cross-ws messageId).
+  const msg = await assertMessageChannelAccess(
+    messageId,
+    workspaceId,
+    userId,
+    role,
+  );
+  // Edit is author-only (even ADMIN cannot rewrite another user's message).
   if (msg.authorId !== userId)
     throw new ApiError(
       "Можно редактировать только свои сообщения",
@@ -379,12 +368,16 @@ export async function deleteMessage(
   messageId: string,
   userId: string,
   userRole: "ADMIN" | "USER",
+  workspaceId: string,
 ): Promise<void> {
-  const msg = await db.chatMsg.findUnique({
-    where: { id: messageId },
-    select: { authorId: true, channelId: true },
-  });
-  if (!msg) throw new ApiError("Не найдено", "NOT_FOUND", 404);
+  // Channel/workspace scope + access (also 404s a cross-ws messageId).
+  const msg = await assertMessageChannelAccess(
+    messageId,
+    workspaceId,
+    userId,
+    userRole,
+  );
+  // Author OR global ADMIN (parity; unified ADMIN policy → P0 #3).
   if (msg.authorId !== userId && userRole !== "ADMIN")
     throw new ApiError("Нет доступа", "FORBIDDEN", 403);
 
@@ -403,12 +396,16 @@ export async function toggleReaction(
   messageId: string,
   userId: string,
   emoji: string,
+  workspaceId: string,
+  role?: string,
 ): Promise<{ added: boolean }> {
-  // Look up channelId for SSE broadcast
-  const msg = await db.chatMsg.findUnique({
-    where: { id: messageId },
-    select: { channelId: true },
-  });
+  // Channel/workspace scope + access (kills cross-channel/cross-ws reaction IDOR).
+  const msg = await assertMessageChannelAccess(
+    messageId,
+    workspaceId,
+    userId,
+    role,
+  );
 
   const existing = await db.chatMsgReaction.findUnique({
     where: { messageId_userId_emoji: { messageId, userId, emoji } },
@@ -452,7 +449,10 @@ export async function toggleReaction(
 export async function markChannelRead(
   channelId: string,
   userId: string,
+  workspaceId: string,
+  role?: string,
 ): Promise<void> {
+  await assertChannelAccess(channelId, workspaceId, userId, role);
   await db.chatChannelMember.updateMany({
     where: { channelId, userId },
     data: { lastReadAt: new Date() },
@@ -553,15 +553,24 @@ async function notifyMentions(
 // All are fire-and-forget — errors are swallowed to avoid impacting the
 // primary write path.
 
-async function resolveWorkspaceId(channelId: string): Promise<string | null> {
+// Deliver a message-level SSE event scoped to the channel: PUBLIC/GENERAL →
+// all workspace clients; PRIVATE/DM → channel members only (no leak to
+// non-member workspace clients).
+async function sseDeliver(
+  channelId: string,
+  type:
+    | "new_message"
+    | "message_edited"
+    | "message_deleted"
+    | "reaction_toggled",
+  data: unknown,
+): Promise<void> {
   try {
-    const ch = await db.chatChannel.findUnique({
-      where: { id: channelId },
-      select: { workspaceId: true },
-    });
-    return ch?.workspaceId ?? null;
+    const d = await resolveChannelDelivery(channelId);
+    if (!d) return;
+    broadcastToChannelMembers(d.workspaceId, d.recipients, { type, data });
   } catch {
-    return null;
+    /* fire-and-forget */
   }
 }
 
@@ -569,16 +578,7 @@ async function sseNotifyNewMessage(
   channelId: string,
   message: ChatMsgView,
 ): Promise<void> {
-  try {
-    const wsId = await resolveWorkspaceId(channelId);
-    if (!wsId) return;
-    broadcastToWorkspace(wsId, {
-      type: "new_message",
-      data: { channelId, message },
-    });
-  } catch {
-    /* fire-and-forget */
-  }
+  await sseDeliver(channelId, "new_message", { channelId, message });
 }
 
 async function sseNotifyMessageEdited(
@@ -590,32 +590,14 @@ async function sseNotifyMessageEdited(
     editedAt: string;
   },
 ): Promise<void> {
-  try {
-    const wsId = await resolveWorkspaceId(channelId);
-    if (!wsId) return;
-    broadcastToWorkspace(wsId, {
-      type: "message_edited",
-      data: payload,
-    });
-  } catch {
-    /* fire-and-forget */
-  }
+  await sseDeliver(channelId, "message_edited", payload);
 }
 
 async function sseNotifyMessageDeleted(
   channelId: string,
   messageId: string,
 ): Promise<void> {
-  try {
-    const wsId = await resolveWorkspaceId(channelId);
-    if (!wsId) return;
-    broadcastToWorkspace(wsId, {
-      type: "message_deleted",
-      data: { channelId, messageId },
-    });
-  } catch {
-    /* fire-and-forget */
-  }
+  await sseDeliver(channelId, "message_deleted", { channelId, messageId });
 }
 
 async function sseNotifyReaction(
@@ -628,14 +610,5 @@ async function sseNotifyReaction(
     userId: string;
   },
 ): Promise<void> {
-  try {
-    const wsId = await resolveWorkspaceId(channelId);
-    if (!wsId) return;
-    broadcastToWorkspace(wsId, {
-      type: "reaction_toggled",
-      data: payload,
-    });
-  } catch {
-    /* fire-and-forget */
-  }
+  await sseDeliver(channelId, "reaction_toggled", payload);
 }
