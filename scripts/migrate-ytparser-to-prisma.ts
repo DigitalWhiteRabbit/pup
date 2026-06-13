@@ -20,17 +20,28 @@ import { PrismaClient } from "@prisma/client";
 import Database from "better-sqlite3";
 import * as fs from "node:fs";
 import * as path from "node:path";
+// Шифрование секретов TG-аккаунта (AES-256-GCM, ключ из ENCRYPTION_KEY||AUTH_SECRET).
+// crypto.service.ts помечен "server-only" → запускать через: tsx --conditions=react-server
+import { encrypt } from "../lib/services/crypto.service";
 
 // ─── Карта воркспейсов (заполняет владелец) ─────────────────────────────────
 // Ключ: имя файла ws-XXX.db без префикса "ws-" и суффикса ".db".
 // Значение: Prisma Workspace.id (cuid). Файлы без записи в карте НЕ мигрируются.
-const WORKSPACE_MAP: Record<string, string> = {
-  // "<имя файла ws-XXX.db без префикса/суффикса>": "<Prisma Workspace.id (cuid)>"
+// Переопределяется через env WORKSPACE_MAP_JSON (для прод-прогона на копии),
+// иначе — дефолтная dev-карта (не клобберим локальную разработку).
+const DEFAULT_WORKSPACE_MAP: Record<string, string> = {
   "qa-tg": "cmqbkwccn0001onqtv7q6ihrd", // ws-qa-tg.db → "QA / Telegram Outreach" (scripts/create-workspace.ts)
   // "default": без маппинга — файл пуст, пропускается с WARN
 };
+const WORKSPACE_MAP: Record<string, string> = process.env.WORKSPACE_MAP_JSON
+  ? (JSON.parse(process.env.WORKSPACE_MAP_JSON) as Record<string, string>)
+  : DEFAULT_WORKSPACE_MAP;
 
-const YT_DATA_DIR = path.join(__dirname, "..", "tools", "yt-parser", "data");
+// Каталог с ws-*.db. Переопределяется через env YT_DATA_DIR_OVERRIDE
+// (прод-снимки), иначе — дефолтный dev-каталог парсера.
+const YT_DATA_DIR = process.env.YT_DATA_DIR_OVERRIDE
+  ? path.resolve(process.env.YT_DATA_DIR_OVERRIDE)
+  : path.join(__dirname, "..", "tools", "yt-parser", "data");
 
 const DRY_RUN = process.argv.includes("--dry-run");
 const prisma = new PrismaClient();
@@ -115,6 +126,12 @@ function toStr(v: unknown): string | null {
   return v == null ? null : String(v);
 }
 
+// Зашифровать секрет (null/'' → null без вызова encrypt).
+function enc(v: unknown): string | null {
+  const s = toStr(v);
+  return s && s.length > 0 ? encrypt(s) : null;
+}
+
 interface Counts {
   insert: number;
   update: number;
@@ -134,6 +151,7 @@ interface EntityCounts {
   pendingReplies: Counts;
   consultations: Counts;
   leadEmails: Counts;
+  tgAccounts: Counts;
 }
 
 interface WsReport {
@@ -165,6 +183,7 @@ async function migrateWorkspace(
       pendingReplies: newCounts(),
       consultations: newCounts(),
       leadEmails: newCounts(),
+      tgAccounts: newCounts(),
     },
     warnings: [],
     leadsWithoutChannelId: 0,
@@ -728,6 +747,93 @@ async function migrateWorkspace(
         if (!DRY_RUN) {
           await prisma.mktLeadEmail.create({
             data: { leadId: newLeadId, email },
+          });
+        }
+      }
+    }
+
+    // ── 7c. tg_account → MktTgAccount ────────────────────────────────────────
+    // Секреты (session, two_fa, api_hash, proxy_pass) шифруются.
+    // Идемпотентность: dedup по (workspaceId, phone); если phone пуст — по
+    // user_id, иначе по label. floodUntil — BigInt(ms).
+    let tgRows: any[] = [];
+    try {
+      tgRows = sq.prepare(`SELECT * FROM tg_account`).all() as any[];
+    } catch {
+      tgRows = []; // в этой ws-БД нет таблицы tg_account — нечего переносить
+    }
+
+    for (const a of tgRows) {
+      const phone = toStr(a.phone);
+      const userId = toStr(a.user_id);
+      const label = toStr(a.label);
+
+      // Натуральный ключ для dedup в рамках воркспейса.
+      const where: any = { workspaceId };
+      if (phone) where.phone = phone;
+      else if (userId) where.userId = userId;
+      else if (label) where.label = label;
+      else {
+        report.warnings.push(
+          `tg_account #${a.id}: нет phone/user_id/label — пропущен (нельзя дедуплицировать)`,
+        );
+        continue;
+      }
+
+      const data = {
+        label,
+        phone,
+        apiId: a.api_id ?? null,
+        apiHash: enc(a.api_hash), // ENCRYPTED
+        session: enc(a.session), // ENCRYPTED
+        proxyType: toStr(a.proxy_type),
+        proxyHost: toStr(a.proxy_host),
+        proxyPort: a.proxy_port ?? null,
+        proxyUser: toStr(a.proxy_user),
+        proxyPass: enc(a.proxy_pass), // ENCRYPTED
+        status: toStr(a.status) ?? "active",
+        firstUsedAt: toStr(a.first_used_at),
+        sentToday: a.sent_today ?? 0,
+        sentTodayDate: toStr(a.sent_today_date),
+        dailyCap: a.daily_cap ?? 50,
+        floodUntil: a.flood_until != null ? BigInt(a.flood_until) : null,
+        lastSentAt: toStr(a.last_sent_at),
+        twoFa: enc(a.two_fa), // ENCRYPTED
+        userId,
+        deviceModel: toStr(a.device_model),
+        systemVersion: toStr(a.system_version),
+        appVersion: toStr(a.app_version),
+        langCode: toStr(a.lang_code),
+        systemLangCode: toStr(a.system_lang_code),
+        source: toStr(a.source),
+        firstName: toStr(a.first_name),
+        lastName: toStr(a.last_name),
+        username: toStr(a.username),
+        metadata: toStr(a.metadata),
+      };
+
+      const existing = await prisma.mktTgAccount.findFirst({
+        where,
+        select: { id: true },
+      });
+
+      if (existing) {
+        report.counts.tgAccounts.update++;
+        if (!DRY_RUN) {
+          await prisma.mktTgAccount.update({
+            where: { id: existing.id },
+            data,
+          });
+        }
+      } else {
+        report.counts.tgAccounts.insert++;
+        if (!DRY_RUN) {
+          await prisma.mktTgAccount.create({
+            data: {
+              workspaceId,
+              createdAt: toDate(a.created_at) ?? undefined,
+              ...data,
+            },
           });
         }
       }
