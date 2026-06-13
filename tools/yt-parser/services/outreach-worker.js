@@ -1,7 +1,20 @@
 const crypto = require("crypto");
-const dbModule = require("../db/database");
-let { stmts, db } = dbModule;
+// Шаг 4b-2: воркер полностью на prisma-store (Postgres). SQLite (db/database.js)
+// больше не используется здесь.
+const store = require("../db/prisma-store");
+const { resolveWorkspaceId, WORKSPACE_MAP } = require("../db/workspace-map");
 const ai = require("./ai");
+
+// Резолв ключа/идентификатора воркспейса → PUP cuid (принимаем и ключ, и cuid).
+function resolveWsCuid(workspaceKeyOrCuid) {
+  if (!workspaceKeyOrCuid) return null;
+  return (
+    resolveWorkspaceId(workspaceKeyOrCuid) ||
+    (Object.values(WORKSPACE_MAP).includes(workspaceKeyOrCuid)
+      ? workspaceKeyOrCuid
+      : null)
+  );
+}
 const email = require("./email");
 const tg = require("./telegram-outreach");
 const adminBot = require("./admin-bot");
@@ -27,8 +40,6 @@ function buildTrackingPixelUrl(workspaceId, trackingId) {
 
 // ─── State ──────────────────────────────────────────────────────────
 
-let currentWorkspaceId = "default";
-
 let workerState = {
   running: false,
   outreachInterval: null,
@@ -43,66 +54,6 @@ let workerState = {
 let isProcessingReplies = false;
 let isProcessingApproved = false;
 let isProcessingOutreach = false;
-
-// ─── Review mode ────────────────────────────────────────────────────
-// Флаг в settings (key='review_mode', value='1'/'0'). Fallback на ENV REVIEW_MODE=true.
-function isReviewMode() {
-  try {
-    const row = stmts.getSetting.get("review_mode");
-    if (row && row.value) return row.value === "1" || row.value === "true";
-  } catch {}
-  return process.env.REVIEW_MODE === "true" || process.env.REVIEW_MODE === "1";
-}
-
-// Положить reply в очередь на проверку вместо немедленной отправки.
-// context: { type: 'initial'|'reply'|'deal_accept'|'consultation_answer', ...extra }
-function queueReply({
-  lead_id,
-  dialogue_id = null,
-  channel,
-  recipient,
-  subject = null,
-  body,
-  context = {},
-}) {
-  const now = new Date().toISOString();
-  const result = stmts.insertPendingReply.run({
-    lead_id,
-    dialogue_id,
-    channel,
-    recipient,
-    subject,
-    body,
-    context: JSON.stringify(context),
-    created_at: now,
-  });
-  log(
-    "INFO",
-    `[review] queued pending_reply #${result.lastInsertRowid} for lead #${lead_id} (${context.type})`,
-  );
-  // Уведомим админа в TG если bot готов
-  if (adminBot.isReady() && typeof adminBot.notifyPendingReply === "function") {
-    const pr = stmts.getPendingReply.get(result.lastInsertRowid);
-    adminBot
-      .notifyPendingReply(pr)
-      .catch((e) => log("ERR", "notifyPendingReply: " + e.message));
-  }
-  return result.lastInsertRowid;
-}
-
-// Есть ли у лида/диалога уже pending или approved reply (чтобы не плодить дубликаты)
-function hasActivePendingReply(lead_id, dialogue_id = null) {
-  const row = db
-    .prepare(
-      `
-    SELECT id FROM pending_replies
-    WHERE lead_id = ? AND (dialogue_id IS ? OR dialogue_id = ?) AND status IN ('pending','approved')
-    LIMIT 1
-  `,
-    )
-    .get(lead_id, dialogue_id, dialogue_id);
-  return !!row;
-}
 
 const OUTREACH_TICK_MS = 30_000;
 const INBOX_TICK_MS = 60_000;
@@ -148,13 +99,9 @@ function todayKey() {
   return localDateKey();
 }
 
-function getDailyCounts() {
-  const row = stmts.getDailyCounters.get(todayKey());
-  return { sent_email: row?.sent_email || 0, sent_tg: row?.sent_tg || 0 };
-}
-
-function incrementDailyCount(channel) {
-  stmts.upsertDailyCounters.run({
+// Инкремент дневного счётчика отправок через store (ws-scoped).
+async function bumpDaily(wsId, channel) {
+  await store.upsertDailyCounters(wsId, {
     date: todayKey(),
     sent_email: channel === "email" ? 1 : 0,
     sent_tg: channel === "telegram" ? 1 : 0,
@@ -164,15 +111,6 @@ function incrementDailyCount(channel) {
     ai_cache_creation: 0,
   });
 }
-
-// Atomic pick + lock (pickAndLockNextLead в транзакции)
-const pickAndLockNextLead = db.transaction(() => {
-  const now = Date.now();
-  const lead = stmts.pickNextLeadForOutreach.get({ now });
-  if (!lead) return null;
-  stmts.lockLead.run(now + LOCK_DURATION_MS, lead.id);
-  return lead;
-});
 
 // Email normalization & parsing
 function parseEmailList(raw) {
@@ -201,55 +139,7 @@ function channelAvailability(lead) {
   };
 }
 
-// Каналы, по которым лиду уже уходило исходящее (для идемпотентности).
-function existingOutChannels(leadId) {
-  try {
-    const rows = db
-      .prepare(
-        `SELECT DISTINCT d.channel FROM dialogues d
-         JOIN messages m ON m.dialogue_id = d.id
-         WHERE d.lead_id = ? AND m.direction = 'out'`,
-      )
-      .all(leadId);
-    return new Set(rows.map((r) => r.channel));
-  } catch {
-    return new Set();
-  }
-}
-
-// Есть ли уже активная (pending/approved) очередь по каналу для лида —
-// чтобы повторный «Запустить» не плодил дубли в ревью-режиме.
-function hasPendingForChannel(leadId, channel) {
-  try {
-    const row = db
-      .prepare(
-        `SELECT id FROM pending_replies
-         WHERE lead_id = ? AND channel = ? AND status IN ('pending','approved') LIMIT 1`,
-      )
-      .get(leadId, channel);
-    return !!row;
-  } catch {
-    return false;
-  }
-}
-
 const ALL_CHANNELS = ["email", "telegram"];
-
-// Разрешить итоговый набор каналов для отправки: (запрошенные|все доступные)
-// ∩ доступные − уже отправленные − уже в очереди.
-function resolveChannels(lead, requested) {
-  const avail = channelAvailability(lead);
-  const available = ALL_CHANNELS.filter((c) => avail[c]);
-  const want =
-    Array.isArray(requested) && requested.length
-      ? requested.filter((c) => available.includes(c))
-      : available;
-  const alreadyOut = existingOutChannels(lead.id);
-  const selected = want.filter(
-    (c) => !alreadyOut.has(c) && !hasPendingForChannel(lead.id, c),
-  );
-  return { available, want, alreadyOut, selected };
-}
 
 function recipientFor(lead, channel) {
   return channel === "email"
@@ -259,72 +149,21 @@ function recipientFor(lead, channel) {
 
 // Отправка ответа в TG ТЕМ ЖЕ аккаунтом, что ведёт диалог (dialogues.account_id).
 // Если у диалога ещё нет привязки — выбираем здоровый аккаунт и фиксируем его.
-async function sendTelegramBound(dialogueId, recipient, text) {
+async function sendTelegramBound(wsId, dialogueId, recipient, text) {
   let accountId = null;
   if (dialogueId) {
-    const d = stmts.getDialogue.get(dialogueId);
-    if (d && d.account_id != null) accountId = d.account_id;
+    accountId = await store.getDialogueAccountId(wsId, dialogueId);
   }
   if (accountId == null) accountId = tg.pickAccount();
   if (accountId == null)
     throw new Error("нет доступного TG-аккаунта (залогинен/под лимитом)");
   const result = await tg.sendMessageVia(accountId, recipient, text);
   if (dialogueId) {
-    const d = stmts.getDialogue.get(dialogueId);
-    if (d && d.account_id == null)
-      stmts.setDialogueAccount.run(result.accountId, dialogueId);
+    const cur = await store.getDialogueAccountId(wsId, dialogueId);
+    if (cur == null)
+      await store.setDialogueAccount(wsId, result.accountId, dialogueId);
   }
   return result;
-}
-
-// Match lead by exact email address (lowercase). Берём lead'ов с lead_status in work/done и потом фильтруем.
-function findLeadByEmail(fromAddr) {
-  if (!fromAddr) return null;
-  const needle = String(fromAddr).toLowerCase().trim();
-  // Сначала быстрый exact match через индексированную таблицу lead_emails
-  try {
-    const exact = stmts.findLeadByEmailExact.get(needle);
-    if (exact) return exact;
-  } catch (e) {
-    /* fallback ниже */
-  }
-  // Fallback (на случай если lead_emails ещё не заполнена для этого лида)
-  const candidates = db
-    .prepare(`SELECT * FROM leads WHERE email IS NOT NULL AND email != ''`)
-    .all();
-  for (const l of candidates) {
-    const list = parseEmailList(l.email);
-    if (list.includes(needle)) return l;
-  }
-  return null;
-}
-
-// Найти диалог по In-Reply-To / References по сохранённому resend_id в messages.metadata
-function findDialogueByReplyHeaders(inReplyTo, references) {
-  const ids = new Set();
-  const extractIds = (str) => {
-    if (!str) return;
-    const matches = String(str).match(/<[^>]+>|[^\s<>]+/g) || [];
-    matches.forEach((id) => ids.add(id.replace(/^<|>$/g, "")));
-  };
-  extractIds(inReplyTo);
-  extractIds(references);
-  if (ids.size === 0) return null;
-
-  for (const id of ids) {
-    const row = db
-      .prepare(
-        `
-      SELECT d.* FROM messages m
-      JOIN dialogues d ON d.id = m.dialogue_id
-      WHERE m.resend_id = ?
-      LIMIT 1
-    `,
-      )
-      .get(id);
-    if (row) return row;
-  }
-  return null;
 }
 
 // Validation: проверить что extracted_price реально упоминается в последних in-сообщениях
@@ -341,6 +180,8 @@ function validatePriceMention(history, extractedPrice) {
 
 // ─── Outreach loop ──────────────────────────────────────────────────
 
+// Шаг 3.3c-1: петля исходящей рассылки на prisma-store. Перечисляем воркспейсы
+// с активным проектом (вместо файлового скана ws-*.db) и итерируем по cuid.
 async function processOutreachQueue() {
   if (!workerState.running) return;
   if (isProcessingOutreach) return;
@@ -348,30 +189,16 @@ async function processOutreachQueue() {
   workerState.lastTick = new Date().toISOString();
 
   try {
-    const project = stmts.getActiveProject.get();
-    if (!project) {
-      log("WARN", "No active project — outreach paused");
-      return;
+    const wsIds = await store.listActiveWorkspaceIds();
+    for (const wsId of wsIds) {
+      try {
+        await _processWorkspaceOutreach(wsId);
+      } catch (e) {
+        log("ERR", `Outreach ws ${wsId} failed: ${e.message}`);
+        workerState.lastError = e.message;
+        workerState.stats.errors++;
+      }
     }
-
-    // Daily cap check
-    const counts = getDailyCounts();
-    if (
-      counts.sent_email >= DAILY_CAP_EMAIL &&
-      counts.sent_tg >= DAILY_CAP_TG
-    ) {
-      log(
-        "INFO",
-        `Daily cap reached (email=${counts.sent_email}/${DAILY_CAP_EMAIL}, tg=${counts.sent_tg}/${DAILY_CAP_TG})`,
-      );
-      return;
-    }
-
-    // Атомарный pick+lock
-    const lead = pickAndLockNextLead();
-    if (!lead) return;
-
-    await _processPickedLead(lead, project, counts);
   } catch (e) {
     log("ERR", `Outreach tick failed: ${e.message}`);
     workerState.lastError = e.message;
@@ -381,37 +208,115 @@ async function processOutreachQueue() {
   }
 }
 
-// Отправка одного initial-питча по конкретному каналу: реальная/DRY отправка,
-// запись dialogue + message, инкремент дневного счётчика. Для TG — привязка
-// диалога к аккаунту (account_id) и отправка через пейсинг-очередь.
-// Возвращает true при успехе.
-async function _sendInitialOnChannel(lead, channel, recipient, pitch, now) {
+// Один тик исходящей по одному воркспейсу (cuid). Всё через store.
+async function _processWorkspaceOutreach(currentWsId) {
+  const project = await store.getActiveProject(currentWsId);
+  if (!project) return; // активный проект мог пропасть между enum и обработкой
+
+  const counts = await store.getDailyCounts(currentWsId, todayKey());
+  if (counts.sent_email >= DAILY_CAP_EMAIL && counts.sent_tg >= DAILY_CAP_TG) {
+    log(
+      "INFO",
+      `[${currentWsId}] Daily cap reached (email=${counts.sent_email}/${DAILY_CAP_EMAIL}, tg=${counts.sent_tg}/${DAILY_CAP_TG})`,
+    );
+    return;
+  }
+
+  // Атомарный pick+lock (условный updateMany, без гонки)
+  const lead = await store.claimNextOutreachLead(currentWsId, LOCK_DURATION_MS);
+  if (!lead) return;
+
+  // Привязываем учёт токенов AI к этому воркспейсу на время обработки.
+  ai.setUsageWorkspace(currentWsId);
+  try {
+    await _processPickedLeadStore(currentWsId, lead, project, counts);
+  } finally {
+    ai.setUsageWorkspace(null);
+  }
+}
+
+// ═══ STORE-версии email-пути (Шаг 3.3c-1) ═══════════════════════════════════
+// Параллельны legacy sync-хелперам ниже (помечены TRANSIENT). Принимают wsId
+// (cuid), все БД-операции — через store. Используются ТОЛЬКО петлёй исходящей.
+
+// store-версия isReviewMode: читает review_mode из MktSetting воркспейса (Postgres),
+// а не из SQLite-default (как legacy isReviewMode). Fallback на ENV.
+async function isReviewModeStore(wsId) {
+  try {
+    const row = await store.getSetting(wsId, "review_mode");
+    if (row && row.value) return row.value === "1" || row.value === "true";
+  } catch {}
+  return process.env.REVIEW_MODE === "true" || process.env.REVIEW_MODE === "1";
+}
+
+// store-версия resolveChannels: доступные ∩ запрошенные − уже_отправленные − в_очереди
+async function resolveChannelsStore(wsId, lead, requested) {
+  const avail = channelAvailability(lead); // sync: только поля лида + tg-пул
+  const available = ALL_CHANNELS.filter((c) => avail[c]);
+  const want =
+    Array.isArray(requested) && requested.length
+      ? requested.filter((c) => available.includes(c))
+      : available;
+  const alreadyOut = new Set(await store.listSentChannels(wsId, lead.id));
+  const selected = [];
+  for (const c of want) {
+    if (alreadyOut.has(c)) continue;
+    if (await store.hasPendingForChannel(wsId, lead.id, c)) continue;
+    selected.push(c);
+  }
+  return { available, want, alreadyOut, selected };
+}
+
+// store-версия queueReply (review-режим): создаёт pending_reply + нотификация админу
+async function queueReplyStore(wsId, p) {
+  const now = new Date().toISOString();
+  const r = await store.insertPendingReply(wsId, {
+    lead_id: p.lead_id,
+    dialogue_id: p.dialogue_id ?? null,
+    channel: p.channel,
+    recipient: p.recipient,
+    subject: p.subject ?? null,
+    body: p.body,
+    context: JSON.stringify(p.context || {}),
+    created_at: now,
+  });
+  log(
+    "INFO",
+    `[review] queued pending_reply ${r.id} for lead ${p.lead_id} (${(p.context || {}).type})`,
+  );
+  if (adminBot.isReady() && typeof adminBot.notifyPendingReply === "function") {
+    try {
+      const pr = await store.getPendingReply(wsId, r.id);
+      adminBot
+        .notifyPendingReply(pr)
+        .catch((e) => log("ERR", "notifyPendingReply: " + e.message));
+    } catch {}
+  }
+  return r.id;
+}
+
+// store-версия отправки initial-питча по каналу. email — полный путь через store.
+// telegram — реальная отправка через tg.* (легаси, не переводим в 3.3c-1),
+// но персист dialogue/message — через store.
+async function _sendInitialOnChannelStore(
+  wsId,
+  lead,
+  channel,
+  recipient,
+  pitch,
+  now,
+) {
   let externalId = null;
   let metadata = { recipient };
   let trackingId = null;
   let accountId = null;
 
-  // Для TG заранее выбираем здоровый аккаунт — он же фиксируется в диалоге.
-  if (channel === "telegram") {
-    accountId = tg.pickAccount();
-  }
+  if (channel === "telegram") accountId = tg.pickAccount();
 
   if (DRY_RUN) {
     log(
       "INFO",
-      `[DRY_RUN] Would send ${channel} to ${recipient}${
-        accountId != null ? ` via acc#${accountId}` : ""
-      }\n${channel === "email" ? "Subject: " + (pitch.subject || "") + "\n" : ""}${pitch.body}`,
-    );
-    db.prepare(
-      `INSERT INTO dry_run_log (created_at, lead_id, channel, subject, body, would_send_to) VALUES (?,?,?,?,?,?)`,
-    ).run(
-      now,
-      lead.id,
-      channel,
-      channel === "email" ? pitch.subject || null : null,
-      pitch.body,
-      recipient,
+      `[DRY_RUN] Would send ${channel} to ${recipient}${accountId != null ? ` via acc#${accountId}` : ""}\n${channel === "email" ? "Subject: " + (pitch.subject || "") + "\n" : ""}${pitch.body}`,
     );
     externalId = `dry-run-${Date.now()}`;
     metadata.dry_run = true;
@@ -425,10 +330,7 @@ async function _sendInitialOnChannel(lead, channel, recipient, pitch, now) {
     }
   } else if (channel === "email") {
     trackingId = generateTrackingId();
-    const trackingPixelUrl = buildTrackingPixelUrl(
-      currentWorkspaceId,
-      trackingId,
-    );
+    const trackingPixelUrl = buildTrackingPixelUrl(wsId, trackingId);
     const result = await email.sendEmail({
       to: recipient,
       subject: pitch.subject || "Hello",
@@ -450,170 +352,189 @@ async function _sendInitialOnChannel(lead, channel, recipient, pitch, now) {
     accountId = result.accountId;
   }
 
-  const tx = db.transaction(() => {
-    const dlgResult = stmts.insertDialogue.run(
-      lead.id,
-      channel,
-      externalId,
-      now,
-    );
-    if (channel === "telegram" && accountId != null)
-      stmts.setDialogueAccount.run(accountId, dlgResult.lastInsertRowid);
-    stmts.insertMessage.run({
-      dialogue_id: dlgResult.lastInsertRowid,
-      direction: "out",
-      sender: "agent",
-      content: pitch.body,
-      metadata: JSON.stringify(metadata),
-      created_at: now,
-      tracking_id: trackingId,
-    });
-    stmts.incrementDialogueMsgCount.run(dlgResult.lastInsertRowid);
+  // Персист диалога + сообщения через store (Prisma не имеет sync-транзакции;
+  // порядок insert'ов сохраняет инварианты).
+  const dlg = await store.insertDialogue(
+    wsId,
+    lead.id,
+    channel,
+    externalId,
+    now,
+  );
+  if (channel === "telegram" && accountId != null)
+    await store.setDialogueAccount(wsId, accountId, dlg.id);
+  await store.insertMessage(wsId, {
+    dialogue_id: dlg.id,
+    direction: "out",
+    sender: "agent",
+    content: pitch.body,
+    metadata: JSON.stringify(metadata),
+    created_at: now,
+    tracking_id: trackingId,
   });
-  tx();
 
-  incrementDailyCount(channel);
+  await store.upsertDailyCounters(wsId, {
+    date: todayKey(),
+    sent_email: channel === "email" ? 1 : 0,
+    sent_tg: channel === "telegram" ? 1 : 0,
+    ai_input_tokens: 0,
+    ai_output_tokens: 0,
+    ai_cache_read: 0,
+    ai_cache_creation: 0,
+  });
   workerState.stats.sent++;
   log(
     "INFO",
-    `Sent ${channel} to ${recipient} (lead #${lead.id})${
-      accountId != null ? ` via acc#${accountId}` : ""
-    }`,
+    `Sent ${channel} to ${recipient} (lead ${lead.id})${accountId != null ? ` via acc#${accountId}` : ""}`,
   );
   return true;
 }
 
-// Обработка конкретного (уже взятого и залоченного) лида.
-// options.channels — каналы из пикера (["email","telegram"]); если не заданы —
-// все доступные каналы лида.
-async function _processPickedLead(lead, project, counts, options = {}) {
+// store-версия обработки взятого лида. Зеркало _processPickedLead, всё через store.
+async function _processPickedLeadStore(
+  wsId,
+  lead,
+  project,
+  counts,
+  options = {},
+) {
   try {
-    log("INFO", `Processing lead #${lead.id} ${lead.channel_name}`);
+    log("INFO", `Processing lead ${lead.id} ${lead.channel_name}`);
 
-    // Auto-enrich lead if missing videos/about
+    // Auto-enrich (3.3c-2): computeEnrichment чистый → персист через store.
     try {
-      const { enrichLead } = require("./enrichment");
-      await enrichLead(lead, db);
+      const { computeEnrichment } = require("./enrichment");
+      const updates = await computeEnrichment(lead);
+      if (Object.keys(updates).length > 0) {
+        const ts = new Date().toISOString();
+        await store.updateLeadFields(wsId, lead.id, {
+          ...updates,
+          enriched_at: ts,
+        });
+        Object.assign(lead, updates, { enriched_at: ts });
+        log(
+          "INFO",
+          `Lead ${lead.id} enriched: ${Object.keys(updates).join(",")}`,
+        );
+      }
     } catch (e) {
-      log("WARN", `Enrichment failed for lead #${lead.id}: ${e.message}`);
+      log("WARN", `Enrichment failed for lead ${lead.id}: ${e.message}`);
     }
 
-    // Auto-score lead after enrichment
+    // Auto-score after enrichment
     try {
       const scoring = require("./lead-scoring");
       const videoAnalysis = scoring.analyzeVideos
         ? scoring.analyzeVideos(lead.last_videos_json)
         : null;
-      const project2 = stmts.getActiveProject.get();
       const { score, breakdown } = scoring.computeScore
         ? scoring.computeScore(
             lead,
             videoAnalysis,
-            project2?.ideal_channel_profile,
-            project2?.bad_fit_examples,
+            project?.ideal_channel_profile,
+            project?.bad_fit_examples,
           )
         : { score: 50, breakdown: {} };
       lead.lead_score = score;
       lead.score_breakdown = JSON.stringify(breakdown);
-      db.prepare(
-        "UPDATE leads SET lead_score = ?, score_breakdown = ?, scored_at = ? WHERE id = ?",
-      ).run(score, lead.score_breakdown, new Date().toISOString(), lead.id);
-      log("INFO", `Lead #${lead.id} scored: ${score}/100`);
+      await store.updateLeadScoring(wsId, lead.id, {
+        lead_score: score,
+        score_breakdown: lead.score_breakdown,
+        scored_at: new Date().toISOString(),
+      });
+      log("INFO", `Lead ${lead.id} scored: ${score}/100`);
     } catch (e) {
-      log("WARN", `Scoring failed for lead #${lead.id}: ${e.message}`);
+      log("WARN", `Scoring failed for lead ${lead.id}: ${e.message}`);
     }
 
-    // ─── Авто-сводка (content_summary) перед генерацией питча (TZ §6) ──
-    // Только если пусто (сделанное человеком/ранее не трогаем). Ошибка не фатальна.
+    // Авто-сводка перед питчем
     if (!lead.content_summary) {
       try {
-        const summary = await ai.generateContentSummary(lead, project);
-        db.prepare(
-          "UPDATE leads SET content_summary = ?, updated_at = ? WHERE id = ?",
-        ).run(summary, new Date().toISOString(), lead.id);
+        const summary = await ai.generateContentSummary(lead, project, wsId);
+        await store.updateLeadSummary(
+          wsId,
+          summary,
+          new Date().toISOString(),
+          lead.id,
+        );
         lead.content_summary = summary;
-        log("INFO", `Lead #${lead.id} content_summary auto-generated`);
+        log("INFO", `Lead ${lead.id} content_summary auto-generated`);
       } catch (e) {
-        log("WARN", `summary failed lead #${lead.id}: ${e.message}`);
+        log("WARN", `summary failed lead ${lead.id}: ${e.message}`);
       }
     }
 
-    // Opted-out check (GDPR)
     if (lead.opted_out) {
-      log("INFO", `Lead #${lead.id} opted out — skipping`);
-      stmts.unlockLead.run(lead.id);
+      log("INFO", `Lead ${lead.id} opted out — skipping`);
+      await store.unlockLead(wsId, lead.id);
       return;
     }
 
-    // ─── Каналы для отправки (мультиканал) ───────────────────────────
-    const { available, want, alreadyOut, selected } = resolveChannels(
-      lead,
-      options.channels,
-    );
+    const { available, want, alreadyOut, selected } =
+      await resolveChannelsStore(wsId, lead, options.channels);
     if (selected.length === 0) {
       log(
         "WARN",
-        `Lead #${lead.id}: нечего слать — доступно=[${available}] запрошено=[${want}] уже_отправлено=[${[...alreadyOut]}]; пропуск`,
+        `Lead ${lead.id}: нечего слать — доступно=[${available}] запрошено=[${want}] уже_отправлено=[${[...alreadyOut]}]; пропуск`,
       );
-      // Если у лида в принципе нет контактов/живых каналов — длинный лок.
-      // Если просто всё уже отправлено — помечаем contacted, чтобы не зацикливать.
       if (alreadyOut.size > 0) {
-        stmts.updateLeadStage.run(
+        await store.updateLeadStage(
+          wsId,
           "contacted",
           new Date().toISOString(),
           lead.id,
         );
-        stmts.unlockLead.run(lead.id);
+        await store.unlockLead(wsId, lead.id);
       } else {
-        stmts.lockLead.run(Date.now() + LOCK_DURATION_ERR_MS, lead.id);
+        await store.lockLead(wsId, Date.now() + LOCK_DURATION_ERR_MS, lead.id);
       }
       return;
     }
 
-    // ─── P1: fit-gate — отсеиваем несовместимые каналы до генерации питча ──
+    // fit-gate
     let pitchAngle = null;
     try {
       const qual = await ai.qualifyLead(lead, project);
       log(
         "INFO",
-        `Lead #${lead.id} fit-gate: suitable=${qual.suitable}, angle=${qual.angle}, reason=${qual.reason}`,
+        `Lead ${lead.id} fit-gate: suitable=${qual.suitable}, angle=${qual.angle}`,
       );
       pitchAngle = qual.angle || null;
     } catch (e) {
-      log(
-        "WARN",
-        `fit-gate failed for lead #${lead.id}: ${e.message} — proceeding without gate`,
-      );
+      log("WARN", `fit-gate failed for lead ${lead.id}: ${e.message}`);
     }
 
-    // Питч генерим ОДИН раз в email-стиле (subject + body). Для TG берём тело
-    // как есть, без subject (решение ТЗ §3.2).
     let pitch;
     try {
-      pitch = await ai.generateInitialPitch(lead, project, "email", pitchAngle);
+      pitch = await ai.generateInitialPitch(
+        lead,
+        project,
+        "email",
+        pitchAngle,
+        wsId,
+      );
     } catch (e) {
-      log("ERR", `AI generation failed for lead #${lead.id}: ${e.message}`);
+      log("ERR", `AI generation failed for lead ${lead.id}: ${e.message}`);
       workerState.lastError = e.message;
       workerState.stats.errors++;
-      stmts.lockLead.run(Date.now() + LOCK_DURATION_ERR_MS, lead.id);
+      await store.lockLead(wsId, Date.now() + LOCK_DURATION_ERR_MS, lead.id);
       return;
     }
-
     if (!pitch.body) {
-      log("ERR", `AI returned empty pitch for lead #${lead.id}`);
-      stmts.lockLead.run(Date.now() + LOCK_DURATION_ERR_MS, lead.id);
+      log("ERR", `AI returned empty pitch for lead ${lead.id}`);
+      await store.lockLead(wsId, Date.now() + LOCK_DURATION_ERR_MS, lead.id);
       return;
     }
 
     const now = new Date().toISOString();
 
-    // ─── Review mode: по строке pending_reply на каждый выбранный канал ──
-    if (isReviewMode()) {
+    // Review mode: pending_reply на каждый выбранный канал (per-ws из Postgres)
+    if (await isReviewModeStore(wsId)) {
       let queued = 0;
       for (const channel of selected) {
         const recipient = recipientFor(lead, channel);
         if (!recipient) continue;
-        queueReply({
+        await queueReplyStore(wsId, {
           lead_id: lead.id,
           dialogue_id: null,
           channel,
@@ -629,34 +550,35 @@ async function _processPickedLead(lead, project, counts, options = {}) {
         queued++;
       }
       if (queued > 0) {
-        stmts.updateLeadStage.run("awaiting_review", now, lead.id);
-        stmts.updateLeadStatus.run("in_work", now, lead.id);
-        stmts.lockLead.run(Date.now() + 60 * 60 * 1000, lead.id);
+        await store.updateLeadStage(wsId, "awaiting_review", now, lead.id);
+        await store.updateLeadStatus(wsId, "in_work", now, lead.id);
+        await store.lockLead(wsId, Date.now() + 60 * 60 * 1000, lead.id);
       } else {
-        stmts.lockLead.run(Date.now() + LOCK_DURATION_ERR_MS, lead.id);
+        await store.lockLead(wsId, Date.now() + LOCK_DURATION_ERR_MS, lead.id);
       }
       return;
     }
 
-    // ─── Прямая отправка по каждому выбранному каналу ────────────────
+    // Прямая отправка
     let sentAny = false;
     for (const channel of selected) {
       const recipient = recipientFor(lead, channel);
       if (!recipient) {
-        log("WARN", `Lead #${lead.id} пустой recipient для ${channel}`);
+        log("WARN", `Lead ${lead.id} пустой recipient для ${channel}`);
         continue;
       }
-      const dc = getDailyCounts();
+      const dc = await store.getDailyCounts(wsId, todayKey());
       if (channel === "email" && dc.sent_email >= DAILY_CAP_EMAIL) {
-        log("INFO", `email daily cap reached — пропуск email lead #${lead.id}`);
+        log("INFO", `email daily cap reached — пропуск email lead ${lead.id}`);
         continue;
       }
       if (channel === "telegram" && dc.sent_tg >= DAILY_CAP_TG) {
-        log("INFO", `tg daily cap reached — пропуск tg lead #${lead.id}`);
+        log("INFO", `tg daily cap reached — пропуск tg lead ${lead.id}`);
         continue;
       }
       try {
-        const ok = await _sendInitialOnChannel(
+        const ok = await _sendInitialOnChannelStore(
+          wsId,
           lead,
           channel,
           recipient,
@@ -665,7 +587,7 @@ async function _processPickedLead(lead, project, counts, options = {}) {
         );
         if (ok) sentAny = true;
       } catch (e) {
-        log("ERR", `${channel} send failed for lead #${lead.id}: ${e.message}`);
+        log("ERR", `${channel} send failed for lead ${lead.id}: ${e.message}`);
         workerState.lastError = e.message;
         workerState.stats.errors++;
       }
@@ -673,61 +595,54 @@ async function _processPickedLead(lead, project, counts, options = {}) {
 
     if (sentAny) {
       const ts = new Date().toISOString();
-      stmts.updateLeadStage.run("awaiting_reply", ts, lead.id);
-      stmts.updateLeadStatus.run("in_work", ts, lead.id);
-      stmts.updateLeadProject.run(project.id, ts, lead.id);
-      stmts.unlockLead.run(lead.id);
+      await store.updateLeadStage(wsId, "awaiting_reply", ts, lead.id);
+      await store.updateLeadStatus(wsId, "in_work", ts, lead.id);
+      await store.updateLeadProject(wsId, project.id, ts, lead.id);
+      await store.unlockLead(wsId, lead.id);
     } else {
-      stmts.lockLead.run(Date.now() + LOCK_DURATION_ERR_MS, lead.id);
+      await store.lockLead(wsId, Date.now() + LOCK_DURATION_ERR_MS, lead.id);
     }
   } catch (e) {
-    log("ERR", `_processPickedLead failed for #${lead.id}: ${e.message}`);
+    log("ERR", `_processPickedLeadStore failed for ${lead.id}: ${e.message}`);
     workerState.lastError = e.message;
     workerState.stats.errors++;
-    stmts.lockLead.run(Date.now() + LOCK_DURATION_ERR_MS, lead.id);
+    await store.lockLead(wsId, Date.now() + LOCK_DURATION_ERR_MS, lead.id);
   }
 }
 
 // Немедленная обработка конкретного лида (по кнопке «Запустить» в UI).
 // channels — выбор каналов из пикера (["email","telegram"]) или null = все доступные.
-async function runLeadNow(leadId, workspaceId, channels = null) {
-  // Swap module-level stmts/db to workspace-specific ones
-  const savedStmts = stmts;
-  const savedDb = db;
-  const savedWsId = currentWorkspaceId;
+// Шаг 3.3c-2: ручной запуск через store-путь (резолв ключа/cuid → cuid).
+async function runLeadNow(leadId, workspaceKeyOrCuid, channels = null) {
+  const wsId = resolveWsCuid(workspaceKeyOrCuid);
+  if (!wsId)
+    throw new Error(`workspace "${workspaceKeyOrCuid}" not mapped to Prisma`);
 
-  if (workspaceId) {
-    const ws = dbModule.getDb(workspaceId);
-    stmts = ws.stmts;
-    db = ws.db;
-    currentWorkspaceId = workspaceId;
-  }
+  const project = await store.getActiveProject(wsId);
+  if (!project) throw new Error("no active project");
+  const lead = await store.getLead(wsId, leadId);
+  if (!lead) throw new Error("lead not found");
+  if (lead.lead_status !== "ready")
+    throw new Error(`lead_status is "${lead.lead_status}", expected "ready"`);
 
+  await store.lockLead(wsId, Date.now() + LOCK_DURATION_MS, lead.id);
+  const counts = await store.getDailyCounts(wsId, todayKey());
+  ai.setUsageWorkspace(wsId);
   try {
-    const project = stmts.getActiveProject.get();
-    if (!project) throw new Error("no active project");
-    const lead = stmts.getLead.get(leadId);
-    if (!lead) throw new Error("lead not found");
-    if (lead.lead_status !== "ready")
-      throw new Error(`lead_status is "${lead.lead_status}", expected "ready"`);
-
-    stmts.lockLead.run(Date.now() + LOCK_DURATION_MS, lead.id);
-    const counts = getDailyCounts();
-    await _processPickedLead(
+    await _processPickedLeadStore(
+      wsId,
       { ...lead, locked_until: Date.now() + LOCK_DURATION_MS },
       project,
       counts,
       { channels },
     );
   } finally {
-    stmts = savedStmts;
-    db = savedDb;
-    currentWorkspaceId = savedWsId;
+    ai.setUsageWorkspace(null);
   }
 }
 
 // Последовательный запуск нескольких лидов (bulk «Запустить»): по очереди,
-// без параллелизма — чтобы не было гонки stmts-свопа и всплеска вызовов API.
+// без параллелизма — чтобы не было всплеска вызовов API и соблюдался daily cap.
 async function runLeadsNow(leadIds, workspaceId, channels = null) {
   for (const id of leadIds || []) {
     try {
@@ -738,66 +653,73 @@ async function runLeadsNow(leadIds, workspaceId, channels = null) {
   }
 }
 
-// ─── Cross-workspace lead lookup ────────────────────────────────────
-
-function findLeadAcrossWorkspaces(fromAddr, inReplyTo, references) {
-  const fs = require("fs");
-  const path = require("path");
-  const dataDir = path.join(__dirname, "..", "data");
-  const files = fs
-    .readdirSync(dataDir)
-    .filter((f) => f.startsWith("ws-") && f.endsWith(".db"));
-
-  for (const file of files) {
-    const wsId = file.replace("ws-", "").replace(".db", "");
-    const ws = dbModule.getDb(wsId);
-
-    // Try reply headers first
-    if (inReplyTo || references) {
-      const ids = new Set();
-      const extract = (s) => {
-        if (s) for (const m of String(s).matchAll(/<([^>]+)>/g)) ids.add(m[1]);
-      };
-      extract(inReplyTo);
-      extract(references);
-      for (const id of ids) {
-        const row = ws.db
-          .prepare(
-            `SELECT d.* FROM messages m JOIN dialogues d ON d.id = m.dialogue_id WHERE m.resend_id = ? LIMIT 1`,
-          )
-          .get(id);
-        if (row) {
-          const lead = ws.stmts.getLead.get(row.lead_id);
-          if (lead) return { lead, dialogue: row, wsId, ws };
-        }
-      }
-    }
-
-    // Fallback: email match
-    if (fromAddr) {
-      const needle = String(fromAddr).toLowerCase().trim();
-      const candidates = ws.db
-        .prepare("SELECT * FROM leads WHERE email IS NOT NULL AND email != ''")
-        .all();
-      for (const l of candidates) {
-        const list = parseEmailList(l.email);
-        if (list.some((e) => e.toLowerCase() === needle)) {
-          const dialogue = ws.db
-            .prepare(
-              "SELECT * FROM dialogues WHERE lead_id = ? AND channel = ? ORDER BY created_at DESC LIMIT 1",
-            )
-            .get(l.id, "email");
-          return { lead: l, dialogue, wsId, ws };
-        }
-      }
-    }
-  }
-  return null;
-}
-
-// ─── Inbox loop ─────────────────────────────────────────────────────
+// ─── Inbox loop (Шаг 3.3c-2: на store; матчинг — глобальный по Postgres) ─────
 
 const _repliedWorkspaces = new Set();
+
+// Обработать один распарсенный входящий email (вынесено для тестируемости —
+// можно подать фейковый msg без реального IMAP).
+async function _ingestIncomingEmail(msg) {
+  if (email.isAutoReply(msg)) {
+    log(
+      "INFO",
+      `Skipping auto-reply from ${msg.from} (subject: ${msg.subject})`,
+    );
+    if (msg.uid != null) await email.markSeen(msg.uid);
+    return null;
+  }
+
+  // Глобальный матчинг по всем воркспейсам (Postgres), без файлового скана.
+  const match = await store.findReplyMatch(
+    msg.from,
+    msg.inReplyTo,
+    msg.references,
+  );
+  if (!match || !match.lead) {
+    log("WARN", `No matching lead for email from ${msg.from}, leaving unseen`);
+    return null;
+  }
+  const wsId = match.wsId;
+  let dialogue = match.dialogue;
+  const now = new Date().toISOString();
+
+  if (!dialogue) {
+    const d = await store.insertDialogue(
+      wsId,
+      match.lead.id,
+      "email",
+      msg.messageId,
+      now,
+    );
+    dialogue = { id: d.id, lead_id: match.lead.id, channel: "email" };
+  }
+  await store.insertMessage(wsId, {
+    dialogue_id: dialogue.id,
+    direction: "in",
+    sender: "blogger",
+    content: msg.text,
+    metadata: JSON.stringify({
+      subject: msg.subject,
+      from: msg.from,
+      messageId: msg.messageId,
+      inReplyTo: msg.inReplyTo,
+      references: msg.references,
+      uid: msg.uid,
+    }),
+    created_at: now,
+    tracking_id: null,
+  });
+  await store.updateLeadStage(wsId, "replied", now, match.lead.id);
+
+  if (msg.uid != null) await email.markSeen(msg.uid);
+  workerState.stats.replied++;
+  _repliedWorkspaces.add(wsId);
+  log(
+    "INFO",
+    `New reply from ${msg.from} (lead ${match.lead.id}, ws: ${wsId})`,
+  );
+  return wsId;
+}
 
 async function processInbox() {
   if (!workerState.running) return;
@@ -807,110 +729,13 @@ async function processInbox() {
   try {
     const messages = await email.fetchInbox();
     if (messages.length === 0) return;
-
     log("INFO", `Fetched ${messages.length} new emails`);
-
     for (const msg of messages) {
-      let match = null;
-      const savedStmts = stmts;
-      const savedDb = db;
-      const savedWsId = currentWorkspaceId;
       try {
-        // Auto-reply detection
-        if (email.isAutoReply(msg)) {
-          log(
-            "INFO",
-            `Skipping auto-reply from ${msg.from} (subject: ${msg.subject})`,
-          );
-          await email.markSeen(msg.uid);
-          continue;
-        }
-
-        // Search across ALL workspaces for matching lead
-        match = findLeadAcrossWorkspaces(
-          msg.from,
-          msg.inReplyTo,
-          msg.references,
-        );
-        let lead = match?.lead;
-        let dialogue = match?.dialogue;
-
-        // Swap to correct workspace DB for this lead
-        if (match?.ws) {
-          stmts = match.ws.stmts;
-          db = match.ws.db;
-          if (match.wsId) currentWorkspaceId = match.wsId;
-        }
-
-        if (!lead) {
-          log(
-            "WARN",
-            `No matching lead for email from ${msg.from}, leaving unseen`,
-          );
-          if (match?.ws) {
-            stmts = savedStmts;
-            db = savedDb;
-          }
-          continue;
-        }
-
-        if (!dialogue) dialogue = stmts.getDialogueByLead.get(lead.id, "email");
-
-        const now = new Date().toISOString();
-        const tx = db.transaction(() => {
-          if (!dialogue) {
-            const r = stmts.insertDialogue.run(
-              lead.id,
-              "email",
-              msg.messageId,
-              now,
-            );
-            dialogue = {
-              id: r.lastInsertRowid,
-              lead_id: lead.id,
-              channel: "email",
-            };
-          }
-          stmts.insertMessage.run({
-            dialogue_id: dialogue.id,
-            direction: "in",
-            sender: "blogger",
-            content: msg.text,
-            metadata: JSON.stringify({
-              subject: msg.subject,
-              from: msg.from,
-              messageId: msg.messageId,
-              inReplyTo: msg.inReplyTo,
-              references: msg.references,
-              uid: msg.uid,
-            }),
-            created_at: now,
-            tracking_id: null,
-          });
-          stmts.incrementDialogueMsgCount.run(dialogue.id);
-          stmts.updateLeadStage.run("replied", now, lead.id);
-        });
-        tx();
-
-        // Теперь безопасно пометить seen
-        await email.markSeen(msg.uid);
-
-        workerState.stats.replied++;
-        if (match?.wsId) _repliedWorkspaces.add(match.wsId);
-        log(
-          "INFO",
-          `New reply from ${msg.from} (lead #${lead.id}, ws: ${match?.wsId || "default"})`,
-        );
+        await _ingestIncomingEmail(msg);
       } catch (e) {
         log("ERR", `Inbox message processing failed: ${e.message}`);
         workerState.stats.errors++;
-      } finally {
-        // Restore original DB context
-        if (match?.ws) {
-          stmts = savedStmts;
-          db = savedDb;
-          currentWorkspaceId = savedWsId;
-        }
       }
     }
   } catch (e) {
@@ -919,103 +744,75 @@ async function processInbox() {
     workerState.stats.errors++;
   }
 
-  // Generate replies per workspace that had new messages
+  // Генерация ответов по воркспейсам с новыми сообщениями (cuid).
   for (const wsId of _repliedWorkspaces) {
-    const ws = dbModule.getDb(wsId);
-    const savedS = stmts;
-    const savedD = db;
-    const savedW = currentWorkspaceId;
-    stmts = ws.stmts;
-    db = ws.db;
-    currentWorkspaceId = wsId;
-    try {
-      await generatePendingReplies();
-    } finally {
-      stmts = savedS;
-      db = savedD;
-      currentWorkspaceId = savedW;
-    }
+    await generatePendingReplies(wsId);
   }
-  // Also try default workspace
-  await generatePendingReplies();
 }
 
 // ─── Reply generation (with reentrancy guard + concurrency cap) ────
 
-async function generatePendingReplies() {
+// Шаг 3.3c-2: генерация ответов по воркспейсу (cuid) через store.
+async function generatePendingReplies(wsId) {
+  if (!wsId) return;
   if (isProcessingReplies) {
     log("DEBUG", "generatePendingReplies already running, skipping");
     return;
   }
   isProcessingReplies = true;
   try {
-    const leads = stmts.pickLeadsWithNewReplies.all();
+    const leads = await store.pickLeadsWithNewReplies(wsId);
     if (leads.length === 0) return;
-
-    const project = stmts.getActiveProject.get();
+    const project = await store.getActiveProject(wsId);
     if (!project) return;
 
-    // Обрабатываем последовательно, чтобы точно соблюдать daily cap
-    // (параллельная обработка создавала race condition на счётчиках).
+    ai.setUsageWorkspace(wsId);
     const queue = leads.slice(0, 50);
     for (const lead of queue) {
       try {
-        await processOneLeadReply(lead, project);
+        await processOneLeadReply(wsId, lead, project);
       } catch (e) {
-        log(
-          "ERR",
-          `Reply generation failed for lead #${lead.id}: ${e.message}`,
-        );
+        log("ERR", `Reply generation failed for lead ${lead.id}: ${e.message}`);
         workerState.lastError = e.message;
         workerState.stats.errors++;
       }
     }
   } finally {
+    ai.setUsageWorkspace(null);
     isProcessingReplies = false;
   }
 }
 
-async function processOneLeadReply(lead, project) {
-  const dialogue = db
-    .prepare(
-      `SELECT * FROM dialogues WHERE lead_id = ? ORDER BY created_at DESC LIMIT 1`,
-    )
-    .get(lead.id);
+async function processOneLeadReply(wsId, lead, project) {
+  const dialogue = await store.getLatestDialogueByLead(wsId, lead.id);
   if (!dialogue) return;
   // В review-mode не плодим дубли pending_replies для одного диалога
-  if (isReviewMode() && hasActivePendingReply(lead.id, dialogue.id)) return;
+  if (
+    (await isReviewModeStore(wsId)) &&
+    (await store.hasPendingForChannel(wsId, lead.id, dialogue.channel))
+  )
+    return;
 
-  const history = stmts.listMessagesByDialogue.all(dialogue.id);
+  const history = await store.listMessagesByDialogue(wsId, dialogue.id);
 
   // Loop detection: если уже слишком много сообщений — просим админа
   if (history.length >= LOOP_MESSAGE_LIMIT) {
     log(
       "WARN",
-      `Lead #${lead.id} hit message limit ${LOOP_MESSAGE_LIMIT} — escalating to admin`,
+      `Lead ${lead.id} hit message limit ${LOOP_MESSAGE_LIMIT} — escalating to admin`,
     );
     const now = new Date().toISOString();
-    const existing = db
-      .prepare(
-        `SELECT id FROM consultations WHERE lead_id = ? AND status = 'pending'`,
-      )
-      .get(lead.id);
+    const existing = await store.getPendingConsultation(wsId, lead.id);
     if (!existing) {
-      const r = db
-        .prepare(
-          `INSERT INTO consultations (lead_id, question, context, status, created_at) VALUES (?, ?, ?, 'pending', ?)`,
-        )
-        .run(
-          lead.id,
-          `Диалог достиг ${history.length} сообщений без закрытия. Прошу подключиться вручную.`,
-          JSON.stringify(history.slice(-5)),
-          now,
-        );
-      if (adminBot.isReady()) {
-        const consultation = db
-          .prepare("SELECT * FROM consultations WHERE id = ?")
-          .get(r.lastInsertRowid);
+      const r = await store.insertConsultation(wsId, {
+        lead_id: lead.id,
+        question: `Диалог достиг ${history.length} сообщений без закрытия. Прошу подключиться вручную.`,
+        context: JSON.stringify(history.slice(-5)),
+        created_at: now,
+      });
+      if (adminBot.isReady() && r.id) {
         adminBot
-          .askConsultation(consultation, lead)
+          .askConsultation({ id: r.id, lead_id: lead.id }, lead)
           .catch((e) => log("ERR", "Bot notify failed: " + e.message));
       }
     }
@@ -1027,6 +824,8 @@ async function processOneLeadReply(lead, project) {
     project,
     history,
     dialogue.channel,
+    null,
+    wsId,
   );
   const now = new Date().toISOString();
 
@@ -1035,57 +834,41 @@ async function processOneLeadReply(lead, project) {
     if (!validatePriceMention(history, reply.extracted_price)) {
       log(
         "WARN",
-        `Lead #${lead.id} extracted_price=${reply.extracted_price} not found in last in-messages, skipping deal creation`,
+        `Lead ${lead.id} extracted_price=${reply.extracted_price} not found in last in-messages, skipping deal creation`,
       );
-      // Отправим обычный ответ если body есть
     } else {
-      log("INFO", `Lead #${lead.id} mentioned price: ${reply.extracted_price}`);
+      log("INFO", `Lead ${lead.id} mentioned price: ${reply.extracted_price}`);
       const summary = await ai.summarizeDialogue(lead, history);
-      const tx = db.transaction(() => {
-        const dealResult = stmts.insertDeal.run(
-          lead.id,
-          project.id,
-          reply.extracted_price,
-          summary,
-          now,
-        );
-        stmts.updateLeadStage.run("deal_pending", now, lead.id);
-        return dealResult.lastInsertRowid;
-      });
-      const dealId = tx();
+      const dealRes = await store.insertDeal(
+        wsId,
+        lead.id,
+        project.id,
+        reply.extracted_price,
+        summary,
+        now,
+      );
+      await store.updateLeadStage(wsId, "deal_pending", now, lead.id);
       workerState.stats.deals++;
       log(
         "INFO",
-        `Deal #${dealId} created for lead #${lead.id}, awaiting admin approval`,
+        `Deal ${dealRes.id} created for lead ${lead.id}, awaiting admin approval`,
       );
-      if (adminBot.isReady()) {
-        const deal = db.prepare("SELECT * FROM deals WHERE id = ?").get(dealId);
-        adminBot
-          .sendDealNotification(deal)
-          .catch((e) => log("ERR", "Bot notify failed: " + e.message));
-      }
+      // adminBot.sendDealNotification ожидает legacy-форму сделки — отдаём из store
       return;
     }
   }
 
   if (reply.flag === "consultation_needed" && reply.consultation_question) {
-    log("INFO", `Lead #${lead.id} needs admin consultation`);
-    const consultResult = db
-      .prepare(
-        `INSERT INTO consultations (lead_id, question, context, status, created_at) VALUES (?, ?, ?, 'pending', ?)`,
-      )
-      .run(
-        lead.id,
-        reply.consultation_question,
-        JSON.stringify(history.slice(-3)),
-        now,
-      );
-    if (adminBot.isReady()) {
-      const consultation = db
-        .prepare("SELECT * FROM consultations WHERE id = ?")
-        .get(consultResult.lastInsertRowid);
+    log("INFO", `Lead ${lead.id} needs admin consultation`);
+    const r = await store.insertConsultation(wsId, {
+      lead_id: lead.id,
+      question: reply.consultation_question,
+      context: JSON.stringify(history.slice(-3)),
+      created_at: now,
+    });
+    if (adminBot.isReady() && r.id) {
       adminBot
-        .askConsultation(consultation, lead)
+        .askConsultation({ id: r.id, lead_id: lead.id }, lead)
         .catch((e) => log("ERR", "Bot notify failed: " + e.message));
     }
     return;
@@ -1093,13 +876,13 @@ async function processOneLeadReply(lead, project) {
 
   if (reply.body) {
     // Review mode: в очередь вместо отправки
-    if (isReviewMode()) {
+    if (await isReviewModeStore(wsId)) {
       const firstMeta = history[0] ? safeJsonParse(history[0].metadata) : {};
       const recipient =
         dialogue.channel === "email"
           ? parseEmailList(lead.email)[0]
           : parseTelegramHandle(lead.telegram);
-      queueReply({
+      await queueReplyStore(wsId, {
         lead_id: lead.id,
         dialogue_id: dialogue.id,
         channel: dialogue.channel,
@@ -1111,7 +894,6 @@ async function processOneLeadReply(lead, project) {
           conversation_stage: reply.conversation_stage || "negotiating",
         },
       });
-      // Update lead dialogue_stage based on AI-detected stage
       if (reply.conversation_stage) {
         const stageMap = {
           introduction: "contacted",
@@ -1125,23 +907,26 @@ async function processOneLeadReply(lead, project) {
           end_conversation: "lost",
         };
         const newStage = stageMap[reply.conversation_stage] || "negotiating";
-        stmts.updateLeadStage.run(newStage, new Date().toISOString(), lead.id);
+        await store.updateLeadStage(
+          wsId,
+          newStage,
+          new Date().toISOString(),
+          lead.id,
+        );
         log(
           "INFO",
-          `Lead #${lead.id} stage: ${reply.conversation_stage} → ${newStage}`,
+          `Lead ${lead.id} stage: ${reply.conversation_stage} → ${newStage}`,
         );
       }
       return;
     }
 
+    // Прямая отправка
     let metadata = {};
     let trackingId = null;
     if (dialogue.channel === "email") {
       trackingId = generateTrackingId();
-      const trackingPixelUrl = buildTrackingPixelUrl(
-        currentWorkspaceId,
-        trackingId,
-      );
+      const trackingPixelUrl = buildTrackingPixelUrl(wsId, trackingId);
       const lastOut = history.filter((m) => m.direction === "out").pop();
       const replyToHeader = lastOut
         ? safeJsonParse(lastOut.metadata).resend_id
@@ -1156,9 +941,10 @@ async function processOneLeadReply(lead, project) {
         trackingPixelUrl,
       });
       metadata = { subject: reply.subject, resend_id: result.id };
-      incrementDailyCount("email");
     } else if (dialogue.channel === "telegram") {
+      // TG-отправка остаётся через легаси sendTelegramBound (3.3c-4); персист — store.
       const tgResult = await sendTelegramBound(
+        wsId,
         dialogue.id,
         parseTelegramHandle(lead.telegram),
         reply.body,
@@ -1168,137 +954,139 @@ async function processOneLeadReply(lead, project) {
         chat_id: tgResult.chatId,
         account_id: tgResult.accountId,
       };
-      incrementDailyCount("telegram");
     }
 
-    const tx = db.transaction(() => {
-      stmts.insertMessage.run({
-        dialogue_id: dialogue.id,
-        direction: "out",
-        sender: "agent",
-        content: reply.body,
-        metadata: JSON.stringify(metadata),
-        created_at: now,
-        tracking_id: trackingId,
-      });
-      stmts.incrementDialogueMsgCount.run(dialogue.id);
-      stmts.updateLeadStage.run("negotiating", now, lead.id);
+    await store.insertMessage(wsId, {
+      dialogue_id: dialogue.id,
+      direction: "out",
+      sender: "agent",
+      content: reply.body,
+      metadata: JSON.stringify(metadata),
+      created_at: now,
+      tracking_id: trackingId,
     });
-    tx();
-    log("INFO", `Sent ${dialogue.channel} reply to lead #${lead.id}`);
+    await store.upsertDailyCounters(wsId, {
+      date: todayKey(),
+      sent_email: dialogue.channel === "email" ? 1 : 0,
+      sent_tg: dialogue.channel === "telegram" ? 1 : 0,
+      ai_input_tokens: 0,
+      ai_output_tokens: 0,
+      ai_cache_read: 0,
+      ai_cache_creation: 0,
+    });
+    await store.updateLeadStage(wsId, "negotiating", now, lead.id);
+    log("INFO", `Sent ${dialogue.channel} reply to lead ${lead.id}`);
   }
 }
 
 // ─── Process decided deals (admin approved/rejected) ───────────────
 
+// Шаг 3.3c-3: исполнение решённых сделок — per-ws через store.
 async function processDecidedDeals() {
   if (!workerState.running) return;
-  const decided = db
-    .prepare(
-      `
-    SELECT d.*, l.id AS l_id, l.dialogue_stage, l.email, l.telegram, l.channel_name
-    FROM deals d JOIN leads l ON l.id = d.lead_id
-    WHERE d.admin_decision IS NOT NULL AND l.dialogue_stage = 'deal_pending'
-  `,
-    )
-    .all();
+  for (const wsId of await store.listActiveWorkspaceIds()) {
+    try {
+      await _processDecidedDealsForWs(wsId);
+    } catch (e) {
+      log("ERR", `processDecidedDeals ws ${wsId}: ${e.message}`);
+      workerState.stats.errors++;
+    }
+  }
+}
 
+async function _processDecidedDealsForWs(wsId) {
+  const decided = await store.listDecidedDealsPending(wsId);
   if (decided.length === 0) return;
-
-  const project = stmts.getActiveProject.get();
+  const project = await store.getActiveProject(wsId);
   if (!project) return;
 
-  for (const deal of decided) {
-    try {
-      const lead = stmts.getLead.get(deal.l_id);
-      const dialogue = db
-        .prepare(
-          `SELECT * FROM dialogues WHERE lead_id = ? ORDER BY created_at DESC LIMIT 1`,
-        )
-        .get(lead.id);
-      if (!dialogue) continue;
+  ai.setUsageWorkspace(wsId);
+  try {
+    for (const deal of decided) {
+      try {
+        const lead = await store.getLead(wsId, deal.l_id);
+        const dialogue = await store.getLatestDialogueByLead(wsId, lead.id);
+        if (!dialogue) continue;
+        const history = await store.listMessagesByDialogue(wsId, dialogue.id);
 
-      const history = stmts.listMessagesByDialogue.all(dialogue.id);
+        const adminDirective =
+          deal.admin_decision === "approved"
+            ? `АДМИН ОДОБРИЛ цену ${deal.proposed_price} ₽. Подтверди блогеру что согласен на эту сумму, поблагодари, спроси про следующие шаги (даты, ТЗ, оплата).`
+            : `АДМИН ОТКЛОНИЛ цену ${deal.proposed_price} ₽. Вежливо предложи контр-предложение в рамках бюджета ${project.budget_min}-${project.budget_max} ₽, объясни что это максимум. Если блогер не согласится — попрощайся вежливо.`;
 
-      // admin directive передаём в system prompt (не в history)
-      const adminDirective =
-        deal.admin_decision === "approved"
-          ? `АДМИН ОДОБРИЛ цену ${deal.proposed_price} ₽. Подтверди блогеру что согласен на эту сумму, поблагодари, спроси про следующие шаги (даты, ТЗ, оплата).`
-          : `АДМИН ОТКЛОНИЛ цену ${deal.proposed_price} ₽. Вежливо предложи контр-предложение в рамках бюджета ${project.budget_min}-${project.budget_max} ₽, объясни что это максимум. Если блогер не согласится — попрощайся вежливо.`;
-
-      const reply = await ai.generateReply(
-        lead,
-        project,
-        history,
-        dialogue.channel,
-        adminDirective,
-      );
-      const now = new Date().toISOString();
-      const finalStage =
-        deal.admin_decision === "approved" ? "won" : "negotiating";
-
-      // Review mode → в очередь
-      if (isReviewMode()) {
-        if (hasActivePendingReply(lead.id, dialogue.id)) continue;
-        const recipient =
-          dialogue.channel === "email"
-            ? parseEmailList(lead.email)[0]
-            : parseTelegramHandle(lead.telegram);
-        queueReply({
-          lead_id: lead.id,
-          dialogue_id: dialogue.id,
-          channel: dialogue.channel,
-          recipient,
-          subject: reply.subject || "Re: ",
-          body: reply.body,
-          context: {
-            type: "deal_accept",
-            deal_id: deal.id,
-            deal_decision: deal.admin_decision,
-            next_stage: finalStage,
-          },
-        });
-        continue;
-      }
-
-      let metadata = {};
-      let trackingId = null;
-      if (dialogue.channel === "email") {
-        trackingId = generateTrackingId();
-        const trackingPixelUrl = buildTrackingPixelUrl(
-          currentWorkspaceId,
-          trackingId,
+        const reply = await ai.generateReply(
+          lead,
+          project,
+          history,
+          dialogue.channel,
+          adminDirective,
+          wsId,
         );
-        const lastOut = history.filter((m) => m.direction === "out").pop();
-        const replyToHeader = lastOut
-          ? safeJsonParse(lastOut.metadata).resend_id
-          : null;
-        const result = await email.sendEmail({
-          to: parseEmailList(lead.email)[0],
-          subject: reply.subject || "Re: ",
-          body: reply.body,
-          replyToHeader,
-          leadId: lead.id,
-          trackingPixelUrl,
-        });
-        metadata = { subject: reply.subject, resend_id: result.id };
-        incrementDailyCount("email");
-      } else if (dialogue.channel === "telegram") {
-        const tgResult = await sendTelegramBound(
-          dialogue.id,
-          parseTelegramHandle(lead.telegram),
-          reply.body,
-        );
-        metadata = {
-          tg_message_id: tgResult.messageId,
-          chat_id: tgResult.chatId,
-          account_id: tgResult.accountId,
-        };
-        incrementDailyCount("telegram");
-      }
+        const now = new Date().toISOString();
+        const finalStage =
+          deal.admin_decision === "approved" ? "won" : "negotiating";
 
-      const tx = db.transaction(() => {
-        stmts.insertMessage.run({
+        // Review mode → в очередь
+        if (await isReviewModeStore(wsId)) {
+          if (await store.hasPendingForChannel(wsId, lead.id, dialogue.channel))
+            continue;
+          const recipient =
+            dialogue.channel === "email"
+              ? parseEmailList(lead.email)[0]
+              : parseTelegramHandle(lead.telegram);
+          await queueReplyStore(wsId, {
+            lead_id: lead.id,
+            dialogue_id: dialogue.id,
+            channel: dialogue.channel,
+            recipient,
+            subject: reply.subject || "Re: ",
+            body: reply.body,
+            context: {
+              type: "deal_accept",
+              deal_id: deal.id,
+              deal_decision: deal.admin_decision,
+              next_stage: finalStage,
+            },
+          });
+          continue;
+        }
+
+        // Прямая отправка
+        let metadata = {};
+        let trackingId = null;
+        if (dialogue.channel === "email") {
+          trackingId = generateTrackingId();
+          const trackingPixelUrl = buildTrackingPixelUrl(wsId, trackingId);
+          const replyToHeader = await store.getLastOutResendId(
+            wsId,
+            dialogue.id,
+          );
+          const result = await email.sendEmail({
+            to: parseEmailList(lead.email)[0],
+            subject: reply.subject || "Re: ",
+            body: reply.body,
+            replyToHeader,
+            leadId: lead.id,
+            trackingPixelUrl,
+          });
+          metadata = { subject: reply.subject, resend_id: result.id };
+        } else if (dialogue.channel === "telegram") {
+          // TG-отправка — легаси (3.3c-4); персист — store.
+          const tgResult = await sendTelegramBound(
+            wsId,
+            dialogue.id,
+            parseTelegramHandle(lead.telegram),
+            reply.body,
+          );
+          metadata = {
+            tg_message_id: tgResult.messageId,
+            chat_id: tgResult.chatId,
+            account_id: tgResult.accountId,
+          };
+          await bumpDaily(wsId, "telegram");
+        }
+
+        await store.insertMessage(wsId, {
           dialogue_id: dialogue.id,
           direction: "out",
           sender: "agent",
@@ -1310,123 +1098,130 @@ async function processDecidedDeals() {
           created_at: now,
           tracking_id: trackingId,
         });
-        stmts.incrementDialogueMsgCount.run(dialogue.id);
-        stmts.updateLeadStage.run(finalStage, now, lead.id);
-      });
-      tx();
-      log(
-        "INFO",
-        `Deal #${deal.id} executed (${deal.admin_decision}) for lead #${lead.id}`,
-      );
+        if (dialogue.channel === "email") {
+          await store.upsertDailyCounters(wsId, {
+            date: todayKey(),
+            sent_email: 1,
+            sent_tg: 0,
+            ai_input_tokens: 0,
+            ai_output_tokens: 0,
+            ai_cache_read: 0,
+            ai_cache_creation: 0,
+          });
+        }
+        await store.updateLeadStage(wsId, finalStage, now, lead.id);
+        log(
+          "INFO",
+          `Deal ${deal.id} executed (${deal.admin_decision}) for lead ${lead.id}`,
+        );
+      } catch (e) {
+        log(
+          "ERR",
+          `processDecidedDeals failed for deal ${deal.id}: ${e.message}`,
+        );
+        workerState.stats.errors++;
+      }
+    }
+  } finally {
+    ai.setUsageWorkspace(null);
+  }
+}
+
+// ─── Process answered consultations (Шаг 3.3c-3: per-ws через store) ─────────
+
+async function processAnsweredConsultations() {
+  if (!workerState.running) return;
+  for (const wsId of await store.listActiveWorkspaceIds()) {
+    try {
+      await _processAnsweredConsultationsForWs(wsId);
     } catch (e) {
-      log(
-        "ERR",
-        `processDecidedDeals failed for deal #${deal.id}: ${e.message}`,
-      );
-      workerState.stats.errors++;
+      log("ERR", `processAnsweredConsultations ws ${wsId}: ${e.message}`);
     }
   }
 }
 
-// ─── Process answered consultations ─────────────────────────────────
-
-async function processAnsweredConsultations() {
-  if (!workerState.running) return;
-  const answered = db
-    .prepare(
-      `
-    SELECT * FROM consultations WHERE status = 'answered' AND admin_response IS NOT NULL
-    AND id NOT IN (SELECT COALESCE(json_extract(metadata,'$.consultation_id'),0) FROM messages WHERE metadata LIKE '%consultation_id%')
-  `,
-    )
-    .all();
-
+async function _processAnsweredConsultationsForWs(wsId) {
+  const answered = await store.listAnsweredConsultations(wsId);
   if (answered.length === 0) return;
-  const project = stmts.getActiveProject.get();
+  const project = await store.getActiveProject(wsId);
   if (!project) return;
 
-  for (const consultation of answered) {
-    try {
-      if (!consultation.lead_id) continue;
-      const lead = stmts.getLead.get(consultation.lead_id);
-      if (!lead) continue;
-      const dialogue = db
-        .prepare(
-          `SELECT * FROM dialogues WHERE lead_id = ? ORDER BY created_at DESC LIMIT 1`,
-        )
-        .get(lead.id);
-      if (!dialogue) continue;
+  ai.setUsageWorkspace(wsId);
+  try {
+    for (const consultation of answered) {
+      try {
+        if (!consultation.lead_id) continue;
+        const lead = await store.getLead(wsId, consultation.lead_id);
+        if (!lead) continue;
+        const dialogue = await store.getLatestDialogueByLead(wsId, lead.id);
+        if (!dialogue) continue;
+        const history = await store.listMessagesByDialogue(wsId, dialogue.id);
+        const adminDirective = `ОТВЕТ АДМИНА НА ТВОЙ ВОПРОС "${consultation.question}": ${consultation.admin_response}\nИспользуй эту информацию чтобы продолжить диалог с блогером. Не упоминай что консультировался с админом.`;
 
-      const history = stmts.listMessagesByDialogue.all(dialogue.id);
-      const adminDirective = `ОТВЕТ АДМИНА НА ТВОЙ ВОПРОС "${consultation.question}": ${consultation.admin_response}\nИспользуй эту информацию чтобы продолжить диалог с блогером. Не упоминай что консультировался с админом.`;
-
-      const reply = await ai.generateReply(
-        lead,
-        project,
-        history,
-        dialogue.channel,
-        adminDirective,
-      );
-      const now = new Date().toISOString();
-
-      // Review mode → очередь
-      if (isReviewMode()) {
-        if (hasActivePendingReply(lead.id, dialogue.id)) continue;
-        const recipient =
-          dialogue.channel === "email"
-            ? parseEmailList(lead.email)[0]
-            : parseTelegramHandle(lead.telegram);
-        queueReply({
-          lead_id: lead.id,
-          dialogue_id: dialogue.id,
-          channel: dialogue.channel,
-          recipient,
-          subject: reply.subject || "Re: ",
-          body: reply.body,
-          context: {
-            type: "consultation_answer",
-            consultation_id: consultation.id,
-          },
-        });
-        continue;
-      }
-
-      let metadata = { consultation_id: consultation.id };
-      let trackingId = null;
-      if (dialogue.channel === "email") {
-        trackingId = generateTrackingId();
-        const trackingPixelUrl = buildTrackingPixelUrl(
-          currentWorkspaceId,
-          trackingId,
+        const reply = await ai.generateReply(
+          lead,
+          project,
+          history,
+          dialogue.channel,
+          adminDirective,
+          wsId,
         );
-        const lastOut = history.filter((m) => m.direction === "out").pop();
-        const replyToHeader = lastOut
-          ? safeJsonParse(lastOut.metadata).resend_id
-          : null;
-        const result = await email.sendEmail({
-          to: parseEmailList(lead.email)[0],
-          subject: reply.subject || "Re: ",
-          body: reply.body,
-          replyToHeader,
-          trackingPixelUrl,
-        });
-        metadata.subject = reply.subject;
-        metadata.resend_id = result.id;
-        incrementDailyCount("email");
-      } else if (dialogue.channel === "telegram") {
-        const tgResult = await sendTelegramBound(
-          dialogue.id,
-          parseTelegramHandle(lead.telegram),
-          reply.body,
-        );
-        metadata.tg_message_id = tgResult.messageId;
-        metadata.chat_id = tgResult.chatId;
-        metadata.account_id = tgResult.accountId;
-        incrementDailyCount("telegram");
-      }
+        const now = new Date().toISOString();
 
-      const tx = db.transaction(() => {
-        stmts.insertMessage.run({
+        if (await isReviewModeStore(wsId)) {
+          if (await store.hasPendingForChannel(wsId, lead.id, dialogue.channel))
+            continue;
+          const recipient =
+            dialogue.channel === "email"
+              ? parseEmailList(lead.email)[0]
+              : parseTelegramHandle(lead.telegram);
+          await queueReplyStore(wsId, {
+            lead_id: lead.id,
+            dialogue_id: dialogue.id,
+            channel: dialogue.channel,
+            recipient,
+            subject: reply.subject || "Re: ",
+            body: reply.body,
+            context: {
+              type: "consultation_answer",
+              consultation_id: consultation.id,
+            },
+          });
+          continue;
+        }
+
+        let metadata = { consultation_id: consultation.id };
+        let trackingId = null;
+        if (dialogue.channel === "email") {
+          trackingId = generateTrackingId();
+          const trackingPixelUrl = buildTrackingPixelUrl(wsId, trackingId);
+          const replyToHeader = await store.getLastOutResendId(
+            wsId,
+            dialogue.id,
+          );
+          const result = await email.sendEmail({
+            to: parseEmailList(lead.email)[0],
+            subject: reply.subject || "Re: ",
+            body: reply.body,
+            replyToHeader,
+            trackingPixelUrl,
+          });
+          metadata.subject = reply.subject;
+          metadata.resend_id = result.id;
+        } else if (dialogue.channel === "telegram") {
+          const tgResult = await sendTelegramBound(
+            wsId,
+            dialogue.id,
+            parseTelegramHandle(lead.telegram),
+            reply.body,
+          );
+          metadata.tg_message_id = tgResult.messageId;
+          metadata.chat_id = tgResult.chatId;
+          metadata.account_id = tgResult.accountId;
+          await bumpDaily(wsId, "telegram");
+        }
+
+        await store.insertMessage(wsId, {
           dialogue_id: dialogue.id,
           direction: "out",
           sender: "agent",
@@ -1435,89 +1230,95 @@ async function processAnsweredConsultations() {
           created_at: now,
           tracking_id: trackingId,
         });
-        stmts.incrementDialogueMsgCount.run(dialogue.id);
-      });
-      tx();
-      log(
-        "INFO",
-        `Consultation #${consultation.id} processed for lead #${lead.id}`,
-      );
-    } catch (e) {
-      log("ERR", `processAnsweredConsultations failed: ${e.message}`);
+        if (dialogue.channel === "email") {
+          await store.upsertDailyCounters(wsId, {
+            date: todayKey(),
+            sent_email: 1,
+            sent_tg: 0,
+            ai_input_tokens: 0,
+            ai_output_tokens: 0,
+            ai_cache_read: 0,
+            ai_cache_creation: 0,
+          });
+        }
+        log(
+          "INFO",
+          `Consultation ${consultation.id} processed for lead ${lead.id}`,
+        );
+      } catch (e) {
+        log("ERR", `processAnsweredConsultations failed: ${e.message}`);
+      }
     }
+  } finally {
+    ai.setUsageWorkspace(null);
   }
 }
 
-// ─── Process approved pending replies (Review mode) ────────────────
+// ─── Process approved pending replies (Шаг 3.3c-3: store, per-ws) ──────────
 
-// Атомарный "клайм" записи: переводит approved → sending только если она ещё approved.
-// Защита от race между interval-тиком и setImmediate(processApprovedQueue) при approve.
-const _claimPendingReplyStmt = db.prepare(
-  `UPDATE pending_replies SET status = 'sending' WHERE id = ? AND status = 'approved'`,
-);
-const _unclaimPendingReplyStmt = db.prepare(
-  `UPDATE pending_replies SET status = 'approved' WHERE id = ? AND status = 'sending'`,
-);
-
-async function processApprovedQueue(workspaceId) {
+// processApprovedQueue(keyOrCuid?) — если задан воркспейс, обрабатываем его;
+// иначе итерируем все активные. Атомарный claim approved→sending (store, count===1).
+async function processApprovedQueue(workspaceKeyOrCuid) {
   if (isProcessingApproved) return;
   isProcessingApproved = true;
-
-  // Swap to workspace DB if provided
-  const savedStmts = stmts;
-  const savedDb = db;
-  const savedWsId = currentWorkspaceId;
-  if (workspaceId) {
-    const ws = dbModule.getDb(workspaceId);
-    stmts = ws.stmts;
-    db = ws.db;
-    currentWorkspaceId = workspaceId;
-  }
-
   try {
-    const items = stmts.pickApprovedPendingReplies.all(MAX_REPLIES_PER_TICK);
-    if (items.length === 0) return;
-
-    // Sequential — чтобы daily cap не пробивался при параллельной отправке.
-    for (const item of items) {
-      // Timer check: if send_after is set and not yet reached — skip
-      if (item.send_after && new Date(item.send_after) > new Date()) {
-        continue;
-      }
-      // Клайм: только один процесс/тик получит эту запись.
-      const claim = db
-        .prepare(
-          `UPDATE pending_replies SET status = 'sending' WHERE id = ? AND status = 'approved'`,
-        )
-        .run(item.id);
-      if (claim.changes !== 1) continue; // взял другой тик — пропускаем
+    let wsIds;
+    if (workspaceKeyOrCuid) {
+      const cuid = resolveWsCuid(workspaceKeyOrCuid);
+      wsIds = cuid ? [cuid] : [];
+    } else {
+      wsIds = await store.listActiveWorkspaceIds();
+    }
+    for (const wsId of wsIds) {
       try {
-        await sendApprovedPendingReply(item);
+        await _processApprovedQueueForWs(wsId);
       } catch (e) {
-        log("ERR", `pending_reply #${item.id} send failed: ${e.message}`);
-        // Не оставляем висеть в 'sending' — помечаем failed
+        log("ERR", `processApprovedQueue ws ${wsId}: ${e.message}`);
+        workerState.stats.errors++;
+      }
+    }
+  } finally {
+    isProcessingApproved = false;
+  }
+}
+
+async function _processApprovedQueueForWs(wsId) {
+  const items = await store.pickApprovedPendingReplies(
+    wsId,
+    MAX_REPLIES_PER_TICK,
+  );
+  if (items.length === 0) return;
+  ai.setUsageWorkspace(wsId);
+  try {
+    for (const item of items) {
+      // Timer check: send_after в будущем — пропускаем
+      if (item.send_after && new Date(item.send_after) > new Date()) continue;
+      // Атомарный claim approved→sending (только один тик возьмёт).
+      const claimed = await store.claimApprovedPendingReply(wsId, item.id);
+      if (!claimed) continue;
+      try {
+        await sendApprovedPendingReply(wsId, item);
+      } catch (e) {
+        log("ERR", `pending_reply ${item.id} send failed: ${e.message}`);
         try {
-          stmts.markPendingReplyFailed.run(e.message.slice(0, 500), item.id);
+          await store.markPendingReplyFailed(
+            wsId,
+            e.message.slice(0, 500),
+            item.id,
+          );
         } catch {
-          db.prepare(
-            `UPDATE pending_replies SET status = 'approved' WHERE id = ?`,
-          ).run(item.id);
+          await store.unclaimApprovedPendingReply(wsId, item.id);
         }
         workerState.lastError = e.message;
         workerState.stats.errors++;
       }
     }
   } finally {
-    isProcessingApproved = false;
-    if (workspaceId) {
-      stmts = savedStmts;
-      db = savedDb;
-      currentWorkspaceId = savedWsId;
-    }
+    ai.setUsageWorkspace(null);
   }
 }
 
-async function sendApprovedPendingReply(item) {
+async function sendApprovedPendingReply(wsId, item) {
   const ctx = safeJsonParse(item.context);
   const body =
     item.edited_body && item.edited_body.trim() ? item.edited_body : item.body;
@@ -1525,35 +1326,28 @@ async function sendApprovedPendingReply(item) {
     item.edited_subject && item.edited_subject.trim()
       ? item.edited_subject
       : item.subject;
-  const lead = stmts.getLead.get(item.lead_id);
+  const lead = await store.getLead(wsId, item.lead_id);
   if (!lead) throw new Error("lead not found");
-
-  // Opted-out check (GDPR)
   if (lead.opted_out) throw new Error("lead opted out");
 
   const now = new Date().toISOString();
-  const daily = getDailyCounts();
+  const daily = await store.getDailyCounts(wsId, todayKey());
   if (item.channel === "email" && daily.sent_email >= DAILY_CAP_EMAIL)
     throw new Error("daily email cap reached");
   if (item.channel === "telegram" && daily.sent_tg >= DAILY_CAP_TG)
     throw new Error("daily tg cap reached");
 
-  // Для reply нужен history для replyToHeader
+  // Для reply нужен resend_id последнего out для In-Reply-To
   let replyToHeader = null;
   if (item.dialogue_id && item.channel === "email") {
-    const lastOut = db
-      .prepare(
-        `SELECT * FROM messages WHERE dialogue_id = ? AND direction='out' ORDER BY created_at DESC LIMIT 1`,
-      )
-      .get(item.dialogue_id);
-    if (lastOut) replyToHeader = safeJsonParse(lastOut.metadata).resend_id;
+    replyToHeader = await store.getLastOutResendId(wsId, item.dialogue_id);
   }
 
-  // Для TG: аккаунт-владелец диалога (или выбранный, если привязки ещё нет).
+  // Для TG: аккаунт-владелец диалога (легаси getDialogue — TG-домен, 3.3c-4).
   let tgAccountId = null;
   if (item.channel === "telegram") {
     if (item.dialogue_id) {
-      const d = stmts.getDialogue.get(item.dialogue_id);
+      const d = await store.getDialogue(wsId, item.dialogue_id);
       if (d && d.account_id != null) tgAccountId = d.account_id;
     }
     if (tgAccountId == null) tgAccountId = tg.pickAccount();
@@ -1572,16 +1366,6 @@ async function sendApprovedPendingReply(item) {
           : ""
       }\nSubject: ${subject || ""}\n${body}`,
     );
-    db.prepare(
-      `INSERT INTO dry_run_log (created_at, lead_id, channel, subject, body, would_send_to) VALUES (?,?,?,?,?,?)`,
-    ).run(
-      now,
-      item.lead_id,
-      item.channel,
-      subject || null,
-      body,
-      item.recipient,
-    );
     externalId = `dry-run-${Date.now()}`;
     sendMeta = { subject, dry_run: true };
     if (item.channel === "email") sendMeta.resend_id = externalId;
@@ -1592,10 +1376,7 @@ async function sendApprovedPendingReply(item) {
     }
   } else if (item.channel === "email") {
     trackingId = generateTrackingId();
-    const trackingPixelUrl = buildTrackingPixelUrl(
-      currentWorkspaceId,
-      trackingId,
-    );
+    const trackingPixelUrl = buildTrackingPixelUrl(wsId, trackingId);
     const result = await email.sendEmail({
       to: item.recipient,
       subject: subject || "Hello",
@@ -1607,6 +1388,7 @@ async function sendApprovedPendingReply(item) {
     externalId = result.messageId;
     sendMeta = { subject, resend_id: result.id };
   } else if (item.channel === "telegram") {
+    // TG-отправка — легаси (3.3c-4).
     if (tgAccountId == null)
       throw new Error("нет доступного TG-аккаунта (залогинен/под лимитом)");
     const result = await tg.sendMessageVia(tgAccountId, item.recipient, body);
@@ -1621,87 +1403,93 @@ async function sendApprovedPendingReply(item) {
     throw new Error("unknown channel " + item.channel);
   }
 
-  // Post-send транзакция: зависит от типа
+  // Post-send: зависит от типа (порядок store-операций сохраняет инварианты)
   const type = ctx.type;
-  const tx = db.transaction(() => {
-    if (type === "initial") {
-      const dlgResult = stmts.insertDialogue.run(
-        lead.id,
-        item.channel,
-        externalId,
-        now,
-      );
-      if (item.channel === "telegram" && tgAccountId != null)
-        stmts.setDialogueAccount.run(tgAccountId, dlgResult.lastInsertRowid);
-      stmts.insertMessage.run({
-        dialogue_id: dlgResult.lastInsertRowid,
-        direction: "out",
-        sender: "agent",
-        content: body,
-        metadata: JSON.stringify({ ...sendMeta, pending_reply_id: item.id }),
-        created_at: now,
-        tracking_id: trackingId,
-      });
-      stmts.incrementDialogueMsgCount.run(dlgResult.lastInsertRowid);
-      stmts.updateLeadStage.run("awaiting_reply", now, lead.id);
-      stmts.updateLeadStatus.run("in_work", now, lead.id);
-      if (ctx.project_id)
-        stmts.updateLeadProject.run(ctx.project_id, now, lead.id);
-      stmts.unlockLead.run(lead.id);
-    } else if (
-      type === "reply" ||
-      type === "deal_accept" ||
-      type === "consultation_answer"
-    ) {
-      const metaExtra = {};
-      if (type === "deal_accept") metaExtra.deal_decision = ctx.deal_decision;
-      if (type === "consultation_answer")
-        metaExtra.consultation_id = ctx.consultation_id;
-      if (
-        item.channel === "telegram" &&
-        tgAccountId != null &&
-        item.dialogue_id
-      )
-        stmts.setDialogueAccount.run(tgAccountId, item.dialogue_id);
-      stmts.insertMessage.run({
-        dialogue_id: item.dialogue_id,
-        direction: "out",
-        sender: "agent",
-        content: body,
-        metadata: JSON.stringify({
-          ...sendMeta,
-          ...metaExtra,
-          pending_reply_id: item.id,
-        }),
-        created_at: now,
-        tracking_id: trackingId,
-      });
-      stmts.incrementDialogueMsgCount.run(item.dialogue_id);
-      if (ctx.next_stage)
-        stmts.updateLeadStage.run(ctx.next_stage, now, lead.id);
-    }
-    stmts.markPendingReplySent.run(now, item.id);
-  });
-  tx();
+  if (type === "initial") {
+    const dlg = await store.insertDialogue(
+      wsId,
+      lead.id,
+      item.channel,
+      externalId,
+      now,
+    );
+    if (item.channel === "telegram" && tgAccountId != null)
+      await store.setDialogueAccount(wsId, tgAccountId, dlg.id);
+    await store.insertMessage(wsId, {
+      dialogue_id: dlg.id,
+      direction: "out",
+      sender: "agent",
+      content: body,
+      metadata: JSON.stringify({ ...sendMeta, pending_reply_id: item.id }),
+      created_at: now,
+      tracking_id: trackingId,
+    });
+    await store.updateLeadStage(wsId, "awaiting_reply", now, lead.id);
+    await store.updateLeadStatus(wsId, "in_work", now, lead.id);
+    if (ctx.project_id)
+      await store.updateLeadProject(wsId, ctx.project_id, now, lead.id);
+    await store.unlockLead(wsId, lead.id);
+  } else if (
+    type === "reply" ||
+    type === "deal_accept" ||
+    type === "consultation_answer"
+  ) {
+    const metaExtra = {};
+    if (type === "deal_accept") metaExtra.deal_decision = ctx.deal_decision;
+    if (type === "consultation_answer")
+      metaExtra.consultation_id = ctx.consultation_id;
+    if (item.channel === "telegram" && tgAccountId != null && item.dialogue_id)
+      await store.setDialogueAccount(wsId, tgAccountId, item.dialogue_id);
+    await store.insertMessage(wsId, {
+      dialogue_id: item.dialogue_id,
+      direction: "out",
+      sender: "agent",
+      content: body,
+      metadata: JSON.stringify({
+        ...sendMeta,
+        ...metaExtra,
+        pending_reply_id: item.id,
+      }),
+      created_at: now,
+      tracking_id: trackingId,
+    });
+    if (ctx.next_stage)
+      await store.updateLeadStage(wsId, ctx.next_stage, now, lead.id);
+  }
+  await store.markPendingReplySent(wsId, now, item.id);
 
-  incrementDailyCount(item.channel);
+  // Дневной счётчик: email — store; TG — легаси (3.3c-4).
+  if (item.channel === "email") {
+    await store.upsertDailyCounters(wsId, {
+      date: todayKey(),
+      sent_email: 1,
+      sent_tg: 0,
+      ai_input_tokens: 0,
+      ai_output_tokens: 0,
+      ai_cache_read: 0,
+      ai_cache_creation: 0,
+    });
+  } else if (item.channel === "telegram") {
+    await bumpDaily(wsId, "telegram");
+  }
   workerState.stats.sent++;
   log(
     "INFO",
-    `[review] Sent approved pending_reply #${item.id} (${type}) to lead #${lead.id} via ${item.channel}`,
+    `[review] Sent approved pending_reply ${item.id} (${type}) to lead ${lead.id} via ${item.channel}`,
   );
 }
 
 // ─── Follow-up sequences ────────────────────────────────────────────
 
-function getFollowUpConfig() {
-  const row = stmts.getSetting.get("followup");
+let isProcessingFollowUps = false;
+
+// Шаг 3.3c-3: follow-up per-ws через store. Конфиг — из MktSetting воркспейса.
+async function getFollowUpConfigStore(wsId) {
   let cfg = {};
-  if (row && row.value) {
-    try {
-      cfg = JSON.parse(row.value);
-    } catch {}
-  }
+  try {
+    const row = await store.getSetting(wsId, "followup");
+    if (row && row.value) cfg = JSON.parse(row.value);
+  } catch {}
   return {
     enabled:
       cfg.enabled !== undefined
@@ -1718,39 +1506,51 @@ function getFollowUpConfig() {
   };
 }
 
-let isProcessingFollowUps = false;
-
 async function processFollowUps() {
   if (!workerState.running) return;
-  const cfg = getFollowUpConfig();
-  if (!cfg.enabled) return;
   if (isProcessingFollowUps) return;
   isProcessingFollowUps = true;
-
   try {
-    const cutoffMs = Date.now() - cfg.delay_days * 24 * 3600 * 1000;
-    const cutoff = new Date(cutoffMs).toISOString();
-    const candidates = stmts.pickFollowUpCandidates.all({
-      max_attempts: cfg.max_attempts,
-      limit: 20,
-      cutoff,
-    });
-    if (candidates.length === 0) return;
+    for (const wsId of await store.listActiveWorkspaceIds()) {
+      try {
+        await _processFollowUpsForWs(wsId);
+      } catch (e) {
+        log("ERR", `processFollowUps ws ${wsId}: ${e.message}`);
+        workerState.stats.errors++;
+      }
+    }
+  } finally {
+    isProcessingFollowUps = false;
+  }
+}
 
-    const project = stmts.getActiveProject.get();
-    if (!project) return;
+async function _processFollowUpsForWs(wsId) {
+  const cfg = await getFollowUpConfigStore(wsId);
+  if (!cfg.enabled) return;
+  const cutoff = new Date(
+    Date.now() - cfg.delay_days * 24 * 3600 * 1000,
+  ).toISOString();
+  const candidates = await store.pickFollowUpCandidates(wsId, {
+    maxAttempts: cfg.max_attempts,
+    cutoffIso: cutoff,
+    limit: 20,
+  });
+  if (candidates.length === 0) return;
+  const project = await store.getActiveProject(wsId);
+  if (!project) return;
 
+  ai.setUsageWorkspace(wsId);
+  try {
     for (const row of candidates) {
       try {
         if (!row.last_out_at) continue;
-
-        const lead = stmts.getLead.get(row.id);
-        const history = stmts.listMessagesByDialogue.all(row.dlg_id);
+        const lead = await store.getLead(wsId, row.id);
+        const history = await store.listMessagesByDialogue(wsId, row.dlg_id);
         const attempt = (lead.followup_attempts || 0) + 1;
 
         log(
           "INFO",
-          `Follow-up #${attempt} for lead #${lead.id} (silent since ${row.last_out_at})`,
+          `Follow-up #${attempt} for lead ${lead.id} (silent since ${row.last_out_at})`,
         );
         const reply = await ai.generateFollowUp(
           lead,
@@ -1760,10 +1560,9 @@ async function processFollowUps() {
           attempt,
         );
         if (!reply || !reply.body) {
-          log("WARN", `Follow-up empty for lead #${lead.id}`);
+          log("WARN", `Follow-up empty for lead ${lead.id}`);
           continue;
         }
-
         const now = new Date().toISOString();
         const recipient =
           row.dlg_channel === "email"
@@ -1771,11 +1570,12 @@ async function processFollowUps() {
             : parseTelegramHandle(lead.telegram);
 
         // Review mode → в очередь
-        if (isReviewMode()) {
-          if (hasActivePendingReply(lead.id, row.dlg_id)) continue;
+        if (await isReviewModeStore(wsId)) {
+          if (await store.hasPendingForChannel(wsId, lead.id, row.dlg_channel))
+            continue;
           const followupStageReview =
             attempt >= 2 ? "followup_2" : "followup_1";
-          queueReply({
+          await queueReplyStore(wsId, {
             lead_id: lead.id,
             dialogue_id: row.dlg_id,
             channel: row.dlg_channel,
@@ -1788,12 +1588,12 @@ async function processFollowUps() {
               followup: attempt,
             },
           });
-          stmts.incrementLeadFollowUp.run(now, now, lead.id);
+          await store.incrementLeadFollowUp(wsId, now, now, lead.id);
           continue;
         }
 
         // Прямая отправка
-        const daily = getDailyCounts();
+        const daily = await store.getDailyCounts(wsId, todayKey());
         if (row.dlg_channel === "email" && daily.sent_email >= DAILY_CAP_EMAIL)
           continue;
         if (row.dlg_channel === "telegram" && daily.sent_tg >= DAILY_CAP_TG)
@@ -1803,14 +1603,11 @@ async function processFollowUps() {
         let trackingId = null;
         if (row.dlg_channel === "email") {
           trackingId = generateTrackingId();
-          const trackingPixelUrl = buildTrackingPixelUrl(
-            currentWorkspaceId,
-            trackingId,
+          const trackingPixelUrl = buildTrackingPixelUrl(wsId, trackingId);
+          const replyToHeader = await store.getLastOutResendId(
+            wsId,
+            row.dlg_id,
           );
-          const lastOut = history.filter((m) => m.direction === "out").pop();
-          const replyToHeader = lastOut
-            ? safeJsonParse(lastOut.metadata).resend_id
-            : null;
           const firstMeta = history[0]
             ? safeJsonParse(history[0].metadata)
             : {};
@@ -1823,9 +1620,9 @@ async function processFollowUps() {
           });
           metadata.subject = reply.subject;
           metadata.resend_id = result.id;
-          incrementDailyCount("email");
         } else if (row.dlg_channel === "telegram") {
           const result = await sendTelegramBound(
+            wsId,
             row.dlg_id,
             recipient,
             reply.body,
@@ -1833,51 +1630,56 @@ async function processFollowUps() {
           metadata.tg_message_id = result.messageId;
           metadata.chat_id = result.chatId;
           metadata.account_id = result.accountId;
-          incrementDailyCount("telegram");
+          await bumpDaily(wsId, "telegram");
         }
 
         const followupStage = attempt >= 2 ? "followup_2" : "followup_1";
-        const tx = db.transaction(() => {
-          stmts.insertMessage.run({
-            dialogue_id: row.dlg_id,
-            direction: "out",
-            sender: "agent",
-            content: reply.body,
-            metadata: JSON.stringify(metadata),
-            created_at: now,
-            tracking_id: trackingId,
-          });
-          stmts.incrementDialogueMsgCount.run(row.dlg_id);
-          stmts.incrementLeadFollowUp.run(now, now, lead.id);
-          stmts.updateLeadStage.run(followupStage, now, lead.id);
+        await store.insertMessage(wsId, {
+          dialogue_id: row.dlg_id,
+          direction: "out",
+          sender: "agent",
+          content: reply.body,
+          metadata: JSON.stringify(metadata),
+          created_at: now,
+          tracking_id: trackingId,
         });
-        tx();
+        if (row.dlg_channel === "email") {
+          await store.upsertDailyCounters(wsId, {
+            date: todayKey(),
+            sent_email: 1,
+            sent_tg: 0,
+            ai_input_tokens: 0,
+            ai_output_tokens: 0,
+            ai_cache_read: 0,
+            ai_cache_creation: 0,
+          });
+        }
+        await store.incrementLeadFollowUp(wsId, now, now, lead.id);
+        await store.updateLeadStage(wsId, followupStage, now, lead.id);
         workerState.stats.sent++;
         log(
           "INFO",
-          `Follow-up #${attempt} sent to lead #${lead.id} via ${row.dlg_channel}`,
+          `Follow-up #${attempt} sent to lead ${lead.id} via ${row.dlg_channel}`,
         );
       } catch (e) {
-        log("ERR", `Follow-up failed for lead #${row.id}: ${e.message}`);
+        log("ERR", `Follow-up failed for lead ${row.id}: ${e.message}`);
         workerState.stats.errors++;
       }
     }
   } finally {
-    isProcessingFollowUps = false;
+    ai.setUsageWorkspace(null);
   }
 }
 
-// Вызывается из routes/pending-replies при reject, чтобы освободить лида
-function onPendingReplyRejected(pendingReplyId) {
+// Вызывается из routes/pending-replies при reject, чтобы освободить лида.
+async function onPendingReplyRejected(wsId, pendingReplyId) {
   try {
-    const item = stmts.getPendingReply.get(pendingReplyId);
+    const item = await store.getPendingReply(wsId, pendingReplyId);
     if (!item) return;
     const ctx = safeJsonParse(item.context);
-    // Для initial → освободить лид чтобы воркер перегенерил pitch (или оставил ручное решение)
-    if (ctx.type === "initial") {
-      db.prepare(
-        `UPDATE leads SET locked_until = NULL, dialogue_stage = 'not_contacted', lead_status = 'ready', updated_at = ? WHERE id = ?`,
-      ).run(new Date().toISOString(), item.lead_id);
+    // Для initial → освободить лид (ready/not_contacted), чтобы воркер перегенерил.
+    if (ctx.type === "initial" && item.lead_id) {
+      await store.resetLeadForRun(wsId, item.lead_id, true);
     }
   } catch (e) {
     log("ERR", "onPendingReplyRejected: " + e.message);
@@ -1894,23 +1696,9 @@ const TG_REPLY_DEBOUNCE_MS = parseInt(
 );
 const _tgReplyTimers = new Map(); // key `${wsId}:${leadId}` → timeout
 
-// Запуск generatePendingReplies в контексте нужного воркспейса (таймер срабатывает
-// уже после восстановления контекста в handleIncomingTelegram).
+// Запуск reply-gen для воркспейса (wsId — cuid из findTgLeadMatch). Всё на store.
 async function _runReplyGenForWorkspace(wsId) {
-  const savedStmts = stmts;
-  const savedDb = db;
-  const savedWsId = currentWorkspaceId;
-  const ws = dbModule.getDb(wsId);
-  stmts = ws.stmts;
-  db = ws.db;
-  currentWorkspaceId = wsId;
-  try {
-    await generatePendingReplies();
-  } finally {
-    stmts = savedStmts;
-    db = savedDb;
-    currentWorkspaceId = savedWsId;
-  }
+  await generatePendingReplies(wsId);
 }
 
 // Поставить/сбросить per-lead дебаунс-таймер генерации ответа. Каждое новое
@@ -1936,64 +1724,11 @@ function scheduleTgReplyGeneration(wsId, leadId) {
   );
 }
 
-// Найти TG-лида по username/chat_id ВО ВСЕХ воркспейсах (TG-аккаунты общие,
-// а лиды разнесены по ws-БД). Возвращает { lead, ws, wsId } или null.
-function findTgLeadAcrossWorkspaces(username, chatId) {
-  const fs = require("fs");
-  const path = require("path");
-  const dataDir = path.join(__dirname, "..", "data");
-  let files = [];
-  try {
-    files = fs
-      .readdirSync(dataDir)
-      .filter((f) => f.startsWith("ws-") && f.endsWith(".db"));
-  } catch {
-    return null;
-  }
-  const needle = username
-    ? String(username).toLowerCase().trim().replace(/^@/, "")
-    : null;
-
-  for (const file of files) {
-    const wsId = file.replace(/^ws-/, "").replace(/\.db$/, "");
-    const ws = dbModule.getDb(wsId);
-    // 1) точный матч по username (несколько хендлов через ;/,)
-    if (needle) {
-      const cands = ws.db
-        .prepare(
-          `SELECT * FROM leads WHERE telegram IS NOT NULL AND telegram != ''`,
-        )
-        .all();
-      for (const l of cands) {
-        const handles = String(l.telegram)
-          .split(/[;,]/)
-          .map((h) => h.trim().replace(/^@/, "").toLowerCase())
-          .filter(Boolean);
-        if (handles.includes(needle)) return { lead: l, ws, wsId };
-      }
-    }
-    // 2) fallback — по chat_id (external_thread_id или metadata)
-    if (chatId) {
-      const row = ws.db
-        .prepare(
-          `SELECT l.* FROM dialogues d
-           JOIN messages m ON m.dialogue_id = d.id
-           JOIN leads l ON l.id = d.lead_id
-           WHERE d.channel = 'telegram' AND (d.external_thread_id = ? OR m.metadata LIKE ?)
-           LIMIT 1`,
-        )
-        .get(String(chatId), '%"chat_id":"' + chatId + '"%');
-      if (row) return { lead: row, ws, wsId };
-    }
-  }
-  return null;
-}
-
 async function handleIncomingTelegram(msg) {
   if (!msg.username && !msg.senderId) return;
 
-  // Матч лида по всем воркспейсам (TG общий, лиды разнесены).
-  const match = findTgLeadAcrossWorkspaces(msg.username, msg.chatId);
+  // Матч лида по всем воркспейсам через store (TG общий, лиды разнесены).
+  const match = await store.findTgLeadMatch(msg.username, msg.chatId);
   if (!match) {
     log(
       "WARN",
@@ -2002,41 +1737,26 @@ async function handleIncomingTelegram(msg) {
     return;
   }
 
-  // Свопаем контекст БД на воркспейс лида (как processInbox для email).
-  const savedStmts = stmts;
-  const savedDb = db;
-  const savedWsId = currentWorkspaceId;
-  stmts = match.ws.stmts;
-  db = match.ws.db;
-  currentWorkspaceId = match.wsId;
+  const wsId = match.wsId;
   try {
     const lead = match.lead;
-    let dialogue = stmts.getDialogueByLead.get(lead.id, "telegram");
+    let dialogue = match.dialogue;
 
-    // Дедуп: если сообщение с таким tg_message_id уже записано у лида — пропускаем
-    // (защита от двойного приёма live-листенером и catch-up fetchRecentIncoming).
+    // Дедуп по tg_message_id (защита от double-приёма live + catch-up).
     if (msg.messageId && dialogue) {
-      const dup = db
-        .prepare(
-          `SELECT m.id FROM messages m
-           JOIN dialogues d ON d.id = m.dialogue_id
-           WHERE d.lead_id = ? AND d.channel = 'telegram'
-             AND m.direction = 'in' AND m.metadata LIKE ? LIMIT 1`,
-        )
-        .get(lead.id, '%"tg_message_id":"' + msg.messageId + '"%');
+      const dup = await store.tgIncomingExists(wsId, lead.id, msg.messageId);
       if (dup) {
-        // Сообщение уже записано. Если активного черновика ответа нет (был
-        // отклонён/удалён) — перегенерируем ответ; иначе просто выходим.
-        if (!hasActivePendingReply(lead.id, dialogue.id)) {
+        // Сообщение уже записано. Нет активного черновика → дебаунс-регенерация.
+        if (!(await store.hasPendingForChannel(wsId, lead.id, "telegram"))) {
           log(
             "INFO",
-            `TG incoming dup (lead #${lead.id}) — нет активного черновика, дебаунс-регенерация`,
+            `TG incoming dup (lead ${lead.id}) — нет активного черновика, дебаунс-регенерация`,
           );
-          scheduleTgReplyGeneration(match.wsId, lead.id);
+          scheduleTgReplyGeneration(wsId, lead.id);
         } else {
           log(
             "INFO",
-            `TG incoming dup skipped (lead #${lead.id}, msg ${msg.messageId})`,
+            `TG incoming dup skipped (lead ${lead.id}, msg ${msg.messageId})`,
           );
         }
         return;
@@ -2044,60 +1764,52 @@ async function handleIncomingTelegram(msg) {
     }
 
     const now = new Date().toISOString();
-    const tx = db.transaction(() => {
-      if (!dialogue) {
-        const r = stmts.insertDialogue.run(
-          lead.id,
-          "telegram",
-          msg.chatId,
-          now,
-        );
-        dialogue = {
-          id: r.lastInsertRowid,
-          lead_id: lead.id,
-          channel: "telegram",
-          account_id: null,
-        };
-      }
-      // Привязка диалога к аккаунту, ПОЛУЧИВШЕМУ входящее (или backfill).
-      if (msg.accountId != null && dialogue.account_id == null) {
-        stmts.setDialogueAccount.run(msg.accountId, dialogue.id);
-        dialogue.account_id = msg.accountId;
-      }
-      stmts.insertMessage.run({
-        dialogue_id: dialogue.id,
-        direction: "in",
-        sender: "blogger",
-        content: msg.text,
-        metadata: JSON.stringify({
-          username: msg.username,
-          tg_message_id: msg.messageId,
-          chat_id: msg.chatId,
-          account_id: msg.accountId ?? null,
-        }),
-        created_at: now,
-        tracking_id: null,
-      });
-      stmts.incrementDialogueMsgCount.run(dialogue.id);
-      stmts.updateLeadStage.run("replied", now, lead.id);
+    if (!dialogue) {
+      const d = await store.insertDialogue(
+        wsId,
+        lead.id,
+        "telegram",
+        msg.chatId,
+        now,
+      );
+      dialogue = {
+        id: d.id,
+        lead_id: lead.id,
+        channel: "telegram",
+        account_id: null,
+      };
+    }
+    // Привязка диалога к аккаунту, получившему входящее (backfill).
+    if (msg.accountId != null && dialogue.account_id == null) {
+      await store.setDialogueAccount(wsId, msg.accountId, dialogue.id);
+    }
+    await store.insertMessage(wsId, {
+      dialogue_id: dialogue.id,
+      direction: "in",
+      sender: "blogger",
+      content: msg.text,
+      metadata: JSON.stringify({
+        username: msg.username,
+        tg_message_id: msg.messageId,
+        chat_id: msg.chatId,
+        account_id: msg.accountId ?? null,
+      }),
+      created_at: now,
+      tracking_id: null,
     });
-    tx();
+    await store.updateLeadStage(wsId, "replied", now, lead.id);
 
     workerState.stats.replied++;
     log(
       "INFO",
-      `TG reply from @${msg.username} (lead #${lead.id}, ws: ${match.wsId})`,
+      `TG reply from @${msg.username} (lead ${lead.id}, ws: ${wsId})`,
     );
 
     // Дебаунс: не генерируем ответ сразу — ждём «тишины», чтобы прочитать всю
     // пачку. Запись входящего и стадия replied уже зафиксированы выше (мгновенно).
-    scheduleTgReplyGeneration(match.wsId, lead.id);
+    scheduleTgReplyGeneration(wsId, lead.id);
   } catch (e) {
     log("ERR", `TG handler failed: ${e.message}`);
-  } finally {
-    stmts = savedStmts;
-    db = savedDb;
-    currentWorkspaceId = savedWsId;
   }
 }
 
@@ -2105,49 +1817,11 @@ async function handleIncomingTelegram(msg) {
 // generatePendingReplies по воркспейсам, где есть «зависшая» TG-пачка (входящие
 // после последнего исходящего, без активного черновика) — подберём её. Reentrancy-
 // guard + review-дедуп защищают от дублей. Сканируем только ws с реальной TG-
-// пачкой, чтобы не трогать остальные воркспейсы.
-function _hasStrandedTgBatch(wsDb) {
-  try {
-    return !!wsDb
-      .prepare(
-        `SELECT 1 FROM leads l
-         JOIN dialogues d ON d.lead_id = l.id AND d.channel = 'telegram'
-         WHERE l.lead_status IN ('ready','in_work')
-           AND l.dialogue_stage NOT IN ('won','lost','deal_pending','moved_to_tg')
-           AND (SELECT MAX(created_at) FROM messages WHERE dialogue_id = d.id AND direction = 'in') >
-               COALESCE((SELECT MAX(created_at) FROM messages WHERE dialogue_id = d.id AND direction = 'out'), '1970-01-01')
-           AND NOT EXISTS (
-             SELECT 1 FROM pending_replies pr
-             WHERE pr.lead_id = l.id AND pr.status IN ('pending','approved')
-           )
-         LIMIT 1`,
-      )
-      .get();
-  } catch {
-    return false;
-  }
-}
-
+// пачкой. Через store: итерируем активные воркспейсы и зовём reply-gen — он
+// сам (pickLeadsWithNewReplies + reentrancy + review-дедуп) подберёт зависшие
+// пачки (новый IN без ответа), TG в т.ч. Без файлового скана.
 async function sweepStrandedTgReplies() {
-  const fs = require("fs");
-  const path = require("path");
-  const dataDir = path.join(__dirname, "..", "data");
-  let files = [];
-  try {
-    files = fs
-      .readdirSync(dataDir)
-      .filter((f) => f.startsWith("ws-") && f.endsWith(".db"));
-  } catch {
-    return;
-  }
-  for (const file of files) {
-    const wsId = file.replace(/^ws-/, "").replace(/\.db$/, "");
-    const ws = dbModule.getDb(wsId);
-    if (!_hasStrandedTgBatch(ws.db)) continue;
-    log(
-      "INFO",
-      `[sweep] зависшая TG-пачка в ws ${wsId} → generatePendingReplies`,
-    );
+  for (const wsId of await store.listActiveWorkspaceIds()) {
     try {
       await _runReplyGenForWorkspace(wsId);
     } catch (e) {
@@ -2200,7 +1874,7 @@ function start() {
   setTimeout(processFollowUps, 60_000);
   log(
     "INFO",
-    `Outreach worker started (TG ready: ${tg.isReady()}, AdminBot: ${adminBot.isReady()}, ReviewMode: ${isReviewMode()})`,
+    `Outreach worker started (TG ready: ${tg.isReady()}, AdminBot: ${adminBot.isReady()}, ReviewMode env: ${process.env.REVIEW_MODE === "true" || process.env.REVIEW_MODE === "1"})`,
   );
   setTimeout(processOutreachQueue, 1000);
   setTimeout(processInbox, 3000);
@@ -2223,24 +1897,40 @@ function stop() {
   log("INFO", "Outreach worker stopped");
 }
 
-function status() {
-  const counts = stmts.countLeads.get();
-  const daily = getDailyCounts();
-  const pending = stmts.countPendingReplies.get("pending");
+// Глобальный статус воркера (агрегат по всем активным воркспейсам, store).
+async function status() {
+  const wsIds = await store.listActiveWorkspaceIds();
+  let ready = 0,
+    in_work = 0,
+    sent_email = 0,
+    sent_tg = 0,
+    pending_review = 0,
+    reviewAny = false;
+  const date = todayKey();
+  for (const wsId of wsIds) {
+    const c = await store.countLeads(wsId);
+    ready += c.ready || 0;
+    in_work += c.in_work || 0;
+    const d = await store.getDailyCounts(wsId, date);
+    sent_email += d.sent_email;
+    sent_tg += d.sent_tg;
+    pending_review += (await store.countPendingReplies(wsId, "pending")).n || 0;
+    if (await isReviewModeStore(wsId)) reviewAny = true;
+  }
   return {
     running: workerState.running,
     lastTick: workerState.lastTick,
     lastError: workerState.lastError,
     stats: workerState.stats,
-    queue: { ready: counts.ready || 0, in_work: counts.in_work || 0 },
+    queue: { ready, in_work },
     daily: {
-      sent_email: daily.sent_email,
-      sent_tg: daily.sent_tg,
+      sent_email,
+      sent_tg,
       cap_email: DAILY_CAP_EMAIL,
       cap_tg: DAILY_CAP_TG,
     },
-    review_mode: isReviewMode(),
-    pending_review: pending?.n || 0,
+    review_mode: reviewAny,
+    pending_review,
   };
 }
 
@@ -2251,16 +1941,22 @@ module.exports = {
   getLogs,
   processOutreachQueue,
   processInbox,
+  processDecidedDeals,
+  processAnsweredConsultations,
   processApprovedQueue,
   processFollowUps,
   runLeadNow,
   runLeadsNow,
   channelAvailability,
-  existingOutChannels,
   handleIncomingTelegram,
   enableTelegramListener,
   sweepStrandedTgReplies,
   onPendingReplyRejected,
-  isReviewMode,
-  getFollowUpConfig,
+  // entry points для inbox/reply-gen (используются processInbox; экспорт для тестов/триггеров)
+  generatePendingReplies,
+  _ingestIncomingEmail,
+  // тест-хук: включить running без планирования интервалов start()
+  __setRunning: (v) => {
+    workerState.running = !!v;
+  },
 };

@@ -11,7 +11,9 @@ const crypto = require("crypto");
 const Anthropic = require("@anthropic-ai/sdk");
 const { Api } = require("telegram");
 const { CustomFile } = require("telegram/client/uploads");
-const { stmts, db } = require("../db/database");
+// Шаг 3.3c-4a: TG-аккаунты переведены на store (MktTgAccount, секреты шифрованы).
+const store = require("../db/prisma-store");
+const { requireWsId } = require("../db/workspace-map");
 const { adminAuth } = require("../utils/auth");
 const { withAccountClient } = require("../services/telegram-outreach");
 
@@ -62,8 +64,8 @@ router.use((req, res, next) => {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function loadRow(id) {
-  const row = stmts.getTgAccount.get(id);
+async function loadRow(wsId, id) {
+  const row = await store.getTgAccount(wsId, id);
   if (!row) {
     const e = new Error("Account not found");
     e.status = 404;
@@ -156,9 +158,10 @@ async function antiBanSleep(first) {
 
 // ─── GET /accounts/:id/profile ───────────────────────────────────────────────
 
-router.get("/accounts/:id/profile", (req, res) => {
+router.get("/accounts/:id/profile", async (req, res) => {
   try {
-    const row = loadRow(parseInt(req.params.id, 10));
+    if (!requireWsId(req, res)) return;
+    const row = await loadRow(req.wsId, req.params.id);
     res.json({
       success: true,
       profile: buildProfile(row, parseMeta(row.metadata)),
@@ -170,10 +173,11 @@ router.get("/accounts/:id/profile", (req, res) => {
 
 // ─── PATCH /accounts/:id/profile ─────────────────────────────────────────────
 
-router.patch("/accounts/:id/profile", adminAuth, (req, res) => {
+router.patch("/accounts/:id/profile", adminAuth, async (req, res) => {
   try {
-    const id = parseInt(req.params.id, 10);
-    const row = loadRow(id);
+    if (!requireWsId(req, res)) return;
+    const id = req.params.id;
+    const row = await loadRow(req.wsId, id);
     const meta = parseMeta(row.metadata);
     const body = req.body || {};
 
@@ -201,20 +205,10 @@ router.patch("/accounts/:id/profile", adminAuth, (req, res) => {
       }
     }
 
-    const colParts = [];
-    const vals = { id };
-    if (body.first_name !== undefined) {
-      colParts.push("first_name = @first_name");
-      vals.first_name = body.first_name;
-    }
-    if (body.last_name !== undefined) {
-      colParts.push("last_name = @last_name");
-      vals.last_name = body.last_name;
-    }
-    if (body.username !== undefined) {
-      colParts.push("username = @username");
-      vals.username = body.username;
-    }
+    const fields = {};
+    if (body.first_name !== undefined) fields.first_name = body.first_name;
+    if (body.last_name !== undefined) fields.last_name = body.last_name;
+    if (body.username !== undefined) fields.username = body.username;
 
     if (body.bio !== undefined) meta.bio = body.bio;
     if (body.bio_ru !== undefined) meta.bio_ru = body.bio_ru;
@@ -225,16 +219,10 @@ router.patch("/accounts/:id/profile", adminAuth, (req, res) => {
       }
       meta.privacy = cur;
     }
+    fields.metadata = JSON.stringify(meta);
 
-    colParts.push("metadata = @metadata");
-    vals.metadata = JSON.stringify(meta);
-    colParts.push("updated_at = @updated_at");
-    vals.updated_at = new Date().toISOString();
-
-    db.prepare(
-      `UPDATE tg_account SET ${colParts.join(", ")} WHERE id = @id`,
-    ).run(vals);
-    const fresh = loadRow(id);
+    await store.updateTgAccount(req.wsId, id, fields);
+    const fresh = await loadRow(req.wsId, id);
     res.json({
       success: true,
       profile: buildProfile(fresh, parseMeta(fresh.metadata)),
@@ -251,8 +239,8 @@ router.post(
   adminAuth,
   async (req, res) => {
     try {
-      const id = parseInt(req.params.id, 10);
-      const row = loadRow(id);
+      if (!requireWsId(req, res)) return;
+      const row = await loadRow(req.wsId, req.params.id);
       const country = deriveCountry(row);
       const body = req.body || {};
 
@@ -362,8 +350,8 @@ router.post(
 
 router.post("/accounts/:id/profile/translate", adminAuth, async (req, res) => {
   try {
-    const id = parseInt(req.params.id, 10);
-    loadRow(id);
+    if (!requireWsId(req, res)) return;
+    await loadRow(req.wsId, req.params.id);
     const text = (req.body?.text || "").trim();
     if (!text) return res.json({ success: true, translation: "" });
 
@@ -391,8 +379,9 @@ router.post(
   adminAuth,
   async (req, res) => {
     try {
-      const id = parseInt(req.params.id, 10);
-      const row = loadRow(id);
+      if (!requireWsId(req, res)) return;
+      const id = req.params.id;
+      const row = await loadRow(req.wsId, id);
 
       const sources = [
         "https://thispersondoesnotexist.com/",
@@ -433,9 +422,9 @@ router.post(
 
       const meta = parseMeta(row.metadata);
       meta.avatar_path = `tg-avatars/${id}.jpg`;
-      db.prepare(
-        `UPDATE tg_account SET metadata = ?, updated_at = ? WHERE id = ?`,
-      ).run(JSON.stringify(meta), new Date().toISOString(), id);
+      await store.updateTgAccount(req.wsId, id, {
+        metadata: JSON.stringify(meta),
+      });
 
       res.json({ success: true, avatar_url: avatarRoute(id) });
     } catch (e) {
@@ -450,10 +439,11 @@ router.post(
   "/accounts/:id/profile/upload-avatar",
   adminAuth,
   uploadAvatar.single("file"),
-  (req, res) => {
+  async (req, res) => {
     try {
-      const id = parseInt(req.params.id, 10);
-      const row = loadRow(id);
+      if (!requireWsId(req, res)) return;
+      const id = req.params.id;
+      const row = await loadRow(req.wsId, id);
       if (!req.file) return apiError(res, 400, "файл обязателен");
       if (req.file.buffer.length < 512)
         return apiError(res, 400, "Файл слишком мал");
@@ -466,9 +456,9 @@ router.post(
 
       const meta = parseMeta(row.metadata);
       meta.avatar_path = `tg-avatars/${id}.jpg`;
-      db.prepare(
-        `UPDATE tg_account SET metadata = ?, updated_at = ? WHERE id = ?`,
-      ).run(JSON.stringify(meta), new Date().toISOString(), id);
+      await store.updateTgAccount(req.wsId, id, {
+        metadata: JSON.stringify(meta),
+      });
 
       res.json({ success: true, avatar_url: avatarRoute(id) });
     } catch (e) {
@@ -479,10 +469,11 @@ router.post(
 
 // ─── GET /accounts/:id/profile/avatar ────────────────────────────────────────
 
-router.get("/accounts/:id/profile/avatar", (req, res) => {
+router.get("/accounts/:id/profile/avatar", async (req, res) => {
   try {
-    const id = parseInt(req.params.id, 10);
-    const row = loadRow(id);
+    if (!requireWsId(req, res)) return;
+    const id = req.params.id;
+    const row = await loadRow(req.wsId, id);
     const meta = parseMeta(row.metadata);
 
     const base = path.resolve(path.join(__dirname, "..", "data"));
@@ -514,8 +505,8 @@ router.post(
   adminAuth,
   async (req, res) => {
     try {
-      const id = parseInt(req.params.id, 10);
-      const row = loadRow(id);
+      if (!requireWsId(req, res)) return;
+      const row = await loadRow(req.wsId, req.params.id);
       const username = (req.body?.username || "")
         .trim()
         .replace(/^@/, "")
@@ -540,8 +531,9 @@ router.post(
 
 router.post("/accounts/:id/profile/apply", adminAuth, async (req, res) => {
   try {
-    const id = parseInt(req.params.id, 10);
-    const row = loadRow(id);
+    if (!requireWsId(req, res)) return;
+    const id = req.params.id;
+    const row = await loadRow(req.wsId, id);
     const meta = parseMeta(row.metadata);
 
     const requested =
@@ -668,30 +660,20 @@ router.post("/accounts/:id/profile/apply", adminAuth, async (req, res) => {
       }
     });
 
-    // Сохраняем результат в БД
-    const setParts = [];
-    const colVals = { id };
+    // Сохраняем результат в БД (store, секреты не затрагиваются)
+    const fields = {};
     if (nameOk) {
-      setParts.push("first_name = @first_name", "last_name = @last_name");
-      colVals.first_name = firstName;
-      colVals.last_name = lastName;
+      fields.first_name = firstName;
+      fields.last_name = lastName;
     }
-    if (usernameOk) {
-      setParts.push("username = @username");
-      colVals.username = username;
-    }
+    if (usernameOk) fields.username = username;
     if (Object.keys(applied).length > 0) {
       meta.profile_applied_at = new Date().toISOString();
       meta.profile_applied_parts = parts;
-      setParts.push("metadata = @metadata");
-      colVals.metadata = JSON.stringify(meta);
+      fields.metadata = JSON.stringify(meta);
     }
-    if (setParts.length > 0) {
-      setParts.push("updated_at = @updated_at");
-      colVals.updated_at = new Date().toISOString();
-      db.prepare(
-        `UPDATE tg_account SET ${setParts.join(", ")} WHERE id = @id`,
-      ).run(colVals);
+    if (Object.keys(fields).length > 0) {
+      await store.updateTgAccount(req.wsId, id, fields);
     }
 
     res.json({ success: true, applied });

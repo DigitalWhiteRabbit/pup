@@ -1,9 +1,12 @@
 // routes/knowledge.js — API для базы знаний (RAG)
+// Шаг 3.3b-6: переведён на db/prisma-store (единый Prisma-Postgres PUP).
+// docId — cuid-строка; embedding в Prisma — JSON float-массив (сериализация в сервисе).
 const express = require("express");
 const crypto = require("crypto");
 const multer = require("multer");
 const { adminAuth } = require("../utils/auth");
-const { getDb } = require("../db/database");
+const store = require("../db/prisma-store");
+const { requireWsId } = require("../db/workspace-map");
 const kn = require("../services/knowledge");
 const crawler = require("../services/crawler");
 
@@ -18,16 +21,11 @@ router.use((req, res, next) => {
   if (req.method === "GET") return next();
   return adminAuth(req, res, next);
 });
-router.use((req, res, next) => {
-  const ws = getDb(req.workspaceId);
-  req.stmts = ws.stmts;
-  req.db = ws.db;
-  next();
-});
 
-function activeProjectId() {
+// Активный проект воркспейса (cuid) или null (общие знания).
+async function activeProjectId(req) {
   try {
-    const p = req.stmts.getActiveProject.get();
+    const p = await store.getActiveProject(req.wsId);
     return p ? p.id : null;
   } catch {
     return null;
@@ -38,23 +36,24 @@ function sha256(s) {
   return crypto.createHash("sha256").update(String(s)).digest("hex");
 }
 
-// Фоновая индексация (не блокируем ответ)
-function indexInBackground(docId, wsStmts) {
+// Фоновая индексация (не блокируем ответ). wsId — cuid воркспейса.
+function indexInBackground(wsId, docId) {
   setImmediate(async () => {
     try {
-      await kn.indexDocument(docId, wsStmts);
-      console.log(`[knowledge] indexed doc #${docId}`);
+      await kn.indexDocument(wsId, docId);
+      console.log(`[knowledge] indexed doc ${docId}`);
     } catch (e) {
-      console.error(`[knowledge] index fail doc #${docId}:`, e.message);
+      console.error(`[knowledge] index fail doc ${docId}:`, e.message);
     }
   });
 }
 
 // GET /api/knowledge — список документов (без content)
-router.get("/", (req, res) => {
+router.get("/", async (req, res) => {
   try {
-    const pid = activeProjectId();
-    const docs = req.stmts.listKnowledgeDocs.all({ project_id: pid });
+    if (!requireWsId(req, res)) return;
+    const pid = await activeProjectId(req);
+    const docs = await store.listKnowledgeDocs(req.wsId, pid);
     res.json({ success: true, docs, project_id: pid });
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
@@ -62,10 +61,11 @@ router.get("/", (req, res) => {
 });
 
 // GET /api/knowledge/status — статистика
-router.get("/status", (req, res) => {
+router.get("/status", async (req, res) => {
   try {
-    const pid = activeProjectId();
-    const s = req.stmts.knowledgeStats.get({ project_id: pid });
+    if (!requireWsId(req, res)) return;
+    const pid = await activeProjectId(req);
+    const s = await store.knowledgeStats(req.wsId, pid);
     res.json({
       success: true,
       stats: {
@@ -86,24 +86,28 @@ router.get("/status", (req, res) => {
 });
 
 // GET /api/knowledge/:id — один документ с content
-router.get("/:id", (req, res, next) => {
-  if (!/^\d+$/.test(req.params.id)) return next();
-  const doc = req.stmts.getKnowledgeDoc.get(req.params.id);
+router.get("/:id", async (req, res, next) => {
+  // /status и /crawl/status зарегистрированы выше и матчатся раньше; сюда
+  // долетают только реальные cuid-доки. Явно исключаем известные суб-пути.
+  if (req.params.id === "status" || req.params.id === "crawl") return next();
+  if (!requireWsId(req, res)) return;
+  const doc = await store.getKnowledgeDoc(req.wsId, req.params.id);
   if (!doc) return res.status(404).json({ success: false, error: "not found" });
   res.json({ success: true, doc });
 });
 
 // POST /api/knowledge/text — добавить текст
-router.post("/text", express.json({ limit: "10mb" }), (req, res) => {
+router.post("/text", express.json({ limit: "10mb" }), async (req, res) => {
   try {
+    if (!requireWsId(req, res)) return;
     const { title, content } = req.body || {};
     if (!title || !content)
       return res
         .status(400)
         .json({ success: false, error: "title и content обязательны" });
     const now = new Date().toISOString();
-    const pid = activeProjectId();
-    const info = req.stmts.insertKnowledgeDoc.run({
+    const pid = await activeProjectId(req);
+    const info = await store.insertKnowledgeDoc(req.wsId, {
       project_id: pid,
       kind: "text",
       title: String(title).slice(0, 300),
@@ -112,12 +116,10 @@ router.post("/text", express.json({ limit: "10mb" }), (req, res) => {
       size_bytes: Buffer.byteLength(content, "utf8"),
       content: String(content),
       checksum: sha256(content),
-      status: "pending",
       created_at: now,
-      updated_at: now,
     });
-    indexInBackground(info.lastInsertRowid, req.stmts);
-    res.json({ success: true, id: info.lastInsertRowid });
+    indexInBackground(req.wsId, info.id);
+    res.json({ success: true, id: info.id });
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
   }
@@ -126,14 +128,16 @@ router.post("/text", express.json({ limit: "10mb" }), (req, res) => {
 // POST /api/knowledge/url — добавить URL
 router.post("/url", express.json(), async (req, res) => {
   try {
+    if (!requireWsId(req, res)) return;
     const { url } = req.body || {};
     if (!url)
       return res.status(400).json({ success: false, error: "url обязателен" });
     const now = new Date().toISOString();
-    const pid = activeProjectId();
+    const pid = await activeProjectId(req);
+    const wsId = req.wsId;
 
     // Сначала вставим placeholder, потом попытаемся загрузить
-    const info = req.stmts.insertKnowledgeDoc.run({
+    const info = await store.insertKnowledgeDoc(wsId, {
       project_id: pid,
       kind: "url",
       title: url.slice(0, 300),
@@ -142,35 +146,30 @@ router.post("/url", express.json(), async (req, res) => {
       size_bytes: 0,
       content: "",
       checksum: null,
-      status: "pending",
       created_at: now,
-      updated_at: now,
     });
-    const docId = info.lastInsertRowid;
+    const docId = info.id;
 
     // Асинхронно fetch+index
     setImmediate(async () => {
       try {
         const { title, text } = await kn.fetchUrlText(url);
-        req.stmts.updateKnowledgeDoc.run({
-          id: docId,
+        await store.updateKnowledgeDocContent(wsId, docId, {
           title: (title || url).slice(0, 300),
           content: text,
           checksum: sha256(text),
           size_bytes: Buffer.byteLength(text, "utf8"),
-          chunks_count: null,
           status: "pending",
           error: null,
-          updated_at: new Date().toISOString(),
         });
-        await kn.indexDocument(docId);
+        await kn.indexDocument(wsId, docId);
       } catch (e) {
         console.error("[knowledge] url fetch/index fail:", e.message);
-        req.stmts.setKnowledgeDocStatus.run(
+        await store.updateKnowledgeDocStatus(
+          wsId,
+          docId,
           "failed",
           String(e.message).slice(0, 500),
-          new Date().toISOString(),
-          docId,
         );
       }
     });
@@ -184,6 +183,7 @@ router.post("/url", express.json(), async (req, res) => {
 // POST /api/knowledge/upload — загрузка файла
 router.post("/upload", upload.single("file"), async (req, res) => {
   try {
+    if (!requireWsId(req, res)) return;
     if (!req.file)
       return res.status(400).json({ success: false, error: "file обязателен" });
     const { originalname, mimetype, buffer, size } = req.file;
@@ -204,8 +204,8 @@ router.post("/upload", upload.single("file"), async (req, res) => {
     }
 
     const now = new Date().toISOString();
-    const pid = activeProjectId();
-    const info = req.stmts.insertKnowledgeDoc.run({
+    const pid = await activeProjectId(req);
+    const info = await store.insertKnowledgeDoc(req.wsId, {
       project_id: pid,
       kind: "file",
       title: String(title).slice(0, 300),
@@ -214,14 +214,12 @@ router.post("/upload", upload.single("file"), async (req, res) => {
       size_bytes: size,
       content: text,
       checksum: sha256(text),
-      status: "pending",
       created_at: now,
-      updated_at: now,
     });
-    indexInBackground(info.lastInsertRowid, req.stmts);
+    indexInBackground(req.wsId, info.id);
     res.json({
       success: true,
-      id: info.lastInsertRowid,
+      id: info.id,
       extracted_chars: text.length,
     });
   } catch (e) {
@@ -231,9 +229,11 @@ router.post("/upload", upload.single("file"), async (req, res) => {
 
 // POST /api/knowledge/:id/reindex
 router.post("/:id/reindex", express.json(), async (req, res, next) => {
-  if (!/^\d+$/.test(req.params.id)) return next();
-  const id = Number(req.params.id);
-  const doc = req.stmts.getKnowledgeDoc.get(id);
+  if (req.params.id === "crawl") return next();
+  if (!requireWsId(req, res)) return;
+  const id = req.params.id; // cuid-строка
+  const wsId = req.wsId;
+  const doc = await store.getKnowledgeDoc(wsId, id);
   if (!doc) return res.status(404).json({ success: false, error: "not found" });
 
   // Для URL — refetch
@@ -241,29 +241,26 @@ router.post("/:id/reindex", express.json(), async (req, res, next) => {
     setImmediate(async () => {
       try {
         const { title, text } = await kn.fetchUrlText(doc.source);
-        req.stmts.updateKnowledgeDoc.run({
-          id,
+        await store.updateKnowledgeDocContent(wsId, id, {
           title: (title || doc.source).slice(0, 300),
           content: text,
           checksum: sha256(text),
           size_bytes: Buffer.byteLength(text, "utf8"),
-          chunks_count: null,
           status: "pending",
           error: null,
-          updated_at: new Date().toISOString(),
         });
-        await kn.indexDocument(id);
+        await kn.indexDocument(wsId, id);
       } catch (e) {
-        req.stmts.setKnowledgeDocStatus.run(
+        await store.updateKnowledgeDocStatus(
+          wsId,
+          id,
           "failed",
           String(e.message).slice(0, 500),
-          new Date().toISOString(),
-          id,
         );
       }
     });
   } else {
-    indexInBackground(id, req.stmts);
+    indexInBackground(wsId, id);
   }
   res.json({ success: true });
 });
@@ -305,6 +302,7 @@ function pushCrawlLog(entry) {
 // POST /api/knowledge/crawl — запустить обход сайта
 router.post("/crawl", express.json(), async (req, res) => {
   try {
+    if (!requireWsId(req, res)) return;
     const { url, maxPages, sameOrigin, respectRobots } = req.body || {};
     if (!url)
       return res.status(400).json({ success: false, error: "url обязателен" });
@@ -322,9 +320,10 @@ router.post("/crawl", express.json(), async (req, res) => {
       5000,
     );
     const job = newCrawlJob(url, mp);
+    const wsId = req.wsId;
+    const pid = await activeProjectId(req);
 
     setImmediate(async () => {
-      const pid = activeProjectId();
       try {
         let hostname = "";
         try {
@@ -366,7 +365,7 @@ router.post("/crawl", express.json(), async (req, res) => {
             const titlePref = hostname
               ? `[${hostname}] ${p.title || p.url}`
               : p.title || p.url;
-            const info = req.stmts.insertKnowledgeDoc.run({
+            const info = await store.insertKnowledgeDoc(wsId, {
               project_id: pid,
               kind: "url",
               title: String(titlePref).slice(0, 300),
@@ -375,13 +374,11 @@ router.post("/crawl", express.json(), async (req, res) => {
               size_bytes: Buffer.byteLength(p.content || "", "utf8"),
               content: String(p.content || ""),
               checksum: sha256(p.content || ""),
-              status: "pending",
               created_at: now,
-              updated_at: now,
             });
-            crawlJob.createdDocIds.push(info.lastInsertRowid);
+            crawlJob.createdDocIds.push(info.id);
             crawlJob.processed++;
-            indexInBackground(info.lastInsertRowid, req.stmts);
+            indexInBackground(wsId, info.id);
           } catch (e) {
             crawlJob.failed++;
             pushCrawlLog({ stage: "db-error", url: p.url, error: e.message });
@@ -420,12 +417,11 @@ router.get("/crawl/status", (req, res) => {
 });
 
 // DELETE /api/knowledge/:id
-router.delete("/:id", (req, res, next) => {
-  if (!/^\d+$/.test(req.params.id)) return next();
+router.delete("/:id", async (req, res) => {
   try {
-    const id = Number(req.params.id);
-    req.stmts.deleteChunksByDoc.run(id); // на случай если FK CASCADE не сработал
-    req.stmts.deleteKnowledgeDoc.run(id);
+    if (!requireWsId(req, res)) return;
+    const id = req.params.id; // cuid-строка
+    await store.deleteKnowledgeDoc(req.wsId, id); // каскад чанков (relation)
     kn.invalidateCache();
     res.json({ success: true });
   } catch (e) {

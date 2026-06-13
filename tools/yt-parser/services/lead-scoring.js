@@ -9,7 +9,9 @@
  *   size         (0-15) — подписчики в правильном диапазоне (не слишком мало / много)
  */
 
-const { db } = require("../db/database");
+// Шаг 3.3b-3: персист скоринга переведён на db/prisma-store (единый Postgres).
+// workspaceId — PUP cuid (caller передаёт req.wsId).
+const store = require("../db/prisma-store");
 
 const SHORT_DURATION_SEC = 180; // <= 3 минут = Short/Reel
 
@@ -174,13 +176,11 @@ function computeScore(lead, videoAnalysis, idealProfile, badFit) {
   return { score: Math.min(100, Math.max(0, total)), breakdown };
 }
 
-function scoreLead(leadId) {
-  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(leadId);
+async function scoreLead(workspaceId, leadId) {
+  const lead = await store.getLead(workspaceId, leadId);
   if (!lead) return null;
 
-  const project = db
-    .prepare("SELECT * FROM projects WHERE is_active = 1 LIMIT 1")
-    .get();
+  const project = await store.getActiveProject(workspaceId);
   const idealProfile = project?.ideal_channel_profile || "";
   const badFit = project?.bad_fit_examples || "";
 
@@ -194,34 +194,26 @@ function scoreLead(leadId) {
   );
 
   const now = new Date().toISOString();
-  db.prepare(
-    `UPDATE leads SET
-    lead_score = ?, score_breakdown = ?,
-    shorts_count = ?, shorts_ratio = ?, shorts_avg_views = ?,
-    long_avg_views = ?, posting_frequency = ?, scored_at = ?,
-    updated_at = ? WHERE id = ?`,
-  ).run(
-    score,
-    JSON.stringify(breakdown),
-    videoAnalysis?.shortsCount ?? null,
-    videoAnalysis?.shortsRatio ?? null,
-    videoAnalysis?.shortsAvgViews ?? null,
-    videoAnalysis?.longAvgViews ?? null,
-    videoAnalysis?.postingFreq ?? null,
-    now,
-    now,
-    leadId,
-  );
+  await store.updateLeadScoring(workspaceId, leadId, {
+    lead_score: score,
+    score_breakdown: JSON.stringify(breakdown),
+    shorts_count: videoAnalysis?.shortsCount ?? null,
+    shorts_ratio: videoAnalysis?.shortsRatio ?? null,
+    shorts_avg_views: videoAnalysis?.shortsAvgViews ?? null,
+    long_avg_views: videoAnalysis?.longAvgViews ?? null,
+    posting_frequency: videoAnalysis?.postingFreq ?? null,
+    scored_at: now,
+  });
 
   return { score, breakdown, videoAnalysis };
 }
 
-function scoreAllLeads() {
-  const leads = db.prepare("SELECT id FROM leads").all();
+async function scoreAllLeads(workspaceId) {
+  const leads = await store.listAllLeadIds(workspaceId);
   let scored = 0;
   for (const { id } of leads) {
     try {
-      scoreLead(id);
+      await scoreLead(workspaceId, id);
       scored++;
     } catch (e) {
       console.error(`[scoring] lead #${id}:`, e.message);

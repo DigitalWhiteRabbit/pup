@@ -1,7 +1,8 @@
 const Anthropic = require("@anthropic-ai/sdk");
 const fs = require("fs");
 const path = require("path");
-const { stmts } = require("../db/database");
+// ai.js полностью off SQLite: чтения и учёт токенов — через prisma-store.
+const store = require("../db/prisma-store");
 
 // ─── Model config ─────────────────────────────────────────────────
 // ENV:
@@ -494,25 +495,40 @@ function extractJson(text) {
 
 // ─── Usage tracking ───────────────────────────────────────────────
 
+// Шаг 3.3c-1: учёт токенов пишем в store (Postgres) с привязкой к воркспейсу.
+// Воркспейс ставит вызывающий (worker.setUsageWorkspace) перед генерацией;
+// если не задан — best-effort skip записи (телеметрия неблокирующая).
+let _usageWsId = null;
+function setUsageWorkspace(wsId) {
+  _usageWsId = wsId || null;
+}
+
 function trackUsage(usage) {
   if (!usage) return;
-  try {
-    const date = require("../utils/dates").localDateKey();
-    stmts.upsertDailyCounters.run({
+  const tokens = {
+    in: usage.input_tokens || 0,
+    out: usage.output_tokens || 0,
+    cacheRead: usage.cache_read_input_tokens || 0,
+    cacheCreate: usage.cache_creation_input_tokens || 0,
+  };
+  console.log(
+    `[ai usage] in=${tokens.in} out=${tokens.out} cache_read=${tokens.cacheRead} cache_create=${tokens.cacheCreate}`,
+  );
+  if (!_usageWsId) return; // нет воркспейса — не пишем (legacy-пути до их миграции)
+  const date = require("../utils/dates").localDateKey();
+  store
+    .upsertDailyCounters(_usageWsId, {
       date,
       sent_email: 0,
       sent_tg: 0,
-      ai_input_tokens: usage.input_tokens || 0,
-      ai_output_tokens: usage.output_tokens || 0,
-      ai_cache_read: usage.cache_read_input_tokens || 0,
-      ai_cache_creation: usage.cache_creation_input_tokens || 0,
+      ai_input_tokens: tokens.in,
+      ai_output_tokens: tokens.out,
+      ai_cache_read: tokens.cacheRead,
+      ai_cache_creation: tokens.cacheCreate,
+    })
+    .catch(() => {
+      /* non-fatal */
     });
-    console.log(
-      `[ai usage] in=${usage.input_tokens || 0} out=${usage.output_tokens || 0} cache_read=${usage.cache_read_input_tokens || 0} cache_create=${usage.cache_creation_input_tokens || 0}`,
-    );
-  } catch (e) {
-    /* non-fatal */
-  }
 }
 
 // ─── Retry helper (429/529/5xx) ───────────────────────────────────
@@ -610,6 +626,7 @@ async function generateInitialPitch(
   project,
   channel = "email",
   angle = null,
+  workspaceId = null,
 ) {
   const c = getClient();
 
@@ -618,7 +635,7 @@ async function generateInitialPitch(
   try {
     const kn = require("./knowledge");
     const query = `первый питч для канала ${lead.channel_name || ""} (ниша: ${lead.keyword || "?"}); проект ${project.name || ""}: позиционирование, оффер, для кого подходит, преимущества`;
-    const hits = await kn.searchKnowledge(project.id, query, 6);
+    const hits = await kn.searchKnowledge(workspaceId, project.id, query, 6);
     if (hits && hits.length) {
       knowledgeContext =
         "═══ РЕЛЕВАНТНЫЕ ЗНАНИЯ ПО ПРОЕКТУ ═══\n" +
@@ -926,6 +943,7 @@ async function generateReply(
   history,
   channel = "email",
   adminDirective = null,
+  workspaceId = null,
 ) {
   const c = getClient();
 
@@ -965,7 +983,7 @@ async function generateReply(
     const query = lastIn
       ? String(lastIn.content).slice(0, 1500)
       : `первый питч для канала ${lead.channel_name || ""} (${lead.keyword || ""}); проект ${project.name || ""}`;
-    const hits = await kn.searchKnowledge(project.id, query, 6);
+    const hits = await kn.searchKnowledge(workspaceId, project.id, query, 6);
     if (hits && hits.length) {
       knowledgeContext =
         "═══ РЕЛЕВАНТНЫЕ ЗНАНИЯ ПО ПРОЕКТУ ═══\n" +
@@ -1264,13 +1282,17 @@ function buildEnrichedLeadContext(lead) {
   };
 }
 
-async function generateContentSummary(lead, project = null) {
+async function generateContentSummary(
+  lead,
+  project = null,
+  workspaceId = null,
+) {
   const c = getClient();
 
-  // Fallback на активный проект если не передан
-  if (!project) {
+  // Fallback на активный проект если не передан (Prisma; нужен workspaceId-cuid)
+  if (!project && workspaceId) {
     try {
-      project = stmts.getActiveProject.get() || null;
+      project = (await store.getActiveProject(workspaceId)) || null;
     } catch {
       /* non-fatal */
     }
@@ -1418,15 +1440,20 @@ function buildCommentsBlock(comments) {
   return lines.length > 1 ? lines.join("\n") : "";
 }
 
-async function generateDeepSummary(lead, comments, project = null) {
+async function generateDeepSummary(
+  lead,
+  comments,
+  project = null,
+  workspaceId = null,
+) {
   const c = getClient();
   const ctx = buildEnrichedLeadContext(lead);
   const commentsBlock = buildCommentsBlock(comments);
 
-  // Fallback на активный проект если не передан
-  if (!project) {
+  // Fallback на активный проект если не передан (Prisma; нужен workspaceId-cuid)
+  if (!project && workspaceId) {
     try {
-      project = stmts.getActiveProject.get() || null;
+      project = (await store.getActiveProject(workspaceId)) || null;
     } catch {
       /* non-fatal */
     }
@@ -1509,5 +1536,6 @@ module.exports = {
   generateDeepSummary,
   generateFollowUp,
   pickPersona,
+  setUsageWorkspace,
   SEND_REPLY_TOOL,
 };

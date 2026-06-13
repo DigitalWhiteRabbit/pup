@@ -1,5 +1,8 @@
 const express = require("express");
-const { getDb } = require("../db/database");
+// Шаг 3.3b-2: роут переведён на db/prisma-store (единый Prisma-Postgres PUP).
+// Теги — MktTag, привязка — MktLead.tagId (один тег на лида, как channel_tags).
+const store = require("../db/prisma-store");
+const { requireWsId } = require("../db/workspace-map");
 const { adminAuth } = require("../utils/auth");
 
 const router = express.Router();
@@ -8,12 +11,6 @@ const router = express.Router();
 router.use((req, res, next) => {
   if (req.method === "GET" || req.method === "HEAD") return next();
   return adminAuth(req, res, next);
-});
-
-// Per-request workspace db.
-router.use((req, res, next) => {
-  req.db = getDb(req.workspaceId).db;
-  next();
 });
 
 function sanitizeName(v) {
@@ -41,14 +38,11 @@ function sanitizeColor(v) {
 }
 
 // GET /api/tags → { tags: [...], assignments: { channelId: tagId } }
-router.get("/", (req, res) => {
+router.get("/", async (req, res) => {
   try {
-    const tags = req.db
-      .prepare("SELECT id, name, color FROM tags ORDER BY name COLLATE NOCASE")
-      .all();
-    const rows = req.db
-      .prepare("SELECT channel_id, tag_id FROM channel_tags")
-      .all();
+    if (!requireWsId(req, res)) return;
+    const tags = await store.listTags(req.wsId);
+    const rows = await store.listChannelTags(req.wsId);
     const assignments = {};
     for (const r of rows) assignments[r.channel_id] = r.tag_id;
     res.json({ success: true, tags, assignments });
@@ -58,8 +52,9 @@ router.get("/", (req, res) => {
 });
 
 // POST /api/tags { name, color? } → создать тег
-router.post("/", (req, res) => {
+router.post("/", async (req, res) => {
   try {
+    if (!requireWsId(req, res)) return;
     const name = sanitizeName(req.body.name);
     if (!name)
       return res.status(400).json({ success: false, error: "name обязателен" });
@@ -68,15 +63,10 @@ router.post("/", (req, res) => {
     if (isValidColor(req.body.color)) {
       color = String(req.body.color).trim();
     } else {
-      const cnt = req.db.prepare("SELECT COUNT(*) AS n FROM tags").get().n;
+      const cnt = await store.countTags(req.wsId);
       color = TAG_PALETTE[cnt % TAG_PALETTE.length];
     }
-    const info = req.db
-      .prepare("INSERT INTO tags (name, color, created_at) VALUES (?, ?, ?)")
-      .run(name, color, new Date().toISOString());
-    const tag = req.db
-      .prepare("SELECT id, name, color FROM tags WHERE id = ?")
-      .get(info.lastInsertRowid);
+    const tag = await store.createTag(req.wsId, name, color);
     res.json({ success: true, tag });
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
@@ -84,12 +74,11 @@ router.post("/", (req, res) => {
 });
 
 // PATCH /api/tags/:id { name?, color? } → переименовать / сменить цвет
-router.patch("/:id", (req, res) => {
+router.patch("/:id", async (req, res) => {
   try {
-    const id = parseInt(req.params.id, 10);
-    const existing = req.db
-      .prepare("SELECT id, name, color FROM tags WHERE id = ?")
-      .get(id);
+    if (!requireWsId(req, res)) return;
+    const id = req.params.id; // cuid-строка
+    const existing = await store.getTag(req.wsId, id);
     if (!existing)
       return res.status(404).json({ success: false, error: "тег не найден" });
     const name =
@@ -100,20 +89,18 @@ router.patch("/:id", (req, res) => {
       req.body.color !== undefined
         ? sanitizeColor(req.body.color)
         : existing.color;
-    req.db
-      .prepare("UPDATE tags SET name = ?, color = ? WHERE id = ?")
-      .run(name, color, id);
-    res.json({ success: true, tag: { id, name, color } });
+    const tag = await store.updateTag(req.wsId, id, name, color);
+    res.json({ success: true, tag });
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
   }
 });
 
-// DELETE /api/tags/:id → удалить тег (FK ON DELETE CASCADE снимет привязки)
-router.delete("/:id", (req, res) => {
+// DELETE /api/tags/:id → удалить тег (relation SetNull снимет привязки у лидов)
+router.delete("/:id", async (req, res) => {
   try {
-    const id = parseInt(req.params.id, 10);
-    req.db.prepare("DELETE FROM tags WHERE id = ?").run(id);
+    if (!requireWsId(req, res)) return;
+    await store.deleteTag(req.wsId, req.params.id);
     res.json({ success: true });
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
@@ -121,8 +108,9 @@ router.delete("/:id", (req, res) => {
 });
 
 // PUT /api/tags/assign { channel_id, tag_id|null } → назначить / снять тег
-router.put("/assign", (req, res) => {
+router.put("/assign", async (req, res) => {
   try {
+    if (!requireWsId(req, res)) return;
     const channelId = String(req.body.channel_id || "").trim();
     if (!channelId)
       return res
@@ -130,22 +118,14 @@ router.put("/assign", (req, res) => {
         .json({ success: false, error: "channel_id обязателен" });
     const rawTag = req.body.tag_id;
     if (rawTag === null || rawTag === undefined || rawTag === "") {
-      req.db
-        .prepare("DELETE FROM channel_tags WHERE channel_id = ?")
-        .run(channelId);
+      await store.removeChannelTag(req.wsId, channelId);
       return res.json({ success: true, channel_id: channelId, tag_id: null });
     }
-    const tagId = parseInt(rawTag, 10);
-    const tag = req.db.prepare("SELECT id FROM tags WHERE id = ?").get(tagId);
+    const tagId = String(rawTag); // cuid-строка
+    const tag = await store.getTag(req.wsId, tagId);
     if (!tag)
       return res.status(404).json({ success: false, error: "тег не найден" });
-    req.db
-      .prepare(
-        `INSERT INTO channel_tags (channel_id, tag_id, updated_at)
-         VALUES (?, ?, ?)
-         ON CONFLICT(channel_id) DO UPDATE SET tag_id = excluded.tag_id, updated_at = excluded.updated_at`,
-      )
-      .run(channelId, tagId, new Date().toISOString());
+    await store.setChannelTag(req.wsId, channelId, tagId);
     res.json({ success: true, channel_id: channelId, tag_id: tagId });
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });

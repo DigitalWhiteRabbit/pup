@@ -1,37 +1,36 @@
 const express = require("express");
-const { getDb } = require("../db/database");
+// Шаг 3.3b: роут переведён на db/prisma-store (единый Prisma-Postgres PUP).
+const store = require("../db/prisma-store");
+const { requireWsId } = require("../db/workspace-map");
 const { adminAuth } = require("../utils/auth");
 const router = express.Router();
-router.use((req, res, next) => {
-  const ws = getDb(req.workspaceId);
-  req.stmts = ws.stmts;
-  req.db = ws.db;
-  next();
-});
 
 const MAX_ADMIN_MESSAGE_LEN = 10000;
 
 // GET /api/dialogues  — список всех диалогов с превью
-router.get("/", (req, res) => {
-  const dialogues = req.stmts.listAllDialogues.all();
+router.get("/", async (req, res) => {
+  if (!requireWsId(req, res)) return;
+  const dialogues = await store.listAllDialogues(req.wsId);
   res.json({ success: true, dialogues });
 });
 
 // GET /api/dialogues/:id/messages
-router.get("/:id/messages", (req, res) => {
-  const dialogue = req.stmts.getDialogue.get(req.params.id);
+router.get("/:id/messages", async (req, res) => {
+  if (!requireWsId(req, res)) return;
+  const dialogue = await store.getDialogue(req.wsId, req.params.id);
   if (!dialogue)
     return res.status(404).json({ success: false, error: "not found" });
   // Показываем ВСЕ сообщения лида (по всем его диалогам), а не только этого
   // треда — иначе ответ блогера из старой ветки другой кампании не виден.
-  const messages = req.stmts.listMessagesByLead.all(dialogue.lead_id);
-  const lead = req.stmts.getLead.get(dialogue.lead_id);
+  const messages = await store.listMessagesByLead(req.wsId, dialogue.lead_id);
+  const lead = await store.getLead(req.wsId, dialogue.lead_id);
   res.json({ success: true, dialogue, lead, messages });
 });
 
 // POST /api/dialogues/:id/admin-message  — админ шлёт сообщение от своего имени
 // (только сохраняет в БД, реальной отправки пока нет — это руками)
-router.post("/:id/admin-message", adminAuth, (req, res) => {
+router.post("/:id/admin-message", adminAuth, async (req, res) => {
+  if (!requireWsId(req, res)) return;
   const { content } = req.body;
   if (!content)
     return res.status(400).json({ success: false, error: "content required" });
@@ -42,12 +41,12 @@ router.post("/:id/admin-message", adminAuth, (req, res) => {
     });
   }
 
-  const dialogue = req.stmts.getDialogue.get(req.params.id);
+  const dialogue = await store.getDialogue(req.wsId, req.params.id);
   if (!dialogue)
     return res.status(404).json({ success: false, error: "not found" });
 
   const now = new Date().toISOString();
-  req.stmts.insertMessage.run({
+  await store.insertMessage(req.wsId, {
     dialogue_id: dialogue.id,
     direction: "out",
     sender: "admin",

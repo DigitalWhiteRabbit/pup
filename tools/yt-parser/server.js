@@ -16,13 +16,12 @@ const pendingRepliesRouter = require("./routes/pending-replies");
 const settingsRouter = require("./routes/settings");
 const healthRouter = require("./routes/health");
 const knowledgeRouter = require("./routes/knowledge");
-const devTasksRouter = require("./routes/dev-tasks");
 const { adminAuth } = require("./utils/auth");
 const { authGate } = require("./utils/session");
-const { getDb } = require("./db/database");
+// Шаг 3.4: весь app-код на store; db/database.js выпилен.
+const store = require("./db/prisma-store");
 const authRouter = require("./routes/auth");
 const unsubscribeRouter = require("./routes/unsubscribe");
-const { importFromCsv } = require("./db/lead-importer");
 const tgOutreach = require("./services/telegram-outreach");
 const adminBot = require("./services/admin-bot");
 const apiKeysRouter = require("./routes/api-keys");
@@ -60,9 +59,17 @@ app.use("/api/track", trackingRouter);
 app.use(express.static(path.join(__dirname, "public")));
 
 // Workspace isolation: extract workspaceId from query or header
+const { resolveWorkspaceId, WORKSPACE_MAP } = require("./db/workspace-map");
 app.use((req, res, next) => {
   req.workspaceId =
     req.query.workspace || req.headers["x-workspace-id"] || "default";
+  // Резолв в PUP Workspace.id (cuid) для роутов на Prisma (Шаг 3.3).
+  // Принимаем и ключ ("qa-tg"), и сам cuid (если UI шлёт его напрямую).
+  req.wsId =
+    resolveWorkspaceId(req.workspaceId) ||
+    (Object.values(WORKSPACE_MAP).includes(req.workspaceId)
+      ? req.workspaceId
+      : null);
   next();
 });
 
@@ -79,7 +86,6 @@ app.use("/api/pending-replies", pendingRepliesRouter);
 app.use("/api/settings", settingsRouter);
 app.use("/api/health", healthRouter);
 app.use("/api/knowledge", knowledgeRouter);
-app.use("/api/dev-tasks", devTasksRouter);
 app.use("/api/api-keys", apiKeysRouter);
 app.use("/api/tags", tagsRouter);
 
@@ -334,18 +340,20 @@ function parseCSVLine(line) {
 // ─── API Endpoints ──────────────────────────────────────────────────────────
 
 // Получить результаты из CSV + обогащение lead_status из БД
-app.get("/api/results", (req, res) => {
+app.get("/api/results", async (req, res) => {
   try {
     const wsCsv = getOutputCsv(req.workspaceId);
     const data = fs.existsSync(wsCsv) ? parseCsv(wsCsv) : [];
-    // Join с leads DB по channel_id
+    // Join с лидами из Postgres (store) по channel_id; без замапленного ws — пропускаем join.
     try {
-      const { db } = getDb(req.workspaceId);
-      const leadRows = db
-        .prepare(
-          "SELECT id, channel_id, lead_status, dialogue_stage, lead_score, shorts_ratio, er_normalized, engagement_rate, analysis_verdict, analysis_score, analysis_recommendation, analysis_reasoning, analysis_metrics, analyzed_at FROM leads",
-        )
-        .all();
+      const leadRows = req.wsId
+        ? await store.listLeads(req.wsId, {
+            status: null,
+            stage: null,
+            limit: 5000,
+            offset: 0,
+          })
+        : [];
       const byChannelId = {};
       for (const l of leadRows) byChannelId[l.channel_id] = l;
       for (const row of data) {

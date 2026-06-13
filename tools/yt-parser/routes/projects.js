@@ -1,14 +1,11 @@
 const express = require("express");
-const { getDb } = require("../db/database");
+// Шаг 3.3a: роут переведён с db/database.js (SQLite) на db/prisma-store
+// (единый Prisma-Postgres PUP). id проектов — cuid-строки.
+const store = require("../db/prisma-store");
+const { requireWsId } = require("../db/workspace-map");
 const { generateInitialPitch } = require("../services/ai");
 
 const router = express.Router();
-router.use((req, res, next) => {
-  const ws = getDb(req.workspaceId);
-  req.stmts = ws.stmts;
-  req.db = ws.db;
-  next();
-});
 
 const { adminAuth } = require("../utils/auth");
 router.use((req, res, next) => {
@@ -17,27 +14,31 @@ router.use((req, res, next) => {
 });
 
 // GET /api/projects
-router.get("/", (req, res) => {
-  const projects = req.stmts.listProjects.all();
+router.get("/", async (req, res) => {
+  if (!requireWsId(req, res)) return;
+  const projects = await store.listProjects(req.wsId);
   res.json({ success: true, projects });
 });
 
 // GET /api/projects/active
-router.get("/active", (req, res) => {
-  const project = req.stmts.getActiveProject.get();
+router.get("/active", async (req, res) => {
+  if (!requireWsId(req, res)) return;
+  const project = await store.getActiveProject(req.wsId);
   res.json({ success: true, project: project || null });
 });
 
 // GET /api/projects/:id
-router.get("/:id", (req, res) => {
-  const project = req.stmts.getProject.get(req.params.id);
+router.get("/:id", async (req, res) => {
+  if (!requireWsId(req, res)) return;
+  const project = await store.getProject(req.wsId, req.params.id);
   if (!project)
     return res.status(404).json({ success: false, error: "not found" });
   res.json({ success: true, project });
 });
 
 // POST /api/projects
-router.post("/", (req, res) => {
+router.post("/", async (req, res) => {
+  if (!requireWsId(req, res)) return;
   const {
     name,
     description,
@@ -67,7 +68,7 @@ router.post("/", (req, res) => {
   const effectiveDescription = description || agent_persona || name;
 
   const now = new Date().toISOString();
-  const result = req.stmts.insertProject.run({
+  const result = await store.insertProject(req.wsId, {
     name,
     description: effectiveDescription,
     unique_selling_points: unique_selling_points || null,
@@ -94,14 +95,15 @@ router.post("/", (req, res) => {
     updated_at: now,
   });
 
-  const project = req.stmts.getProject.get(result.lastInsertRowid);
+  const project = await store.getProject(req.wsId, result.id);
   res.json({ success: true, project });
 });
 
 // PATCH /api/projects/:id
-router.patch("/:id", (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  const existing = req.stmts.getProject.get(id);
+router.patch("/:id", async (req, res) => {
+  if (!requireWsId(req, res)) return;
+  const id = req.params.id; // cuid-строка
+  const existing = await store.getProject(req.wsId, id);
   if (!existing)
     return res.status(404).json({ success: false, error: "not found" });
 
@@ -154,8 +156,8 @@ router.patch("/:id", (req, res) => {
     updated_at: new Date().toISOString(),
   };
 
-  req.stmts.updateProject.run(merged);
-  res.json({ success: true, project: req.stmts.getProject.get(id) });
+  await store.updateProject(req.wsId, merged);
+  res.json({ success: true, project: await store.getProject(req.wsId, id) });
 });
 
 // GET /api/projects/default-prompt — дефолтный системный промпт
@@ -164,20 +166,18 @@ router.get("/default-prompt", (req, res) => {
   res.json({ success: true, prompt: ai.DEFAULT_SYSTEM_PROMPT });
 });
 
-// POST /api/projects/:id/activate
-router.post("/:id/activate", (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  const tx = req.db.transaction(() => {
-    req.stmts.deactivateAllProjects.run();
-    req.stmts.activateProject.run(new Date().toISOString(), id);
-  });
-  tx();
-  res.json({ success: true, project: req.stmts.getProject.get(id) });
+// POST /api/projects/:id/activate — single-active в транзакции внутри store
+router.post("/:id/activate", async (req, res) => {
+  if (!requireWsId(req, res)) return;
+  const id = req.params.id; // cuid-строка
+  await store.activateProject(req.wsId, new Date().toISOString(), id);
+  res.json({ success: true, project: await store.getProject(req.wsId, id) });
 });
 
 // DELETE /api/projects/:id
-router.delete("/:id", (req, res) => {
-  req.stmts.deleteProject.run(req.params.id);
+router.delete("/:id", async (req, res) => {
+  if (!requireWsId(req, res)) return;
+  await store.deleteProject(req.wsId, req.params.id);
   res.json({ success: true });
 });
 
@@ -185,7 +185,8 @@ router.delete("/:id", (req, res) => {
 // Генерирует тестовый pitch БЕЗ отправки.
 router.post("/:id/test-pitch", async (req, res) => {
   try {
-    const project = req.stmts.getProject.get(req.params.id);
+    if (!requireWsId(req, res)) return;
+    const project = await store.getProject(req.wsId, req.params.id);
     if (!project)
       return res
         .status(404)
@@ -197,11 +198,17 @@ router.post("/:id/test-pitch", async (req, res) => {
         .status(400)
         .json({ success: false, error: "lead_id required" });
 
-    const lead = req.stmts.getLead.get(lead_id);
+    const lead = await store.getLead(req.wsId, lead_id);
     if (!lead)
       return res.status(404).json({ success: false, error: "lead not found" });
 
-    const pitch = await generateInitialPitch(lead, project, channel || "email");
+    const pitch = await generateInitialPitch(
+      lead,
+      project,
+      channel || "email",
+      null,
+      req.wsId,
+    );
     res.json({
       success: true,
       pitch,

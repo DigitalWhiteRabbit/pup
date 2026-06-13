@@ -1,57 +1,39 @@
 const express = require("express");
-const { getDb } = require("../db/database");
+// Шаг 3.3b: роут переведён на db/prisma-store (единый Prisma-Postgres PUP).
+const store = require("../db/prisma-store");
+const { requireWsId } = require("../db/workspace-map");
 const { adminAuth } = require("../utils/auth");
 const router = express.Router();
-router.use((req, res, next) => {
-  const ws = getDb(req.workspaceId);
-  req.stmts = ws.stmts;
-  req.db = ws.db;
-  next();
-});
 
 // GET /api/deals?status=pending|approved|rejected
-router.get("/", (req, res) => {
+router.get("/", async (req, res) => {
+  if (!requireWsId(req, res)) return;
   const status = req.query.status;
   let rows;
   if (status === "pending") {
-    rows = req.stmts.listPendingDeals.all();
+    rows = await store.listPendingDeals(req.wsId);
   } else if (status) {
-    rows = req.db
-      .prepare(
-        `
-      SELECT d.*, l.channel_name, l.subscribers, l.country, l.channel_url, l.thumbnail
-      FROM deals d JOIN leads l ON l.id = d.lead_id
-      WHERE d.admin_decision = ?
-      ORDER BY d.created_at DESC
-    `,
-      )
-      .all(status);
+    rows = await store.listDealsByDecision(req.wsId, status);
   } else {
-    rows = req.db
-      .prepare(
-        `
-      SELECT d.*, l.channel_name, l.subscribers, l.country, l.channel_url, l.thumbnail
-      FROM deals d JOIN leads l ON l.id = d.lead_id
-      ORDER BY d.created_at DESC
-    `,
-      )
-      .all();
+    rows = await store.listDealsByDecision(req.wsId, null);
   }
   res.json({ success: true, deals: rows });
 });
 
 // POST /api/deals/:id/approve  { notes? }
-router.post("/:id/approve", adminAuth, (req, res) => {
-  const id = parseInt(req.params.id, 10);
+router.post("/:id/approve", adminAuth, async (req, res) => {
+  if (!requireWsId(req, res)) return;
+  const id = req.params.id; // cuid-строка
   const now = new Date().toISOString();
-  req.stmts.decideDeal.run("approved", req.body.notes || null, now, id);
+  await store.decideDeal(req.wsId, "approved", req.body.notes || null, now, id);
   res.json({ success: true });
 });
 
-router.post("/:id/reject", adminAuth, (req, res) => {
-  const id = parseInt(req.params.id, 10);
+router.post("/:id/reject", adminAuth, async (req, res) => {
+  if (!requireWsId(req, res)) return;
+  const id = req.params.id; // cuid-строка
   const now = new Date().toISOString();
-  req.stmts.decideDeal.run("rejected", req.body.notes || null, now, id);
+  await store.decideDeal(req.wsId, "rejected", req.body.notes || null, now, id);
   res.json({ success: true });
 });
 

@@ -1,5 +1,8 @@
 const express = require("express");
-const { getDb } = require("../db/database");
+// Шаг 3.3b-4: роут переведён на db/prisma-store (единый Prisma-Postgres PUP).
+// Worker-вызовы (processApprovedQueue/onPendingReplyRejected) — легаси до 3.3c.
+const store = require("../db/prisma-store");
+const { requireWsId } = require("../db/workspace-map");
 const { adminAuth } = require("../utils/auth");
 const worker = require("../services/outreach-worker");
 
@@ -9,19 +12,14 @@ router.use((req, res, next) => {
   if (req.method === "GET" || req.method === "HEAD") return next();
   return adminAuth(req, res, next);
 });
-router.use((req, res, next) => {
-  const ws = getDb(req.workspaceId);
-  req.stmts = ws.stmts;
-  req.db = ws.db;
-  next();
-});
 
 // GET /api/pending-replies?status=pending&limit=100&offset=0
-router.get("/", (req, res) => {
+router.get("/", async (req, res) => {
+  if (!requireWsId(req, res)) return;
   const status = req.query.status || "pending";
   const limit = Math.min(parseInt(req.query.limit, 10) || 100, 500);
   const offset = parseInt(req.query.offset, 10) || 0;
-  const rows = req.stmts.listPendingReplies.all({
+  const rows = await store.listPendingReplies(req.wsId, {
     status: status === "all" ? null : status,
     limit,
     offset,
@@ -32,11 +30,10 @@ router.get("/", (req, res) => {
     if (row.status === "sent" && row.channel === "email") {
       try {
         // Find the message created from this pending_reply (metadata contains pending_reply_id)
-        const msg = req.db
-          .prepare(
-            `SELECT opened_at, open_count FROM messages WHERE metadata LIKE ? AND direction = 'out' LIMIT 1`,
-          )
-          .get(`%"pending_reply_id":${row.id}%`);
+        const msg = await store.findMessageOpenByPendingReplyId(
+          req.wsId,
+          row.id,
+        );
         row.msg_opened_at = msg?.opened_at || null;
         row.msg_open_count = msg?.open_count || 0;
       } catch {
@@ -50,32 +47,36 @@ router.get("/", (req, res) => {
   }
 
   const counts = {
-    pending: req.stmts.countPendingReplies.get("pending")?.n || 0,
-    approved: req.stmts.countPendingReplies.get("approved")?.n || 0,
-    rejected: req.stmts.countPendingReplies.get("rejected")?.n || 0,
-    sent: req.stmts.countPendingReplies.get("sent")?.n || 0,
-    failed: req.stmts.countPendingReplies.get("failed")?.n || 0,
+    pending: (await store.countPendingReplies(req.wsId, "pending"))?.n || 0,
+    approved: (await store.countPendingReplies(req.wsId, "approved"))?.n || 0,
+    rejected: (await store.countPendingReplies(req.wsId, "rejected"))?.n || 0,
+    sent: (await store.countPendingReplies(req.wsId, "sent"))?.n || 0,
+    failed: (await store.countPendingReplies(req.wsId, "failed"))?.n || 0,
   };
   res.json({ success: true, items: rows, counts });
 });
 
 // GET /api/pending-replies/count
-router.get("/count", (req, res) => {
-  const pending = req.stmts.countPendingReplies.get("pending")?.n || 0;
+router.get("/count", async (req, res) => {
+  if (!requireWsId(req, res)) return;
+  const pending =
+    (await store.countPendingReplies(req.wsId, "pending"))?.n || 0;
   res.json({ success: true, pending });
 });
 
 // GET /api/pending-replies/:id
-router.get("/:id", (req, res) => {
-  const row = req.stmts.getPendingReply.get(req.params.id);
+router.get("/:id", async (req, res) => {
+  if (!requireWsId(req, res)) return;
+  const row = await store.getPendingReply(req.wsId, req.params.id);
   if (!row) return res.status(404).json({ success: false, error: "not found" });
   res.json({ success: true, item: row });
 });
 
 // POST /api/pending-replies/:id/approve { edited_body?, edited_subject?, admin_notes? }
-router.post("/:id/approve", (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  const item = req.stmts.getPendingReply.get(id);
+router.post("/:id/approve", async (req, res) => {
+  if (!requireWsId(req, res)) return;
+  const id = req.params.id; // cuid-строка
+  const item = await store.getPendingReply(req.wsId, id);
   if (!item)
     return res.status(404).json({ success: false, error: "not found" });
   if (item.status !== "pending")
@@ -87,7 +88,14 @@ router.post("/:id/approve", (req, res) => {
     (req.body.edited_subject || "").toString().slice(0, 500) || null;
   const notes = (req.body.admin_notes || "").toString().slice(0, 1000) || null;
   const now = new Date().toISOString();
-  req.stmts.approvePendingReply.run(editedBody, editedSubject, notes, now, id);
+  await store.approvePendingReply(
+    req.wsId,
+    editedBody,
+    editedSubject,
+    notes,
+    now,
+    id,
+  );
 
   // Calculate send_after delay from project settings (random between min-max minutes)
   let ctx = {};
@@ -95,7 +103,7 @@ router.post("/:id/approve", (req, res) => {
     ctx = JSON.parse(item.context || "{}");
   } catch {}
   const isInitial = ctx.type === "initial";
-  const project = req.stmts.getActiveProject.get();
+  const project = await store.getActiveProject(req.wsId);
   const delayMin = project?.reply_delay_min ?? 30;
   const delayMax = project?.reply_delay_max ?? 90;
 
@@ -104,9 +112,7 @@ router.post("/:id/approve", (req, res) => {
     const delayMs =
       (delayMin + Math.random() * (delayMax - delayMin)) * 60 * 1000;
     const sendAfter = new Date(Date.now() + delayMs).toISOString();
-    req.db
-      .prepare("UPDATE pending_replies SET send_after = ? WHERE id = ?")
-      .run(sendAfter, id);
+    await store.setPendingReplySendAfter(req.wsId, sendAfter, id);
     const delayMins = Math.round(delayMs / 60000);
     res.json({
       success: true,
@@ -114,7 +120,7 @@ router.post("/:id/approve", (req, res) => {
       delay_minutes: delayMins,
     });
   } else {
-    // Initial pitch — send immediately
+    // Initial pitch — send immediately (worker — легаси до 3.3c)
     const wsId = req.workspaceId;
     setImmediate(() => {
       worker
@@ -126,9 +132,10 @@ router.post("/:id/approve", (req, res) => {
 });
 
 // POST /api/pending-replies/:id/reject { admin_notes? }
-router.post("/:id/reject", (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  const item = req.stmts.getPendingReply.get(id);
+router.post("/:id/reject", async (req, res) => {
+  if (!requireWsId(req, res)) return;
+  const id = req.params.id; // cuid-строка
+  const item = await store.getPendingReply(req.wsId, id);
   if (!item)
     return res.status(404).json({ success: false, error: "not found" });
   if (item.status !== "pending")
@@ -136,21 +143,18 @@ router.post("/:id/reject", (req, res) => {
 
   const notes = (req.body.admin_notes || "").toString().slice(0, 1000) || null;
   const now = new Date().toISOString();
-  req.stmts.rejectPendingReply.run(notes, now, id);
+  await store.rejectPendingReply(req.wsId, notes, now, id);
 
   // Отклонить = вывести лида из авто-очереди (иначе при запущенном агенте
   // ready+not_contacted сразу подхватывается и письмо генерируется заново —
   // бесконечная петля). Лид остаётся в «Лидах» со статусом rejected (↺ восстановить).
   if (item.lead_id) {
-    req.db
-      .prepare(
-        `UPDATE leads SET lead_status = 'rejected', locked_until = NULL, updated_at = ? WHERE id = ?`,
-      )
-      .run(now, item.lead_id);
+    await store.updateLeadStatus(req.wsId, "rejected", now, item.lead_id);
+    await store.unlockLead(req.wsId, item.lead_id);
   }
 
   try {
-    worker.onPendingReplyRejected(id);
+    await worker.onPendingReplyRejected(req.wsId, id);
   } catch {}
   res.json({ success: true });
 });
@@ -159,9 +163,10 @@ router.post("/:id/reject", (req, res) => {
 // Снять письмо с очереди и пометить лида «Перешли в ТГ». В отличие от reject —
 // НЕ возвращает лида в рассылку (lead_status не сбрасывается), а ставит стадию
 // moved_to_tg → AI-агент перестаёт писать этому лиду, лид остаётся в базе.
-router.post("/:id/move-to-tg", (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  const item = req.stmts.getPendingReply.get(id);
+router.post("/:id/move-to-tg", async (req, res) => {
+  if (!requireWsId(req, res)) return;
+  const id = req.params.id; // cuid-строка
+  const item = await store.getPendingReply(req.wsId, id);
   if (!item)
     return res.status(404).json({ success: false, error: "not found" });
   if (item.status !== "pending")
@@ -169,67 +174,59 @@ router.post("/:id/move-to-tg", (req, res) => {
 
   const now = new Date().toISOString();
   // Снимаем письмо с очереди (rejected → уходит из «Ждут», воркер не сгенерит заново)
-  req.stmts.rejectPendingReply.run("Перешли в ТГ (снято вручную)", now, id);
+  await store.rejectPendingReply(
+    req.wsId,
+    "Перешли в ТГ (снято вручную)",
+    now,
+    id,
+  );
 
   // Помечаем лида «Перешли в ТГ»; в рассылку НЕ возвращаем (lead_status не трогаем)
   if (item.lead_id) {
-    req.db
-      .prepare(
-        `UPDATE leads SET dialogue_stage = 'moved_to_tg', locked_until = NULL, updated_at = ? WHERE id = ?`,
-      )
-      .run(now, item.lead_id);
+    await store.updateLeadStage(req.wsId, "moved_to_tg", now, item.lead_id);
+    await store.unlockLead(req.wsId, item.lead_id);
   }
 
   try {
-    worker.onPendingReplyRejected(id);
+    await worker.onPendingReplyRejected(req.wsId, id);
   } catch {}
   res.json({ success: true });
 });
 
 // DELETE /api/pending-replies/:id — удалить запись из очереди (независимо от статуса)
-router.delete("/:id", (req, res) => {
-  const id = parseInt(req.params.id, 10);
+router.delete("/:id", async (req, res) => {
+  if (!requireWsId(req, res)) return;
+  const id = req.params.id; // cuid-строка
   // Get lead_id before deleting so we can reset the lead
-  const item = req.db
-    .prepare("SELECT lead_id FROM pending_replies WHERE id = ?")
-    .get(id);
-  req.db.prepare("DELETE FROM pending_replies WHERE id = ?").run(id);
+  const item = await store.getPendingReply(req.wsId, id);
+  await store.deletePendingReply(req.wsId, id);
 
   // Reset lead so "Запустить" appears again
   if (item?.lead_id) {
-    const now = new Date().toISOString();
-    req.db
-      .prepare(
-        `UPDATE leads SET lead_status = 'ready', dialogue_stage = 'not_contacted', locked_until = NULL, updated_at = ? WHERE id = ?`,
-      )
-      .run(now, item.lead_id);
+    await store.resetLeadForRun(req.wsId, item.lead_id, true);
   }
 
   res.json({ success: true });
 });
 
 // POST /api/pending-replies/purge-old — удалить sent/rejected старше 7 дней
-router.post("/purge-old", (req, res) => {
+router.post("/purge-old", async (req, res) => {
+  if (!requireWsId(req, res)) return;
   const cutoff = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
-  const r = req.db
-    .prepare(
-      `DELETE FROM pending_replies WHERE status IN ('sent','rejected','failed') AND created_at < ?`,
-    )
-    .run(cutoff);
+  const r = await store.purgeOldPendingReplies(req.wsId, cutoff);
   res.json({ success: true, removed: r.changes });
 });
 
 // POST /api/pending-replies/:id/regenerate { field: "subject"|"body"|"both" }
 router.post("/:id/regenerate", async (req, res) => {
-  const id = parseInt(req.params.id, 10);
+  if (!requireWsId(req, res)) return;
+  const id = req.params.id; // cuid-строка
   const field = req.body.field || "both";
-  const pr = req.db
-    .prepare("SELECT * FROM pending_replies WHERE id = ?")
-    .get(id);
+  const pr = await store.getPendingReply(req.wsId, id);
   if (!pr) return res.status(404).json({ success: false, error: "not found" });
 
-  const lead = req.stmts.getLead.get(pr.lead_id);
-  const project = req.stmts.getActiveProject.get();
+  const lead = await store.getLead(req.wsId, pr.lead_id);
+  const project = await store.getActiveProject(req.wsId);
   if (!lead || !project)
     return res
       .status(400)
@@ -247,6 +244,7 @@ router.post("/:id/regenerate", async (req, res) => {
         project,
         pr.channel || "email",
         angle,
+        req.wsId,
       );
       if (!r) continue;
 
@@ -284,22 +282,19 @@ router.post("/:id/regenerate", async (req, res) => {
 
     if (field === "subject") {
       const subj = result.subject || pr.subject;
-      req.db
-        .prepare("UPDATE pending_replies SET subject = ? WHERE id = ?")
-        .run(subj, id);
+      await store.updatePendingReplyContent(req.wsId, id, { subject: subj });
       response.subject = subj;
     } else if (field === "body") {
-      req.db
-        .prepare("UPDATE pending_replies SET body = ? WHERE id = ?")
-        .run(result.body, id);
+      await store.updatePendingReplyContent(req.wsId, id, {
+        body: result.body,
+      });
       response.body = result.body;
     } else {
       const subj = result.subject || pr.subject;
-      req.db
-        .prepare(
-          "UPDATE pending_replies SET subject = ?, body = ? WHERE id = ?",
-        )
-        .run(subj, result.body, id);
+      await store.updatePendingReplyContent(req.wsId, id, {
+        subject: subj,
+        body: result.body,
+      });
       response.subject = subj;
       response.body = result.body;
     }
@@ -311,14 +306,12 @@ router.post("/:id/regenerate", async (req, res) => {
 });
 
 // GET /api/pending-replies/:id/lead-context — full AI context for this lead
-router.get("/:id/lead-context", (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  const pr = req.db
-    .prepare("SELECT * FROM pending_replies WHERE id = ?")
-    .get(id);
+router.get("/:id/lead-context", async (req, res) => {
+  if (!requireWsId(req, res)) return;
+  const pr = await store.getPendingReply(req.wsId, req.params.id);
   if (!pr) return res.status(404).json({ success: false, error: "not found" });
 
-  const lead = req.stmts.getLead.get(pr.lead_id);
+  const lead = await store.getLead(req.wsId, pr.lead_id);
   if (!lead)
     return res.status(404).json({ success: false, error: "lead not found" });
 
@@ -425,20 +418,16 @@ router.post("/:id/translate", async (req, res) => {
 // GET /api/pending-replies/:id/history — полная история переписки с лидом
 // (оригинал + перевод на русский; перевод кэшируется в messages.content_ru)
 router.get("/:id/history", async (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  const pr = req.db
-    .prepare("SELECT * FROM pending_replies WHERE id = ?")
-    .get(id);
+  if (!requireWsId(req, res)) return;
+  const pr = await store.getPendingReply(req.wsId, req.params.id);
   if (!pr) return res.status(404).json({ success: false, error: "not found" });
 
-  const lead = req.stmts.getLead.get(pr.lead_id);
+  const lead = pr.lead_id ? await store.getLead(req.wsId, pr.lead_id) : null;
 
   // Находим диалог: из pending_reply.dialogue_id, иначе по lead_id
   let dialogueId = pr.dialogue_id;
   if (!dialogueId && pr.lead_id) {
-    const d = req.db
-      .prepare("SELECT id FROM dialogues WHERE lead_id = ? LIMIT 1")
-      .get(pr.lead_id);
+    const d = await store.getAnyDialogueByLead(req.wsId, pr.lead_id);
     dialogueId = d?.id || null;
   }
   if (!dialogueId) {
@@ -449,11 +438,7 @@ router.get("/:id/history", async (req, res) => {
     });
   }
 
-  const messages = req.db
-    .prepare(
-      "SELECT id, direction, sender, content, content_ru, metadata, created_at FROM messages WHERE dialogue_id = ? ORDER BY created_at ASC",
-    )
-    .all(dialogueId);
+  const messages = await store.listMessagesByDialogue(req.wsId, dialogueId);
 
   // Перевод недостающих сообщений (параллельно), с записью в кэш
   const toTranslate = messages.filter(
@@ -463,9 +448,6 @@ router.get("/:id/history", async (req, res) => {
     try {
       const Anthropic = require("@anthropic-ai/sdk");
       const client = new Anthropic();
-      const updateRu = req.db.prepare(
-        "UPDATE messages SET content_ru = ? WHERE id = ?",
-      );
       await Promise.all(
         toTranslate.map(async (m) => {
           try {
@@ -481,7 +463,7 @@ router.get("/:id/history", async (req, res) => {
             });
             const tr = r.content?.[0]?.text || "";
             m.content_ru = tr;
-            updateRu.run(tr, m.id);
+            await store.setMessageContentRu(req.wsId, m.id, tr);
           } catch (e) {
             m.content_ru = "(ошибка перевода)";
           }
@@ -517,21 +499,18 @@ router.get("/:id/history", async (req, res) => {
 
 // POST /api/pending-replies/:id/force-send — skip timer, send immediately
 router.post("/:id/force-send", async (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  const item = req.db
-    .prepare("SELECT * FROM pending_replies WHERE id = ?")
-    .get(id);
+  if (!requireWsId(req, res)) return;
+  const id = req.params.id; // cuid-строка
+  const item = await store.getPendingReply(req.wsId, id);
   if (!item)
     return res.status(404).json({ success: false, error: "not found" });
   if (item.status !== "approved")
     return res.status(400).json({ success: false, error: "not approved" });
 
   // Clear send_after to allow immediate processing
-  req.db
-    .prepare("UPDATE pending_replies SET send_after = NULL WHERE id = ?")
-    .run(id);
+  await store.setPendingReplySendAfter(req.wsId, null, id);
 
-  // Trigger processApprovedQueue
+  // Trigger processApprovedQueue (worker — легаси до 3.3c)
   const wsId = req.workspaceId;
   setImmediate(() => {
     worker
@@ -545,10 +524,9 @@ router.post("/:id/force-send", async (req, res) => {
 // POST /api/pending-replies/:id/retry — повторная отправка письма со статусом failed
 // { edited_body?, edited_subject? } — сохраняет правки из формы перед повтором
 router.post("/:id/retry", async (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  const item = req.db
-    .prepare("SELECT * FROM pending_replies WHERE id = ?")
-    .get(id);
+  if (!requireWsId(req, res)) return;
+  const id = req.params.id; // cuid-строка
+  const item = await store.getPendingReply(req.wsId, id);
   if (!item)
     return res.status(404).json({ success: false, error: "not found" });
   if (item.status !== "failed")
@@ -566,14 +544,7 @@ router.post("/:id/retry", async (req, res) => {
 
   // Возвращаем в approved, чистим таймер и текст ошибки → уйдёт немедленно
   const now = new Date().toISOString();
-  req.db
-    .prepare(
-      `UPDATE pending_replies
-       SET status = 'approved', send_after = NULL, admin_notes = NULL,
-           edited_body = ?, edited_subject = ?, decided_at = ?
-       WHERE id = ?`,
-    )
-    .run(editedBody, editedSubject, now, id);
+  await store.retryPendingReply(req.wsId, id, editedBody, editedSubject, now);
 
   const wsId = req.workspaceId;
   setImmediate(() => {

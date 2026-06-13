@@ -1,4 +1,7 @@
 const express = require("express");
+// Шаг 3.3b: запись открытий переведена на db/prisma-store (единый Postgres).
+const store = require("../db/prisma-store");
+const { resolveWorkspaceId, WORKSPACE_MAP } = require("../db/workspace-map");
 const router = express.Router();
 
 // 1x1 transparent PNG pixel (68 bytes)
@@ -8,14 +11,13 @@ const PIXEL = Buffer.from(
 );
 
 // GET /api/track/open/:trackingId.png
-// trackingId format: {workspaceId}_{uuid}
+// trackingId format: {workspaceKey}_{uuid}
 // The tracking pixel is loaded by the recipient's email client when they open the email.
 router.get("/open/:trackingId.png", (req, res) => {
   const raw = req.params.trackingId;
 
   // Log asynchronously — never block or error the pixel response
   try {
-    const { getDb } = require("../db/database");
     const now = new Date().toISOString();
     const ip =
       req.headers["x-forwarded-for"] ||
@@ -24,29 +26,34 @@ router.get("/open/:trackingId.png", (req, res) => {
       "";
     const ua = req.headers["user-agent"] || "";
 
-    // Parse composite id: workspaceId_uuid
+    // Parse composite id: workspaceKey_uuid
     const sepIdx = raw.indexOf("_");
     if (sepIdx > 0) {
-      const wsId = raw.slice(0, sepIdx);
+      const wsKey = raw.slice(0, sepIdx);
       const trackingId = raw.slice(sepIdx + 1);
+      // Ключ из пикселя → PUP cuid (принимаем и сам cuid)
+      const wsId =
+        resolveWorkspaceId(wsKey) ||
+        (Object.values(WORKSPACE_MAP).includes(wsKey) ? wsKey : null);
 
-      const ws = getDb(wsId);
-      // Update opened_at (only first open) and always increment open_count
-      const result = ws.db
-        .prepare(
-          `UPDATE messages
-         SET opened_at = COALESCE(opened_at, ?),
-             open_count = COALESCE(open_count, 0) + 1,
-             open_ip = COALESCE(open_ip, ?),
-             open_ua = COALESCE(open_ua, ?)
-         WHERE tracking_id = ?`,
-        )
-        .run(now, ip.slice(0, 100), ua.slice(0, 300), trackingId);
-
-      if (result.changes > 0) {
-        console.log(
-          `[tracking] Email opened: ws=${wsId} tid=${trackingId.slice(0, 8)}.. ip=${ip.split(",")[0]} ua=${ua.slice(0, 60)}`,
-        );
+      if (wsId) {
+        // fire-and-forget: пиксель не ждёт записи
+        store
+          .recordMessageOpen(
+            wsId,
+            now,
+            ip.slice(0, 100),
+            ua.slice(0, 300),
+            trackingId,
+          )
+          .then((result) => {
+            if (result.changes > 0) {
+              console.log(
+                `[tracking] Email opened: ws=${wsKey} tid=${trackingId.slice(0, 8)}.. ip=${ip.split(",")[0]} ua=${ua.slice(0, 60)}`,
+              );
+            }
+          })
+          .catch((e) => console.error("[tracking] error:", e.message));
       }
     }
   } catch (e) {

@@ -4,17 +4,14 @@ const path = require("path");
 const multer = require("multer");
 const worker = require("../services/outreach-worker");
 const { adminAuth } = require("../utils/auth");
-const { getDb } = require("../db/database");
+// Шаг 3.3b-4: БД-обращения переведены на db/prisma-store; worker/knowledge —
+// легаси до 3.3c/3.3b-5.
+const store = require("../db/prisma-store");
+const { requireWsId } = require("../db/workspace-map");
 const ai = require("../services/ai");
 const kn = require("../services/knowledge");
 const Anthropic = require("@anthropic-ai/sdk");
 const router = express.Router();
-router.use((req, res, next) => {
-  const ws = getDb(req.workspaceId);
-  req.stmts = ws.stmts;
-  req.db = ws.db;
-  next();
-});
 
 const AVATAR_DIR = path.join(__dirname, "..", "data");
 const AVATAR_PATH = path.join(AVATAR_DIR, "agent-avatar.png");
@@ -80,14 +77,15 @@ router.post("/chat", async (req, res) => {
     }
     const userMsg = String(message).slice(0, 4000);
 
-    const project = req.stmts.getActiveProject.get(); // может быть null — чат всё равно работает
+    if (!requireWsId(req, res)) return;
+    const project = await store.getActiveProject(req.wsId); // может быть null — чат всё равно работает
     const pid = project ? project.id : null;
 
     // RAG: top-8 чанков под вопрос (если активной кампании нет — ищем по всей базе)
     let knowledgeBlock = "";
     let sources = [];
     try {
-      const hits = await kn.searchKnowledge(pid, userMsg, 8);
+      const hits = await kn.searchKnowledge(req.wsId, pid, userMsg, 8);
       if (hits && hits.length) {
         knowledgeBlock =
           "═══ РЕЛЕВАНТНЫЕ ЗНАНИЯ ═══\n" +
@@ -196,21 +194,10 @@ router.delete("/avatar", (req, res) => {
 });
 
 // GET /api/agent/stats — статистика диалогов для правой панели
-router.get("/stats", (req, res) => {
+router.get("/stats", async (req, res) => {
   try {
-    const row =
-      req.db
-        .prepare(
-          `
-      SELECT
-        SUM(CASE WHEN dialogue_stage NOT IN ('not_contacted') THEN 1 ELSE 0 END) AS total,
-        SUM(CASE WHEN dialogue_stage IN ('deal_closed','disqualified','dead','declined','closed_won','closed_lost','deal_pending') THEN 1 ELSE 0 END) AS completed,
-        SUM(CASE WHEN dialogue_stage IN ('in_work','negotiating','awaiting_reply','followup_1','followup_2','queued','replied') THEN 1 ELSE 0 END) AS active,
-        SUM(CASE WHEN dialogue_stage = 'awaiting_review' THEN 1 ELSE 0 END) AS pending
-      FROM leads
-    `,
-        )
-        .get() || {};
+    if (!requireWsId(req, res)) return;
+    const row = await store.getAgentLeadStats(req.wsId);
     res.json({
       success: true,
       total: row.total || 0,

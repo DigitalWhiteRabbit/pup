@@ -4,6 +4,12 @@ generator client {
   provider = "prisma-client-js"
 }
 
+// Отдельный клиент для yt-parser (единая схема и БД, см. ТЗ unification Шаг 3)
+generator ytparser {
+  provider = "prisma-client-js"
+  output   = "../tools/yt-parser/db/generated/prisma"
+}
+
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
@@ -170,6 +176,8 @@ model Workspace {
   mktKnowledgeDocs MktKnowledgeDoc[]
   mktDailyCounters MktDailyCounter[]
   mktSettings      MktSetting[]
+  mktTags          MktTag[]
+  mktTgAccounts    MktTgAccount[]
 
   // Member activity tracking
   memberActivities MemberActivity[]
@@ -1720,6 +1728,10 @@ model MktLead {
   tgDraft   String? // черновик телеграм-питча (EN)
   tgDraftRu String? // черновик телеграм-питча (RU)
 
+  // Теги (yt-parser channel_tags: один тег на лида)
+  tagId String?
+  tag   MktTag? @relation(fields: [tagId], references: [id], onDelete: SetNull)
+
   // Followup
   lockedUntil      DateTime?
   followupAttempts Int       @default(0)
@@ -1757,6 +1769,71 @@ model MktLeadEmail {
 
   @@unique([leadId, email])
   @@index([email])
+}
+
+// TG-аккаунты пула (зеркало tg_account из yt-parser). Чувствительные поля
+// (session, twoFa, apiHash, proxyPass) хранятся ШИФРОВАННО (AES-256-GCM, db/crypto.js).
+model MktTgAccount {
+  id          String @id @default(cuid())
+  workspaceId String
+
+  label  String?
+  phone  String?
+  apiId  Int?
+  apiHash String? // ENCRYPTED
+  session String? // ENCRYPTED
+
+  proxyType String? @default("socks5")
+  proxyHost String?
+  proxyPort Int?
+  proxyUser String?
+  proxyPass String? // ENCRYPTED
+
+  status        String  @default("active")
+  firstUsedAt   String?
+  sentToday     Int     @default(0)
+  sentTodayDate String?
+  dailyCap      Int     @default(50)
+  floodUntil    BigInt? // ms-таймстамп (как INTEGER в SQLite)
+  lastSentAt    String?
+
+  // Импорт Telethon-сессий
+  twoFa          String? // ENCRYPTED
+  userId         String?
+  deviceModel    String?
+  systemVersion  String?
+  appVersion     String?
+  langCode       String?
+  systemLangCode String?
+  source         String?
+
+  // Профиль (account_profile)
+  firstName String?
+  lastName  String?
+  username  String?
+  metadata  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([workspaceId, status])
+}
+
+// Теги лидов (yt-parser tags). Имена НЕ unique — в исходной SQLite дубли допускались.
+model MktTag {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  color       String   @default("#3b82f6")
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  leads     MktLead[]
+
+  @@index([workspaceId])
 }
 
 // Аудит канала на накрутку (yt-parser analysis_*) — 1:1 к лиду
@@ -1880,6 +1957,7 @@ model MktConsultation {
 enum MktPendingStatus {
   PENDING
   APPROVED
+  SENDING
   REJECTED
   SENT
   FAILED

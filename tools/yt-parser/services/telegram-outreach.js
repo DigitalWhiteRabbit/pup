@@ -2,7 +2,11 @@ const { TelegramClient } = require("telegram");
 const { StringSession } = require("telegram/sessions");
 const { NewMessage } = require("telegram/events");
 const { FloodWaitError } = require("telegram/errors");
-const { stmts, db } = require("../db/database");
+// Шаг 4b: tg_account полностью на store (MktTgAccount, секреты шифрованы).
+// CRUD + движковый пул (load/pick/record/flood/session) — через prisma-store;
+// sync hot-path (pickAccount/healthyAccounts/recoverFlooded) работает по in-memory
+// Map (st.row), записи async через store. SQLite (db/database.js) здесь не нужен.
+const store = require("../db/prisma-store");
 const { localDateKey } = require("../utils/dates");
 
 // ─── Multi-account pool ─────────────────────────────────────────────
@@ -39,6 +43,10 @@ function ensurePoolEntry(id) {
       username: null,
       myId: null,
       listenerAttached: false,
+      // Шаг 4b-1: кэш строки аккаунта (legacy-форма, session дешифрована) —
+      // health-функции (pickAccount/healthyAccounts/recoverFlooded) читают ЕГО
+      // (sync, in-memory), записи в БД идут async через store + мутируют st.row.
+      row: null,
     });
   }
   return pool.get(id);
@@ -135,31 +143,32 @@ function effectiveCap(row) {
   return Math.min(cap, RAMP_DAY1 + (dayIndex - 1) * RAMP_STEP);
 }
 
-// Вернуть в active аккаунты, у которых истёк flood_until.
+// Вернуть в active аккаунты, у которых истёк flood_until. SYNC по in-memory Map:
+// флипаем st.row в памяти + async fire-and-forget пишем статус в store.
 function recoverFlooded() {
-  try {
-    const now = Date.now();
-    const rows = db
-      .prepare(
-        `SELECT id FROM tg_account WHERE status = 'flood' AND (flood_until IS NULL OR flood_until < ?)`,
-      )
-      .all(now);
-    for (const r of rows)
-      stmts.setTgAccountStatus.run("active", new Date().toISOString(), r.id);
-  } catch (e) {
-    console.error("[tg] recoverFlooded:", e.message);
+  const now = Date.now();
+  for (const [id, st] of pool.entries()) {
+    const r = st.row;
+    if (!r || r.status !== "flood") continue;
+    if (r.flood_until && r.flood_until >= now) continue;
+    r.status = "active";
+    r.flood_until = null;
+    store
+      .setTgAccountStatusById(id, "active", null)
+      .catch((e) => console.error("[tg] recoverFlooded persist:", e.message));
   }
 }
 
 // Список «здоровых» аккаунтов: active + залогинен + не во флуде + под лимитом.
+// SYNC по in-memory Map (st.row), без БД.
 function healthyAccounts() {
   recoverFlooded();
   const now = Date.now();
-  const rows = stmts.listActiveTgAccounts.all();
   const out = [];
-  for (const r of rows) {
-    const st = pool.get(r.id);
-    if (!st || !st.ready || !st.client) continue;
+  for (const st of pool.values()) {
+    const r = st.row;
+    if (!r || !st.ready || !st.client) continue;
+    if (r.status !== "active") continue;
     if (r.flood_until && r.flood_until > now) continue;
     if (sentTodayOf(r) >= effectiveCap(r)) continue;
     out.push(r);
@@ -261,46 +270,12 @@ async function fetchRecentIncoming(accountId, peer, limit = 5) {
 
 // ─── Auto-login ─────────────────────────────────────────────────────
 
-// Однократная миграция: если аккаунтов ещё нет, но в settings лежит
-// telegram_session старого single-account режима — заводим из него tg_account,
-// чтобы не потерять уже залогиненный прод-аккаунт.
-function migrateLegacySession() {
-  try {
-    if (stmts.listTgAccounts.all().length > 0) return;
-    const legacy = stmts.getSetting.get("telegram_session");
-    const sess = legacy && legacy.value ? legacy.value : "";
-    if (!sess) return; // мигрируем только реально залогиненную сессию
-    const { apiId, apiHash, phone } = envApiCreds();
-    const now = new Date().toISOString();
-    const r = stmts.insertTgAccount.run({
-      label: "legacy (env)",
-      phone: phone || null,
-      api_id: apiId || null,
-      api_hash: apiHash || null,
-      proxy_type: "socks5",
-      proxy_host: null,
-      proxy_port: null,
-      proxy_user: null,
-      proxy_pass: null,
-      status: "active",
-      daily_cap: parseInt(process.env.DAILY_CAP_TG || "50", 10),
-      created_at: now,
-      updated_at: now,
-    });
-    stmts.setTgAccountSession.run(sess, now, r.lastInsertRowid);
-    console.log(
-      `[tg] перенёс legacy-сессию из settings → tg_account#${r.lastInsertRowid}`,
-    );
-  } catch (e) {
-    console.error("[tg] migrateLegacySession:", e.message);
-  }
-}
-
 async function tryAutoLoginAll() {
-  migrateLegacySession();
-  const rows = stmts.listActiveTgAccounts.all();
+  const rows = await store.listAllActiveTgAccounts(); // секреты дешифрованы store
   let any = false;
   for (const row of rows) {
+    const st = ensurePoolEntry(row.id);
+    st.row = row; // кэш строки в пул (для sync health-функций)
     if (!row.session) continue;
     const { apiId, apiHash } = {
       apiId: row.api_id || envApiCreds().apiId,
@@ -308,7 +283,6 @@ async function tryAutoLoginAll() {
     };
     if (!apiId || !apiHash) continue;
     try {
-      const st = ensurePoolEntry(row.id);
       st.client = makeClient(row, row.session);
       await st.client.connect();
       if (await st.client.isUserAuthorized()) {
@@ -334,9 +308,10 @@ async function tryAutoLoginAll() {
 // ─── Per-account interactive login ──────────────────────────────────
 
 async function loginAccount(id) {
-  const row = stmts.getTgAccount.get(id);
+  const row = await store.getTgAccountById(id);
   if (!row) throw new Error("account not found");
   const st = ensurePoolEntry(id);
+  st.row = row; // кэш строки в пул
   if (st.loginInProgress)
     throw new Error("Login уже идёт. Введи код или дождись завершения.");
   if (st.ready) throw new Error("Уже залогинен");
@@ -374,7 +349,13 @@ async function loginAccount(id) {
       st.ready = true;
       st.loginInProgress = false;
       const sessionStr = st.client.session.save();
-      stmts.setTgAccountSession.run(sessionStr, new Date().toISOString(), id);
+      // session пишется ШИФРОВАННО (store сам шифрует через crypto.js)
+      try {
+        await store.updateTgAccountById(id, { session: sessionStr });
+        if (st.row) st.row.session = sessionStr; // обновляем кэш (plaintext)
+      } catch (e) {
+        console.error(`[tg][acc#${id}] session persist:`, e.message);
+      }
       try {
         const me = await st.client.getMe();
         st.username = me.username || me.firstName || "unknown";
@@ -421,15 +402,16 @@ async function logoutAccount(id) {
     } catch {}
   }
   pool.delete(id);
-  stmts.setTgAccountSession.run("", new Date().toISOString(), id);
+  await store
+    .updateTgAccountById(id, { session: "" })
+    .catch((e) => console.error(`[tg][acc#${id}] logout persist:`, e.message));
   console.log(`[tg][acc#${id}] logged out`);
 }
 
 // ─── Account CRUD (для API) ─────────────────────────────────────────
 
-function createAccount(fields = {}) {
-  const now = new Date().toISOString();
-  const r = stmts.insertTgAccount.run({
+async function createAccount(wsId, fields = {}) {
+  const { id } = await store.createTgAccount(wsId, {
     label: fields.label || null,
     phone: fields.phone || null,
     api_id: fields.api_id != null ? parseInt(fields.api_id, 10) : null,
@@ -445,16 +427,14 @@ function createAccount(fields = {}) {
       fields.daily_cap != null
         ? parseInt(fields.daily_cap, 10)
         : parseInt(process.env.DAILY_CAP_TG || "50", 10),
-    created_at: now,
-    updated_at: now,
   });
-  return stmts.getTgAccount.get(r.lastInsertRowid);
+  return store.getTgAccountById(id);
 }
 
 // Импорт готовой Telethon-сессии: конвертим .session → StringSession и сохраняем
 // аккаунт с device-параметрами из .json. Вход по телефону/коду не нужен.
 // fields: { sessionFilePath, meta(json), proxy_string|proxy_*, label?, daily_cap? }
-async function importAccount(fields = {}) {
+async function importAccount(wsId, fields = {}) {
   const { telethonSessionToStringSession } = require("./telethon-import");
   const meta = fields.meta || {};
   const sessionStr = await telethonSessionToStringSession(
@@ -485,13 +465,12 @@ async function importAccount(fields = {}) {
       ? `${name}${handle ? " (" + handle + ")" : ""}`
       : handle || "imported");
 
-  const now = new Date().toISOString();
-  const r = stmts.insertImportedTgAccount.run({
+  const { id } = await store.createTgAccount(wsId, {
     label,
     phone: meta.phone || fields.phone || null,
     api_id: meta.app_id != null ? parseInt(meta.app_id, 10) : null,
     api_hash: meta.app_hash || null,
-    session: sessionStr,
+    session: sessionStr, // store шифрует
     proxy_type: "socks5",
     proxy_host: proxy.proxy_host || null,
     proxy_port:
@@ -513,10 +492,8 @@ async function importAccount(fields = {}) {
     lang_code: meta.lang_code || null,
     system_lang_code: meta.system_lang_code || null,
     source: "telethon-import",
-    created_at: now,
-    updated_at: now,
   });
-  return stmts.getTgAccount.get(r.lastInsertRowid);
+  return store.getTgAccountById(id);
 }
 
 // Принять прокси-строку формата host:port:user:pass и разложить по полям.
@@ -532,36 +509,43 @@ function parseProxyString(raw) {
   };
 }
 
-function updateAccount(id, fields = {}) {
-  const row = stmts.getTgAccount.get(id);
+async function updateAccount(wsId, id, fields = {}) {
+  const row = await store.getTgAccount(wsId, id);
   if (!row) throw new Error("account not found");
   const patch = { ...fields };
   if (fields.proxy_string !== undefined) {
     Object.assign(patch, parseProxyString(fields.proxy_string));
     delete patch.proxy_string;
   }
-  stmts.updateTgAccountFields.run({
-    id,
-    label: patch.label ?? null,
-    phone: patch.phone ?? null,
-    api_id: patch.api_id != null ? parseInt(patch.api_id, 10) : null,
-    api_hash: patch.api_hash ?? null,
-    proxy_type: patch.proxy_type ?? null,
-    proxy_host: patch.proxy_host ?? null,
-    proxy_port:
-      patch.proxy_port != null ? parseInt(patch.proxy_port, 10) : null,
-    proxy_user: patch.proxy_user ?? null,
-    proxy_pass: patch.proxy_pass ?? null,
-    status: patch.status ?? null,
-    daily_cap: patch.daily_cap != null ? parseInt(patch.daily_cap, 10) : null,
-    updated_at: new Date().toISOString(),
-  });
-  return stmts.getTgAccount.get(id);
+  // Передаём в store только реально присланные поля (иначе COALESCE-семантики
+  // нет — updateMany затрёт. Поэтому фильтруем undefined).
+  const upd = {};
+  const passthrough = [
+    "label",
+    "phone",
+    "proxy_type",
+    "proxy_host",
+    "proxy_user",
+    "proxy_pass",
+    "api_hash",
+    "status",
+  ];
+  for (const k of passthrough) if (patch[k] !== undefined) upd[k] = patch[k];
+  if (patch.api_id !== undefined)
+    upd.api_id = patch.api_id != null ? parseInt(patch.api_id, 10) : null;
+  if (patch.proxy_port !== undefined)
+    upd.proxy_port =
+      patch.proxy_port != null ? parseInt(patch.proxy_port, 10) : null;
+  if (patch.daily_cap !== undefined)
+    upd.daily_cap =
+      patch.daily_cap != null ? parseInt(patch.daily_cap, 10) : null;
+  await store.updateTgAccount(wsId, id, upd);
+  return store.getTgAccountById(id);
 }
 
-async function deleteAccount(id) {
+async function deleteAccount(wsId, id) {
   await logoutAccount(id).catch(() => {});
-  stmts.deleteTgAccount.run(id);
+  await store.deleteTgAccount(wsId, id);
 }
 
 // ─── Sending ────────────────────────────────────────────────────────
@@ -576,11 +560,19 @@ async function _rawSendVia(accountId, usernameOrPhone, text) {
 
   try {
     const result = await st.client.sendMessage(target, { message: text });
-    stmts.recordTgAccountSend.run({
-      id: accountId,
-      date: todayKey(),
-      now: new Date().toISOString(),
-    });
+    const dateKey = todayKey();
+    const nowIso = new Date().toISOString();
+    // Учёт отправки → store (async) + мутируем кэш st.row для sync health-логики.
+    await store
+      .recordTgAccountSend(accountId, dateKey, nowIso)
+      .catch((e) => console.error("[tg] recordSend persist:", e.message));
+    if (st.row) {
+      st.row.sent_today =
+        st.row.sent_today_date === dateKey ? (st.row.sent_today || 0) + 1 : 1;
+      st.row.sent_today_date = dateKey;
+      st.row.last_sent_at = nowIso;
+      st.row.first_used_at = st.row.first_used_at || nowIso;
+    }
     return {
       messageId: result.id?.toString(),
       chatId: result.peerId?.userId?.toString() || target,
@@ -590,12 +582,14 @@ async function _rawSendVia(accountId, usernameOrPhone, text) {
     const sec = floodSeconds(e);
     if (sec != null) {
       const until = Date.now() + sec * 1000;
-      stmts.setTgAccountFlood.run(
-        until,
-        "flood",
-        new Date().toISOString(),
-        accountId,
-      );
+      // Флуд → store (async) + кэш st.row (для sync healthyAccounts/recoverFlooded).
+      await store
+        .setTgAccountStatusById(accountId, "flood", until)
+        .catch((err) => console.error("[tg] flood persist:", err.message));
+      if (st.row) {
+        st.row.status = "flood";
+        st.row.flood_until = until;
+      }
       console.warn(
         `[tg][acc#${accountId}] FLOOD_WAIT ${sec}s → пауза до ${new Date(until).toISOString()}`,
       );
@@ -681,10 +675,21 @@ function __testInjectReady(id, ready = true) {
   return st;
 }
 
+// Тест-хук 4b-1: загрузить строку аккаунта в пул без GramJS-коннекта.
+// row — legacy-форма (как из store), fakeClient — мок client.sendMessage.
+function __testLoadRow(row, { ready = true, fakeClient = null } = {}) {
+  const st = ensurePoolEntry(row.id);
+  st.row = row;
+  st.ready = ready;
+  st.client = fakeClient || { __fake: true };
+  st.username = st.username || `fake_${row.id}`;
+  return st;
+}
+
 // ─── Status ─────────────────────────────────────────────────────────
 
-function accountStatus(id) {
-  const row = stmts.getTgAccount.get(id);
+async function accountStatus(id) {
+  const row = await store.getTgAccountById(id);
   if (!row) return null;
   const st = pool.get(id) || {};
   const now = Date.now();
@@ -719,16 +724,18 @@ function accountStatus(id) {
   };
 }
 
-function listAccounts() {
+// listAccounts(wsId) — ws-scoped (UI per-workspace). Аккаунты из store.
+async function listAccounts(wsId) {
   recoverFlooded();
-  return stmts.listTgAccounts.all().map((r) => accountStatus(r.id));
+  const rows = await store.listTgAccounts(wsId);
+  return Promise.all(rows.map((r) => accountStatus(r.id)));
 }
 
 // ─── Legacy single-account API (для текущего UI / routes до Фазы 2) ──
 // Маппится на «первый» аккаунт пула. Фаза 2 переведёт UI на мульти-аккаунт.
 
-function primaryAccountId() {
-  const rows = stmts.listTgAccounts.all();
+async function primaryAccountId() {
+  const rows = await store.listAllActiveTgAccounts();
   return rows.length ? rows[0].id : null;
 }
 
@@ -737,23 +744,24 @@ function isReady() {
   return false;
 }
 
-function status() {
-  const id = primaryAccountId();
-  if (id) {
-    const s = accountStatus(id);
+// status(wsId) — ws-scoped (UI per-workspace). accounts/primary — из store.
+async function status(wsId) {
+  const accounts = await listAccounts(wsId);
+  const { apiId, apiHash, phone } = envApiCreds();
+  const primary = accounts[0] || null;
+  if (primary) {
     return {
-      ready: s.ready,
-      loginInProgress: s.loginInProgress,
-      waitingFor: s.waitingFor,
-      username: s.username,
-      error: s.error,
-      hasSession: s.hasSession,
-      hasCreds: !!(envApiCreds().apiId && envApiCreds().apiHash),
-      accounts: listAccounts(),
+      ready: primary.ready,
+      loginInProgress: primary.loginInProgress,
+      waitingFor: primary.waitingFor,
+      username: primary.username,
+      error: primary.error,
+      hasSession: primary.hasSession,
+      hasCreds: !!(apiId && apiHash),
+      accounts,
       pacing: pacingStatus(),
     };
   }
-  const { apiId, apiHash, phone } = envApiCreds();
   return {
     ready: false,
     loginInProgress: false,
@@ -762,7 +770,7 @@ function status() {
     error: null,
     hasSession: false,
     hasCreds: !!(apiId && apiHash && phone),
-    accounts: [],
+    accounts,
     pacing: pacingStatus(),
   };
 }
@@ -772,13 +780,20 @@ async function tryAutoLogin() {
 }
 
 async function startLogin() {
-  let id = primaryAccountId();
+  // Легаси single-account env-login (движок на store, 4b). Аккаунт создаём через
+  // store; воркспейс — из env (YT_DEFAULT_WORKSPACE_CUID), т.к. legacy-путь без ws.
+  let id = await primaryAccountId();
   if (!id) {
     const { phone, apiId, apiHash } = envApiCreds();
     if (!apiId || !apiHash)
       throw new Error("TG_API_ID и TG_API_HASH не заданы в .env");
     if (!phone) throw new Error("TG_PHONE не задан в .env");
-    const acc = createAccount({
+    const wsId = process.env.YT_DEFAULT_WORKSPACE_CUID;
+    if (!wsId)
+      throw new Error(
+        "YT_DEFAULT_WORKSPACE_CUID не задан — некуда создать аккаунт",
+      );
+    const acc = await createAccount(wsId, {
       label: "default (env)",
       phone,
       api_id: apiId,
@@ -811,7 +826,7 @@ function providePassword(password) {
 }
 
 async function logout() {
-  const id = primaryAccountId();
+  const id = await primaryAccountId();
   if (id) await logoutAccount(id);
 }
 
@@ -828,10 +843,12 @@ async function sendMessage(usernameOrPhone, text) {
 // Использует пул, если аккаунт уже залогинен, иначе создаёт временный клиент.
 // NO_PROXY guard: запрещает работу без прокси (реальный IP).
 async function withAccountClient(rowOrId, fn) {
+  // account-profile передаёт уже загруженный row (с расшифрованной session);
+  // id-ветка (ws-agnostic, глобальный cuid) — через store.
   const row =
-    typeof rowOrId === "number" || typeof rowOrId === "string"
-      ? stmts.getTgAccount.get(Number(rowOrId))
-      : rowOrId;
+    typeof rowOrId === "object" && rowOrId !== null
+      ? rowOrId
+      : await store.getTgAccountById(rowOrId);
   if (!row)
     throw Object.assign(new Error("Account not found"), { status: 404 });
 
@@ -886,6 +903,7 @@ module.exports = {
   recoverFlooded,
   fetchRecentIncoming,
   __testInjectReady,
+  __testLoadRow,
   // messaging
   onMessage,
   // legacy single-account API

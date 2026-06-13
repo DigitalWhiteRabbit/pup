@@ -1,6 +1,10 @@
 import "server-only";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+// FROZEN 2026-06-13: маркетинговый движок выведен из эксплуатации; единый источник
+// outreach — yt-parser против общего Postgres. Не запускать как второго писателя.
+// Удаление — после прод-стабилизации миграции. См. _docs/marketing-engine-audit.md.
+
 import { db } from "@/lib/db";
 
 // googleapis lives in tools/yt-parser/ (standalone Express app).

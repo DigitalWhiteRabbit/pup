@@ -16,33 +16,31 @@ function getYoutube() {
 }
 
 /**
- * Enrich a lead with YouTube data if missing.
- * @param {object} lead - lead row from DB
- * @param {object} db - better-sqlite3 database instance
- * @returns {object} enriched lead (mutated in-place + saved to DB)
+ * Чистое вычисление enrichment-полей лида из YouTube (без записи в БД).
+ * @param {object} lead - lead row (legacy snake_case form)
+ * @returns {object} updates — карта snake_case-полей для записи (может быть пустой)
  */
-async function enrichLead(lead, db) {
+async function computeEnrichment(lead) {
   const youtube = getYoutube();
   if (!youtube) {
     console.log("[enrich] No YouTube API key, skipping");
-    return lead;
+    return {};
   }
 
   const needsVideos = !lead.last_videos_json;
   const needsAbout = !lead.channel_about_text;
   const channelId = lead.channel_id;
 
-  if (!channelId) return lead;
+  if (!channelId) return {};
   if (!needsVideos && !needsAbout) {
     console.log(`[enrich] Lead #${lead.id} already enriched`);
-    return lead;
+    return {};
   }
 
   console.log(
     `[enrich] Enriching lead #${lead.id} ${lead.channel_name} (videos=${needsVideos}, about=${needsAbout})`,
   );
 
-  const now = new Date().toISOString();
   const updates = {};
 
   try {
@@ -189,27 +187,11 @@ async function enrichLead(lead, db) {
         e.message,
       );
     }
-
-    // Save to DB
-    if (Object.keys(updates).length > 0) {
-      const setClauses = Object.keys(updates)
-        .map((k) => `${k} = ?`)
-        .concat(["enriched_at = ?"])
-        .join(", ");
-      const values = Object.values(updates).concat([now, lead.id]);
-      db.prepare(`UPDATE leads SET ${setClauses} WHERE id = ?`).run(...values);
-
-      // Update lead object in-place
-      Object.assign(lead, updates, { enriched_at: now });
-      console.log(
-        `[enrich] Saved ${Object.keys(updates).length} fields for lead #${lead.id}`,
-      );
-    }
   } catch (e) {
     console.error(`[enrich] Error for lead #${lead.id}:`, e.message);
   }
 
-  return lead;
+  return updates;
 }
 
-module.exports = { enrichLead };
+module.exports = { computeEnrichment };

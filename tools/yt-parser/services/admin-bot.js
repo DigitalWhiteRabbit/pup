@@ -1,5 +1,7 @@
 const TelegramBot = require("node-telegram-bot-api");
-const { stmts, db } = require("../db/database");
+// Шаг 4b-2: admin-bot глобальный (одна TG-сессия на систему) → ws-agnostic store
+// (deals/leads/consultations по глобальному cuid).
+const store = require("../db/prisma-store");
 
 let bot = null;
 let adminChatId = null;
@@ -90,13 +92,9 @@ function setupHandlers() {
   bot.onText(/\/status/, async (msg) => {
     if (String(msg.chat.id) !== String(adminChatId)) return;
     try {
-      const counts = stmts.countLeads.get();
-      const pendingDeals = stmts.listPendingDeals.all().length;
-      const pendingConsults = db
-        .prepare(
-          `SELECT COUNT(*) AS n FROM consultations WHERE status='pending'`,
-        )
-        .get().n;
+      const counts = await store.countAllLeadsByStatus();
+      const pendingDeals = await store.countAllPendingDeals();
+      const pendingConsults = await store.countAllPendingConsultations();
       const text =
         `<b>Статус системы</b>\n\n` +
         `Лиды: ${counts.total} (pending: ${counts.pending || 0}, ready: ${counts.ready || 0}, in work: ${counts.in_work || 0})\n` +
@@ -110,7 +108,7 @@ function setupHandlers() {
 
   bot.onText(/\/pending/, async (msg) => {
     if (String(msg.chat.id) !== String(adminChatId)) return;
-    const deals = stmts.listPendingDeals.all();
+    const deals = await store.listAllPendingDeals();
     if (deals.length === 0) {
       safeSend(msg.chat.id, "Нет сделок на approval");
       return;
@@ -121,20 +119,21 @@ function setupHandlers() {
   bot.on("callback_query", async (q) => {
     if (String(q.message.chat.id) !== String(adminChatId)) return;
     const data = q.data || "";
-    const m = data.match(/^deal:(approve|reject):(\d+)$/);
+    // dealId — cuid (раньше int)
+    const m = data.match(/^deal:(approve|reject):([a-z0-9]+)$/);
     if (!m) {
       bot.answerCallbackQuery(q.id, { text: "Unknown action" });
       return;
     }
 
     const action = m[1];
-    const dealId = parseInt(m[2], 10);
+    const dealId = m[2];
     const now = new Date().toISOString();
-    stmts.decideDeal.run(
+    await store.decideDealById(
+      dealId,
       action === "approve" ? "approved" : "rejected",
       null,
       now,
-      dealId,
     );
 
     bot.answerCallbackQuery(q.id, {
@@ -168,9 +167,7 @@ function setupHandlers() {
     if (!consultationId) return;
 
     const now = new Date().toISOString();
-    db.prepare(
-      `UPDATE consultations SET admin_response = ?, status = 'answered', answered_at = ? WHERE id = ?`,
-    ).run(msg.text, now, consultationId);
+    await store.answerConsultationById(consultationId, msg.text, now);
 
     safeSend(
       msg.chat.id,
@@ -189,7 +186,7 @@ function setupHandlers() {
 
 async function sendDealNotification(deal) {
   if (!bot || !adminChatId) return;
-  const lead = stmts.getLead.get(deal.lead_id);
+  const lead = await store.getLeadById(deal.lead_id);
   if (!lead) return;
 
   const urlValid = isValidYouTubeUrl(lead.channel_url);

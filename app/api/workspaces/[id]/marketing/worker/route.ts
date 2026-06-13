@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { withErrorHandler, ApiError } from "@/lib/api-error";
-import {
-  getStatus,
-  start,
-  stop,
-} from "@/lib/services/marketing/mkt-worker.service";
+import { getStatus, stop } from "@/lib/services/marketing/mkt-worker.service";
 import { checkMembership } from "@/lib/services/workspace.service";
 
 type Params = { params: Promise<{ id: string }> };
@@ -39,7 +35,14 @@ export async function POST(req: NextRequest, { params }: Params) {
 
     const { action } = await req.json();
     if (action === "start") {
-      await start(workspaceId);
+      // FROZEN 2026-06-13: движок PUP выведен из эксплуатации после унификации БД.
+      // Единый источник outreach — yt-parser против общего Postgres. Запуск здесь
+      // создал бы второго писателя в ту же БД. start() намеренно заблокирован.
+      throw new ApiError(
+        "PUP marketing engine frozen — outreach runs in yt-parser (unified DB)",
+        "MKT_ENGINE_FROZEN",
+        410,
+      );
     } else if (action === "stop") {
       await stop();
     } else {

@@ -1,13 +1,8 @@
 const express = require("express");
-const { getDb } = require("../db/database");
+// Шаг 3.3c-5: health/cost на store (public-эндпоинт, агрегаты по всем воркспейсам).
+const store = require("../db/prisma-store");
 
 const router = express.Router();
-router.use((req, res, next) => {
-  const ws = getDb(req.workspaceId);
-  req.stmts = ws.stmts;
-  req.db = ws.db;
-  next();
-});
 
 // Цены за 1M токенов (USD). Можно переопределить через env.
 const PRICE = {
@@ -52,8 +47,8 @@ router.get("/", async (req, res) => {
 
   // DB
   try {
-    const r = req.db.prepare("SELECT COUNT(*) AS n FROM leads").get();
-    out.db = { ok: true, leads: r.n };
+    const c = await store.countAllLeadsByStatus();
+    out.db = { ok: true, leads: c.total };
   } catch (e) {
     out.db = { ok: false, error: e.message };
   }
@@ -97,30 +92,21 @@ router.get("/", async (req, res) => {
   // Worker
   try {
     const worker = require("../services/outreach-worker");
-    out.worker = worker.status ? worker.status() : { running: false };
+    out.worker = worker.status ? await worker.status() : { running: false };
   } catch {
     out.worker = { running: false };
   }
 
-  // Queues
+  // Queues (агрегат по всем воркспейсам)
   try {
-    const leadsCounts = req.stmts.countLeads.get();
-    const pendingReview = req.stmts.countPendingReplies.get("pending")?.n || 0;
-    const pendingDeals = req.db
-      .prepare(`SELECT COUNT(*) AS n FROM deals WHERE admin_decision IS NULL`)
-      .get().n;
-    const pendingConsult = req.db
-      .prepare(
-        `SELECT COUNT(*) AS n FROM consultations WHERE status = 'pending'`,
-      )
-      .get().n;
+    const leadsCounts = await store.countAllLeadsByStatus();
     out.queues = {
       leads_pending: leadsCounts.pending || 0,
       leads_ready: leadsCounts.ready || 0,
       leads_in_work: leadsCounts.in_work || 0,
-      review_pending: pendingReview,
-      deals_pending: pendingDeals,
-      consultations_pending: pendingConsult,
+      review_pending: await store.countAllPendingReplies("pending"),
+      deals_pending: await store.countAllPendingDeals(),
+      consultations_pending: await store.countAllPendingConsultations(),
     };
   } catch (e) {
     out.queues = { error: e.message };
@@ -136,12 +122,10 @@ router.get("/", async (req, res) => {
   res.json({ success: true, ...out });
 });
 
-// GET /api/cost?days=30 — агрегат трат по дням
-router.get("/cost", (req, res) => {
+// GET /api/cost?days=30 — агрегат трат по дням (по всем воркспейсам)
+router.get("/cost", async (req, res) => {
   const days = Math.min(Math.max(parseInt(req.query.days, 10) || 30, 1), 365);
-  const rows = req.db
-    .prepare(`SELECT * FROM daily_counters ORDER BY date DESC LIMIT ?`)
-    .all(days);
+  const rows = await store.listAllDailyCounters(days);
   const mainModel = process.env.CLAUDE_MODEL || "claude-sonnet-4-6";
 
   // Агрегаты

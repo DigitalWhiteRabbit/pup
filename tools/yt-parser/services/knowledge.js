@@ -1,8 +1,10 @@
 // services/knowledge.js — RAG база знаний (локальные эмбеддинги через @xenova/transformers)
+// Шаг 3.3b-6: БД-часть переведена на db/prisma-store (единый Postgres).
+// embedding в Prisma — JSON-строка float-массива (BLOB-путь SQLite больше не используется).
 const crypto = require("crypto");
 const dns = require("dns").promises;
 const net = require("net");
-const { stmts } = require("../db/database");
+const store = require("../db/prisma-store");
 
 // ─── SSRF Guard ───────────────────────────────────────────────────
 // Проверяем что IP не относится к приватным/локальным диапазонам.
@@ -259,6 +261,7 @@ async function embed(texts, prefix = "passage: ") {
   return out;
 }
 
+// SQLite-путь (BLOB) — оставлен для совместимости, в Prisma-пути не используется.
 function embeddingToBlob(f32) {
   return Buffer.from(f32.buffer, f32.byteOffset, f32.byteLength);
 }
@@ -268,6 +271,14 @@ function blobToEmbedding(buf) {
   const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   for (let i = 0; i < arr.length; i++) arr[i] = view.getFloat32(i * 4, true);
   return arr;
+}
+
+// Prisma-путь: embedding хранится как JSON float-массив (String).
+function embeddingToJson(f32) {
+  return JSON.stringify(Array.from(f32));
+}
+function jsonToEmbedding(str) {
+  return Float32Array.from(JSON.parse(str));
 }
 
 function cosineSim(a, b) {
@@ -292,31 +303,32 @@ function invalidateCache() {
   _cache.clear();
 }
 
-function loadChunksForProject(projectId) {
-  const key = projectId == null ? "all" : String(projectId);
+// Кэш per (workspaceId, projectId): чанки одного воркспейса не должны течь в другой.
+async function loadChunksForProject(workspaceId, projectId) {
+  const key = `${workspaceId}::${projectId == null ? "all" : String(projectId)}`;
   const hit = _cache.get(key);
   if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.items;
-  const rows = stmts.getAllChunksForProject.all({
-    project_id: projectId == null ? null : projectId,
-  });
+  const rows = await store.getChunksForProject(
+    workspaceId,
+    projectId == null ? null : projectId,
+  );
   const items = rows.map((r) => ({
     chunk_text: r.chunk_text,
     title: r.doc_title,
     source: r.doc_source,
     kind: r.doc_kind,
-    vec: blobToEmbedding(r.embedding),
+    vec: jsonToEmbedding(r.embedding),
   }));
   _cache.set(key, { at: Date.now(), items });
   return items;
 }
 
 // ─── Индексация документа ─────────────────────────────────────────
-async function indexDocument(docId, wsStmts = null) {
-  const s = wsStmts || stmts;
-  const doc = s.getKnowledgeDoc.get(docId);
+// workspaceId — PUP cuid (caller передаёт req.wsId).
+async function indexDocument(workspaceId, docId) {
+  const doc = await store.getKnowledgeDoc(workspaceId, docId);
   if (!doc) throw new Error(`doc ${docId} not found`);
-  const now = new Date().toISOString();
-  s.setKnowledgeDocStatus.run("indexing", null, now, docId);
+  await store.updateKnowledgeDocStatus(workspaceId, docId, "indexing");
   try {
     const text = String(doc.content || "").trim();
     if (!text) throw new Error("пустой контент");
@@ -324,39 +336,36 @@ async function indexDocument(docId, wsStmts = null) {
     if (chunks.length === 0) throw new Error("нет чанков после разбиения");
 
     // удалить старые чанки
-    s.deleteChunksByDoc.run(docId);
+    await store.deleteChunksByDoc(workspaceId, docId);
 
-    // батчами эмбеддим и пишем
+    // батчами эмбеддим и пишем (embedding → JSON float-массив)
     for (let i = 0; i < chunks.length; i += EMBED_BATCH) {
       const slice = chunks.slice(i, i + EMBED_BATCH);
       const embs = await embed(slice, "passage: ");
-      const ts = new Date().toISOString();
-      for (let j = 0; j < slice.length; j++) {
-        s.insertKnowledgeChunk.run({
-          doc_id: docId,
-          position: i + j,
-          chunk_text: slice[j],
-          embedding: embeddingToBlob(embs[j]),
-          token_count: slice[j].split(/\s+/).length,
-          created_at: ts,
-        });
-      }
+      const rows = slice.map((chunk, j) => ({
+        position: i + j,
+        chunk_text: chunk,
+        embedding: embeddingToJson(embs[j]),
+        token_count: chunk.split(/\s+/).length,
+      }));
+      await store.insertKnowledgeChunks(workspaceId, docId, rows);
     }
 
-    s.setKnowledgeDocChunks.run(
-      chunks.length,
-      "indexed",
-      new Date().toISOString(),
+    await store.updateKnowledgeDocStatus(
+      workspaceId,
       docId,
+      "indexed",
+      null,
+      chunks.length,
     );
     invalidateCache();
     return { chunks: chunks.length };
   } catch (e) {
-    s.setKnowledgeDocStatus.run(
+    await store.updateKnowledgeDocStatus(
+      workspaceId,
+      docId,
       "failed",
       String(e.message || e).slice(0, 500),
-      new Date().toISOString(),
-      docId,
     );
     invalidateCache();
     throw e;
@@ -364,9 +373,18 @@ async function indexDocument(docId, wsStmts = null) {
 }
 
 // ─── Поиск ────────────────────────────────────────────────────────
-async function searchKnowledge(projectId, queryText, topK = TOP_K) {
+// workspaceId — PUP cuid.
+async function searchKnowledge(
+  workspaceId,
+  projectId,
+  queryText,
+  topK = TOP_K,
+) {
   if (!queryText || !String(queryText).trim()) return [];
-  const items = loadChunksForProject(projectId);
+  // Без воркспейса чанки в Prisma не заскоупить → RAG off (напр. на пути воркера
+  // до Шага 3.3c, который ещё ходит с ключом-воркспейсом, а не cuid).
+  if (!workspaceId) return [];
+  const items = await loadChunksForProject(workspaceId, projectId);
   if (items.length === 0) return [];
   const [qvec] = await embed([String(queryText).slice(0, 2000)], "query: ");
   const scored = items.map((it) => ({
@@ -393,6 +411,8 @@ module.exports = {
   embed,
   embeddingToBlob,
   blobToEmbedding,
+  embeddingToJson,
+  jsonToEmbedding,
   cosineSim,
   indexDocument,
   searchKnowledge,

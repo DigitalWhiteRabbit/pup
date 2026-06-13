@@ -13,3 +13,6 @@ qa-screens/
 
 # TG account avatars
 data/tg-avatars/
+
+# Prisma client (артефакт генерации: pnpm run prisma:generate)
+db/generated/

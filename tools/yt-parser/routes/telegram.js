@@ -6,6 +6,8 @@ const path = require("path");
 const crypto = require("crypto");
 const tg = require("../services/telegram-outreach");
 const { adminAuth } = require("../utils/auth");
+// Шаг 3.3c-4a: account CRUD на store (ws-scoped). id аккаунтов — cuid.
+const { requireWsId } = require("../db/workspace-map");
 const router = express.Router();
 
 // Импорт пакета аккаунта: .session (SQLite) + .json (метаданные). До 5 МБ.
@@ -22,8 +24,9 @@ router.use((req, res, next) => {
 
 // ─── Legacy single-account API (текущий UI до Фазы 2) ───────────────
 
-router.get("/status", (req, res) => {
-  res.json({ success: true, ...tg.status() });
+router.get("/status", async (req, res) => {
+  if (!requireWsId(req, res)) return;
+  res.json({ success: true, ...(await tg.status(req.wsId)) });
 });
 
 router.post("/login", async (req, res) => {
@@ -35,19 +38,19 @@ router.post("/login", async (req, res) => {
   }
 });
 
-router.post("/code", (req, res) => {
+router.post("/code", async (req, res) => {
   try {
     const { code } = req.body;
     if (!code)
       return res.status(400).json({ success: false, error: "code required" });
     tg.provideCode(String(code));
-    res.json({ success: true, ...tg.status() });
+    res.json({ success: true, ...(await tg.status(req.wsId)) });
   } catch (e) {
     res.status(400).json({ success: false, error: e.message });
   }
 });
 
-router.post("/password", (req, res) => {
+router.post("/password", async (req, res) => {
   try {
     const { password } = req.body;
     if (!password)
@@ -55,7 +58,7 @@ router.post("/password", (req, res) => {
         .status(400)
         .json({ success: false, error: "password required" });
     tg.providePassword(String(password));
-    res.json({ success: true, ...tg.status() });
+    res.json({ success: true, ...(await tg.status(req.wsId)) });
   } catch (e) {
     res.status(400).json({ success: false, error: e.message });
   }
@@ -69,13 +72,14 @@ router.post("/logout", async (req, res) => {
 // ─── Multi-account pool API (Фаза 1) ────────────────────────────────
 
 // GET /api/telegram/accounts — список аккаунтов со статусом (без секретов)
-router.get("/accounts", (req, res) => {
-  res.json({ success: true, accounts: tg.listAccounts() });
+router.get("/accounts", async (req, res) => {
+  if (!requireWsId(req, res)) return;
+  res.json({ success: true, accounts: await tg.listAccounts(req.wsId) });
 });
 
 // GET /api/telegram/accounts/:id
-router.get("/accounts/:id", (req, res) => {
-  const s = tg.accountStatus(parseInt(req.params.id, 10));
+router.get("/accounts/:id", async (req, res) => {
+  const s = await tg.accountStatus(req.params.id);
   if (!s) return res.status(404).json({ success: false, error: "not found" });
   res.json({ success: true, account: s });
 });
@@ -83,15 +87,16 @@ router.get("/accounts/:id", (req, res) => {
 // POST /api/telegram/accounts — создать аккаунт
 // { label?, phone?, api_id?, api_hash?, proxy_type?, proxy_host?, proxy_port?,
 //   proxy_user?, proxy_pass?, proxy_string?, daily_cap? }
-router.post("/accounts", (req, res) => {
+router.post("/accounts", async (req, res) => {
   try {
+    if (!requireWsId(req, res)) return;
     let fields = { ...req.body };
     if (fields.proxy_string) {
       Object.assign(fields, tg.parseProxyString(fields.proxy_string));
       delete fields.proxy_string;
     }
-    const account = tg.createAccount(fields);
-    res.json({ success: true, account: tg.accountStatus(account.id) });
+    const account = await tg.createAccount(req.wsId, fields);
+    res.json({ success: true, account: await tg.accountStatus(account.id) });
   } catch (e) {
     res.status(400).json({ success: false, error: e.message });
   }
@@ -132,8 +137,9 @@ router.post(
       "import-" + crypto.randomBytes(8).toString("hex") + ".session",
     );
     try {
+      if (!requireWsId(req, res)) return;
       fs.writeFileSync(tmpPath, sessionFile.buffer);
-      const account = await tg.importAccount({
+      const account = await tg.importAccount(req.wsId, {
         sessionFilePath: tmpPath,
         meta,
         proxy_string: req.body?.proxy_string,
@@ -141,7 +147,7 @@ router.post(
         daily_cap: req.body?.daily_cap,
         phone: req.body?.phone,
       });
-      res.json({ success: true, account: tg.accountStatus(account.id) });
+      res.json({ success: true, account: await tg.accountStatus(account.id) });
     } catch (e) {
       res.status(400).json({ success: false, error: e.message });
     } finally {
@@ -153,11 +159,12 @@ router.post(
 );
 
 // PATCH /api/telegram/accounts/:id — обновить поля (прокси/лимит/статус/label)
-router.patch("/accounts/:id", (req, res) => {
+router.patch("/accounts/:id", async (req, res) => {
   try {
-    const id = parseInt(req.params.id, 10);
-    tg.updateAccount(id, req.body || {});
-    res.json({ success: true, account: tg.accountStatus(id) });
+    if (!requireWsId(req, res)) return;
+    const id = req.params.id;
+    await tg.updateAccount(req.wsId, id, req.body || {});
+    res.json({ success: true, account: await tg.accountStatus(id) });
   } catch (e) {
     res.status(400).json({ success: false, error: e.message });
   }
@@ -166,7 +173,8 @@ router.patch("/accounts/:id", (req, res) => {
 // DELETE /api/telegram/accounts/:id
 router.delete("/accounts/:id", async (req, res) => {
   try {
-    await tg.deleteAccount(parseInt(req.params.id, 10));
+    if (!requireWsId(req, res)) return;
+    await tg.deleteAccount(req.wsId, req.params.id);
     res.json({ success: true });
   } catch (e) {
     res.status(400).json({ success: false, error: e.message });
@@ -174,9 +182,12 @@ router.delete("/accounts/:id", async (req, res) => {
 });
 
 // POST /api/telegram/accounts/:id/login
+// NB (3.3c-4a): движок loginAccount читает SQLite (hot-path, 4b), а аккаунты
+// теперь создаются в Postgres (store) → реальный логин по новому cuid заработает
+// в 3.3c-4b. До тех пор отдаёт "account not found" (живого TG в 4a нет).
 router.post("/accounts/:id/login", async (req, res) => {
   try {
-    const result = await tg.loginAccount(parseInt(req.params.id, 10));
+    const result = await tg.loginAccount(req.params.id);
     res.json({ success: true, ...result });
   } catch (e) {
     res.status(400).json({ success: false, error: e.message });
@@ -184,15 +195,15 @@ router.post("/accounts/:id/login", async (req, res) => {
 });
 
 // POST /api/telegram/accounts/:id/code { code }
-router.post("/accounts/:id/code", (req, res) => {
+router.post("/accounts/:id/code", async (req, res) => {
   try {
     const { code } = req.body;
     if (!code)
       return res.status(400).json({ success: false, error: "code required" });
-    tg.provideCodeFor(parseInt(req.params.id, 10), String(code));
+    tg.provideCodeFor(req.params.id, String(code));
     res.json({
       success: true,
-      account: tg.accountStatus(parseInt(req.params.id, 10)),
+      account: await tg.accountStatus(req.params.id),
     });
   } catch (e) {
     res.status(400).json({ success: false, error: e.message });
@@ -200,17 +211,17 @@ router.post("/accounts/:id/code", (req, res) => {
 });
 
 // POST /api/telegram/accounts/:id/password { password }
-router.post("/accounts/:id/password", (req, res) => {
+router.post("/accounts/:id/password", async (req, res) => {
   try {
     const { password } = req.body;
     if (!password)
       return res
         .status(400)
         .json({ success: false, error: "password required" });
-    tg.providePasswordFor(parseInt(req.params.id, 10), String(password));
+    tg.providePasswordFor(req.params.id, String(password));
     res.json({
       success: true,
-      account: tg.accountStatus(parseInt(req.params.id, 10)),
+      account: await tg.accountStatus(req.params.id),
     });
   } catch (e) {
     res.status(400).json({ success: false, error: e.message });
@@ -219,7 +230,7 @@ router.post("/accounts/:id/password", (req, res) => {
 
 // POST /api/telegram/accounts/:id/qa-ready — QA-ТОЛЬКО (при DRY_RUN): пометить
 // аккаунт «готовым» в пуле БЕЗ реального коннекта (для визуального QA статусов).
-router.post("/accounts/:id/qa-ready", (req, res) => {
+router.post("/accounts/:id/qa-ready", async (req, res) => {
   const dry = process.env.DRY_RUN === "true" || process.env.DRY_RUN === "1";
   const isProd = process.env.NODE_ENV === "production";
   // Двойной гейт: только не-прод И DRY_RUN. В проде (NODE_ENV=production или
@@ -231,9 +242,9 @@ router.post("/accounts/:id/qa-ready", (req, res) => {
     });
   if (typeof tg.__testInjectReady !== "function")
     return res.status(404).json({ success: false, error: "not available" });
-  const id = parseInt(req.params.id, 10);
+  const id = req.params.id;
   tg.__testInjectReady(id, req.body?.ready !== false);
-  res.json({ success: true, account: tg.accountStatus(id) });
+  res.json({ success: true, account: await tg.accountStatus(id) });
 });
 
 // POST /api/telegram/accounts/:id/fetch-incoming { peer, limit? }
@@ -247,7 +258,7 @@ router.post("/accounts/:id/fetch-incoming", async (req, res) => {
       return res.status(400).json({ success: false, error: "peer required" });
     const limit = Math.min(parseInt(req.body?.limit, 10) || 5, 20);
     const ingested = await tg.fetchRecentIncoming(
-      parseInt(req.params.id, 10),
+      req.params.id,
       String(peer),
       limit,
     );
@@ -260,7 +271,7 @@ router.post("/accounts/:id/fetch-incoming", async (req, res) => {
 // POST /api/telegram/accounts/:id/logout
 router.post("/accounts/:id/logout", async (req, res) => {
   try {
-    await tg.logoutAccount(parseInt(req.params.id, 10));
+    await tg.logoutAccount(req.params.id);
     res.json({ success: true });
   } catch (e) {
     res.status(400).json({ success: false, error: e.message });

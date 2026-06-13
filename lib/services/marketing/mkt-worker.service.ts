@@ -1,6 +1,13 @@
 import "server-only";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+// ═══════════════════════════════════════════════════════════════════════════
+// FROZEN 2026-06-13: маркетинговый движок выведен из эксплуатации; единый
+// источник outreach — yt-parser против общего Postgres. Не запускать как
+// второго писателя (см. guard в start() и блокировку POST в worker/route.ts).
+// Удаление — после прод-стабилизации миграции. См. _docs/marketing-engine-audit.md.
+// ═══════════════════════════════════════════════════════════════════════════
+
 import { db } from "@/lib/db";
 import {
   MktLeadStatus,
@@ -1737,6 +1744,17 @@ async function processFollowUps(workspaceId: string): Promise<void> {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export async function start(workspaceId: string): Promise<void> {
+  // FROZEN 2026-06-13 (defense-in-depth): движок выведен из эксплуатации, единый
+  // источник outreach — yt-parser против общего Postgres. Не запускаем интервалы,
+  // если процесс не помечен явным override-флагом. См. _docs/marketing-engine-audit.md.
+  if (process.env["MKT_PUP_ENGINE_ENABLED"] !== "true") {
+    log(
+      "warn",
+      "PUP marketing engine is FROZEN — start() blocked (set MKT_PUP_ENGINE_ENABLED=true to override). Outreach runs in yt-parser against the unified Postgres.",
+    );
+    return;
+  }
+
   if (workerState.running) {
     log("warn", "Worker already running — ignoring start()");
     return;

@@ -1,5 +1,7 @@
 const express = require("express");
-const { getDb } = require("../db/database");
+// Шаг 3.3b: роут переведён на db/prisma-store (единый Prisma-Postgres PUP).
+const store = require("../db/prisma-store");
+const { requireWsId } = require("../db/workspace-map");
 const { adminAuth } = require("../utils/auth");
 
 const router = express.Router();
@@ -8,15 +10,9 @@ router.use((req, res, next) => {
   if (req.method === "GET" || req.method === "HEAD") return next();
   return adminAuth(req, res, next);
 });
-router.use((req, res, next) => {
-  const ws = getDb(req.workspaceId);
-  req.stmts = ws.stmts;
-  req.db = ws.db;
-  next();
-});
 
-function readFollowUp(req) {
-  const row = req.stmts.getSetting.get("followup");
+async function readFollowUp(wsId) {
+  const row = await store.getSetting(wsId, "followup");
   let cfg = {};
   if (row && row.value) {
     try {
@@ -40,28 +36,34 @@ function readFollowUp(req) {
 }
 
 // GET /api/settings — все известные настройки
-router.get("/", (req, res) => {
-  const reviewRow = req.stmts.getSetting.get("review_mode");
+router.get("/", async (req, res) => {
+  if (!requireWsId(req, res)) return;
+  const reviewRow = await store.getSetting(req.wsId, "review_mode");
   const reviewMode = reviewRow
     ? reviewRow.value === "1" || reviewRow.value === "true"
     : process.env.REVIEW_MODE === "true" || process.env.REVIEW_MODE === "1";
   res.json({
     success: true,
-    settings: { review_mode: reviewMode, followup: readFollowUp(req) },
+    settings: {
+      review_mode: reviewMode,
+      followup: await readFollowUp(req.wsId),
+    },
   });
 });
 
 // POST /api/settings/review-mode { enabled: boolean }
-router.post("/review-mode", (req, res) => {
+router.post("/review-mode", async (req, res) => {
+  if (!requireWsId(req, res)) return;
   const enabled = !!req.body.enabled;
   const now = new Date().toISOString();
-  req.stmts.upsertSetting.run("review_mode", enabled ? "1" : "0", now);
+  await store.upsertSetting(req.wsId, "review_mode", enabled ? "1" : "0", now);
   res.json({ success: true, review_mode: enabled });
 });
 
 // POST /api/settings/followup { enabled?, delay_days?, max_attempts? }
-router.post("/followup", (req, res) => {
-  const current = readFollowUp(req);
+router.post("/followup", async (req, res) => {
+  if (!requireWsId(req, res)) return;
+  const current = await readFollowUp(req.wsId);
   const next = {
     enabled:
       req.body.enabled !== undefined ? !!req.body.enabled : current.enabled,
@@ -75,7 +77,7 @@ router.post("/followup", (req, res) => {
     ),
   };
   const now = new Date().toISOString();
-  req.stmts.upsertSetting.run("followup", JSON.stringify(next), now);
+  await store.upsertSetting(req.wsId, "followup", JSON.stringify(next), now);
   res.json({ success: true, followup: next });
 });
 
@@ -91,10 +93,10 @@ const EMAIL_FIELDS = [
   "imap_pass",
 ];
 
-function readEmailConfig(req) {
+async function readEmailConfig(wsId) {
   const cfg = {};
   for (const field of EMAIL_FIELDS) {
-    const row = req.stmts.getSetting.get(`email_${field}`);
+    const row = await store.getSetting(wsId, `email_${field}`);
     cfg[field] = row ? row.value : "";
   }
   // Fallback to env vars if workspace has no config
@@ -105,8 +107,9 @@ function readEmailConfig(req) {
   return cfg;
 }
 
-router.get("/email", (req, res) => {
-  const cfg = readEmailConfig(req);
+router.get("/email", async (req, res) => {
+  if (!requireWsId(req, res)) return;
+  const cfg = await readEmailConfig(req.wsId);
   // Mask the API key for display
   const masked = { ...cfg };
   if (masked.resend_api_key) {
@@ -121,11 +124,17 @@ router.get("/email", (req, res) => {
   res.json({ success: true, email: masked });
 });
 
-router.post("/email", (req, res) => {
+router.post("/email", async (req, res) => {
+  if (!requireWsId(req, res)) return;
   const now = new Date().toISOString();
   for (const field of EMAIL_FIELDS) {
     if (req.body[field] !== undefined) {
-      req.stmts.upsertSetting.run(`email_${field}`, req.body[field], now);
+      await store.upsertSetting(
+        req.wsId,
+        `email_${field}`,
+        req.body[field],
+        now,
+      );
     }
   }
   res.json({ success: true });
@@ -133,14 +142,13 @@ router.post("/email", (req, res) => {
 
 // Test send
 router.post("/email/test", async (req, res) => {
-  const cfg = readEmailConfig(req);
+  if (!requireWsId(req, res)) return;
+  const cfg = await readEmailConfig(req.wsId);
   if (!cfg.resend_api_key || !cfg.email_from) {
-    return res
-      .status(400)
-      .json({
-        success: false,
-        error: "Resend API key и Email FROM обязательны",
-      });
+    return res.status(400).json({
+      success: false,
+      error: "Resend API key и Email FROM обязательны",
+    });
   }
   try {
     const { Resend } = require("resend");
