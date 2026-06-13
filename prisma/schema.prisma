@@ -5,7 +5,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite" // prod: "postgresql"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -1593,6 +1593,17 @@ model MktProject {
   toneOfVoice         String?
   stopWords           String? // JSON array
 
+  // Agent settings (yt-parser unification)
+  systemPrompt     String?
+  adminDirective   String?
+  pitchTemperature Float?
+  replyDelayMin    Int?
+  replyDelayMax    Int?
+  subjectPool      String? // JSON
+  samplePitches    String? // JSON
+  contentRedFlags  String? // JSON
+  valuePropShort   String?
+
   // A/B testing
   abTestEnabled Boolean @default(false)
   abVariants    String? // JSON: [{id:"A", name:"Formal", instructions:"..."}, {id:"B", name:"Casual", instructions:"..."}]
@@ -1630,6 +1641,7 @@ enum MktDialogueStage {
   DEAL_PENDING
   WON
   LOST
+  MOVED_TO_TG
 }
 
 enum MktLeadSource {
@@ -1703,6 +1715,11 @@ model MktLead {
   notes       String?
   optedOut    Boolean @default(false)
 
+  // yt-parser unification
+  keyword   String? // поисковый ключ, по которому найден лид
+  tgDraft   String? // черновик телеграм-питча (EN)
+  tgDraftRu String? // черновик телеграм-питча (RU)
+
   // Followup
   lockedUntil      DateTime?
   followupAttempts Int       @default(0)
@@ -1720,6 +1737,7 @@ model MktLead {
   consultations  MktConsultation[]
   pendingReplies MktPendingReply[]
   emails         MktLeadEmail[]
+  analysis       MktLeadAnalysis?
 
   @@unique([workspaceId, channelId])
   @@index([workspaceId, leadStatus, dialogueStage])
@@ -1741,6 +1759,19 @@ model MktLeadEmail {
   @@index([email])
 }
 
+// Аудит канала на накрутку (yt-parser analysis_*) — 1:1 к лиду
+model MktLeadAnalysis {
+  id             String    @id @default(cuid())
+  leadId         String    @unique
+  metrics        String? // analysis_metrics (JSON)
+  reasoning      String? // analysis_reasoning
+  recommendation String? // analysis_recommendation
+  score          Int? // analysis_score
+  verdict        String? // analysis_verdict
+  analyzedAt     DateTime?
+  lead           MktLead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+}
+
 // ─── Dialogues & Messages ───────────────
 
 model MktDialogue {
@@ -1748,6 +1779,7 @@ model MktDialogue {
   leadId           String
   channel          String // "email" | "telegram"
   externalThreadId String? // resend email thread / tg chat id
+  accountId        String? // исходный tg_account.id из парсера, информационно (tg_account владеет tg-service)
 
   createdAt DateTime @default(now())
 
@@ -1775,9 +1807,15 @@ model MktMessage {
   direction  MktMsgDirection
   sender     MktMsgSender
   content    String
+  contentRu  String? // RU-версия текста (двуязычный outreach)
   subject    String?
   metadata   String? // JSON (resend_id, headers, etc)
   resendId   String? // for fast email lookup
+
+  // Email open-tracking (yt-parser unification)
+  trackingId String?
+  openedAt   DateTime?
+  openCount  Int       @default(0)
 
   // A/B testing
   abVariantId String? // "A", "B", etc. — tracks which variant generated this message
@@ -1788,6 +1826,7 @@ model MktMessage {
 
   @@index([dialogueId, createdAt])
   @@index([resendId])
+  @@index([trackingId])
 }
 
 // ─── Deals ──────────────────────────────
@@ -1867,6 +1906,7 @@ model MktPendingReply {
   createdAt DateTime  @default(now())
   decidedAt DateTime?
   sentAt    DateTime?
+  sendAfter DateTime? // отложенная отправка (yt-parser send_after)
 
   lead     MktLead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
   dialogue MktDialogue? @relation(fields: [dialogueId], references: [id], onDelete: SetNull)

@@ -55,3 +55,9 @@ tools/yt-parser/data/
 
 # QA screenshots (dev artifacts, not for prod)
 public/qa-screenshots/
+
+# Local DB backups (migration safety net, never commit)
+_backups/
+
+# tg-service runtime artifact (celery beat scheduler state)
+tools/tg-service/celerybeat-schedule.db
