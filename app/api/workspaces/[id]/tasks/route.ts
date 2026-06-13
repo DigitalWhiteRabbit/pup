@@ -10,6 +10,7 @@ import {
   requireWorkspace,
   ServiceRateLimitError,
 } from "@/lib/middleware/resolve-auth";
+import { checkMembership } from "@/lib/services/membership-check";
 
 type Params = { params: { id: string } };
 
@@ -21,6 +22,17 @@ export async function GET(req: NextRequest, { params }: Params) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     requireScope(ctx, "tasks:read");
     requireWorkspace(ctx, params.id);
+
+    // Cross-tenant IDOR guard: requireScope/requireWorkspace are no-ops for
+    // user sessions, and this route had NO membership check (unlike its
+    // siblings). A logged-in non-member could read any workspace's tasks by
+    // changing the id. Enforce membership; ADMIN bypass kept for parity with
+    // the other internal /api/workspaces/[id]/* routes.
+    if (ctx.type === "user" && ctx.role !== "ADMIN") {
+      const role = await checkMembership(params.id, ctx.id);
+      if (!role)
+        throw new ApiError("Доступ запрещён", "WORKSPACE_FORBIDDEN", 403);
+    }
 
     const tasks = await db.task.findMany({
       where: { workspaceId: params.id },
