@@ -87,26 +87,10 @@ export async function register() {
       })
       .catch((err) => console.error("[Logs cleanup] Initial failed", err));
 
-    // SLA breach check every 5 minutes
-    const { checkSlaBreaches } =
-      await import("@/lib/services/tickets/sla-check.service");
-    checkSlaBreaches()
-      .then((r) => {
-        if (r.breached > 0)
-          console.log(`[SLA check] Initial: ${r.breached} tickets breached`);
-      })
-      .catch((e) => console.error("[SLA check] Initial failed", e));
-
-    activeIntervals.push(
-      setInterval(
-        () => {
-          checkSlaBreaches().catch((e) =>
-            console.error("[SLA check] Failed", e),
-          );
-        },
-        5 * 60 * 1000,
-      ),
-    );
+    // SLA breach check moved to the cron endpoint POST /api/cron/sla-check.
+    // The in-process setInterval was unreliable (didn't survive restarts and
+    // would double-run under multi-instance). The owner schedules it via crontab
+    // with CRON_SECRET (see app/api/cron/sla-check/route.ts).
 
     // Daily cleanup every 24 hours
     activeIntervals.push(
