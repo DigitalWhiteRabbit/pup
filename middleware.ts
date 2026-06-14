@@ -23,32 +23,12 @@ export function middleware(request: NextRequest) {
     }
   }
 
-  // Handle CORS for public chat API — dynamic origin instead of wildcard
-  if (pathname.startsWith("/api/chat/")) {
-    const origin = request.headers.get("origin");
-
-    if (request.method === "OPTIONS") {
-      const headers: Record<string, string> = {
-        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-        "Access-Control-Allow-Headers":
-          "Content-Type, Authorization, X-CSRF-Token",
-        "Access-Control-Max-Age": "86400",
-      };
-      if (origin) {
-        headers["Access-Control-Allow-Origin"] = origin;
-        headers["Vary"] = "Origin";
-      }
-      return new NextResponse(null, { status: 204, headers });
-    }
-
-    // Non-preflight: attach CORS headers to the response
-    const response = NextResponse.next();
-    if (origin) {
-      response.headers.set("Access-Control-Allow-Origin", origin);
-      response.headers.set("Vary", "Origin");
-    }
-    return response;
-  }
+  // CORS for the public chat API is enforced at the ROUTE layer (Node runtime,
+  // has DB access) via lib/services/chat/cors.ts — every /api/chat/* route has
+  // its own OPTIONS handler + withCors so the per-workspace chatAllowedEmbedOrigins
+  // allowlist can apply. It is intentionally NOT handled here: the edge runtime
+  // can't read the DB, and reflecting an arbitrary Origin here would override
+  // (and defeat) the route-level allowlist. Do not re-add CORS to middleware.
 
   // For embed pages: set CSP frame-ancestors
   if (pathname.startsWith("/chat/")) {
@@ -78,9 +58,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: [
-    "/api/auth/callback/credentials",
-    "/api/chat/:path*",
-    "/chat/:path*",
-  ],
+  matcher: ["/api/auth/callback/credentials", "/chat/:path*"],
 };
