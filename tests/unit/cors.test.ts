@@ -28,6 +28,21 @@ describe("parseAllowedOrigins", () => {
     expect(parseAllowedOrigins('{"x":1}')).toEqual([]);
     expect(parseAllowedOrigins("[1,2,3]")).toEqual([]);
   });
+  it("normalizes trailing slash / case / default port / path; drops invalid", () => {
+    expect(
+      parseAllowedOrigins(
+        '["https://Shop.Example/","https://app.example:443/widget","not-a-url"]',
+      ),
+    ).toEqual(["https://shop.example", "https://app.example"]);
+  });
+});
+
+describe("corsHeaders — origin normalization", () => {
+  it("a configured origin with a trailing slash still matches the browser Origin", () => {
+    const allowed = parseAllowedOrigins('["https://shop.example/"]');
+    const h = corsHeaders("https://shop.example", allowed);
+    expect(h["Access-Control-Allow-Origin"]).toBe("https://shop.example");
+  });
 });
 
 describe("corsHeaders", () => {

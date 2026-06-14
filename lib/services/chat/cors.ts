@@ -13,15 +13,32 @@ import { db } from "@/lib/db";
 //    Origin); a non-listed Origin gets a non-matching ACAO so the browser blocks
 //    it. Arbitrary Origins are never reflected back when an allowlist exists.
 
-/** Parse the stored JSON-array string into a clean origin list (safe on junk). */
+/** Normalize an origin to the canonical `scheme://host[:port]` a browser sends
+ *  (lowercased host, no trailing slash/path, default ports dropped). Returns
+ *  null if not a usable absolute origin. Prevents silent allowlist misses from
+ *  trailing-slash / case / explicit-default-port mismatches. */
+function normalizeOrigin(value: string): string | null {
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+}
+
+/** Parse the stored JSON-array string into a clean, normalized origin list
+ *  (safe on junk). */
 export function parseAllowedOrigins(raw: string | null | undefined): string[] {
   if (!raw) return [];
   try {
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
-      (o): o is string => typeof o === "string" && o.length > 0,
-    );
+    const out: string[] = [];
+    for (const o of parsed) {
+      if (typeof o !== "string" || o.length === 0) continue;
+      const norm = normalizeOrigin(o);
+      if (norm) out.push(norm);
+    }
+    return out;
   } catch {
     return [];
   }

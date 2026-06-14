@@ -38,7 +38,9 @@ export type RateLimitOptions = {
   windowMs: number;
   /** Also limit per IP (default true when req is given). */
   perIp?: boolean;
-  /** Separate cap for the IP key (default = max * 3 — many users behind one NAT). */
+  /** Separate cap for the IP key (default = max * 10 — generous headroom so a
+   *  whole office/VPN behind ONE NAT IP isn't collectively false-429'd; the
+   *  per-user key is the real bound for authenticated routes). */
   ipMax?: number;
 };
 
@@ -60,7 +62,7 @@ export function enforceRateLimit(opts: RateLimitOptions): NextResponse | null {
     results.push(
       checkRateLimit(
         `${opts.scope}:ip:${ip}`,
-        opts.ipMax ?? opts.max * 3,
+        opts.ipMax ?? opts.max * 10,
         opts.windowMs,
       ),
     );
