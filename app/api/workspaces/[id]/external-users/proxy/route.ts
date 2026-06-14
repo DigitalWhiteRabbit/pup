@@ -1,6 +1,10 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { checkMembership } from "@/lib/services/workspace.service";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
+import { ApiError } from "@/lib/api-error";
 import { safeFetch } from "@/lib/services/kb/url-validator";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -24,10 +28,19 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
   const { id: workspaceId } = await params;
 
-  // Check workspace membership
-  const membership = await checkMembership(workspaceId, session.user.id);
-  if (!membership && session.user.role !== "ADMIN")
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  // Workspace membership + users-module access (global ADMIN passes).
+  try {
+    await requireWorkspaceAccess(accessCtxFromSession(session), workspaceId, {
+      module: "users",
+    });
+  } catch (e) {
+    if (e instanceof ApiError)
+      return NextResponse.json(
+        { error: e.message, code: e.code },
+        { status: e.status },
+      );
+    throw e;
+  }
 
   const config = await db.externalUsersConfig.findUnique({
     where: { workspaceId },

@@ -6,6 +6,10 @@ import {
   createCardSchema,
   listFilterSchema,
 } from "@/lib/schemas/content.schema";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 
 type Params = { params: { id: string } };
 
@@ -15,6 +19,9 @@ export async function GET(req: NextRequest, { params }: Params) {
     const session = await auth();
     if (!session?.user?.id)
       return apiError("Не авторизован", "UNAUTHORIZED", 401);
+    await requireWorkspaceAccess(accessCtxFromSession(session), params.id, {
+      module: "content",
+    });
 
     const raw = Object.fromEntries(req.nextUrl.searchParams);
     const filter = listFilterSchema.parse(raw);
@@ -35,6 +42,9 @@ export async function POST(req: Request, { params }: Params) {
     const session = await auth();
     if (!session?.user?.id)
       return apiError("Не авторизован", "UNAUTHORIZED", 401);
+    await requireWorkspaceAccess(accessCtxFromSession(session), params.id, {
+      module: "content",
+    });
 
     const input = createCardSchema.parse(await req.json());
     const card = await createCard(

@@ -5,6 +5,10 @@ import {
   getSearchHistory,
 } from "@/lib/services/kb/search.service";
 import { ApiError } from "@/lib/api-error";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 import { z } from "zod";
 
 const searchSchema = z.object({
@@ -36,6 +40,10 @@ export async function POST(
     }
 
     const { id: workspaceId } = await params;
+    await requireWorkspaceAccess(accessCtxFromSession(session), workspaceId, {
+      module: "knowledge",
+    });
+
     const body: unknown = await request.json();
     const query = searchSchema.parse(body);
 
@@ -77,6 +85,19 @@ export async function GET(
     }
 
     const { id: workspaceId } = await params;
+    try {
+      await requireWorkspaceAccess(accessCtxFromSession(session), workspaceId, {
+        module: "knowledge",
+      });
+    } catch (e) {
+      if (e instanceof ApiError)
+        return NextResponse.json(
+          { error: e.message, code: e.code },
+          { status: e.status },
+        );
+      throw e;
+    }
+
     const history = await getSearchHistory(
       workspaceId,
       session.user.id,

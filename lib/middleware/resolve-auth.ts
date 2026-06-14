@@ -21,7 +21,14 @@ export type AuthContext =
   | {
       type: "service";
       id: string;
-      /** Service accounts get ADMIN role so existing membership checks pass */
+      /**
+       * Service tokens carry role "ADMIN" ONLY so the legacy `role !== "ADMIN"`
+       * membership shortcut in v1 services lets the token operate inside its OWN
+       * (token-bound) workspace — `requireWorkspace`/`requireWorkspaceAccess`
+       * have already pinned it there. This is NOT a global-admin / cross-tenant
+       * signal: internal guards must branch on `ctx.type === "service"` (see
+       * requireWorkspaceAccess), never treat a service token as a human ADMIN.
+       */
       role: "ADMIN";
       login: string;
       scopes: ServiceScope[];

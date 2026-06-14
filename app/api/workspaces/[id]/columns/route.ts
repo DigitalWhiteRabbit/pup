@@ -2,6 +2,10 @@ import { auth } from "@/lib/auth";
 import { withErrorHandler, apiError } from "@/lib/api-error";
 import { createColumn } from "@/lib/services/column.service";
 import { createColumnSchema } from "@/lib/schemas/column.schema";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 import { NextResponse } from "next/server";
 
 type Params = { params: { id: string } };
@@ -10,6 +14,9 @@ export async function POST(req: Request, { params }: Params) {
   return withErrorHandler(async () => {
     const session = await auth();
     if (!session) return apiError("Не авторизован", "UNAUTHORIZED", 401);
+    await requireWorkspaceAccess(accessCtxFromSession(session), params.id, {
+      module: "crm",
+    });
 
     const body: unknown = await req.json();
     const input = createColumnSchema.parse(body);

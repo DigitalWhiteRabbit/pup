@@ -11,6 +11,10 @@ import {
   requireScope,
   requireWorkspace,
 } from "@/lib/middleware/resolve-auth";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 
 export async function GET(
   req: NextRequest,
@@ -21,6 +25,7 @@ export async function GET(
     if (!ctx) throw new ApiError("Не авторизован", "UNAUTHORIZED", 401);
     requireScope(ctx, "kb:read");
     requireWorkspace(ctx, params.id);
+    await requireWorkspaceAccess(ctx, params.id, { module: "knowledge" });
 
     const { searchParams } = new URL(req.url);
     const parsed = listArticlesSchema.parse(Object.fromEntries(searchParams));
@@ -53,6 +58,9 @@ export async function POST(
   return withErrorHandler(async () => {
     const session = await auth();
     if (!session) throw new ApiError("Не авторизован", "UNAUTHORIZED", 401);
+    await requireWorkspaceAccess(accessCtxFromSession(session), params.id, {
+      module: "knowledge",
+    });
 
     const body: unknown = await req.json();
     const data = createArticleSchema.parse(body);

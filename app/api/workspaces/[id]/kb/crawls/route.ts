@@ -2,6 +2,10 @@ import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { listCrawls } from "@/lib/services/kb/crawler.service";
 import { ApiError } from "@/lib/api-error";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 
 export async function GET(
   _request: Request,
@@ -14,6 +18,10 @@ export async function GET(
     }
 
     const { id: workspaceId } = await params;
+    await requireWorkspaceAccess(accessCtxFromSession(session), workspaceId, {
+      module: "knowledge",
+    });
+
     const crawls = await listCrawls(
       workspaceId,
       session.user.id,

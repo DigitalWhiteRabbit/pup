@@ -2,6 +2,11 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
+import { ApiError } from "@/lib/api-error";
 
 type Params = { params: { id: string; userId: string } };
 
@@ -13,11 +18,15 @@ const updateModulesSchema = z.object({
 export async function GET(_request: Request, { params }: Params) {
   try {
     const session = await auth();
-    if (!session)
+    if (!session?.user?.id)
       return NextResponse.json(
         { error: "Не авторизован", code: "UNAUTHORIZED" },
         { status: 401 },
       );
+
+    // P0: requester must be a member of this workspace (was unguarded — any
+    // authenticated user could read any member's module config / membership).
+    await requireWorkspaceAccess(accessCtxFromSession(session), params.id);
 
     const member = await db.workspaceMember.findUnique({
       where: {
@@ -45,6 +54,11 @@ export async function GET(_request: Request, { params }: Params) {
 
     return NextResponse.json({ allowedModules: allowed });
   } catch (err) {
+    if (err instanceof ApiError)
+      return NextResponse.json(
+        { error: err.message, code: err.code },
+        { status: err.status },
+      );
     console.error("[modules] GET error:", err);
     return NextResponse.json(
       { error: "Internal server error", code: "INTERNAL_ERROR" },
