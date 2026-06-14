@@ -1126,6 +1126,7 @@ export async function addMessageAsCustomer(
   ticketId: string,
   customerId: string,
   content: string,
+  minCreatedAt?: Date,
 ): Promise<TicketMessageView> {
   const ticket = await db.ticket.findUnique({
     where: { id: ticketId },
@@ -1136,10 +1137,15 @@ export async function addMessageAsCustomer(
       number: true,
       title: true,
       assigneeId: true,
+      createdAt: true,
     },
   });
   if (!ticket) throw new ApiError("Тикет не найден", "NOT_FOUND", 404);
   if (ticket.customerId !== customerId) {
+    throw new ApiError("Нет доступа к тикету", "FORBIDDEN", 403);
+  }
+  // Unverified email session cannot post into the customer's prior tickets.
+  if (minCreatedAt && ticket.createdAt < minCreatedAt) {
     throw new ApiError("Нет доступа к тикету", "FORBIDDEN", 403);
   }
   if (ticket.status === "CLOSED") {
@@ -1241,6 +1247,7 @@ export async function addMessageAsCustomer(
 export async function listCustomerTickets(
   workspaceId: string,
   customerId: string,
+  minCreatedAt?: Date,
 ): Promise<
   Array<{
     id: string;
@@ -1252,7 +1259,12 @@ export async function listCustomerTickets(
   }>
 > {
   const tickets = await db.ticket.findMany({
-    where: { workspaceId, customerId },
+    // Unverified email session: only tickets created during this session.
+    where: {
+      workspaceId,
+      customerId,
+      ...(minCreatedAt ? { createdAt: { gte: minCreatedAt } } : {}),
+    },
     orderBy: { updatedAt: "desc" },
     take: 50,
     select: {
@@ -1280,6 +1292,7 @@ export async function listCustomerTickets(
 export async function getTicketForCustomer(
   ticketId: string,
   customerId: string,
+  minCreatedAt?: Date,
 ): Promise<TicketFull> {
   const ticket = await db.ticket.findUnique({
     where: { id: ticketId },
@@ -1287,6 +1300,11 @@ export async function getTicketForCustomer(
   });
   if (!ticket) throw new ApiError("Тикет не найден", "NOT_FOUND", 404);
   if (ticket.customerId !== customerId) {
+    throw new ApiError("Нет доступа к тикету", "FORBIDDEN", 403);
+  }
+  // Unverified email session (claimed an existing customer) may only see
+  // tickets created during this session — not the customer's prior history.
+  if (minCreatedAt && ticket.createdAt < minCreatedAt) {
     throw new ApiError("Нет доступа к тикету", "FORBIDDEN", 403);
   }
   const full = mapTicketFull(ticket);

@@ -16,10 +16,12 @@ export async function issueCustomerToken(
   customerId: string,
   workspaceId: string,
   csrf?: string,
+  emailVerified = true,
 ): Promise<string> {
   return new jose.SignJWT({
     sub: customerId,
     ws: workspaceId,
+    ev: emailVerified, // false = email ownership NOT proven (claimed an existing customer)
     ...(csrf ? { csrf } : {}),
   })
     .setProtectedHeader({ alg: "HS256" })
@@ -28,9 +30,13 @@ export async function issueCustomerToken(
     .sign(getSecret());
 }
 
-export async function verifyCustomerToken(
-  token: string,
-): Promise<{ customerId: string; workspaceId: string; csrf?: string } | null> {
+export async function verifyCustomerToken(token: string): Promise<{
+  customerId: string;
+  workspaceId: string;
+  csrf?: string;
+  emailVerified: boolean;
+  issuedAt: number | null; // epoch ms
+} | null> {
   try {
     const { payload } = await jose.jwtVerify(token, getSecret());
     if (!payload.sub || !payload.ws) return null;
@@ -38,6 +44,10 @@ export async function verifyCustomerToken(
       customerId: payload.sub,
       workspaceId: payload.ws as string,
       csrf: (payload.csrf as string) ?? undefined,
+      // Default true for legacy tokens issued before this claim existed
+      // (they predate the takeover fix; acceptable — they're already in use).
+      emailVerified: payload.ev !== false,
+      issuedAt: typeof payload.iat === "number" ? payload.iat * 1000 : null,
     };
   } catch {
     return null;

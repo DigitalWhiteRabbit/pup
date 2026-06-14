@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { ApiError } from "@/lib/api-error";
+import { checkMembership } from "@/lib/services/membership-check";
 
 const schema = z.object({
   ticketIds: z.array(z.string()).min(1).max(100),
@@ -17,14 +18,17 @@ export async function POST(
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    if (session.user.role !== "ADMIN") {
+    const { id: workspaceId } = await params;
+
+    // Must be a workspace member (OWNER) or global ADMIN — global ADMIN alone
+    // shouldn't be able to mass-delete tickets of a workspace they're not in.
+    const membership = await checkMembership(workspaceId, session.user.id);
+    if (membership !== "OWNER" && session.user.role !== "ADMIN") {
       return NextResponse.json(
         { error: "Только администратор может удалять тикеты" },
         { status: 403 },
       );
     }
-
-    const { id: workspaceId } = await params;
     const body: unknown = await request.json();
     const { ticketIds } = schema.parse(body);
 
