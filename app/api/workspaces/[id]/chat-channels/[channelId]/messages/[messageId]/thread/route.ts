@@ -2,6 +2,10 @@ import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { ApiError } from "@/lib/api-error";
 import { getThreadReplies } from "@/lib/services/chat-internal/message.service";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 
 export async function GET(
   _req: Request,
@@ -14,6 +18,9 @@ export async function GET(
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const { id: workspaceId, messageId } = await params;
+    await requireWorkspaceAccess(accessCtxFromSession(session), workspaceId, {
+      module: "chat",
+    });
     const replies = await getThreadReplies(
       messageId,
       session.user.id,

@@ -1,6 +1,11 @@
 import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { ApiError } from "@/lib/api-error";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 
 type RouteParams = {
   params: Promise<{ id: string; channelId: string }>;
@@ -12,7 +17,20 @@ export async function POST(_req: Request, { params }: RouteParams) {
     const session = await auth();
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const { channelId } = await params;
+    const { id: workspaceId, channelId } = await params;
+
+    try {
+      await requireWorkspaceAccess(accessCtxFromSession(session), workspaceId, {
+        module: "chat",
+      });
+    } catch (e) {
+      if (e instanceof ApiError)
+        return NextResponse.json(
+          { error: e.message, code: e.code },
+          { status: e.status },
+        );
+      throw e;
+    }
 
     const membership = await db.chatChannelMember.findUnique({
       where: { channelId_userId: { channelId, userId: session.user.id } },

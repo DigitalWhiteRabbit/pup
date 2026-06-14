@@ -3,6 +3,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { ApiError } from "@/lib/api-error";
 import { reorderPersonas } from "@/lib/services/chat/chat-config.service";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 
 const reorderSchema = z.object({
   personaIds: z.array(z.string()).min(1),
@@ -18,6 +22,11 @@ export async function POST(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const { id: workspaceId } = await params;
+
+    await requireWorkspaceAccess(accessCtxFromSession(session), workspaceId, {
+      module: "tickets",
+    });
+
     const body: unknown = await request.json();
     const validated = reorderSchema.parse(body);
 

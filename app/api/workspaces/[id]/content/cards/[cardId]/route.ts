@@ -7,6 +7,10 @@ import {
   deleteCard,
 } from "@/lib/services/content.service";
 import { updateCardSchema } from "@/lib/schemas/content.schema";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 
 type Params = { params: { id: string; cardId: string } };
 
@@ -16,6 +20,10 @@ export async function GET(_req: Request, { params }: Params) {
     const session = await auth();
     if (!session?.user?.id)
       return apiError("Не авторизован", "UNAUTHORIZED", 401);
+
+    await requireWorkspaceAccess(accessCtxFromSession(session), params.id, {
+      module: "content",
+    });
 
     const card = await getCard(
       params.id,
@@ -33,6 +41,10 @@ export async function PATCH(req: Request, { params }: Params) {
     const session = await auth();
     if (!session?.user?.id)
       return apiError("Не авторизован", "UNAUTHORIZED", 401);
+
+    await requireWorkspaceAccess(accessCtxFromSession(session), params.id, {
+      module: "content",
+    });
 
     const input = updateCardSchema.parse(await req.json());
     const card = await updateCard(
@@ -52,6 +64,10 @@ export async function DELETE(_req: Request, { params }: Params) {
     const session = await auth();
     if (!session?.user?.id)
       return apiError("Не авторизован", "UNAUTHORIZED", 401);
+
+    await requireWorkspaceAccess(accessCtxFromSession(session), params.id, {
+      module: "content",
+    });
 
     await deleteCard(
       params.id,

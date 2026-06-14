@@ -5,6 +5,10 @@ import { db } from "@/lib/db";
 import { sendMessage } from "@/lib/services/chat-internal/message.service";
 import { assertChannelAccess } from "@/lib/services/chat-internal/channel-access";
 import { ApiError } from "@/lib/api-error";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 
 const forwardSchema = z.object({
   targetChannelId: z.string().min(1),
@@ -21,6 +25,11 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const { id: workspaceId, channelId, messageId } = await params;
+
+    await requireWorkspaceAccess(accessCtxFromSession(session), workspaceId, {
+      module: "chat",
+    });
+
     const body: unknown = await req.json();
     const { targetChannelId } = forwardSchema.parse(body);
 

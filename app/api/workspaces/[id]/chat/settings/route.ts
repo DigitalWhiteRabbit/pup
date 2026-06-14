@@ -4,6 +4,10 @@ import { z } from "zod";
 import { ApiError } from "@/lib/api-error";
 import { updateChatSettings } from "@/lib/services/chat/chat-config.service";
 import { checkMembership } from "@/lib/services/workspace.service";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 import { db } from "@/lib/db";
 
 const updateSchema = z.object({
@@ -34,6 +38,10 @@ export async function GET(
     if (!membership && session.user.role !== "ADMIN") {
       return NextResponse.json({ error: "Нет доступа" }, { status: 403 });
     }
+
+    await requireWorkspaceAccess(accessCtxFromSession(session), workspaceId, {
+      module: "tickets",
+    });
 
     const workspace = await db.workspace.findUnique({
       where: { id: workspaceId },
@@ -75,6 +83,11 @@ export async function PATCH(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const { id: workspaceId } = await params;
+
+    await requireWorkspaceAccess(accessCtxFromSession(session), workspaceId, {
+      module: "tickets",
+    });
+
     const body: unknown = await request.json();
     const validated = updateSchema.parse(body);
 

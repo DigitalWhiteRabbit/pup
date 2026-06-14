@@ -3,6 +3,10 @@ import { withErrorHandler, apiError } from "@/lib/api-error";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { shiftCardDate } from "@/lib/services/content.service";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 
 type Params = { params: { id: string; cardId: string } };
 
@@ -14,6 +18,10 @@ export async function POST(req: Request, { params }: Params) {
     const session = await auth();
     if (!session?.user?.id)
       return apiError("Не авторизован", "UNAUTHORIZED", 401);
+
+    await requireWorkspaceAccess(accessCtxFromSession(session), params.id, {
+      module: "content",
+    });
 
     const { delta } = schema.parse(await req.json());
     const card = await shiftCardDate(

@@ -10,24 +10,20 @@ vi.mock("server-only", () => ({}));
 const mockAuth = vi.fn();
 vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
 
-const memberFindUnique = vi.fn();
-vi.mock("@/lib/db", () => ({
-  db: {
-    workspaceMember: {
-      findUnique: (...a: unknown[]) => memberFindUnique(...a),
-    },
-  },
+const { memberFindUnique, listKbFiles, listChannels } = vi.hoisted(() => ({
+  memberFindUnique: vi.fn(),
+  listKbFiles: vi.fn(async () => [] as unknown[]),
+  listChannels: vi.fn(async () => [] as unknown[]),
 }));
-
-const listKbFiles = vi.fn(async () => []);
+vi.mock("@/lib/db", () => ({
+  db: { workspaceMember: { findUnique: memberFindUnique } },
+}));
 vi.mock("@/lib/services/kb/file.service", () => ({
-  listKbFiles: (...a: unknown[]) => listKbFiles(...a),
+  listKbFiles,
   uploadKbFile: vi.fn(),
 }));
-
-const listChannels = vi.fn(async () => []);
 vi.mock("@/lib/services/chat-internal/channel.service", () => ({
-  listChannels: (...a: unknown[]) => listChannels(...a),
+  listChannels,
   createChannel: vi.fn(),
 }));
 
@@ -38,7 +34,9 @@ const kbReq = () =>
   new Request("http://t/api/workspaces/ws-1/kb/files") as never;
 const chatReq = () =>
   new Request("http://t/api/workspaces/ws-1/chat-channels") as never;
+// kb/files route takes sync params; chat-channels route takes Promise params.
 const P = { params: { id: "ws-1" } };
+const PChat = { params: Promise.resolve({ id: "ws-1" }) };
 
 function asMember(role: "OWNER" | "MEMBER", allowedModules: string[] | null) {
   memberFindUnique.mockResolvedValue({
@@ -94,14 +92,14 @@ describe("kb/files GET — knowledge module gate", () => {
 describe("chat-channels GET — chat module gate", () => {
   it("restricted member without 'chat' → 403", async () => {
     asMember("MEMBER", ["crm"]);
-    const res = await chatGET(chatReq(), P);
+    const res = await chatGET(chatReq(), PChat);
     expect(res.status).toBe(403);
     expect(listChannels).not.toHaveBeenCalled();
   });
 
   it("member with 'chat' → 200", async () => {
     asMember("MEMBER", ["chat"]);
-    const res = await chatGET(chatReq(), P);
+    const res = await chatGET(chatReq(), PChat);
     expect(res.status).toBe(200);
     expect(listChannels).toHaveBeenCalledOnce();
   });

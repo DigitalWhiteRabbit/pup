@@ -1,6 +1,10 @@
 import { auth } from "@/lib/auth";
 import { withErrorHandler, ApiError } from "@/lib/api-error";
 import { db } from "@/lib/db";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 import { checkMembership } from "@/lib/services/workspace.service";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -31,7 +35,16 @@ export async function PATCH(req: Request, { params }: Params) {
     const session = await auth();
     if (!session) throw new ApiError("Не авторизован", "UNAUTHORIZED", 401);
 
-    await getItemWithAccess(params.id, session.user.id, session.user.role);
+    const item = await getItemWithAccess(
+      params.id,
+      session.user.id,
+      session.user.role,
+    );
+    await requireWorkspaceAccess(
+      accessCtxFromSession(session),
+      item.task.workspaceId,
+      { module: "crm" },
+    );
 
     const body: unknown = await req.json();
     const data = updateSchema.parse(body);
@@ -49,7 +62,16 @@ export async function DELETE(_req: Request, { params }: Params) {
     const session = await auth();
     if (!session) throw new ApiError("Не авторизован", "UNAUTHORIZED", 401);
 
-    await getItemWithAccess(params.id, session.user.id, session.user.role);
+    const item = await getItemWithAccess(
+      params.id,
+      session.user.id,
+      session.user.role,
+    );
+    await requireWorkspaceAccess(
+      accessCtxFromSession(session),
+      item.task.workspaceId,
+      { module: "crm" },
+    );
 
     await db.checklistItem.delete({ where: { id: params.id } });
     return new NextResponse(null, { status: 204 });

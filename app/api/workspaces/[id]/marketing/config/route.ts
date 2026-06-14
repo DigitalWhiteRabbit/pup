@@ -5,6 +5,10 @@ import { withErrorHandler, ApiError } from "@/lib/api-error";
 import { db } from "@/lib/db";
 import { checkMembership } from "@/lib/services/workspace.service";
 import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
+import {
   decryptConfig,
   encryptConfigFields,
 } from "@/lib/services/crypto.service";
@@ -94,6 +98,10 @@ export async function GET(req: NextRequest, { params }: Params) {
     if (!membership && session.user.role !== "ADMIN")
       throw new ApiError("Forbidden", "FORBIDDEN", 403);
 
+    await requireWorkspaceAccess(accessCtxFromSession(session), workspaceId, {
+      module: "marketing",
+    });
+
     let config = await db.mktConfig.findUnique({ where: { workspaceId } });
     if (!config) {
       config = await db.mktConfig.create({ data: { workspaceId } });
@@ -114,6 +122,10 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     const membership = await checkMembership(workspaceId, session.user.id);
     if (!membership && session.user.role !== "ADMIN")
       throw new ApiError("Forbidden", "FORBIDDEN", 403);
+
+    await requireWorkspaceAccess(accessCtxFromSession(session), workspaceId, {
+      module: "marketing",
+    });
 
     const body = await req.json();
     const parsed = configPatchSchema.safeParse(body);

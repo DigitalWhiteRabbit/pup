@@ -4,6 +4,10 @@ import { NextResponse } from "next/server";
 import { cardAction } from "@/lib/services/content.service";
 import { notifyContentEvent } from "@/lib/services/content/notify";
 import { actionSchema } from "@/lib/schemas/content.schema";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 
 type Params = { params: { id: string; cardId: string } };
 
@@ -13,6 +17,10 @@ export async function POST(req: Request, { params }: Params) {
     const session = await auth();
     if (!session?.user?.id)
       return apiError("Не авторизован", "UNAUTHORIZED", 401);
+
+    await requireWorkspaceAccess(accessCtxFromSession(session), params.id, {
+      module: "content",
+    });
 
     const { action, publishedUrl } = actionSchema.parse(await req.json());
     const result = await cardAction(

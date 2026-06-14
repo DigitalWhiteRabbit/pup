@@ -4,6 +4,10 @@ import { db } from "@/lib/db";
 import { storage } from "@/lib/services/storage";
 import { ApiError } from "@/lib/api-error";
 import { assertMessageChannelAccess } from "@/lib/services/chat-internal/channel-access";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB
 const ALLOWED_TYPES = [
@@ -35,6 +39,10 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const { id: workspaceId, channelId, messageId } = await params;
+
+    await requireWorkspaceAccess(accessCtxFromSession(session), workspaceId, {
+      module: "chat",
+    });
 
     // Channel-level access (ws-scoped; PRIVATE/DM require membership) — closes
     // the cross-ws authenticated-write + storage tenant-mismatch hole.

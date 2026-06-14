@@ -3,6 +3,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { ApiError } from "@/lib/api-error";
 import { toggleReaction } from "@/lib/services/chat-internal/message.service";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 
 const schema = z.object({ emoji: z.string().min(1).max(10) });
 
@@ -17,6 +21,9 @@ export async function POST(
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const { id: workspaceId, messageId } = await params;
+    await requireWorkspaceAccess(accessCtxFromSession(session), workspaceId, {
+      module: "chat",
+    });
     const { emoji } = schema.parse(await req.json());
     // Channel-level access (incl. cross-ws/channel scope) is enforced inside
     // toggleReaction via assertMessageChannelAccess.

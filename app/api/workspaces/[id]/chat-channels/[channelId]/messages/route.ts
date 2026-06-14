@@ -6,6 +6,10 @@ import {
   listMessages,
   sendMessage,
 } from "@/lib/services/chat-internal/message.service";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 
 const sendSchema = z.object({
   content: z.string().min(1).max(10000),
@@ -24,6 +28,9 @@ export async function GET(
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const { id: workspaceId, channelId } = await params;
+    await requireWorkspaceAccess(accessCtxFromSession(session), workspaceId, {
+      module: "chat",
+    });
     const url = new URL(req.url);
     const before = url.searchParams.get("before") ?? undefined;
     const limit = Math.min(
@@ -53,6 +60,9 @@ export async function POST(
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const { id: workspaceId, channelId } = await params;
+    await requireWorkspaceAccess(accessCtxFromSession(session), workspaceId, {
+      module: "chat",
+    });
     const body: unknown = await req.json();
     const data = sendSchema.parse(body);
     const msg = await sendMessage(

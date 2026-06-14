@@ -5,12 +5,31 @@ import {
   updateCustomer,
 } from "@/lib/services/tickets/customer.service";
 import { ApiError } from "@/lib/api-error";
+import { db } from "@/lib/db";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 import { z } from "zod";
 
 const updateSchema = z.object({
   name: z.string().optional(),
   externalId: z.string().optional(),
 });
+
+async function requireCustomerAccess(
+  session: { user: { id: string; role?: string | null } },
+  customerId: string,
+): Promise<void> {
+  const ent = await db.customer.findUnique({
+    where: { id: customerId },
+    select: { workspaceId: true },
+  });
+  if (!ent) throw new ApiError("Клиент не найден", "NOT_FOUND", 404);
+  await requireWorkspaceAccess(accessCtxFromSession(session), ent.workspaceId, {
+    module: "tickets",
+  });
+}
 
 export async function GET(
   _request: Request,
@@ -21,6 +40,7 @@ export async function GET(
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const { customerId } = await params;
+    await requireCustomerAccess(session, customerId);
     const customer = await getCustomer(
       customerId,
       session.user.id,
@@ -47,6 +67,7 @@ export async function PATCH(
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const { customerId } = await params;
+    await requireCustomerAccess(session, customerId);
     const body: unknown = await request.json();
     const data = updateSchema.parse(body);
     const customer = await updateCustomer(

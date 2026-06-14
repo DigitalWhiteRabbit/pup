@@ -1,7 +1,12 @@
 import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
+import { ApiError } from "@/lib/api-error";
 import { getMediaForDownload } from "@/lib/services/content.service";
 import { storage } from "@/lib/services/storage";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 
 type Params = { params: { id: string; mediaId: string } };
 
@@ -18,6 +23,10 @@ export async function GET(_req: Request, { params }: Params) {
   try {
     const session = await auth();
     if (!session?.user?.id) return new NextResponse(null, { status: 401 });
+
+    await requireWorkspaceAccess(accessCtxFromSession(session), params.id, {
+      module: "content",
+    });
 
     const { storagePath, name } = await getMediaForDownload(
       params.id,
@@ -37,7 +46,13 @@ export async function GET(_req: Request, { params }: Params) {
         "X-Content-Type-Options": "nosniff",
       },
     });
-  } catch {
+  } catch (e) {
+    if (e instanceof ApiError) {
+      return NextResponse.json(
+        { error: e.message, code: e.code },
+        { status: e.status },
+      );
+    }
     return new NextResponse(null, { status: 404 });
   }
 }

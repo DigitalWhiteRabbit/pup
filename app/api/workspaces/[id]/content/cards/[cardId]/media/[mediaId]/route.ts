@@ -2,6 +2,10 @@ import { auth } from "@/lib/auth";
 import { withErrorHandler, apiError } from "@/lib/api-error";
 import { NextResponse } from "next/server";
 import { deleteMedia } from "@/lib/services/content.service";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 
 type Params = {
   params: { id: string; cardId: string; mediaId: string };
@@ -13,6 +17,10 @@ export async function DELETE(_req: Request, { params }: Params) {
     const session = await auth();
     if (!session?.user?.id)
       return apiError("Не авторизован", "UNAUTHORIZED", 401);
+
+    await requireWorkspaceAccess(accessCtxFromSession(session), params.id, {
+      module: "content",
+    });
 
     await deleteMedia(
       params.id,

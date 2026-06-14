@@ -3,6 +3,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { ApiError } from "@/lib/api-error";
 import { getOrCreateDM } from "@/lib/services/chat-internal/channel.service";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 
 const schema = z.object({ targetUserId: z.string().min(1) });
 
@@ -15,6 +19,9 @@ export async function POST(
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const { id } = await params;
+    await requireWorkspaceAccess(accessCtxFromSession(session), id, {
+      module: "chat",
+    });
     const { targetUserId } = schema.parse(await req.json());
     const dm = await getOrCreateDM(
       id,

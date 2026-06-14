@@ -8,6 +8,7 @@ import {
   requireScope,
   requireWorkspace,
 } from "@/lib/middleware/resolve-auth";
+import { requireWorkspaceAccess } from "@/lib/services/workspace-access";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -24,6 +25,8 @@ export async function GET(req: NextRequest, { params }: Params) {
       if (!membership && ctx.role !== "ADMIN")
         throw new ApiError("Forbidden", "FORBIDDEN", 403);
     }
+
+    await requireWorkspaceAccess(ctx, workspaceId, { module: "marketing" });
 
     const url = new URL(req.url);
     const projectId = url.searchParams.get("projectId");

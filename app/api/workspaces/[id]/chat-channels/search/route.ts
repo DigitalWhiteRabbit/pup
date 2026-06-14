@@ -3,6 +3,10 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { checkMembership } from "@/lib/services/workspace.service";
 import { ApiError } from "@/lib/api-error";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 
 export async function GET(
   req: Request,
@@ -13,6 +17,10 @@ export async function GET(
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const { id: workspaceId } = await params;
+
+    await requireWorkspaceAccess(accessCtxFromSession(session), workspaceId, {
+      module: "chat",
+    });
 
     const m = await checkMembership(workspaceId, session.user.id);
     if (!m && session.user.role !== "ADMIN")

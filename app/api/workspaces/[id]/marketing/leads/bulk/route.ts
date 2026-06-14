@@ -3,6 +3,10 @@ import { auth } from "@/lib/auth";
 import { withErrorHandler, ApiError } from "@/lib/api-error";
 import { bulkUpdateStatus } from "@/lib/services/marketing/mkt-lead.service";
 import { checkMembership } from "@/lib/services/workspace.service";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -16,6 +20,10 @@ export async function POST(req: NextRequest, { params }: Params) {
     const membership = await checkMembership(workspaceId, session.user.id);
     if (!membership && session.user.role !== "ADMIN")
       throw new ApiError("Forbidden", "FORBIDDEN", 403);
+
+    await requireWorkspaceAccess(accessCtxFromSession(session), workspaceId, {
+      module: "marketing",
+    });
 
     const { leadIds, status } = await req.json();
     if (!Array.isArray(leadIds) || !status) {

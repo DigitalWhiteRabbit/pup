@@ -6,6 +6,10 @@ import {
   listScenarios,
   createScenario,
 } from "@/lib/services/agent/agent.service";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 
 const createSchema = z.object({
   title: z.string().min(1).max(200),
@@ -22,6 +26,11 @@ export async function GET(
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const { id } = await params;
+
+    await requireWorkspaceAccess(accessCtxFromSession(session), id, {
+      module: "tickets",
+    });
+
     const list = await listScenarios(
       id,
       session.user.id,
@@ -44,6 +53,11 @@ export async function POST(
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const { id } = await params;
+
+    await requireWorkspaceAccess(accessCtxFromSession(session), id, {
+      module: "tickets",
+    });
+
     const body: unknown = await request.json();
     const validated = createSchema.parse(body);
     const s = await createScenario(

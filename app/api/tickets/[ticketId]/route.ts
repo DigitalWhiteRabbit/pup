@@ -6,7 +6,26 @@ import {
   deleteTicket,
 } from "@/lib/services/tickets/ticket.service";
 import { ApiError } from "@/lib/api-error";
+import { db } from "@/lib/db";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 import { z } from "zod";
+
+async function requireTicketAccess(
+  session: { user: { id: string; role?: string | null } },
+  ticketId: string,
+): Promise<void> {
+  const ent = await db.ticket.findUnique({
+    where: { id: ticketId },
+    select: { workspaceId: true },
+  });
+  if (!ent) throw new ApiError("Тикет не найден", "NOT_FOUND", 404);
+  await requireWorkspaceAccess(accessCtxFromSession(session), ent.workspaceId, {
+    module: "tickets",
+  });
+}
 
 const updateSchema = z.object({
   title: z.string().min(1).max(200).optional(),
@@ -25,6 +44,7 @@ export async function GET(
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const { ticketId } = await params;
+    await requireTicketAccess(session, ticketId);
     const ticket = await getTicketById(
       ticketId,
       session.user.id,
@@ -51,6 +71,7 @@ export async function PATCH(
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const { ticketId } = await params;
+    await requireTicketAccess(session, ticketId);
     const body: unknown = await request.json();
     const data = updateSchema.parse(body);
     const ticket = await updateTicket(
@@ -85,6 +106,7 @@ export async function DELETE(
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const { ticketId } = await params;
+    await requireTicketAccess(session, ticketId);
     await deleteTicket(
       ticketId,
       session.user.id,
