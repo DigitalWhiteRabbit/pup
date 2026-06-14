@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import Anthropic from "@anthropic-ai/sdk";
+import { ANTHROPIC_MODELS } from "@/lib/services/ai-models";
 import {
   assertMember,
   loadRoomInWorkspace,
@@ -134,7 +135,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       const client = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
 
       const response = await client.messages.create({
-        model: "claude-haiku-4.5-20251001",
+        model: ANTHROPIC_MODELS.HAIKU,
         max_tokens: 800,
         messages: [
           {

@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import Anthropic from "@anthropic-ai/sdk";
+import { ANTHROPIC_MODELS } from "@/lib/services/ai-models";
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 
@@ -82,7 +83,7 @@ export async function generateVoiceSessionSummary(sessionId: string) {
     const client = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
 
     const response = await client.messages.create({
-      model: "claude-haiku-4.5-20251001",
+      model: ANTHROPIC_MODELS.HAIKU,
       max_tokens: 500,
       messages: [
         {
