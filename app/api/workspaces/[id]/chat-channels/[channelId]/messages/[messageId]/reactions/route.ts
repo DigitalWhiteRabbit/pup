@@ -1,8 +1,8 @@
 import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { ApiError } from "@/lib/api-error";
 import { toggleReaction } from "@/lib/services/chat-internal/message.service";
-import { db } from "@/lib/db";
 
 const schema = z.object({ emoji: z.string().min(1).max(10) });
 
@@ -16,21 +16,17 @@ export async function POST(
     const session = await auth();
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const { channelId, messageId } = await params;
-    // Verify channel access
-    const membership = await db.chatChannelMember.findUnique({
-      where: { channelId_userId: { channelId, userId: session.user.id } },
-    });
-    if (!membership) {
-      const ch = await db.chatChannel.findUnique({
-        where: { id: channelId },
-        select: { type: true },
-      });
-      if (!ch || (ch.type !== "PUBLIC" && ch.type !== "GENERAL"))
-        return NextResponse.json({ error: "Нет доступа" }, { status: 403 });
-    }
+    const { id: workspaceId, messageId } = await params;
     const { emoji } = schema.parse(await req.json());
-    const result = await toggleReaction(messageId, session.user.id, emoji);
+    // Channel-level access (incl. cross-ws/channel scope) is enforced inside
+    // toggleReaction via assertMessageChannelAccess.
+    const result = await toggleReaction(
+      messageId,
+      session.user.id,
+      emoji,
+      workspaceId,
+      session.user.role,
+    );
     return NextResponse.json(result);
   } catch (err) {
     if (err instanceof z.ZodError)
@@ -38,6 +34,8 @@ export async function POST(
         { error: err.errors[0]?.message },
         { status: 400 },
       );
+    if (err instanceof ApiError)
+      return NextResponse.json({ error: err.message }, { status: err.status });
     return NextResponse.json({ error: "Ошибка" }, { status: 500 });
   }
 }

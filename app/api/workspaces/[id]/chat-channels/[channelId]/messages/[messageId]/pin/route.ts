@@ -1,7 +1,12 @@
 import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { broadcastToWorkspace } from "@/lib/services/chat-internal/sse.service";
+import { ApiError } from "@/lib/api-error";
+import { broadcastToChannelMembers } from "@/lib/services/chat-internal/sse.service";
+import {
+  assertChannelAccess,
+  resolveChannelDelivery,
+} from "@/lib/services/chat-internal/channel-access";
 
 type RouteParams = {
   params: Promise<{ id: string; channelId: string; messageId: string }>;
@@ -15,19 +20,20 @@ export async function POST(_req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const { id: workspaceId, channelId, messageId } = await params;
 
+    // Channel-level access (ws-scoped; PRIVATE/DM require membership).
+    await assertChannelAccess(
+      channelId,
+      workspaceId,
+      session.user.id,
+      session.user.role,
+    );
+
     const msg = await db.chatMsg.findUnique({
       where: { id: messageId },
       select: { channelId: true, pinnedAt: true },
     });
     if (!msg || msg.channelId !== channelId)
       return NextResponse.json({ error: "Не найдено" }, { status: 404 });
-
-    // Verify membership
-    const membership = await db.chatChannelMember.findUnique({
-      where: { channelId_userId: { channelId, userId: session.user.id } },
-    });
-    if (!membership)
-      return NextResponse.json({ error: "Нет доступа" }, { status: 403 });
 
     const isPinned = !!msg.pinnedAt;
 
@@ -38,14 +44,18 @@ export async function POST(_req: Request, { params }: RouteParams) {
         : { pinnedAt: new Date(), pinnedById: session.user.id },
     });
 
-    // SSE broadcast
-    broadcastToWorkspace(workspaceId, {
-      type: "message_pinned",
-      data: { channelId, messageId, pinned: !isPinned },
-    });
+    // SSE — scoped to channel members (don't leak private-channel pin events).
+    const d = await resolveChannelDelivery(channelId);
+    if (d)
+      broadcastToChannelMembers(d.workspaceId, d.recipients, {
+        type: "message_pinned",
+        data: { channelId, messageId, pinned: !isPinned },
+      });
 
     return NextResponse.json({ pinned: !isPinned });
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError)
+      return NextResponse.json({ error: err.message }, { status: err.status });
     return NextResponse.json({ error: "Ошибка" }, { status: 500 });
   }
 }

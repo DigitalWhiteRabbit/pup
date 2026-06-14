@@ -1,5 +1,6 @@
 import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
+import { ApiError } from "@/lib/api-error";
 import { markChannelRead } from "@/lib/services/chat-internal/message.service";
 
 export async function POST(
@@ -10,10 +11,17 @@ export async function POST(
     const session = await auth();
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const { channelId } = await params;
-    await markChannelRead(channelId, session.user.id);
+    const { id: workspaceId, channelId } = await params;
+    await markChannelRead(
+      channelId,
+      session.user.id,
+      workspaceId,
+      session.user.role,
+    );
     return NextResponse.json({ ok: true });
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError)
+      return NextResponse.json({ error: err.message }, { status: err.status });
     return NextResponse.json({ error: "Ошибка" }, { status: 500 });
   }
 }

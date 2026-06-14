@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { sendMessage } from "@/lib/services/chat-internal/message.service";
+import { assertChannelAccess } from "@/lib/services/chat-internal/channel-access";
 import { ApiError } from "@/lib/api-error";
 
 const forwardSchema = z.object({
@@ -19,22 +20,17 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const { channelId, messageId } = await params;
+    const { id: workspaceId, channelId, messageId } = await params;
     const body: unknown = await req.json();
     const { targetChannelId } = forwardSchema.parse(body);
 
-    // Verify access to source channel
-    const srcMembership = await db.chatChannelMember.findUnique({
-      where: { channelId_userId: { channelId, userId: session.user.id } },
-    });
-    if (!srcMembership) {
-      const srcCh = await db.chatChannel.findUnique({
-        where: { id: channelId },
-        select: { type: true },
-      });
-      if (!srcCh || (srcCh.type !== "PUBLIC" && srcCh.type !== "GENERAL"))
-        return NextResponse.json({ error: "Нет доступа" }, { status: 403 });
-    }
+    // Access to SOURCE channel (ws-scoped; PRIVATE/DM require membership).
+    await assertChannelAccess(
+      channelId,
+      workspaceId,
+      session.user.id,
+      session.user.role,
+    );
 
     // Get original message
     const original = await db.chatMsg.findUnique({
@@ -52,10 +48,14 @@ export async function POST(req: Request, { params }: RouteParams) {
         { status: 404 },
       );
 
-    const msg = await sendMessage(targetChannelId, session.user.id, {
-      content: original.content,
-      forwardedFromId: messageId,
-    });
+    // Target channel access (incl. cross-ws) is enforced inside sendMessage.
+    const msg = await sendMessage(
+      targetChannelId,
+      session.user.id,
+      workspaceId,
+      { content: original.content, forwardedFromId: messageId },
+      session.user.role,
+    );
 
     return NextResponse.json(msg, { status: 201 });
   } catch (err) {

@@ -19,9 +19,15 @@ export async function PATCH(
     const session = await auth();
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const { messageId } = await params;
+    const { id: workspaceId, messageId } = await params;
     const { content } = editSchema.parse(await req.json());
-    await editMessage(messageId, session.user.id, content);
+    await editMessage(
+      messageId,
+      session.user.id,
+      workspaceId,
+      content,
+      session.user.role,
+    );
     return NextResponse.json({ ok: true });
   } catch (err) {
     if (err instanceof z.ZodError)
@@ -45,11 +51,12 @@ export async function DELETE(
     const session = await auth();
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const { messageId } = await params;
+    const { id: workspaceId, messageId } = await params;
     await deleteMessage(
       messageId,
       session.user.id,
       session.user.role as "ADMIN" | "USER",
+      workspaceId,
     );
     return NextResponse.json({ ok: true });
   } catch (err) {
