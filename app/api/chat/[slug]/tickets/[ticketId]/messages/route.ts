@@ -7,7 +7,11 @@ import {
 } from "@/lib/services/chat/customer-identity.service";
 import { addMessageAsCustomer } from "@/lib/services/tickets/ticket.service";
 import { checkRateLimit } from "@/lib/services/chat/rate-limit.service";
-import { withCors, corsResponse } from "@/lib/services/chat/cors";
+import {
+  withCors,
+  corsResponse,
+  getEmbedOrigins,
+} from "@/lib/services/chat/cors";
 import {
   getClientIp,
   extractBearerToken,
@@ -18,8 +22,13 @@ const messageSchema = z.object({
   content: z.string().min(1).max(10000),
 });
 
-export async function OPTIONS(request: Request) {
-  return corsResponse(request.headers.get("origin"));
+export async function OPTIONS(
+  request: Request,
+  { params }: { params: Promise<{ slug: string; ticketId: string }> },
+) {
+  const { slug } = await params;
+  const allowedOrigins = await getEmbedOrigins(slug);
+  return corsResponse(request.headers.get("origin"), allowedOrigins);
 }
 
 export async function POST(
@@ -27,8 +36,9 @@ export async function POST(
   { params }: { params: Promise<{ slug: string; ticketId: string }> },
 ) {
   const origin = request.headers.get("origin");
+  const { slug, ticketId } = await params;
+  const allowedOrigins = await getEmbedOrigins(slug);
   try {
-    const { slug, ticketId } = await params;
     const token = extractBearerToken(request);
     if (!token) {
       return withCors(
@@ -37,6 +47,7 @@ export async function POST(
           { status: 401 },
         ),
         origin,
+        allowedOrigins,
       );
     }
 
@@ -48,6 +59,7 @@ export async function POST(
           { status: 401 },
         ),
         origin,
+        allowedOrigins,
       );
     }
 
@@ -60,6 +72,7 @@ export async function POST(
           { status: 429 },
         ),
         origin,
+        allowedOrigins,
       );
     }
 
@@ -72,6 +85,7 @@ export async function POST(
           { status: 403 },
         ),
         origin,
+        allowedOrigins,
       );
     }
 
@@ -84,7 +98,11 @@ export async function POST(
       validated.content,
       unverifiedTicketFloor(customer),
     );
-    return withCors(NextResponse.json(message, { status: 201 }), origin);
+    return withCors(
+      NextResponse.json(message, { status: 201 }),
+      origin,
+      allowedOrigins,
+    );
   } catch (err) {
     if (err instanceof z.ZodError) {
       return withCors(
@@ -96,6 +114,7 @@ export async function POST(
           { status: 400 },
         ),
         origin,
+        allowedOrigins,
       );
     }
     if (err instanceof ApiError) {
@@ -105,12 +124,14 @@ export async function POST(
           { status: err.status },
         ),
         origin,
+        allowedOrigins,
       );
     }
     console.error("[POST /api/chat/tickets/:id/messages]", err);
     return withCors(
       NextResponse.json({ error: "Ошибка сервера" }, { status: 500 }),
       origin,
+      allowedOrigins,
     );
   }
 }
