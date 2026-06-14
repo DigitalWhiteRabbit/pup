@@ -1,7 +1,6 @@
 import { auth } from "@/lib/auth";
 import { isModuleEnabled } from "@/lib/services/workspace.service";
 import { redirect } from "next/navigation";
-import { db } from "@/lib/db";
 import { PlaceholderModule } from "@/components/PlaceholderModule";
 
 type Props = { params: { id: string } };
@@ -18,14 +17,9 @@ export default async function AnalyticsPage({ params }: Props) {
   });
   if (!on) redirect(`/workspaces/${params.id}`);
 
-  // Check if workspace has an external analytics URL configured
-  const ws = await db.workspace.findUnique({
-    where: { id: params.id },
-    select: { externalAnalyticsUrl: true },
-  });
-  if (ws?.externalAnalyticsUrl) {
-    redirect(ws.externalAnalyticsUrl);
-  }
-
+  // P1: previously redirected to workspace.externalAnalyticsUrl — an unvalidated
+  // external redirect (open-redirect). Removed: always render the in-development
+  // placeholder. The externalAnalyticsUrl field stays in the schema (unused)
+  // pending a decision on how to surface it safely.
   return <PlaceholderModule moduleKey="analytics" workspaceId={params.id} />;
 }
