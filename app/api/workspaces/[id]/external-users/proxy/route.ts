@@ -6,6 +6,7 @@ import {
 } from "@/lib/services/workspace-access";
 import { ApiError } from "@/lib/api-error";
 import { safeFetch } from "@/lib/services/kb/url-validator";
+import { decrypt } from "@/lib/services/crypto.service";
 import { NextRequest, NextResponse } from "next/server";
 
 type RouteParams = { params: Promise<{ id: string }> };
@@ -46,11 +47,16 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     where: { workspaceId },
   });
 
-  if (!config || !config.isConnected)
+  if (!config || !config.isConnected || !config.apiKey)
     return NextResponse.json(
       { error: "External users not connected" },
       { status: 404 },
     );
+
+  // Decrypt the stored upstream key (graceful for legacy plaintext rows). It is
+  // only ever sent to config.apiEndpoint — the SAVED endpoint — never to a
+  // caller-supplied host (see PATCH: changing the endpoint invalidates the key).
+  const apiKey = decrypt(config.apiKey);
 
   // Build target URL from external API endpoint + query params
   const url = new URL(req.url);
@@ -67,7 +73,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
   if (qs) targetUrl += `${targetUrl.includes("?") ? "&" : "?"}${qs}`;
 
   if (config.authType === "query") {
-    targetUrl += `${targetUrl.includes("?") ? "&" : "?"}apiKey=${config.apiKey}`;
+    targetUrl += `${targetUrl.includes("?") ? "&" : "?"}apiKey=${encodeURIComponent(apiKey)}`;
   }
 
   // Check cache
@@ -85,9 +91,8 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       Accept: "application/json",
     };
     if (config.authType === "bearer")
-      headers["Authorization"] = `Bearer ${config.apiKey}`;
-    else if (config.authType === "x-api-key")
-      headers["X-API-Key"] = config.apiKey;
+      headers["Authorization"] = `Bearer ${apiKey}`;
+    else if (config.authType === "x-api-key") headers["X-API-Key"] = apiKey;
 
     let res;
     try {
