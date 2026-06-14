@@ -2,6 +2,11 @@ import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { ApiError } from "@/lib/api-error";
+import { db } from "@/lib/db";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 import { addCollaborator } from "@/lib/services/tickets/ticket.service";
 
 const addSchema = z.object({
@@ -20,6 +25,18 @@ export async function POST(
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const { ticketId } = await params;
+    const ent = await db.ticket.findUnique({
+      where: { id: ticketId },
+      select: { workspaceId: true },
+    });
+    if (!ent) throw new ApiError("Тикет не найден", "NOT_FOUND", 404);
+    await requireWorkspaceAccess(
+      accessCtxFromSession(session),
+      ent.workspaceId,
+      {
+        module: "tickets",
+      },
+    );
     const body: unknown = await request.json();
     const validated = addSchema.parse(body);
     await addCollaborator(

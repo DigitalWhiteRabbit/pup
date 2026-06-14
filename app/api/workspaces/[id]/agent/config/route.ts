@@ -6,6 +6,10 @@ import {
   getAgentConfig,
   updateAgentConfig,
 } from "@/lib/services/agent/agent.service";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 
 const updateSchema = z.object({
   enabled: z.boolean().optional(),
@@ -31,6 +35,11 @@ export async function GET(
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const { id } = await params;
+
+    await requireWorkspaceAccess(accessCtxFromSession(session), id, {
+      module: "tickets",
+    });
+
     const cfg = await getAgentConfig(
       id,
       session.user.id,
@@ -53,6 +62,11 @@ export async function PATCH(
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const { id } = await params;
+
+    await requireWorkspaceAccess(accessCtxFromSession(session), id, {
+      module: "tickets",
+    });
+
     const body: unknown = await request.json();
     const validated = updateSchema.parse(body);
     await updateAgentConfig(

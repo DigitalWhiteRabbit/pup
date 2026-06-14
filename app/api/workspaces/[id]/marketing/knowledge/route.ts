@@ -4,6 +4,10 @@ import { auth } from "@/lib/auth";
 import { withErrorHandler, ApiError } from "@/lib/api-error";
 import { db } from "@/lib/db";
 import { checkMembership } from "@/lib/services/workspace.service";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -49,6 +53,10 @@ export async function GET(req: NextRequest, { params }: Params) {
     if (!membership && session.user.role !== "ADMIN")
       throw new ApiError("Forbidden", "FORBIDDEN", 403);
 
+    await requireWorkspaceAccess(accessCtxFromSession(session), workspaceId, {
+      module: "marketing",
+    });
+
     const docs = await db.mktKnowledgeDoc.findMany({
       where: { workspaceId },
       select: {
@@ -81,6 +89,10 @@ export async function POST(req: NextRequest, { params }: Params) {
     const membership = await checkMembership(workspaceId, session.user.id);
     if (!membership && session.user.role !== "ADMIN")
       throw new ApiError("Forbidden", "FORBIDDEN", 403);
+
+    await requireWorkspaceAccess(accessCtxFromSession(session), workspaceId, {
+      module: "marketing",
+    });
 
     const body = await req.json();
     const parsed = createDocSchema.safeParse(body);

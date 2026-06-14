@@ -2,6 +2,11 @@ import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { refreshFromUrl } from "@/lib/services/kb/article.service";
 import { ApiError } from "@/lib/api-error";
+import { db } from "@/lib/db";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 import { z } from "zod";
 
 const schema = z.object({
@@ -19,6 +24,20 @@ export async function POST(
     }
 
     const { articleId } = await params;
+
+    const ent = await db.kbArticle.findUnique({
+      where: { id: articleId },
+      select: { workspaceId: true },
+    });
+    if (!ent) throw new ApiError("Статья не найдена", "NOT_FOUND", 404);
+    await requireWorkspaceAccess(
+      accessCtxFromSession(session),
+      ent.workspaceId,
+      {
+        module: "knowledge",
+      },
+    );
+
     const body: unknown = await request.json();
     const { preview } = schema.parse(body);
 

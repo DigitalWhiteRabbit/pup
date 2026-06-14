@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { withErrorHandler, ApiError } from "@/lib/api-error";
 import { db } from "@/lib/db";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 import { checkMembership } from "@/lib/services/workspace.service";
 import { extractFileTextOnDemand } from "@/lib/services/kb/file.service";
 
@@ -14,6 +18,12 @@ export async function GET(_req: NextRequest, { params }: Params) {
 
     const kbFile = await db.kbFile.findUnique({ where: { id: params.fileId } });
     if (!kbFile) throw new ApiError("Файл не найден", "NOT_FOUND", 404);
+
+    await requireWorkspaceAccess(
+      accessCtxFromSession(session),
+      kbFile.workspaceId,
+      { module: "knowledge" },
+    );
 
     const membership = await checkMembership(
       kbFile.workspaceId,

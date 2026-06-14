@@ -2,6 +2,10 @@ import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { ApiError } from "@/lib/api-error";
 import { deleteScenario } from "@/lib/services/agent/agent.service";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 
 export async function DELETE(
   _request: Request,
@@ -11,7 +15,12 @@ export async function DELETE(
     const session = await auth();
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const { scenarioId } = await params;
+    const { id: workspaceId, scenarioId } = await params;
+
+    await requireWorkspaceAccess(accessCtxFromSession(session), workspaceId, {
+      module: "tickets",
+    });
+
     await deleteScenario(
       scenarioId,
       session.user.id,

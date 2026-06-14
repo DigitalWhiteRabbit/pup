@@ -5,6 +5,7 @@ import {
   requireWorkspaceAccess,
   accessCtxFromSession,
 } from "@/lib/services/workspace-access";
+import { encrypt } from "@/lib/services/crypto.service";
 import { ApiError } from "@/lib/api-error";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -113,12 +114,14 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         : msg;
   }
 
+  // Encrypt the upstream key at rest (graceful-decrypt on read for legacy rows).
+  const encryptedKey = encrypt(apiKey);
   const config = await db.externalUsersConfig.upsert({
     where: { workspaceId },
     create: {
       workspaceId,
       apiEndpoint,
-      apiKey,
+      apiKey: encryptedKey,
       authType: authType ?? "bearer",
       isConnected,
       lastError,
@@ -126,7 +129,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     },
     update: {
       apiEndpoint,
-      apiKey,
+      apiKey: encryptedKey,
       authType: authType ?? "bearer",
       isConnected,
       lastError,
@@ -159,13 +162,31 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ error: "Config not found" }, { status: 404 });
 
   const update: Record<string, unknown> = {};
-  if (body.apiEndpoint) update.apiEndpoint = body.apiEndpoint;
   if (body.authType) update.authType = body.authType;
+
+  // SECURITY (key-theft): changing the endpoint must NOT carry the saved upstream
+  // key over to a new (possibly attacker-controlled) host. Invalidate the stored
+  // key + disconnect → the proxy refuses until the key is re-entered via POST
+  // (which re-tests the connection against the new endpoint).
+  if (body.apiEndpoint && body.apiEndpoint !== config.apiEndpoint) {
+    update.apiEndpoint = body.apiEndpoint;
+    update.apiKey = "";
+    update.isConnected = false;
+    update.lastError = "Endpoint изменён — введите API-ключ заново";
+  } else if (body.apiEndpoint) {
+    update.apiEndpoint = body.apiEndpoint;
+  }
 
   const updated = await db.externalUsersConfig.update({
     where: { workspaceId },
     data: update,
-    select: { id: true, apiEndpoint: true, authType: true, isConnected: true },
+    select: {
+      id: true,
+      apiEndpoint: true,
+      authType: true,
+      isConnected: true,
+      lastError: true,
+    },
   });
 
   return NextResponse.json({ config: updated });

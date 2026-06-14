@@ -6,6 +6,10 @@ import {
   updatePersona,
   deletePersona,
 } from "@/lib/services/chat/chat-config.service";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 
 const updateSchema = z.object({
   displayName: z.string().min(1).max(100).optional(),
@@ -24,7 +28,12 @@ export async function PATCH(
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const { personaId } = await params;
+    const { id: workspaceId, personaId } = await params;
+
+    await requireWorkspaceAccess(accessCtxFromSession(session), workspaceId, {
+      module: "tickets",
+    });
+
     const body: unknown = await request.json();
     const validated = updateSchema.parse(body);
 
@@ -62,7 +71,11 @@ export async function DELETE(
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const { personaId } = await params;
+    const { id: workspaceId, personaId } = await params;
+
+    await requireWorkspaceAccess(accessCtxFromSession(session), workspaceId, {
+      module: "tickets",
+    });
 
     await deletePersona(
       personaId,

@@ -6,6 +6,10 @@ import {
   createPersona,
   listPersonas,
 } from "@/lib/services/chat/chat-config.service";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 
 const createSchema = z.object({
   displayName: z.string().min(1).max(100),
@@ -24,6 +28,11 @@ export async function GET(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const { id: workspaceId } = await params;
+
+    await requireWorkspaceAccess(accessCtxFromSession(session), workspaceId, {
+      module: "tickets",
+    });
+
     const personas = await listPersonas(
       workspaceId,
       session.user.id,
@@ -51,6 +60,11 @@ export async function POST(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const { id: workspaceId } = await params;
+
+    await requireWorkspaceAccess(accessCtxFromSession(session), workspaceId, {
+      module: "tickets",
+    });
+
     const body: unknown = await request.json();
     const validated = createSchema.parse(body);
 

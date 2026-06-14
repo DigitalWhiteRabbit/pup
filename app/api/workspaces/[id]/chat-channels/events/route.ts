@@ -4,7 +4,12 @@ import {
   addSSEClient,
   removeSSEClient,
 } from "@/lib/services/chat-internal/sse.service";
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { ApiError } from "@/lib/api-error";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 
 /**
  * GET /api/workspaces/[id]/chat-channels/events
@@ -34,6 +39,19 @@ export async function GET(
   const membership = await checkMembership(workspaceId, userId);
   if (!membership && session.user.role !== "ADMIN") {
     return new Response("Forbidden", { status: 403 });
+  }
+
+  try {
+    await requireWorkspaceAccess(accessCtxFromSession(session), workspaceId, {
+      module: "chat",
+    });
+  } catch (e) {
+    if (e instanceof ApiError)
+      return NextResponse.json(
+        { error: e.message, code: e.code },
+        { status: e.status },
+      );
+    throw e;
   }
 
   // ── Stream setup ────────────────────────────────────────────────────────

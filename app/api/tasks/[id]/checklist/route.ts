@@ -1,6 +1,10 @@
 import { auth } from "@/lib/auth";
 import { withErrorHandler, ApiError } from "@/lib/api-error";
 import { db } from "@/lib/db";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 import { checkMembership } from "@/lib/services/workspace.service";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -21,6 +25,12 @@ export async function POST(req: Request, { params }: Params) {
       select: { workspaceId: true },
     });
     if (!task) throw new ApiError("Задача не найдена", "NOT_FOUND", 404);
+
+    await requireWorkspaceAccess(
+      accessCtxFromSession(session),
+      task.workspaceId,
+      { module: "crm" },
+    );
 
     const membership = await checkMembership(task.workspaceId, session.user.id);
     if (!membership && session.user.role !== "ADMIN") {

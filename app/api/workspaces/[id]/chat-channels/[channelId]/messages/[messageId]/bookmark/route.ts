@@ -3,6 +3,10 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { ApiError } from "@/lib/api-error";
 import { assertMessageChannelAccess } from "@/lib/services/chat-internal/channel-access";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 
 type RouteParams = {
   params: Promise<{ id: string; channelId: string; messageId: string }>;
@@ -15,6 +19,10 @@ export async function POST(_req: Request, { params }: RouteParams) {
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const { id: workspaceId, messageId } = await params;
+
+    await requireWorkspaceAccess(accessCtxFromSession(session), workspaceId, {
+      module: "chat",
+    });
 
     // Channel-level access (ws-scoped; PRIVATE/DM require membership).
     await assertMessageChannelAccess(

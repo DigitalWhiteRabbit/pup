@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { ApiError } from "@/lib/api-error";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 
 // ─── yt-parser proxy config ─────────────────────────────────────────────────
 // In production the parser runs on port 3001 (PM2), in dev it may differ.
@@ -115,6 +120,10 @@ export async function GET(req: NextRequest, { params }: Params) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
     }
+
+    await requireWorkspaceAccess(accessCtxFromSession(session), workspaceId, {
+      module: "marketing",
+    });
 
     // 3. Fetch data from yt-parser in parallel
     const [statusRes, quotaRes, leadsRes, projectsRes, healthRes] =
@@ -241,6 +250,12 @@ export async function GET(req: NextRequest, { params }: Params) {
       _meta,
     });
   } catch (e) {
+    if (e instanceof ApiError) {
+      return NextResponse.json(
+        { error: e.message, code: e.code },
+        { status: e.status },
+      );
+    }
     return NextResponse.json(
       { error: e instanceof Error ? e.message : String(e) },
       { status: 500 },

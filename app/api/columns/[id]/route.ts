@@ -1,5 +1,10 @@
 import { auth } from "@/lib/auth";
-import { withErrorHandler, apiError } from "@/lib/api-error";
+import { withErrorHandler, apiError, ApiError } from "@/lib/api-error";
+import { db } from "@/lib/db";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 import { renameColumn, deleteColumn } from "@/lib/services/column.service";
 import { updateColumnSchema } from "@/lib/schemas/column.schema";
 import { NextResponse } from "next/server";
@@ -10,6 +15,19 @@ export async function PATCH(req: Request, { params }: Params) {
   return withErrorHandler(async () => {
     const session = await auth();
     if (!session) return apiError("Не авторизован", "UNAUTHORIZED", 401);
+
+    const ent = await db.column.findUnique({
+      where: { id: params.id },
+      select: { workspaceId: true },
+    });
+    if (!ent) throw new ApiError("Колонка не найдена", "NOT_FOUND", 404);
+    await requireWorkspaceAccess(
+      accessCtxFromSession(session),
+      ent.workspaceId,
+      {
+        module: "crm",
+      },
+    );
 
     const body: unknown = await req.json();
     const input = updateColumnSchema.parse(body);
@@ -28,6 +46,19 @@ export async function DELETE(_req: Request, { params }: Params) {
   return withErrorHandler(async () => {
     const session = await auth();
     if (!session) return apiError("Не авторизован", "UNAUTHORIZED", 401);
+
+    const ent = await db.column.findUnique({
+      where: { id: params.id },
+      select: { workspaceId: true },
+    });
+    if (!ent) throw new ApiError("Колонка не найдена", "NOT_FOUND", 404);
+    await requireWorkspaceAccess(
+      accessCtxFromSession(session),
+      ent.workspaceId,
+      {
+        module: "crm",
+      },
+    );
 
     await deleteColumn(params.id, session.user.id, session.user.role);
     return new NextResponse(null, { status: 204 });

@@ -3,6 +3,10 @@ import { auth } from "@/lib/auth";
 import { withErrorHandler, ApiError } from "@/lib/api-error";
 import { db } from "@/lib/db";
 import { checkMembership } from "@/lib/services/workspace.service";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 
 type Params = { params: Promise<{ id: string; taskId: string }> };
 
@@ -16,6 +20,10 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     const membership = await checkMembership(workspaceId, session.user.id);
     if (!membership && session.user.role !== "ADMIN")
       throw new ApiError("Forbidden", "FORBIDDEN", 403);
+
+    await requireWorkspaceAccess(accessCtxFromSession(session), workspaceId, {
+      module: "marketing",
+    });
 
     const existing = await db.mktSearchTask.findFirst({
       where: { id: taskId, workspaceId },
@@ -41,6 +49,10 @@ export async function DELETE(req: NextRequest, { params }: Params) {
     const membership = await checkMembership(workspaceId, session.user.id);
     if (!membership && session.user.role !== "ADMIN")
       throw new ApiError("Forbidden", "FORBIDDEN", 403);
+
+    await requireWorkspaceAccess(accessCtxFromSession(session), workspaceId, {
+      module: "marketing",
+    });
 
     const existing = await db.mktSearchTask.findFirst({
       where: { id: taskId, workspaceId },

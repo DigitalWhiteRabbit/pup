@@ -6,6 +6,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { withErrorHandler, ApiError } from "@/lib/api-error";
 import { db } from "@/lib/db";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 import { checkMembership } from "@/lib/services/workspace.service";
 
 type Params = { params: { fileId: string } };
@@ -45,7 +49,16 @@ export async function GET(_req: NextRequest, { params }: Params) {
     const kbFile = await db.kbFile.findUnique({ where: { id: params.fileId } });
     if (!kbFile) throw new ApiError("Файл не найден", "NOT_FOUND", 404);
 
-    const membership = await checkMembership(kbFile.workspaceId, session.user.id);
+    await requireWorkspaceAccess(
+      accessCtxFromSession(session),
+      kbFile.workspaceId,
+      { module: "knowledge" },
+    );
+
+    const membership = await checkMembership(
+      kbFile.workspaceId,
+      session.user.id,
+    );
     if (!membership && session.user.role !== "ADMIN") {
       throw new ApiError("Нет доступа", "FORBIDDEN", 403);
     }
@@ -77,7 +90,8 @@ export async function GET(_req: NextRequest, { params }: Params) {
 
     // DOCX — run mammoth outside Next.js via child_process
     if (
-      mime === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+      mime ===
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
       name.endsWith(".docx")
     ) {
       const html = await runDocxPreview(filePath, "html");
@@ -93,7 +107,9 @@ export async function GET(_req: NextRequest, { params }: Params) {
     // PDF
     if (mime === "application/pdf" || name.endsWith(".pdf")) {
       type PdfFn = (buf: Buffer) => Promise<{ text: string }>;
-      const pdfModule = (await import("pdf-parse")) as unknown as { default?: PdfFn } & PdfFn;
+      const pdfModule = (await import("pdf-parse")) as unknown as {
+        default?: PdfFn;
+      } & PdfFn;
       const pdfParse: PdfFn =
         typeof pdfModule.default === "function" ? pdfModule.default : pdfModule;
       const buf = await fs.readFile(filePath);

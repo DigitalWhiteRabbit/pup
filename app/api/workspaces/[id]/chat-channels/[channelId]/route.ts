@@ -5,6 +5,10 @@ import { db } from "@/lib/db";
 import { ApiError } from "@/lib/api-error";
 import { getChannelDetail } from "@/lib/services/chat-internal/channel.service";
 import { broadcastToWorkspace } from "@/lib/services/chat-internal/sse.service";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 
 type RouteParams = {
   params: Promise<{ id: string; channelId: string }>;
@@ -21,7 +25,10 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const session = await auth();
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const { channelId } = await params;
+    const { id: workspaceId, channelId } = await params;
+    await requireWorkspaceAccess(accessCtxFromSession(session), workspaceId, {
+      module: "chat",
+    });
     const detail = await getChannelDetail(channelId, session.user.id);
     return NextResponse.json({ data: detail });
   } catch (err) {
@@ -38,6 +45,19 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const { id: workspaceId, channelId } = await params;
+
+    try {
+      await requireWorkspaceAccess(accessCtxFromSession(session), workspaceId, {
+        module: "chat",
+      });
+    } catch (e) {
+      if (e instanceof ApiError)
+        return NextResponse.json(
+          { error: e.message, code: e.code },
+          { status: e.status },
+        );
+      throw e;
+    }
 
     const channel = await db.chatChannel.findUnique({
       where: { id: channelId },
@@ -90,6 +110,19 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const { id: workspaceId, channelId } = await params;
+
+    try {
+      await requireWorkspaceAccess(accessCtxFromSession(session), workspaceId, {
+        module: "chat",
+      });
+    } catch (e) {
+      if (e instanceof ApiError)
+        return NextResponse.json(
+          { error: e.message, code: e.code },
+          { status: e.status },
+        );
+      throw e;
+    }
 
     const channel = await db.chatChannel.findUnique({
       where: { id: channelId },

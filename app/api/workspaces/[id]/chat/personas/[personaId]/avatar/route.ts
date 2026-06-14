@@ -3,6 +3,10 @@ import { auth } from "@/lib/auth";
 import { ApiError } from "@/lib/api-error";
 import { db } from "@/lib/db";
 import { checkMembership } from "@/lib/services/workspace.service";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 import { storage } from "@/lib/services/storage";
 
 const MAX_SIZE = 2 * 1024 * 1024; // 2MB
@@ -23,6 +27,10 @@ export async function POST(
     if (membership !== "OWNER" && session.user.role !== "ADMIN") {
       return NextResponse.json({ error: "Нет доступа" }, { status: 403 });
     }
+
+    await requireWorkspaceAccess(accessCtxFromSession(session), workspaceId, {
+      module: "tickets",
+    });
 
     const persona = await db.chatPersona.findUnique({
       where: { id: personaId },

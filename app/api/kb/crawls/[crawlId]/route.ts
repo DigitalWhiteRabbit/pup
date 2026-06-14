@@ -2,6 +2,11 @@ import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { getCrawlStatus } from "@/lib/services/kb/crawler.service";
 import { ApiError } from "@/lib/api-error";
+import { db } from "@/lib/db";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 
 export async function GET(
   _request: Request,
@@ -14,6 +19,20 @@ export async function GET(
     }
 
     const { crawlId } = await params;
+
+    const ent = await db.kbCrawl.findUnique({
+      where: { id: crawlId },
+      select: { workspaceId: true },
+    });
+    if (!ent) throw new ApiError("Краул не найден", "NOT_FOUND", 404);
+    await requireWorkspaceAccess(
+      accessCtxFromSession(session),
+      ent.workspaceId,
+      {
+        module: "knowledge",
+      },
+    );
+
     const data = await getCrawlStatus(
       crawlId,
       session.user.id,

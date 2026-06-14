@@ -3,6 +3,10 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { ApiError } from "@/lib/api-error";
 import { assertChannelAccess } from "@/lib/services/chat-internal/channel-access";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 
 type RouteParams = {
   params: Promise<{ id: string; channelId: string }>;
@@ -15,6 +19,9 @@ export async function GET(_req: Request, { params }: RouteParams) {
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const { id: workspaceId, channelId } = await params;
+    await requireWorkspaceAccess(accessCtxFromSession(session), workspaceId, {
+      module: "chat",
+    });
     // Was previously unauthenticated beyond session → leaked private-channel
     // pinned content. Enforce channel access.
     await assertChannelAccess(
