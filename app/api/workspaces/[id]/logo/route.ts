@@ -2,6 +2,11 @@ import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { storage } from "@/lib/services/storage";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
+import { ApiError } from "@/lib/api-error";
 
 const MAX_SIZE = 5 * 1024 * 1024;
 const ALLOWED = ["image/jpeg", "image/png", "image/webp", "image/gif"];
@@ -49,6 +54,10 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const { id } = await params;
+    // Workspace logo is an owner-level setting (global ADMIN passes too).
+    await requireWorkspaceAccess(accessCtxFromSession(session), id, {
+      requireOwner: true,
+    });
 
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
@@ -91,7 +100,12 @@ export async function POST(req: Request, { params }: RouteParams) {
     });
 
     return NextResponse.json({ ok: true });
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError)
+      return NextResponse.json(
+        { error: err.message, code: err.code },
+        { status: err.status },
+      );
     return NextResponse.json({ error: "Ошибка" }, { status: 500 });
   }
 }
@@ -104,6 +118,10 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const { id } = await params;
+    await requireWorkspaceAccess(accessCtxFromSession(session), id, {
+      requireOwner: true,
+    });
+
     const ws = await db.workspace.findUnique({
       where: { id },
       select: { logoPath: true },
@@ -122,7 +140,12 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
     });
 
     return NextResponse.json({ ok: true });
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError)
+      return NextResponse.json(
+        { error: err.message, code: err.code },
+        { status: err.status },
+      );
     return NextResponse.json({ error: "Ошибка" }, { status: 500 });
   }
 }

@@ -1,9 +1,34 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { safeFetch } from "@/lib/services/kb/url-validator";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
+import { ApiError } from "@/lib/api-error";
 import { NextRequest, NextResponse } from "next/server";
 
 type RouteParams = { params: Promise<{ id: string }> };
+
+/** Membership gate for the users module; returns a 403 response or null. */
+async function guardUsers(
+  session: { user: { id: string; role?: string | null } },
+  workspaceId: string,
+): Promise<NextResponse | null> {
+  try {
+    await requireWorkspaceAccess(accessCtxFromSession(session), workspaceId, {
+      module: "users",
+    });
+    return null;
+  } catch (e) {
+    if (e instanceof ApiError)
+      return NextResponse.json(
+        { error: e.message, code: e.code },
+        { status: e.status },
+      );
+    throw e;
+  }
+}
 
 /** GET — get config status */
 export async function GET(_req: NextRequest, { params }: RouteParams) {
@@ -12,6 +37,8 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id: workspaceId } = await params;
+  const denied = await guardUsers(session, workspaceId);
+  if (denied) return denied;
 
   const config = await db.externalUsersConfig.findUnique({
     where: { workspaceId },
@@ -35,6 +62,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id: workspaceId } = await params;
+  const denied = await guardUsers(session, workspaceId);
+  if (denied) return denied;
+
   const body = await req.json();
 
   const { apiEndpoint, apiKey, authType } = body as {
@@ -117,6 +147,9 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id: workspaceId } = await params;
+  const denied = await guardUsers(session, workspaceId);
+  if (denied) return denied;
+
   const body = await req.json();
 
   const config = await db.externalUsersConfig.findUnique({
@@ -145,6 +178,8 @@ export async function DELETE(_req: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id: workspaceId } = await params;
+  const denied = await guardUsers(session, workspaceId);
+  if (denied) return denied;
 
   await db.externalUsersConfig.deleteMany({ where: { workspaceId } });
 

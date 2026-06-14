@@ -78,13 +78,12 @@ describe("GET /api/workspaces/[id]/my-modules — контракт { allowedModu
     expect(body.allowedModules).toBeNull();
   });
 
-  it("не-участник → { allowedModules: null } (как на origin/main)", async () => {
+  it("не-участник → 403 (P0: раньше отдавал { allowedModules: null } = утечка)", async () => {
     mockAuth.mockResolvedValue({ user: { id: "stranger", role: "USER" } });
     mockFindUnique.mockResolvedValue(null);
     const { status, body } = await callGet();
-    expect(status).toBe(200);
-    expect(body).toHaveProperty("allowedModules");
-    expect(body.allowedModules).toBeNull();
+    expect(status).toBe(403);
+    expect(body.code).toBe("WORKSPACE_FORBIDDEN");
   });
 
   it("битый JSON в allowedModules → { allowedModules: null } (full, не падает)", async () => {
@@ -105,11 +104,17 @@ describe("GET /api/workspaces/[id]/my-modules — контракт { allowedModu
   });
 
   it("ни одна success-ветка не отдаёт голое значение (всегда объект с ключом)", async () => {
+    // Только success-ветки (член/owner/admin). Не-участник теперь 403 (см. выше).
     const cases = [
       { user: { id: "a", role: "ADMIN" }, member: undefined },
-      { user: { id: "o", role: "USER" }, member: { role: "OWNER", allowedModules: null } },
-      { user: { id: "m", role: "USER" }, member: { role: "MEMBER", allowedModules: '["crm"]' } },
-      { user: { id: "s", role: "USER" }, member: null },
+      {
+        user: { id: "o", role: "USER" },
+        member: { role: "OWNER", allowedModules: null },
+      },
+      {
+        user: { id: "m", role: "USER" },
+        member: { role: "MEMBER", allowedModules: '["crm"]' },
+      },
     ];
     for (const c of cases) {
       vi.clearAllMocks();
