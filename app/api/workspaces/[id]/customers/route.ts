@@ -7,6 +7,7 @@ import {
   requireWorkspace,
   ServiceRateLimitError,
 } from "@/lib/middleware/resolve-auth";
+import { requireWorkspaceAccess } from "@/lib/services/workspace-access";
 
 export async function GET(
   request: NextRequest,
@@ -20,6 +21,7 @@ export async function GET(
     const { id: workspaceId } = await params;
     requireScope(ctx, "customers:read");
     requireWorkspace(ctx, workspaceId);
+    await requireWorkspaceAccess(ctx, workspaceId, { module: "tickets" });
 
     const url = new URL(request.url);
     const page = parseInt(url.searchParams.get("page") ?? "1");

@@ -6,6 +6,10 @@ import {
   listChannels,
   createChannel,
 } from "@/lib/services/chat-internal/channel.service";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 
 const createSchema = z.object({
   name: z.string().min(1).max(100),
@@ -23,6 +27,9 @@ export async function GET(
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const { id } = await params;
+    await requireWorkspaceAccess(accessCtxFromSession(session), id, {
+      module: "chat",
+    });
     const channels = await listChannels(
       id,
       session.user.id,
@@ -45,6 +52,9 @@ export async function POST(
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const { id } = await params;
+    await requireWorkspaceAccess(accessCtxFromSession(session), id, {
+      module: "chat",
+    });
     const body: unknown = await req.json();
     const data = createSchema.parse(body);
     const ch = await createChannel(

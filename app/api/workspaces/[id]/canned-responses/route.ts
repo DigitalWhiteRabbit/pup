@@ -6,6 +6,10 @@ import {
   listCannedResponses,
   createCannedResponse,
 } from "@/lib/services/tickets/canned-response.service";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 
 const createSchema = z.object({
   shortCode: z.string().min(1).max(50),
@@ -24,6 +28,10 @@ export async function GET(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const { id: workspaceId } = await params;
+    await requireWorkspaceAccess(accessCtxFromSession(session), workspaceId, {
+      module: "tickets",
+    });
+
     const list = await listCannedResponses(
       workspaceId,
       session.user.id,
@@ -51,6 +59,10 @@ export async function POST(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const { id: workspaceId } = await params;
+    await requireWorkspaceAccess(accessCtxFromSession(session), workspaceId, {
+      module: "tickets",
+    });
+
     const body: unknown = await request.json();
     const validated = createSchema.parse(body);
 

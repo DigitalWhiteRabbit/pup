@@ -11,6 +11,10 @@ import {
   ServiceRateLimitError,
 } from "@/lib/middleware/resolve-auth";
 import { checkMembership } from "@/lib/services/membership-check";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 
 type Params = { params: { id: string } };
 
@@ -33,6 +37,8 @@ export async function GET(req: NextRequest, { params }: Params) {
       if (!role)
         throw new ApiError("Доступ запрещён", "WORKSPACE_FORBIDDEN", 403);
     }
+
+    await requireWorkspaceAccess(ctx, params.id, { module: "crm" });
 
     const tasks = await db.task.findMany({
       where: { workspaceId: params.id },
@@ -83,6 +89,9 @@ export async function POST(req: Request, { params }: Params) {
   return withErrorHandler(async () => {
     const session = await auth();
     if (!session) return apiError("Не авторизован", "UNAUTHORIZED", 401);
+    await requireWorkspaceAccess(accessCtxFromSession(session), params.id, {
+      module: "crm",
+    });
 
     const body: unknown = await req.json();
     const input = createTaskSchema.parse(body);

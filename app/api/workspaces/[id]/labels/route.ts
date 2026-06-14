@@ -9,6 +9,10 @@ import {
   requireScope,
   requireWorkspace,
 } from "@/lib/middleware/resolve-auth";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 
 type Params = { params: { id: string } };
 
@@ -31,6 +35,8 @@ export async function GET(req: NextRequest, { params }: Params) {
       }
     }
 
+    await requireWorkspaceAccess(ctx, params.id, { module: "crm" });
+
     const labels = await db.label.findMany({
       where: { workspaceId: params.id },
       orderBy: { name: "asc" },
@@ -48,6 +54,10 @@ export async function POST(req: Request, { params }: Params) {
     if (!membership && session.user.role !== "ADMIN") {
       throw new ApiError("Нет доступа", "FORBIDDEN", 403);
     }
+
+    await requireWorkspaceAccess(accessCtxFromSession(session), params.id, {
+      module: "crm",
+    });
 
     const body: unknown = await req.json();
     const { name, color } = createLabelSchema.parse(body);

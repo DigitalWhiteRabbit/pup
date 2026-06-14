@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { withErrorHandler, ApiError } from "@/lib/api-error";
 import { getSystemLogs } from "@/lib/services/logger.service";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 import { z } from "zod";
 import type { LogLevel } from "@prisma/client";
 
@@ -21,6 +25,9 @@ export async function GET(
   return withErrorHandler(async () => {
     const session = await auth();
     if (!session) throw new ApiError("Не авторизован", "UNAUTHORIZED", 401);
+    await requireWorkspaceAccess(accessCtxFromSession(session), params.id, {
+      module: "logs",
+    });
 
     const { searchParams } = new URL(req.url);
     const parsed = filtersSchema.parse(Object.fromEntries(searchParams));

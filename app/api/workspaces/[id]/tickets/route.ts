@@ -12,6 +12,10 @@ import {
   requireWorkspace,
   ServiceRateLimitError,
 } from "@/lib/middleware/resolve-auth";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 
 const createSchema = z.object({
   title: z.string().min(1).max(200),
@@ -54,6 +58,7 @@ export async function GET(
     const { id: workspaceId } = await params;
     requireScope(ctx, "tickets:read");
     requireWorkspace(ctx, workspaceId);
+    await requireWorkspaceAccess(ctx, workspaceId, { module: "tickets" });
 
     const url = new URL(request.url);
     const raw = Object.fromEntries(url.searchParams);
@@ -106,6 +111,10 @@ export async function POST(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const { id: workspaceId } = await params;
+    await requireWorkspaceAccess(accessCtxFromSession(session), workspaceId, {
+      module: "tickets",
+    });
+
     const body: unknown = await request.json();
     const validated = createSchema.parse(body);
 

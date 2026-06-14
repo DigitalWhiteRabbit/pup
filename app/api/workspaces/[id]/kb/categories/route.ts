@@ -6,6 +6,10 @@ import {
   createCategory,
 } from "@/lib/services/kb/category.service";
 import { createCategorySchema } from "@/lib/schemas/kb.schema";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 
 export async function GET(
   _req: NextRequest,
@@ -14,6 +18,9 @@ export async function GET(
   return withErrorHandler(async () => {
     const session = await auth();
     if (!session) throw new ApiError("Не авторизован", "UNAUTHORIZED", 401);
+    await requireWorkspaceAccess(accessCtxFromSession(session), params.id, {
+      module: "knowledge",
+    });
 
     const cats = await listCategories(
       params.id,
@@ -31,6 +38,9 @@ export async function POST(
   return withErrorHandler(async () => {
     const session = await auth();
     if (!session) throw new ApiError("Не авторизован", "UNAUTHORIZED", 401);
+    await requireWorkspaceAccess(accessCtxFromSession(session), params.id, {
+      module: "knowledge",
+    });
 
     const body: unknown = await req.json();
     const data = createCategorySchema.parse(body);

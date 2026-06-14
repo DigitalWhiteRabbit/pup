@@ -3,6 +3,10 @@ import { auth } from "@/lib/auth";
 import { withErrorHandler, ApiError } from "@/lib/api-error";
 import { listTags, createTag } from "@/lib/services/kb/tag.service";
 import { createTagSchema, listTagsSchema } from "@/lib/schemas/kb.schema";
+import {
+  requireWorkspaceAccess,
+  accessCtxFromSession,
+} from "@/lib/services/workspace-access";
 
 export async function GET(
   req: NextRequest,
@@ -11,6 +15,9 @@ export async function GET(
   return withErrorHandler(async () => {
     const session = await auth();
     if (!session) throw new ApiError("Не авторизован", "UNAUTHORIZED", 401);
+    await requireWorkspaceAccess(accessCtxFromSession(session), params.id, {
+      module: "knowledge",
+    });
 
     const { searchParams } = new URL(req.url);
     const { search } = listTagsSchema.parse(Object.fromEntries(searchParams));
@@ -29,6 +36,9 @@ export async function POST(
   return withErrorHandler(async () => {
     const session = await auth();
     if (!session) throw new ApiError("Не авторизован", "UNAUTHORIZED", 401);
+    await requireWorkspaceAccess(accessCtxFromSession(session), params.id, {
+      module: "knowledge",
+    });
 
     const body: unknown = await req.json();
     const data = createTagSchema.parse(body);
