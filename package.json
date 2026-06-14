@@ -89,6 +89,7 @@
     "tailwindcss-animate": "^1.0.7",
     "turndown": "^7.2.4",
     "turndown-plugin-gfm": "^1.0.2",
+    "undici": "7.25.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
