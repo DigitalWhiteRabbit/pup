@@ -189,6 +189,101 @@ describe("cardAction — permission gating", () => {
   });
 });
 
+describe("cardAction — self-approval + server-side readiness (P1-B)", () => {
+  const READY = {
+    text: "готовый текст",
+    proofChecked: true,
+    visualApproved: true,
+    publishDate: new Date("2026-07-01T00:00:00.000Z"),
+  };
+  const txOk = () => {
+    const tx = {
+      contentCard: { update: vi.fn().mockResolvedValue({}) },
+      contentCardHistory: { create: vi.fn().mockResolvedValue({}) },
+    };
+    mockDb.$transaction.mockImplementation(
+      async (cb: (t: typeof tx) => unknown) => cb(tx),
+    );
+    return tx;
+  };
+
+  it("a moderator who is the AUTHOR cannot approve their own card", async () => {
+    asModerator(); // OWNER, actor "u1" == authorId
+    mockDb.contentCard.findUnique.mockResolvedValue(
+      makeCard({ status: "REVIEW", authorId: "u1" }),
+    );
+    await expect(
+      cardAction("w1", "c1", "u1", "USER", "approve"),
+    ).rejects.toMatchObject({ code: "SELF_APPROVAL_FORBIDDEN", status: 403 });
+  });
+
+  it("a DIFFERENT moderator CAN approve the author's card", async () => {
+    asModerator();
+    mockDb.contentCard.findUnique
+      .mockResolvedValueOnce(makeCard({ status: "REVIEW", authorId: "u1" }))
+      .mockResolvedValueOnce(
+        makeCard({ status: "READY", authorId: "u1", proofChecked: true }),
+      );
+    const tx = txOk();
+    await cardAction("w1", "c1", "mod", "USER", "approve");
+    expect(tx.contentCard.update).toHaveBeenCalled();
+  });
+
+  it("publish by the author (even a moderator) → 403 self-approval", async () => {
+    asModerator();
+    mockDb.contentCard.findUnique.mockResolvedValue(
+      makeCard({ status: "READY", authorId: "u1", ...READY }),
+    );
+    await expect(
+      cardAction("w1", "c1", "u1", "USER", "publish"),
+    ).rejects.toMatchObject({ code: "SELF_APPROVAL_FORBIDDEN" });
+  });
+
+  it("publish by a different moderator but card NOT 4/4 → 422 not ready", async () => {
+    asModerator();
+    mockDb.contentCard.findUnique.mockResolvedValue(
+      makeCard({
+        status: "READY",
+        authorId: "u1",
+        text: "t",
+        proofChecked: true,
+        visualApproved: false, // visual gate missing → 3/4
+        publishDate: new Date("2026-07-01T00:00:00.000Z"),
+      }),
+    );
+    await expect(
+      cardAction("w1", "c1", "mod", "USER", "publish"),
+    ).rejects.toMatchObject({ code: "CARD_NOT_READY", status: 422 });
+  });
+
+  it("publish by a different moderator, card 4/4 → PUBLISHED", async () => {
+    asModerator();
+    mockDb.contentCard.findUnique
+      .mockResolvedValueOnce(
+        makeCard({ status: "READY", authorId: "u1", ...READY }),
+      )
+      .mockResolvedValueOnce(
+        makeCard({ status: "PUBLISHED", authorId: "u1", ...READY }),
+      );
+    txOk();
+    const res = await cardAction("w1", "c1", "mod", "USER", "publish");
+    expect(res.card.status).toBe("PUBLISHED");
+  });
+
+  it("non-moderator author cannot publish (and it's flagged as self-approval)", async () => {
+    mockDb.workspaceMember.findUnique.mockResolvedValue({
+      role: "MEMBER",
+      allowedModules: JSON.stringify(["content:author"]),
+    });
+    mockDb.contentCard.findUnique.mockResolvedValue(
+      makeCard({ status: "READY", authorId: "u1", ...READY }),
+    );
+    await expect(
+      cardAction("w1", "c1", "u1", "USER", "publish"),
+    ).rejects.toMatchObject({ status: 403 });
+  });
+});
+
 describe("updateCard — field-level authorization", () => {
   it("author cannot set status=PUBLISHED via PATCH", async () => {
     asAuthor();

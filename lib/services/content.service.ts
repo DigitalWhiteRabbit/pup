@@ -671,6 +671,17 @@ export async function cardAction(
 
   const authorOrMod = isModerator || isAuthor;
   const modOnly = isModerator;
+  // Separation of duties: an author can never approve/visual-approve/publish
+  // their OWN card — even if they are also a moderator. A different moderator
+  // is required.
+  const modAndNotAuthor = isModerator && !isAuthor;
+  // Server-side readiness (4/4) — mirrors gates() in lib/content/derive, never
+  // trusts the client. Required before publishing.
+  const ready =
+    !!(card.text && card.text.trim().length > 0) &&
+    !!card.proofChecked &&
+    !!card.visualApproved &&
+    !!card.publishDate;
 
   const data: Prisma.ContentCardUpdateInput = {};
   let historyAction = "";
@@ -700,6 +711,12 @@ export async function cardAction(
           "FORBIDDEN",
           403,
         );
+      if (isAuthor)
+        throw new ApiError(
+          "Нельзя одобрить собственную карточку — нужен другой модератор",
+          "SELF_APPROVAL_FORBIDDEN",
+          403,
+        );
       data.proofChecked = true;
       if (card.status === "REVIEW") data.status = "READY";
       historyAction = "проверено";
@@ -711,13 +728,34 @@ export async function cardAction(
           "FORBIDDEN",
           403,
         );
+      if (isAuthor)
+        throw new ApiError(
+          "Нельзя согласовать визуал собственной карточки — нужен другой модератор",
+          "SELF_APPROVAL_FORBIDDEN",
+          403,
+        );
       data.visualApproved = true;
       data.visualStatus = "OK";
       historyAction = "визуал OK";
       break;
     case "publish":
-      if (!authorOrMod)
-        throw new ApiError("Нет прав на публикацию", "FORBIDDEN", 403);
+      // Publishing is a moderation/promotion action: moderator-only AND not the
+      // author (separation of duties), AND the card must be fully ready (4/4)
+      // — verified server-side, not trusted from the client.
+      if (!modAndNotAuthor)
+        throw new ApiError(
+          isAuthor
+            ? "Нельзя опубликовать собственную карточку — нужен другой модератор"
+            : "Только модератор может публиковать",
+          isAuthor ? "SELF_APPROVAL_FORBIDDEN" : "FORBIDDEN",
+          403,
+        );
+      if (!ready)
+        throw new ApiError(
+          "Карточка не готова к публикации: нужны текст, пруф, визуал и дата (4/4)",
+          "CARD_NOT_READY",
+          422,
+        );
       data.status = "PUBLISHED";
       if (extra?.publishedUrl) data.publishedUrl = extra.publishedUrl;
       historyAction = "опубликовано";
