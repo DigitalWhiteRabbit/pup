@@ -7,15 +7,27 @@ import {
   accessCtxFromSession,
 } from "@/lib/services/workspace-access";
 import { suggestReply } from "@/lib/services/agent/agent.service";
+import { enforceRateLimit } from "@/lib/services/rate-limit";
 
 export async function POST(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ ticketId: string }> },
 ) {
   try {
     const session = await auth();
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    // AI call (Anthropic) — cost/DoS limit. Generous: 30/user/hour.
+    const limited = enforceRateLimit({
+      scope: "ai:suggest",
+      userId: session.user.id,
+      req: request,
+      max: 30,
+      windowMs: 60 * 60 * 1000,
+    });
+    if (limited) return limited;
+
     const { ticketId } = await params;
     const ent = await db.ticket.findUnique({
       where: { id: ticketId },

@@ -15,6 +15,7 @@ import {
   requireWorkspaceAccess,
   accessCtxFromSession,
 } from "@/lib/services/workspace-access";
+import { enforceRateLimit } from "@/lib/services/rate-limit";
 
 type Params = { params: { id: string } };
 
@@ -89,6 +90,14 @@ export async function POST(req: Request, { params }: Params) {
   return withErrorHandler(async () => {
     const session = await auth();
     if (!session) return apiError("Не авторизован", "UNAUTHORIZED", 401);
+    const limited = enforceRateLimit({
+      scope: "create:task",
+      userId: session.user.id,
+      req,
+      max: 200,
+      windowMs: 60 * 60 * 1000,
+    });
+    if (limited) return limited;
     await requireWorkspaceAccess(accessCtxFromSession(session), params.id, {
       module: "crm",
     });

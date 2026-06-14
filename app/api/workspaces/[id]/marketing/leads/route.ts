@@ -12,6 +12,7 @@ import {
   requireScope,
   requireWorkspace,
 } from "@/lib/middleware/resolve-auth";
+import { enforceRateLimit } from "@/lib/services/rate-limit";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -117,6 +118,14 @@ export async function POST(req: NextRequest, { params }: Params) {
     if (!session?.user?.id)
       throw new ApiError("Не авторизован", "UNAUTHORIZED", 401);
     const { id: workspaceId } = await params;
+    const limited = enforceRateLimit({
+      scope: "create:lead",
+      userId: session.user.id,
+      req,
+      max: 200,
+      windowMs: 60 * 60 * 1000,
+    });
+    if (limited) return limited;
 
     const membership = await checkMembership(workspaceId, session.user.id);
     if (!membership && session.user.role !== "ADMIN")

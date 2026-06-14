@@ -29,6 +29,9 @@ model User {
   avatarPath String?
   lastSeenAt DateTime?
   createdAt  DateTime  @default(now())
+  // Bumped on password change → JWTs issued before this are invalidated
+  // (other sessions logged out; the changing session is re-issued in place).
+  passwordChangedAt DateTime?
 
   // Telegram
   telegramChatId  String? @unique

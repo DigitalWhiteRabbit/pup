@@ -4,7 +4,11 @@ import { db } from "@/lib/db";
 import { ApiError } from "@/lib/api-error";
 import { identifyOrCreateCustomer } from "@/lib/services/chat/customer-identity.service";
 import { checkRateLimit } from "@/lib/services/chat/rate-limit.service";
-import { withCors, corsResponse } from "@/lib/services/chat/cors";
+import {
+  withCors,
+  corsResponse,
+  getEmbedOrigins,
+} from "@/lib/services/chat/cors";
 import { getClientIp } from "@/lib/services/chat/helpers";
 import type { CustomerIdentityMethod } from "@prisma/client";
 
@@ -21,8 +25,13 @@ const identifySchema = z.object({
   telegramName: z.string().optional(),
 });
 
-export async function OPTIONS(request: Request) {
-  return corsResponse(request.headers.get("origin"));
+export async function OPTIONS(
+  request: Request,
+  { params }: { params: Promise<{ slug: string }> },
+) {
+  const { slug } = await params;
+  const allowedOrigins = await getEmbedOrigins(slug);
+  return corsResponse(request.headers.get("origin"), allowedOrigins);
 }
 
 export async function POST(
@@ -30,6 +39,9 @@ export async function POST(
   { params }: { params: Promise<{ slug: string }> },
 ) {
   const origin = request.headers.get("origin");
+  // Resolved AFTER the rate-limit so a flood doesn't cause a DB lookup per
+  // request; the 429 uses the safe static "*" (no allowlist needed there).
+  let allowedOrigins: string[] = [];
   try {
     const { slug } = await params;
     const ip = getClientIp(request);
@@ -45,6 +57,7 @@ export async function POST(
         origin,
       );
     }
+    allowedOrigins = await getEmbedOrigins(slug);
 
     const workspace = await db.workspace.findUnique({
       where: { slug },
@@ -57,6 +70,7 @@ export async function POST(
           { status: 404 },
         ),
         origin,
+        allowedOrigins,
       );
     }
 
@@ -82,6 +96,7 @@ export async function POST(
         csrf: result.csrf,
       }),
       origin,
+      allowedOrigins,
     );
   } catch (err) {
     if (err instanceof z.ZodError) {
@@ -94,6 +109,7 @@ export async function POST(
           { status: 400 },
         ),
         origin,
+        allowedOrigins,
       );
     }
     if (err instanceof ApiError) {
@@ -103,12 +119,14 @@ export async function POST(
           { status: err.status },
         ),
         origin,
+        allowedOrigins,
       );
     }
     console.error("[POST /api/chat/identify]", err);
     return withCors(
       NextResponse.json({ error: "Ошибка сервера" }, { status: 500 }),
       origin,
+      allowedOrigins,
     );
   }
 }

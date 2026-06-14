@@ -5,11 +5,20 @@ import {
   unverifiedTicketFloor,
 } from "@/lib/services/chat/customer-identity.service";
 import { getTicketForCustomer } from "@/lib/services/tickets/ticket.service";
-import { withCors, corsResponse } from "@/lib/services/chat/cors";
+import {
+  withCors,
+  corsResponse,
+  getEmbedOrigins,
+} from "@/lib/services/chat/cors";
 import { extractBearerToken } from "@/lib/services/chat/helpers";
 
-export async function OPTIONS(request: Request) {
-  return corsResponse(request.headers.get("origin"));
+export async function OPTIONS(
+  request: Request,
+  { params }: { params: Promise<{ slug: string; ticketId: string }> },
+) {
+  const { slug } = await params;
+  const allowedOrigins = await getEmbedOrigins(slug);
+  return corsResponse(request.headers.get("origin"), allowedOrigins);
 }
 
 export async function GET(
@@ -17,8 +26,9 @@ export async function GET(
   { params }: { params: Promise<{ slug: string; ticketId: string }> },
 ) {
   const origin = request.headers.get("origin");
+  const { slug, ticketId } = await params;
+  const allowedOrigins = await getEmbedOrigins(slug);
   try {
-    const { slug, ticketId } = await params;
     const token = extractBearerToken(request);
     if (!token) {
       return withCors(
@@ -27,6 +37,7 @@ export async function GET(
           { status: 401 },
         ),
         origin,
+        allowedOrigins,
       );
     }
 
@@ -38,6 +49,7 @@ export async function GET(
           { status: 401 },
         ),
         origin,
+        allowedOrigins,
       );
     }
 
@@ -46,7 +58,7 @@ export async function GET(
       customer.id,
       unverifiedTicketFloor(customer),
     );
-    return withCors(NextResponse.json(ticket), origin);
+    return withCors(NextResponse.json(ticket), origin, allowedOrigins);
   } catch (err) {
     if (err instanceof ApiError) {
       return withCors(
@@ -55,12 +67,14 @@ export async function GET(
           { status: err.status },
         ),
         origin,
+        allowedOrigins,
       );
     }
     console.error("[GET /api/chat/tickets/:id]", err);
     return withCors(
       NextResponse.json({ error: "Ошибка сервера" }, { status: 500 }),
       origin,
+      allowedOrigins,
     );
   }
 }

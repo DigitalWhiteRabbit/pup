@@ -9,7 +9,11 @@ import {
   rateTicket,
   getTicketRating,
 } from "@/lib/services/tickets/rating.service";
-import { withCors, corsResponse } from "@/lib/services/chat/cors";
+import {
+  withCors,
+  corsResponse,
+  getEmbedOrigins,
+} from "@/lib/services/chat/cors";
 import { extractBearerToken } from "@/lib/services/chat/helpers";
 
 const rateSchema = z.object({
@@ -17,8 +21,13 @@ const rateSchema = z.object({
   comment: z.string().max(1000).optional(),
 });
 
-export async function OPTIONS(request: Request) {
-  return corsResponse(request.headers.get("origin"));
+export async function OPTIONS(
+  request: Request,
+  { params }: { params: Promise<{ slug: string; ticketId: string }> },
+) {
+  const { slug } = await params;
+  const allowedOrigins = await getEmbedOrigins(slug);
+  return corsResponse(request.headers.get("origin"), allowedOrigins);
 }
 
 export async function GET(
@@ -26,13 +35,15 @@ export async function GET(
   { params }: { params: Promise<{ slug: string; ticketId: string }> },
 ) {
   const origin = request.headers.get("origin");
+  const { slug, ticketId } = await params;
+  const allowedOrigins = await getEmbedOrigins(slug);
   try {
-    const { slug, ticketId } = await params;
     const token = extractBearerToken(request);
     if (!token) {
       return withCors(
         NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
         origin,
+        allowedOrigins,
       );
     }
     const customer = await verifyCustomerSession(token, slug);
@@ -40,6 +51,7 @@ export async function GET(
       return withCors(
         NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
         origin,
+        allowedOrigins,
       );
     }
 
@@ -48,7 +60,7 @@ export async function GET(
       customer.id,
       unverifiedTicketFloor(customer),
     );
-    return withCors(NextResponse.json({ rating }), origin);
+    return withCors(NextResponse.json({ rating }), origin, allowedOrigins);
   } catch (err) {
     if (err instanceof ApiError)
       return withCors(
@@ -57,10 +69,12 @@ export async function GET(
           { status: err.status },
         ),
         origin,
+        allowedOrigins,
       );
     return withCors(
       NextResponse.json({ error: "Ошибка" }, { status: 500 }),
       origin,
+      allowedOrigins,
     );
   }
 }
@@ -70,13 +84,15 @@ export async function POST(
   { params }: { params: Promise<{ slug: string; ticketId: string }> },
 ) {
   const origin = request.headers.get("origin");
+  const { slug, ticketId } = await params;
+  const allowedOrigins = await getEmbedOrigins(slug);
   try {
-    const { slug, ticketId } = await params;
     const token = extractBearerToken(request);
     if (!token) {
       return withCors(
         NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
         origin,
+        allowedOrigins,
       );
     }
     const customer = await verifyCustomerSession(token, slug);
@@ -84,6 +100,7 @@ export async function POST(
       return withCors(
         NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
         origin,
+        allowedOrigins,
       );
     }
 
@@ -97,7 +114,11 @@ export async function POST(
       validated.comment,
       unverifiedTicketFloor(customer),
     );
-    return withCors(NextResponse.json(rating, { status: 201 }), origin);
+    return withCors(
+      NextResponse.json(rating, { status: 201 }),
+      origin,
+      allowedOrigins,
+    );
   } catch (err) {
     if (err instanceof z.ZodError)
       return withCors(
@@ -106,6 +127,7 @@ export async function POST(
           { status: 400 },
         ),
         origin,
+        allowedOrigins,
       );
     if (err instanceof ApiError)
       return withCors(
@@ -114,11 +136,13 @@ export async function POST(
           { status: err.status },
         ),
         origin,
+        allowedOrigins,
       );
     console.error("[POST /rate]", err);
     return withCors(
       NextResponse.json({ error: "Ошибка" }, { status: 500 }),
       origin,
+      allowedOrigins,
     );
   }
 }
