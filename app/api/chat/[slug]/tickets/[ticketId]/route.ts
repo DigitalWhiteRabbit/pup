@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { ApiError } from "@/lib/api-error";
-import { verifyCustomerSession } from "@/lib/services/chat/customer-identity.service";
+import {
+  verifyCustomerSession,
+  unverifiedTicketFloor,
+} from "@/lib/services/chat/customer-identity.service";
 import { getTicketForCustomer } from "@/lib/services/tickets/ticket.service";
 import { withCors, corsResponse } from "@/lib/services/chat/cors";
 import { extractBearerToken } from "@/lib/services/chat/helpers";
@@ -38,7 +41,11 @@ export async function GET(
       );
     }
 
-    const ticket = await getTicketForCustomer(ticketId, customer.id);
+    const ticket = await getTicketForCustomer(
+      ticketId,
+      customer.id,
+      unverifiedTicketFloor(customer),
+    );
     return withCors(NextResponse.json(ticket), origin);
   } catch (err) {
     if (err instanceof ApiError) {

@@ -81,22 +81,67 @@ export async function identifyOrCreateCustomer(
     }
   }
 
+  // P0 takeover fix: claiming an EMAIL is unauthenticated. If a customer with
+  // that email ALREADY exists, we cannot prove the claimer owns it → issue an
+  // UNVERIFIED session (emailVerified=false) which is scoped to NOT expose the
+  // pre-existing customer's prior tickets (see verifyCustomerSession consumers).
+  // A brand-new email (no prior customer), ANONYMOUS, and TELEGRAM_LOGIN
+  // (proven by telegramChatId) are first-party → verified.
+  let emailVerified = true;
+  if (
+    identity.method === "EMAIL_ONLY" ||
+    identity.method === "EMAIL_WITH_NAME"
+  ) {
+    const pre = await db.customer.findUnique({
+      where: { workspaceId_email: { workspaceId, email } },
+      select: { id: true },
+    });
+    if (pre) emailVerified = false;
+  }
+
   const customer = await findOrCreateCustomer(workspaceId, {
     email,
-    name: name ?? undefined,
+    // Don't let an UNVERIFIED existing-email claim overwrite the victim's
+    // profile name (the takeover fix must keep an unverified claim inert).
+    name: emailVerified ? (name ?? undefined) : undefined,
     externalId,
   });
 
   const csrfToken = crypto.randomUUID();
-  const token = await issueCustomerToken(customer.id, workspaceId, csrfToken);
+  const token = await issueCustomerToken(
+    customer.id,
+    workspaceId,
+    csrfToken,
+    emailVerified,
+  );
 
   return { customer, token, csrf: csrfToken };
+}
+
+export type CustomerSession = {
+  id: string;
+  email: string;
+  name: string | null;
+  emailVerified: boolean;
+  /** Token issue time (epoch ms). Unverified sessions can only see tickets
+   *  created at/after this — the takeover-scoping boundary. */
+  issuedAt: number | null;
+};
+
+/**
+ * The "created-at floor" for an unverified email session: it may only see/touch
+ * tickets created at/after the token was issued. Verified sessions → undefined
+ * (no restriction). Used by ticket read/write paths.
+ */
+export function unverifiedTicketFloor(s: CustomerSession): Date | undefined {
+  if (s.emailVerified) return undefined;
+  return s.issuedAt ? new Date(s.issuedAt) : undefined;
 }
 
 export async function verifyCustomerSession(
   token: string,
   workspaceSlug: string,
-): Promise<{ id: string; email: string; name: string | null } | null> {
+): Promise<CustomerSession | null> {
   const payload = await verifyCustomerToken(token);
   if (!payload) return null;
 
@@ -112,5 +157,11 @@ export async function verifyCustomerSession(
   });
   if (!customer || customer.workspaceId !== payload.workspaceId) return null;
 
-  return { id: customer.id, email: customer.email, name: customer.name };
+  return {
+    id: customer.id,
+    email: customer.email,
+    name: customer.name,
+    emailVerified: payload.emailVerified,
+    issuedAt: payload.issuedAt,
+  };
 }

@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { ApiError } from "@/lib/api-error";
-import { verifyCustomerSession } from "@/lib/services/chat/customer-identity.service";
+import {
+  verifyCustomerSession,
+  unverifiedTicketFloor,
+} from "@/lib/services/chat/customer-identity.service";
 import { checkRateLimit } from "@/lib/services/chat/rate-limit.service";
 import {
   createTicketAsCustomer,
@@ -70,7 +73,11 @@ export async function GET(
       );
     }
 
-    const tickets = await listCustomerTickets(workspace.id, customer.id);
+    const tickets = await listCustomerTickets(
+      workspace.id,
+      customer.id,
+      unverifiedTicketFloor(customer),
+    );
     return withCors(NextResponse.json({ data: tickets }), origin);
   } catch (err) {
     if (err instanceof ApiError) {

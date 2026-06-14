@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { ApiError } from "@/lib/api-error";
-import { verifyCustomerSession } from "@/lib/services/chat/customer-identity.service";
+import {
+  verifyCustomerSession,
+  unverifiedTicketFloor,
+} from "@/lib/services/chat/customer-identity.service";
 import {
   rateTicket,
   getTicketRating,
@@ -40,7 +43,11 @@ export async function GET(
       );
     }
 
-    const rating = await getTicketRating(ticketId);
+    const rating = await getTicketRating(
+      ticketId,
+      customer.id,
+      unverifiedTicketFloor(customer),
+    );
     return withCors(NextResponse.json({ rating }), origin);
   } catch (err) {
     if (err instanceof ApiError)
@@ -88,6 +95,7 @@ export async function POST(
       customer.id,
       validated.score,
       validated.comment,
+      unverifiedTicketFloor(customer),
     );
     return withCors(NextResponse.json(rating, { status: 201 }), origin);
   } catch (err) {

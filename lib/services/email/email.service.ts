@@ -1,10 +1,12 @@
 import "server-only";
+import crypto from "crypto";
 import nodemailer from "nodemailer";
 import { db } from "@/lib/db";
 import { ApiError } from "@/lib/api-error";
 import { checkMembership } from "../workspace.service";
 import { logActivity, generateSummary } from "../logger.service";
 import { findOrCreateCustomer } from "../tickets/customer.service";
+import { encrypt, decrypt } from "@/lib/services/crypto.service";
 
 // ─── Email config CRUD ──────────────────────────────────────────────────────
 
@@ -43,7 +45,9 @@ export async function getEmailConfig(
     smtpSecure: cfg.smtpSecure,
     fromEmail: cfg.fromEmail,
     fromName: cfg.fromName,
-    inboundSecret: cfg.inboundSecret,
+    // Decrypted for the OWNER/ADMIN (gated above) — they need it to configure
+    // the external inbound forwarder. smtpPass is intentionally NEVER returned.
+    inboundSecret: cfg.inboundSecret ? decrypt(cfg.inboundSecret) : null,
   };
 }
 
@@ -66,6 +70,15 @@ export async function updateEmailConfig(
   if (m !== "OWNER" && userRole !== "ADMIN")
     throw new ApiError("Нет доступа", "FORBIDDEN", 403);
 
+  // Secrets are encrypted at rest (AES-256-GCM). decrypt() is graceful on read
+  // (legacy plaintext passes through, re-encrypted on next write).
+  const encPass =
+    data.smtpPass !== undefined
+      ? data.smtpPass
+        ? encrypt(data.smtpPass)
+        : null
+      : undefined;
+
   await db.workspaceEmailConfig.upsert({
     where: { workspaceId },
     create: {
@@ -74,18 +87,18 @@ export async function updateEmailConfig(
       smtpHost: data.smtpHost ?? null,
       smtpPort: data.smtpPort ?? null,
       smtpUser: data.smtpUser ?? null,
-      smtpPass: data.smtpPass ?? null,
+      smtpPass: encPass ?? null,
       smtpSecure: data.smtpSecure ?? true,
       fromEmail: data.fromEmail ?? null,
       fromName: data.fromName ?? null,
-      inboundSecret: crypto.randomUUID(),
+      inboundSecret: encrypt(crypto.randomUUID()),
     },
     update: {
       ...(data.enabled !== undefined ? { enabled: data.enabled } : {}),
       ...(data.smtpHost !== undefined ? { smtpHost: data.smtpHost } : {}),
       ...(data.smtpPort !== undefined ? { smtpPort: data.smtpPort } : {}),
       ...(data.smtpUser !== undefined ? { smtpUser: data.smtpUser } : {}),
-      ...(data.smtpPass !== undefined ? { smtpPass: data.smtpPass } : {}),
+      ...(encPass !== undefined ? { smtpPass: encPass } : {}),
       ...(data.smtpSecure !== undefined ? { smtpSecure: data.smtpSecure } : {}),
       ...(data.fromEmail !== undefined ? { fromEmail: data.fromEmail } : {}),
       ...(data.fromName !== undefined ? { fromName: data.fromName } : {}),
@@ -122,7 +135,7 @@ export async function sendEmailReply(
       secure: cfg.smtpSecure,
       auth:
         cfg.smtpUser && cfg.smtpPass
-          ? { user: cfg.smtpUser, pass: cfg.smtpPass }
+          ? { user: cfg.smtpUser, pass: decrypt(cfg.smtpPass) }
           : undefined,
     });
 
@@ -140,6 +153,32 @@ export async function sendEmailReply(
     console.error("[Email send error]", err);
     return false;
   }
+}
+
+// ─── Inbound secret verification (timing-safe) ──────────────────────────────
+
+/**
+ * Verify a presented inbound-webhook secret against the workspace config.
+ * Constant-time compare; decrypts the stored (encrypted) secret first.
+ * Returns whether inbound is enabled and the secret matches.
+ */
+export async function verifyInboundSecret(
+  workspaceId: string,
+  provided: string | null | undefined,
+): Promise<{ enabled: boolean; ok: boolean }> {
+  const cfg = await db.workspaceEmailConfig.findUnique({
+    where: { workspaceId },
+    select: { enabled: true, inboundSecret: true },
+  });
+  if (!cfg?.enabled || !cfg.inboundSecret)
+    return { enabled: !!cfg?.enabled, ok: false };
+  if (!provided) return { enabled: true, ok: false };
+
+  const expected = Buffer.from(decrypt(cfg.inboundSecret));
+  const got = Buffer.from(provided);
+  const ok =
+    expected.length === got.length && crypto.timingSafeEqual(expected, got);
+  return { enabled: true, ok };
 }
 
 // ─── Inbound email → ticket ─────────────────────────────────────────────────

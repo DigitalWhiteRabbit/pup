@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { ApiError } from "@/lib/api-error";
-import { verifyCustomerSession } from "@/lib/services/chat/customer-identity.service";
+import {
+  verifyCustomerSession,
+  unverifiedTicketFloor,
+} from "@/lib/services/chat/customer-identity.service";
 import { addMessageAsCustomer } from "@/lib/services/tickets/ticket.service";
 import { checkRateLimit } from "@/lib/services/chat/rate-limit.service";
 import { withCors, corsResponse } from "@/lib/services/chat/cors";
@@ -79,6 +82,7 @@ export async function POST(
       ticketId,
       customer.id,
       validated.content,
+      unverifiedTicketFloor(customer),
     );
     return withCors(NextResponse.json(message, { status: 201 }), origin);
   } catch (err) {

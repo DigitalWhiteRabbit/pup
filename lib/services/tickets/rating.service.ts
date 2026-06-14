@@ -20,6 +20,7 @@ export async function rateTicket(
   customerId: string,
   score: number,
   comment?: string,
+  minCreatedAt?: Date,
 ): Promise<TicketRatingView> {
   if (score < 1 || score > 5) {
     throw new ApiError("Оценка должна быть от 1 до 5", "INVALID_SCORE", 400);
@@ -33,10 +34,15 @@ export async function rateTicket(
       status: true,
       number: true,
       title: true,
+      createdAt: true,
     },
   });
   if (!ticket) throw new ApiError("Тикет не найден", "NOT_FOUND", 404);
   if (ticket.customerId !== customerId) {
+    throw new ApiError("Нет доступа", "FORBIDDEN", 403);
+  }
+  // Unverified email session cannot rate the customer's prior tickets.
+  if (minCreatedAt && ticket.createdAt < minCreatedAt) {
     throw new ApiError("Нет доступа", "FORBIDDEN", 403);
   }
   if (ticket.status !== "CLOSED" && ticket.status !== "RESOLVED") {
@@ -80,10 +86,25 @@ export async function rateTicket(
 }
 
 /**
- * Получить оценку тикета (для отображения).
+ * Получить оценку тикета (для отображения клиенту-владельцу).
+ * IDOR-fix: требуется customerId владельца тикета; чужой рейтинг → 403.
  */
 export async function getTicketRating(
   ticketId: string,
+  customerId: string,
+  minCreatedAt?: Date,
 ): Promise<TicketRatingView | null> {
+  const ticket = await db.ticket.findUnique({
+    where: { id: ticketId },
+    select: { customerId: true, createdAt: true },
+  });
+  if (!ticket) throw new ApiError("Тикет не найден", "NOT_FOUND", 404);
+  if (ticket.customerId !== customerId) {
+    throw new ApiError("Нет доступа", "FORBIDDEN", 403);
+  }
+  // Unverified email session cannot read ratings of the customer's prior tickets.
+  if (minCreatedAt && ticket.createdAt < minCreatedAt) {
+    throw new ApiError("Нет доступа", "FORBIDDEN", 403);
+  }
   return db.ticketRating.findUnique({ where: { ticketId } });
 }
