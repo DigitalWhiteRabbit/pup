@@ -16,6 +16,7 @@ import {
   requireWorkspaceAccess,
   accessCtxFromSession,
 } from "@/lib/services/workspace-access";
+import { enforceRateLimit } from "@/lib/services/rate-limit";
 
 const createSchema = z.object({
   title: z.string().min(1).max(200),
@@ -111,6 +112,14 @@ export async function POST(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const { id: workspaceId } = await params;
+    const limited = enforceRateLimit({
+      scope: "create:ticket",
+      userId: session.user.id,
+      req: request,
+      max: 200,
+      windowMs: 60 * 60 * 1000,
+    });
+    if (limited) return limited;
     await requireWorkspaceAccess(accessCtxFromSession(session), workspaceId, {
       module: "tickets",
     });

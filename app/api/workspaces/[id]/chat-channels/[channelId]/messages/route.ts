@@ -10,6 +10,7 @@ import {
   requireWorkspaceAccess,
   accessCtxFromSession,
 } from "@/lib/services/workspace-access";
+import { enforceRateLimit } from "@/lib/services/rate-limit";
 
 const sendSchema = z.object({
   content: z.string().min(1).max(10000),
@@ -59,6 +60,15 @@ export async function POST(
     const session = await auth();
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    // High ceiling — active chatting is legit; only catches scripted floods.
+    const limited = enforceRateLimit({
+      scope: "chat:message",
+      userId: session.user.id,
+      req,
+      max: 600,
+      windowMs: 60 * 60 * 1000,
+    });
+    if (limited) return limited;
     const { id: workspaceId, channelId } = await params;
     await requireWorkspaceAccess(accessCtxFromSession(session), workspaceId, {
       module: "chat",

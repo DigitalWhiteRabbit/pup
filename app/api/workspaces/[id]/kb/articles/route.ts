@@ -15,6 +15,7 @@ import {
   requireWorkspaceAccess,
   accessCtxFromSession,
 } from "@/lib/services/workspace-access";
+import { enforceRateLimit } from "@/lib/services/rate-limit";
 
 export async function GET(
   req: NextRequest,
@@ -58,6 +59,14 @@ export async function POST(
   return withErrorHandler(async () => {
     const session = await auth();
     if (!session) throw new ApiError("Не авторизован", "UNAUTHORIZED", 401);
+    const limited = enforceRateLimit({
+      scope: "create:kb-article",
+      userId: session.user.id,
+      req,
+      max: 60,
+      windowMs: 60 * 60 * 1000,
+    });
+    if (limited) return limited;
     await requireWorkspaceAccess(accessCtxFromSession(session), params.id, {
       module: "knowledge",
     });

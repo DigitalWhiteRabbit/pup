@@ -1,5 +1,6 @@
 import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
+import { enforceRateLimit } from "@/lib/services/rate-limit";
 
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const GROQ_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
@@ -16,6 +17,16 @@ export async function POST(req: Request) {
     const session = await auth();
     if (!session?.user?.id)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    // Groq Whisper call — cost/DoS limit. Generous: 60/user/hour (voice messages).
+    const limited = enforceRateLimit({
+      scope: "ai:transcribe",
+      userId: session.user.id,
+      req,
+      max: 60,
+      windowMs: 60 * 60 * 1000,
+    });
+    if (limited) return limited;
 
     const formData = await req.formData();
     const file = formData.get("file") as File | null;

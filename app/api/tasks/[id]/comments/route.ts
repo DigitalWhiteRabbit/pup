@@ -7,6 +7,7 @@ import {
 } from "@/lib/services/workspace-access";
 import { createComment } from "@/lib/services/comment.service";
 import { createCommentSchema } from "@/lib/schemas/comment.schema";
+import { enforceRateLimit } from "@/lib/services/rate-limit";
 import { NextResponse } from "next/server";
 
 type Params = { params: { id: string } };
@@ -15,6 +16,14 @@ export async function POST(req: Request, { params }: Params) {
   return withErrorHandler(async () => {
     const session = await auth();
     if (!session) return apiError("Не авторизован", "UNAUTHORIZED", 401);
+    const limited = enforceRateLimit({
+      scope: "create:comment",
+      userId: session.user.id,
+      req,
+      max: 300,
+      windowMs: 60 * 60 * 1000,
+    });
+    if (limited) return limited;
 
     const ent = await db.task.findUnique({
       where: { id: params.id },
