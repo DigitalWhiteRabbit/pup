@@ -1,9 +1,6 @@
 import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
-import {
-  validateExternalUrl,
-  readResponseWithLimit,
-} from "@/lib/services/kb/url-validator";
+import { safeFetch } from "@/lib/services/kb/url-validator";
 
 const MAX_HTML_BYTES = 500 * 1024; // 500 KB
 const FETCH_TIMEOUT_MS = 3000;
@@ -48,52 +45,28 @@ export async function GET(req: Request) {
         { status: 400 },
       );
 
-    // SSRF protection: validate URL and resolve DNS
-    const url = await validateExternalUrl(rawUrl);
+    // SSRF protection: DNS-pinned fetch, per-redirect-hop revalidation,
+    // body-size cap — all enforced inside safeFetch.
+    const result = await safeFetch(rawUrl, {
+      timeoutMs: FETCH_TIMEOUT_MS,
+      maxBytes: MAX_HTML_BYTES,
+      maxRedirects: 3,
+      headers: {
+        "User-Agent": "PUP-LinkPreview/1.0",
+        Accept: "text/html",
+      },
+    });
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-
-    let response!: Response;
-    let finalUrl = url.toString();
-    try {
-      // Follow redirects manually to validate each hop against SSRF
-      let hops = 0;
-      while (hops < 3) {
-        response = await fetch(finalUrl, {
-          signal: controller.signal,
-          headers: {
-            "User-Agent": "PUP-LinkPreview/1.0",
-            Accept: "text/html",
-          },
-          redirect: "manual",
-        });
-        if (response.status >= 300 && response.status < 400) {
-          const location = response.headers.get("location");
-          if (!location) break;
-          const redirectUrl = new URL(location, finalUrl);
-          await validateExternalUrl(redirectUrl.toString()); // SSRF check on redirect target
-          finalUrl = redirectUrl.toString();
-          hops++;
-          continue;
-        }
-        break;
-      }
-    } finally {
-      clearTimeout(timeout);
-    }
-
-    if (!response.ok)
+    if (result.status < 200 || result.status >= 300)
       return NextResponse.json(
         { error: "Не удалось загрузить страницу" },
         { status: 422 },
       );
 
-    const contentType = response.headers.get("content-type") ?? "";
-    if (!contentType.includes("text/html"))
+    if (!result.contentType.includes("text/html"))
       return NextResponse.json({ error: "Не HTML страница" }, { status: 422 });
 
-    const html = await readResponseWithLimit(response, MAX_HTML_BYTES);
+    const html = result.body;
 
     const title =
       extractMeta(html, "og:title") ??
@@ -110,7 +83,7 @@ export async function GET(req: Request) {
       title: title ?? null,
       description: description ?? null,
       image: image ?? null,
-      url: url.toString(),
+      url: result.finalUrl,
     });
   } catch (err) {
     const message =

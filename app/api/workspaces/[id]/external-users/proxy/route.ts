@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { checkMembership } from "@/lib/services/workspace.service";
-import { validateExternalUrl } from "@/lib/services/kb/url-validator";
+import { safeFetch } from "@/lib/services/kb/url-validator";
 import { NextRequest, NextResponse } from "next/server";
 
 type RouteParams = { params: Promise<{ id: string }> };
@@ -57,16 +57,6 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     targetUrl += `${targetUrl.includes("?") ? "&" : "?"}apiKey=${config.apiKey}`;
   }
 
-  // SSRF protection: validate target URL before fetching
-  try {
-    await validateExternalUrl(targetUrl);
-  } catch {
-    return NextResponse.json(
-      { error: "Blocked: target URL resolves to internal network" },
-      { status: 403 },
-    );
-  }
-
   // Check cache
   const cacheKey = `${workspaceId}:${targetUrl}`;
   const cached = cache.get(cacheKey);
@@ -74,7 +64,9 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     return NextResponse.json(cached.data);
   }
 
-  // Fetch from external API
+  // Fetch from external API — SSRF-safe: DNS-pinned, redirects revalidated per
+  // hop, response body size-capped (no DNS-rebind, no redirect-to-internal,
+  // no unbounded res.json()).
   try {
     const headers: Record<string, string> = {
       Accept: "application/json",
@@ -84,12 +76,29 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     else if (config.authType === "x-api-key")
       headers["X-API-Key"] = config.apiKey;
 
-    const res = await fetch(targetUrl, {
-      headers,
-      signal: AbortSignal.timeout(15000),
-    });
+    let res;
+    try {
+      res = await safeFetch(targetUrl, {
+        headers,
+        timeoutMs: 15000,
+        maxBytes: 10 * 1024 * 1024,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "";
+      if (
+        msg.includes("blocked") ||
+        msg.includes("Protocol not allowed") ||
+        msg.includes("Invalid URL")
+      ) {
+        return NextResponse.json(
+          { error: "Blocked: target URL resolves to internal network" },
+          { status: 403 },
+        );
+      }
+      throw err;
+    }
 
-    if (!res.ok) {
+    if (res.status < 200 || res.status >= 300) {
       // Update last error
       await db.externalUsersConfig.update({
         where: { workspaceId },
@@ -101,7 +110,15 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       );
     }
 
-    const data: unknown = await res.json();
+    let data: unknown;
+    try {
+      data = JSON.parse(res.body);
+    } catch {
+      return NextResponse.json(
+        { error: "External API returned non-JSON response" },
+        { status: 502 },
+      );
+    }
 
     // Cache response
     cache.set(cacheKey, { data, expiresAt: Date.now() + CACHE_TTL });

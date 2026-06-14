@@ -1,7 +1,30 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 
 vi.mock("server-only", () => ({}));
+// parseUrl now fetches via safeFetch. Mock it as a thin adapter over the
+// stubbed global fetch so these tests exercise parseUrl's parsing logic; the
+// SSRF/DNS-pinning behaviour of safeFetch itself is covered in
+// ssrf-hardening.test.ts.
 vi.mock("@/lib/services/kb/url-validator", () => ({
+  safeFetch: async (rawUrl: string) => {
+    const u = new URL(rawUrl); // invalid URL → parseUrl maps to 400
+    const res = (await (globalThis.fetch as unknown as typeof fetch)(
+      u.href,
+    )) as unknown as {
+      status: number;
+      url?: string;
+      headers: { get: (k: string) => string | null };
+      text: () => Promise<string>;
+    };
+    const body = await res.text();
+    return {
+      status: res.status,
+      headers: res.headers as unknown as Headers,
+      finalUrl: res.url ?? u.href,
+      contentType: res.headers.get("content-type") ?? "text/html",
+      body,
+    };
+  },
   validateExternalUrl: async (rawUrl: string) => new URL(rawUrl),
   readResponseWithLimit: async (response: unknown) =>
     (response as { text: () => Promise<string> }).text(),

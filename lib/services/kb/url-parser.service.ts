@@ -2,7 +2,7 @@ import "server-only";
 import * as cheerio from "cheerio";
 import TurndownService from "turndown";
 import { ApiError } from "@/lib/api-error";
-import { validateExternalUrl, readResponseWithLimit } from "./url-validator";
+import { safeFetch } from "./url-validator";
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { gfm } = require("turndown-plugin-gfm") as {
@@ -35,90 +35,59 @@ export async function parseUrl(
   url: string,
   options?: { timeout?: number; userAgent?: string; _redirectDepth?: number },
 ): Promise<UrlParseResult> {
-  const redirectDepth = options?._redirectDepth ?? 0;
-  if (redirectDepth > 5) {
-    throw new ApiError("Слишком много редиректов", "TOO_MANY_REDIRECTS", 400);
-  }
-  // Validate URL — SSRF protection
-  let parsed: URL;
-  try {
-    parsed = await validateExternalUrl(url);
-  } catch (err: unknown) {
-    throw new ApiError(
-      (err as Error).message || "Некорректный URL",
-      "INVALID_URL",
-      400,
-    );
-  }
-
   const timeout = options?.timeout ?? 30000;
   const userAgent =
     options?.userAgent ??
     "PupKnowledgeBaseBot/1.0 (compatible; +https://pup.local)";
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeout);
-
-  let response: Response;
+  // SSRF protection: DNS-pinned fetch with per-redirect-hop revalidation.
+  // safeFetch resolves+pins+validates the host (and every redirect target),
+  // so there is no DNS-rebind window and no unvalidated redirect.
+  let result;
   try {
-    response = await fetch(url, {
-      signal: controller.signal,
+    result = await safeFetch(url, {
+      timeoutMs: timeout,
+      maxRedirects: 5,
       headers: {
         "User-Agent": userAgent,
         Accept: "text/html,application/xhtml+xml",
       },
-      redirect: "manual",
     });
   } catch (err: unknown) {
-    if ((err as Error).name === "AbortError") {
+    const msg = (err as Error).message || "";
+    if (msg.includes("aborted") || msg.includes("timeout")) {
       throw new ApiError("Превышено время ожидания", "URL_FETCH_TIMEOUT", 408);
     }
-    throw new ApiError(
-      `Ошибка загрузки URL: ${(err as Error).message}`,
-      "URL_FETCH_FAILED",
-      502,
-    );
-  } finally {
-    clearTimeout(timer);
-  }
-
-  // Handle redirects manually — validate each Location against SSRF
-  if (response.status >= 300 && response.status < 400) {
-    const location = response.headers.get("location");
-    if (!location) {
-      throw new ApiError(
-        "Redirect без Location header",
-        "URL_FETCH_FAILED",
-        502,
-      );
+    // SSRF / validation rejections surface as 400, network failures as 502.
+    if (
+      msg.includes("blocked") ||
+      msg.includes("Protocol not allowed") ||
+      msg.includes("Invalid URL") ||
+      msg.includes("redirects")
+    ) {
+      throw new ApiError(msg, "INVALID_URL", 400);
     }
-    const redirectUrl = new URL(location, url).href;
-    // Recursive call validates the redirect target
-    return parseUrl(redirectUrl, {
-      ...options,
-      timeout: timeout - 1000,
-      _redirectDepth: redirectDepth + 1,
-    });
+    throw new ApiError(`Ошибка загрузки URL: ${msg}`, "URL_FETCH_FAILED", 502);
   }
 
-  if (response.status >= 400) {
+  if (result.status >= 400) {
     throw new ApiError(
-      `Сервер вернул ${response.status}`,
+      `Сервер вернул ${result.status}`,
       "URL_FETCH_FAILED",
-      response.status >= 500 ? 502 : 400,
+      result.status >= 500 ? 502 : 400,
     );
   }
 
-  const finalUrl = response.url || url;
-  const contentType = response.headers.get("content-type") ?? "text/html";
-  const html = await readResponseWithLimit(response);
+  const finalUrl = result.finalUrl || url;
+  const contentType = result.contentType || "text/html";
+  const html = result.body;
 
   const $ = cheerio.load(html);
 
   const title =
     $("title").first().text().trim() ||
     $("h1").first().text().trim() ||
-    parsed.hostname;
+    new URL(finalUrl).hostname;
 
   const description =
     $('meta[name="description"]').attr("content") ||
@@ -165,7 +134,7 @@ export async function parseUrl(
     metadata: {
       description,
       fetchedAt: new Date(),
-      statusCode: response.status,
+      statusCode: result.status,
       contentType,
     },
   };

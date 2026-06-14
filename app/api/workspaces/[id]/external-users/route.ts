@@ -1,5 +1,6 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { safeFetch } from "@/lib/services/kb/url-validator";
 import { NextRequest, NextResponse } from "next/server";
 
 type RouteParams = { params: Promise<{ id: string }> };
@@ -48,7 +49,8 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       { status: 400 },
     );
 
-  // Test connection
+  // Test connection — SSRF-safe: DNS-pinned, redirects revalidated, status
+  // probe only (the endpoint is user-supplied, so this is an SSRF surface).
   let isConnected = false;
   let lastError: string | null = null;
   try {
@@ -62,18 +64,23 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         ? `${apiEndpoint}${apiEndpoint.includes("?") ? "&" : "?"}apiKey=${apiKey}`
         : apiEndpoint;
 
-    const res = await fetch(testUrl, {
+    const res = await safeFetch(testUrl, {
       headers,
-      signal: AbortSignal.timeout(10000),
+      timeoutMs: 10000,
+      readBody: false,
     });
 
-    if (res.ok) {
+    if (res.status >= 200 && res.status < 300) {
       isConnected = true;
     } else {
-      lastError = `HTTP ${res.status}: ${res.statusText}`;
+      lastError = `HTTP ${res.status}`;
     }
   } catch (e) {
-    lastError = e instanceof Error ? e.message : "Connection failed";
+    const msg = e instanceof Error ? e.message : "Connection failed";
+    lastError =
+      msg.includes("blocked") || msg.includes("Protocol not allowed")
+        ? "Blocked: endpoint resolves to internal network"
+        : msg;
   }
 
   const config = await db.externalUsersConfig.upsert({
