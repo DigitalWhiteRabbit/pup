@@ -7,6 +7,7 @@ import { logActivity, generateSummary } from "../logger.service";
 import { sendTelegramNotification } from "../telegram/sender";
 import type { TicketMessageAuthorType } from "@prisma/client";
 import { searchArticles } from "@/lib/services/kb/search.service";
+import { searchKbChunks } from "@/lib/services/kb/vector-search.service";
 
 // ─── Agent config CRUD ──────────────────────────────────────────────────────
 
@@ -246,10 +247,20 @@ function toClaudeMessages(msgs: TicketMsg[]): Anthropic.MessageParam[] {
 // ─── Knowledge Base context retrieval ───────────────────────────────────────
 
 /**
- * Search KB articles + files for content relevant to the customer query.
- * Returns a formatted knowledge context string for the system prompt.
+ * Below this many vector hits, augment with the legacy keyword path so the
+ * agent's grounding is NEVER worse than keyword-only (e.g. before KbChunk is
+ * populated, or when too few chunks clear the similarity threshold).
  */
-async function fetchKnowledgeContext(
+const HYBRID_MIN_VECTOR_HITS = 2;
+
+/**
+ * Build KB context for the agent system prompt. HYBRID retrieval:
+ *  1. vector search over KbChunk (semantic);
+ *  2. if it returns < HYBRID_MIN_VECTOR_HITS, augment with the keyword path
+ *     (articles + files), guaranteeing grounding is never worse than before.
+ * Preserves the <knowledge_base>…</knowledge_base> injection shape.
+ */
+export async function fetchKnowledgeContext(
   workspaceId: string,
   customerMessages: TicketMsg[],
 ): Promise<string> {
@@ -260,6 +271,53 @@ async function fetchKnowledgeContext(
   if (!lastCustomerMsg) return "";
 
   const queryText = lastCustomerMsg.content.slice(0, 200);
+  const parts: string[] = [];
+  let path: "vector" | "keyword" | "hybrid" | "none" = "none";
+
+  // 1. Vector retrieval (semantic). Failure must not block the agent.
+  let vectorHits = 0;
+  try {
+    const hits = await searchKbChunks(workspaceId, queryText);
+    vectorHits = hits.length;
+    for (const h of hits) {
+      const label =
+        h.title || (h.sourceKind === "file" ? "Документ" : "Статья");
+      const heading = h.sourceKind === "file" ? `Документ: ${label}` : label;
+      parts.push(`## ${heading}\n${h.chunkText}`);
+    }
+    if (vectorHits > 0) path = "vector";
+  } catch {
+    // Vector search failure → fall through to keyword.
+  }
+
+  // 2. Hybrid fallback: too few vector hits → augment with the keyword path.
+  if (vectorHits < HYBRID_MIN_VECTOR_HITS) {
+    const keywordParts = await fetchKeywordParts(workspaceId, queryText);
+    if (keywordParts.length > 0) {
+      parts.push(...keywordParts);
+      path = vectorHits > 0 ? "hybrid" : "keyword";
+    }
+  }
+
+  if (parts.length === 0) return "";
+
+  console.log(
+    `[agent.kb] grounding path=${path} (vector=${vectorHits}, parts=${parts.length}) ws=${workspaceId}`,
+  );
+
+  return (
+    "\n\n<knowledge_base>\n" + parts.join("\n\n---\n\n") + "\n</knowledge_base>"
+  );
+}
+
+/**
+ * Legacy keyword retrieval (articles via search service + files via term match).
+ * Returns the formatted parts; used both as the hybrid fallback and on its own.
+ */
+async function fetchKeywordParts(
+  workspaceId: string,
+  queryText: string,
+): Promise<string[]> {
   const parts: string[] = [];
 
   // 1. Search KB articles via the existing search service
@@ -318,11 +376,7 @@ async function fetchKnowledgeContext(
     // File search failure should not block the agent response
   }
 
-  if (parts.length === 0) return "";
-
-  return (
-    "\n\n<knowledge_base>\n" + parts.join("\n\n---\n\n") + "\n</knowledge_base>"
-  );
+  return parts;
 }
 
 /**
