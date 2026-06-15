@@ -7,6 +7,7 @@ import slugify from "slugify";
 import type { KbSourceType } from "@prisma/client";
 import { diffLines } from "diff";
 import { buildSearchText } from "./utils";
+import { queueArticleIndex } from "./index.service";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -198,6 +199,12 @@ export async function createArticle(
     metadata: { articleTitle: article.title },
   });
 
+  // KB-vector: index content in the background (does NOT block the response).
+  queueArticleIndex(input.workspaceId, {
+    id: article.id,
+    content: input.content,
+  });
+
   return mapArticleSummary(article);
 }
 
@@ -292,6 +299,14 @@ export async function updateArticle(
     }),
     metadata: { articleTitle: updated.title },
   });
+
+  // KB-vector: re-index in the background ONLY when content actually changed.
+  if (data.content !== undefined && data.content !== current.content) {
+    queueArticleIndex(current.workspaceId, {
+      id: articleId,
+      content: data.content,
+    });
+  }
 
   return mapArticleSummary(updated);
 }
@@ -499,6 +514,12 @@ export async function restoreArticleVersion(
     metadata: { articleTitle: updated.title, versionId },
   });
 
+  // KB-vector: re-index restored content in the background.
+  queueArticleIndex(version.article.workspaceId, {
+    id: articleId,
+    content: version.content,
+  });
+
   return mapArticleSummary(updated);
 }
 
@@ -604,6 +625,12 @@ export async function refreshFromUrl(
         sourceUrl: article.sourceUrl,
       }),
       metadata: { addedLines, removedLines, sourceUrl: article.sourceUrl },
+    });
+
+    // KB-vector: re-index refreshed content in the background.
+    queueArticleIndex(article.workspaceId, {
+      id: articleId,
+      content: fetched.content,
     });
 
     return {
