@@ -60,6 +60,49 @@ export async function resolveContentAccess(
   return { isModerator };
 }
 
+/**
+ * Count workspace MEMBERS who can moderate content (OWNER, or full/`content:moderate`
+ * access — NOT plain `content:author`). Mirrors the moderator rule in
+ * resolveContentAccess. Used for the solo-moderator self-approve exception.
+ */
+async function countContentModerators(workspaceId: string): Promise<number> {
+  const members = await db.workspaceMember.findMany({
+    where: { workspaceId },
+    select: { role: true, allowedModules: true },
+  });
+  let count = 0;
+  for (const m of members) {
+    if (m.role === "OWNER") {
+      count++;
+      continue;
+    }
+    let allowed: string[] | null = null;
+    if (m.allowedModules) {
+      try {
+        const parsed = JSON.parse(m.allowedModules) as unknown;
+        if (Array.isArray(parsed)) allowed = parsed as string[];
+      } catch {
+        /* malformed → null = full access */
+      }
+    }
+    if (checkModuleAccess(allowed, "content:moderate")) count++;
+  }
+  return count;
+}
+
+/**
+ * Formats that inherently carry a visual → publishing requires visualApproved.
+ * POST is text-capable (e.g. Telegram/X text posts), so it does NOT require a
+ * visual. (Owner-confirmable classification — move POST here if your posts
+ * always carry an image.)
+ */
+const VISUAL_REQUIRED_FORMATS = new Set<string>([
+  "CAROUSEL",
+  "REELS",
+  "STORIES",
+  "VIDEO",
+]);
+
 // ─── Mapping ───────────────────────────────────────────────────────────────────
 
 const cardInclude = {
@@ -671,17 +714,25 @@ export async function cardAction(
 
   const authorOrMod = isModerator || isAuthor;
   const modOnly = isModerator;
-  // Separation of duties: an author can never approve/visual-approve/publish
-  // their OWN card — even if they are also a moderator. A different moderator
-  // is required.
-  const modAndNotAuthor = isModerator && !isAuthor;
-  // Server-side readiness (4/4) — mirrors gates() in lib/content/derive, never
-  // trusts the client. Required before publishing.
+
+  // Separation of duties: an author can't approve/visual-approve/publish their
+  // OWN card — EXCEPT when they are the workspace's SOLE content moderator
+  // (otherwise a 1-moderator team could never publish). With 2+ moderators the
+  // strict author≠approver rule applies.
+  let soloModerator = false;
+  if (isModerator && isAuthor) {
+    soloModerator = (await countContentModerators(workspaceId)) === 1;
+  }
+  const selfApprovalBlocked = isAuthor && !soloModerator;
+
+  // Server-side readiness — never trusts the client. Always needs text + proof
+  // + date; visual is required only for visual formats (text-capable POST is N/A).
+  const needsVisual = VISUAL_REQUIRED_FORMATS.has(card.format);
   const ready =
     !!(card.text && card.text.trim().length > 0) &&
     !!card.proofChecked &&
-    !!card.visualApproved &&
-    !!card.publishDate;
+    !!card.publishDate &&
+    (!needsVisual || !!card.visualApproved);
 
   const data: Prisma.ContentCardUpdateInput = {};
   let historyAction = "";
@@ -711,7 +762,7 @@ export async function cardAction(
           "FORBIDDEN",
           403,
         );
-      if (isAuthor)
+      if (selfApprovalBlocked)
         throw new ApiError(
           "Нельзя одобрить собственную карточку — нужен другой модератор",
           "SELF_APPROVAL_FORBIDDEN",
@@ -728,7 +779,7 @@ export async function cardAction(
           "FORBIDDEN",
           403,
         );
-      if (isAuthor)
+      if (selfApprovalBlocked)
         throw new ApiError(
           "Нельзя согласовать визуал собственной карточки — нужен другой модератор",
           "SELF_APPROVAL_FORBIDDEN",
@@ -740,19 +791,25 @@ export async function cardAction(
       break;
     case "publish":
       // Publishing is a moderation/promotion action: moderator-only AND not the
-      // author (separation of duties), AND the card must be fully ready (4/4)
-      // — verified server-side, not trusted from the client.
-      if (!modAndNotAuthor)
+      // author (unless sole moderator), AND the card must be ready server-side
+      // (text+proof+date, plus visual for visual formats).
+      if (!modOnly)
         throw new ApiError(
-          isAuthor
-            ? "Нельзя опубликовать собственную карточку — нужен другой модератор"
-            : "Только модератор может публиковать",
-          isAuthor ? "SELF_APPROVAL_FORBIDDEN" : "FORBIDDEN",
+          "Только модератор может публиковать",
+          "FORBIDDEN",
+          403,
+        );
+      if (selfApprovalBlocked)
+        throw new ApiError(
+          "Нельзя опубликовать собственную карточку — нужен другой модератор",
+          "SELF_APPROVAL_FORBIDDEN",
           403,
         );
       if (!ready)
         throw new ApiError(
-          "Карточка не готова к публикации: нужны текст, пруф, визуал и дата (4/4)",
+          needsVisual
+            ? "Карточка не готова: нужны текст, пруф, визуал и дата"
+            : "Карточка не готова: нужны текст, пруф и дата",
           "CARD_NOT_READY",
           422,
         );
