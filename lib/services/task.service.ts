@@ -14,7 +14,8 @@ import {
   notifyCriticalEvent,
   generateSummary,
 } from "./logger.service";
-import type { TaskPriority } from "@prisma/client";
+import type { TaskPriority, Prisma } from "@prisma/client";
+import { computeReorderedIds } from "./task-order";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -517,6 +518,46 @@ export async function deleteTask(
 
 // ─── moveTask ─────────────────────────────────────────────────────────────────
 
+/** Rewrite a column's positions to contiguous 0..n-1 with `taskId` at
+ *  `targetIndex`. MUST run inside a transaction. Returns the task's final index. */
+async function applyColumnOrder(
+  tx: Prisma.TransactionClient,
+  columnId: string,
+  taskId: string,
+  targetIndex: number,
+): Promise<number> {
+  const rows = await tx.task.findMany({
+    where: { columnId },
+    orderBy: { position: "asc" },
+    select: { id: true },
+  });
+  const ordered = computeReorderedIds(
+    rows.map((r) => r.id),
+    taskId,
+    targetIndex,
+  );
+  for (let i = 0; i < ordered.length; i++) {
+    await tx.task.update({ where: { id: ordered[i]! }, data: { position: i } });
+  }
+  return ordered.indexOf(taskId);
+}
+
+/** Compact a column's positions to contiguous 0..n-1 (close gaps after a task
+ *  left it). MUST run inside a transaction. */
+async function resequenceColumn(
+  tx: Prisma.TransactionClient,
+  columnId: string,
+): Promise<void> {
+  const rows = await tx.task.findMany({
+    where: { columnId },
+    orderBy: { position: "asc" },
+    select: { id: true },
+  });
+  for (let i = 0; i < rows.length; i++) {
+    await tx.task.update({ where: { id: rows[i]!.id }, data: { position: i } });
+  }
+}
+
 export async function moveTask(
   taskId: string,
   targetColumnId: string,
@@ -573,11 +614,25 @@ export async function moveTask(
     }
 
     const columnChanged = task.columnId !== targetColumnId;
+    const sourceColumnId = task.columnId;
 
+    // Atomic position recompute: move the task into the target column, then
+    // rewrite that column's positions contiguously (and compact the source
+    // column if it changed). Inside the transaction this serializes concurrent
+    // drag-drops so positions never duplicate/gap.
     await tx.task.update({
       where: { id: taskId },
-      data: { columnId: targetColumnId, position: targetPosition },
+      data: { columnId: targetColumnId },
     });
+    const finalPosition = await applyColumnOrder(
+      tx,
+      targetColumnId,
+      taskId,
+      targetPosition,
+    );
+    if (columnChanged) {
+      await resequenceColumn(tx, sourceColumnId);
+    }
 
     if (columnChanged) {
       await tx.columnMoveLog.create({
@@ -608,7 +663,7 @@ export async function moveTask(
     return {
       taskId,
       columnId: targetColumnId,
-      position: targetPosition,
+      position: finalPosition,
       totalTimeMs,
       isInProgress,
       lastIntervalStartedAt,
@@ -694,12 +749,19 @@ export async function reorderTask(
     throw new ApiError("Нет доступа", "FORBIDDEN", 403);
   }
 
-  await db.task.update({
-    where: { id: taskId },
-    data: { position: newPosition },
+  // Atomic: recompute the whole column's positions inside a transaction so two
+  // concurrent reorders can't produce duplicate/gapped positions (the previous
+  // bare update just set one position → drag-drop races corrupted the order).
+  const finalPosition = await db.$transaction(async (tx) => {
+    const t = await tx.task.findUnique({
+      where: { id: taskId },
+      select: { columnId: true },
+    });
+    if (!t) throw new ApiError("Задача не найдена", "NOT_FOUND", 404);
+    return applyColumnOrder(tx, t.columnId, taskId, newPosition);
   });
 
-  return { taskId, position: newPosition };
+  return { taskId, position: finalPosition };
 }
 
 // ─── getTaskById ──────────────────────────────────────────────────────────────
