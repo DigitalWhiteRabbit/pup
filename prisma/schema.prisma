@@ -20,15 +20,15 @@ datasource db {
 // ─────────────────────────────────────────
 
 model User {
-  id         String    @id @default(cuid())
-  login      String    @unique
-  email      String    @unique
-  password   String // bcrypt hash
-  role       Role      @default(USER)
-  isActive   Boolean   @default(true)
-  avatarPath String?
-  lastSeenAt DateTime?
-  createdAt  DateTime  @default(now())
+  id                String    @id @default(cuid())
+  login             String    @unique
+  email             String    @unique
+  password          String // bcrypt hash
+  role              Role      @default(USER)
+  isActive          Boolean   @default(true)
+  avatarPath        String?
+  lastSeenAt        DateTime?
+  createdAt         DateTime  @default(now())
   // Bumped on password change → JWTs issued before this are invalidated
   // (other sessions logged out; the changing session is re-issued in place).
   passwordChangedAt DateTime?
@@ -196,14 +196,14 @@ model Workspace {
 // ─────────────────────────────────────────
 
 model ServiceAccount {
-  id          String    @id @default(cuid())
-  name        String
-  tokenHash   String    @unique // SHA-256 hash of Bearer token
-  scopes      String // JSON array: ["tasks:read","tickets:read",...]
-  allowedIPs  String? // JSON array: ["187.127.88.96"]. null = any IP
-  isActive    Boolean   @default(true)
-  lastUsedAt  DateTime?
-  createdAt   DateTime  @default(now())
+  id         String    @id @default(cuid())
+  name       String
+  tokenHash  String    @unique // SHA-256 hash of Bearer token
+  scopes     String // JSON array: ["tasks:read","tickets:read",...]
+  allowedIPs String? // JSON array: ["187.127.88.96"]. null = any IP
+  isActive   Boolean   @default(true)
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
 
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   workspaceId String
@@ -322,7 +322,7 @@ model WorkspaceMember {
   userId         String
   role           MemberRole @default(MEMBER)
   joinedAt       DateTime   @default(now())
-  allowedModules String?    // JSON array, e.g. ["marketing","marketing:parsers:youtube"]. null = full access
+  allowedModules String? // JSON array, e.g. ["marketing","marketing:parsers:youtube"]. null = full access
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -342,7 +342,7 @@ model MemberActivity {
   user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   workspaceId   String
   workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  date          String    // "2026-05-22" (ISO date string)
+  date          String // "2026-05-22" (ISO date string)
   minutesActive Int       @default(0)
   firstSeenAt   DateTime?
   lastSeenAt    DateTime?
@@ -873,6 +873,7 @@ model KbArticle {
   lastEditedBy User?              @relation("KbArticleEditor", fields: [lastEditedById], references: [id], onDelete: SetNull)
   tags         KbArticleTag[]
   versions     KbArticleVersion[]
+  chunks       KbChunk[]
 
   @@unique([workspaceId, slug])
   @@index([workspaceId, isPublished, updatedAt])
@@ -916,7 +917,7 @@ model KbFile {
   originalName String
   size         Int // bytes
   mimeType     String
-  storagePath     String
+  storagePath  String
 
   // Auto-extracted document content
   extractedText   String?
@@ -928,9 +929,34 @@ model KbFile {
   workspace  Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   uploadedBy User?       @relation("KbFileUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
   articles   KbArticle[] @relation("ArticleSourceFile")
+  chunks     KbChunk[]
 
   @@index([workspaceId, uploadedAt])
   @@index([uploadedById])
+}
+
+// KB vector chunks (KB-vector step 1). Chunk-level embeddings (Xenova e5-small,
+// 384-dim, stored as JSON float[] in `embedding`). Additive — NOT wired into
+// ingest/search/agent yet (steps 2-4).
+model KbChunk {
+  id             String   @id @default(cuid())
+  workspaceId    String
+  articleId      String?
+  fileId         String?
+  sourceKind     String // "article" | "file"
+  position       Int
+  chunkText      String
+  embedding      String? // JSON.stringify(number[])
+  embeddingModel String?
+  tokenCount     Int?
+  createdAt      DateTime @default(now())
+
+  article KbArticle? @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  file    KbFile?    @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([articleId])
+  @@index([fileId])
 }
 
 // ─────────────────────────────────────────
@@ -1568,7 +1594,7 @@ model MktConfig {
   // Warm-up (graduated daily sending limits for new domains)
   warmupEnabled   Boolean   @default(false)
   warmupStartDate DateTime?
-  warmupSchedule  String?   // JSON array of daily limits, e.g. [5,10,20,30,50,75,100,125,150,175,200]
+  warmupSchedule  String? // JSON array of daily limits, e.g. [5,10,20,30,50,75,100,125,150,175,200]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1780,9 +1806,9 @@ model MktTgAccount {
   id          String @id @default(cuid())
   workspaceId String
 
-  label  String?
-  phone  String?
-  apiId  Int?
+  label   String?
+  phone   String?
+  apiId   Int?
   apiHash String? // ENCRYPTED
   session String? // ENCRYPTED
 
@@ -2239,19 +2265,19 @@ model ContentCard {
 
   publishDate DateTime?
 
-  visualBrief String? // ТЗ визуала
-  visualLink  String? // ссылка на визуал / макет / файл
-  text        String? // финальный текст / сценарий / тезисы
-  workComment String? // рабочий комментарий автора
+  visualBrief  String? // ТЗ визуала
+  visualLink   String? // ссылка на визуал / макет / файл
+  text         String? // финальный текст / сценарий / тезисы
+  workComment  String? // рабочий комментарий автора
   adminComment String? // админ-комментарий (модератор)
 
   publishedUrl        String? // ссылка на опубликованный пост
   publishedExternalId String? // id поста во внешней системе (для автопубликации)
 
   // Гейты публикации (текст считается на лету по наличию text)
-  autoPublish     Boolean @default(false)
-  proofChecked    Boolean @default(false)
-  visualApproved  Boolean @default(false)
+  autoPublish    Boolean @default(false)
+  proofChecked   Boolean @default(false)
+  visualApproved Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
