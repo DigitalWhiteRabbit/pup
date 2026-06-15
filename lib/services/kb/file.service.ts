@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { ApiError } from "@/lib/api-error";
 import { storage } from "@/lib/services/storage";
 import { checkMembership } from "@/lib/services/workspace.service";
+import { queueFileIndex } from "./index.service";
 
 export type KbFileView = {
   id: string;
@@ -51,13 +52,20 @@ async function extractFileText(
     const { parseDocument } = await import("./parsers");
     const result = await parseDocument(buffer, mimeType, originalName);
 
-    await db.kbFile.update({
+    const updated = await db.kbFile.update({
       where: { id: fileId },
       data: {
         extractedText: result.content,
         extractedAt: new Date(),
         extractionError: null,
       },
+      select: { workspaceId: true },
+    });
+
+    // KB-vector: index the extracted text in the background.
+    queueFileIndex(updated.workspaceId, {
+      id: fileId,
+      extractedText: result.content,
     });
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : "Unknown extraction error";
@@ -75,9 +83,7 @@ async function extractFileText(
  * On-demand extraction for files that weren't extracted at upload time.
  * Returns the extracted text or null if extraction fails.
  */
-export async function extractFileTextOnDemand(
-  fileId: string,
-): Promise<{
+export async function extractFileTextOnDemand(fileId: string): Promise<{
   content: string | null;
   extractedAt: Date | null;
   error: string | null;

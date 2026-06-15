@@ -4,6 +4,15 @@ const nextConfig = {
   experimental: {
     instrumentationHook: true,
     optimizePackageImports: ["lucide-react", "date-fns"],
+    // KB-vector: the local embedder (@xenova/transformers) loads the native
+    // onnxruntime-node backend (ships prebuilt *.node binaries) and sharp.
+    // Keep them external so webpack doesn't try to bundle the native binaries
+    // into server route bundles — they're require()'d at runtime instead.
+    serverComponentsExternalPackages: [
+      "@xenova/transformers",
+      "onnxruntime-node",
+      "sharp",
+    ],
   },
   async headers() {
     return [
