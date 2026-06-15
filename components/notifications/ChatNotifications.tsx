@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { X, MessageSquare } from "lucide-react";
 import { UserAvatar } from "@/components/ui/user-avatar";
+import { useVisibleInterval } from "@/lib/hooks/use-visible-interval";
 
 type ChatNotif = {
   id: string;
@@ -90,63 +91,60 @@ export function ChatNotifications() {
     return () => clearInterval(interval);
   }, []);
 
-  // Poll for new messages
-  useEffect(() => {
-    const poll = async () => {
-      try {
-        const res = await fetch(
-          `/api/notifications/chat-updates?since=${encodeURIComponent(sinceRef.current)}`,
-        );
-        if (!res.ok) return;
+  // Poll for new messages — paused while the tab is hidden.
+  const poll = useCallback(async () => {
+    try {
+      const res = await fetch(
+        `/api/notifications/chat-updates?since=${encodeURIComponent(sinceRef.current)}`,
+      );
+      if (!res.ok) return;
 
-        const data = (await res.json()) as {
-          messages: ChatNotif[];
-          settings: Settings | null;
-        };
+      const data = (await res.json()) as {
+        messages: ChatNotif[];
+        settings: Settings | null;
+      };
 
-        if (data.settings) settingsRef.current = data.settings;
+      if (data.settings) settingsRef.current = data.settings;
 
-        const newMsgs = data.messages.filter(
-          (m) => !seenIdsRef.current.has(m.id),
-        );
+      const newMsgs = data.messages.filter(
+        (m) => !seenIdsRef.current.has(m.id),
+      );
 
-        if (newMsgs.length > 0 && settingsRef.current.chatDesktopNotify) {
-          const now = Date.now();
-          const newToasts: ToastItem[] = newMsgs.map((m) => ({
-            ...m,
-            dismissAt: now + TOAST_DURATION,
-          }));
+      if (newMsgs.length > 0 && settingsRef.current.chatDesktopNotify) {
+        const now = Date.now();
+        const newToasts: ToastItem[] = newMsgs.map((m) => ({
+          ...m,
+          dismissAt: now + TOAST_DURATION,
+        }));
 
-          setToasts((prev) => [...newToasts, ...prev].slice(0, 5));
+        setToasts((prev) => [...newToasts, ...prev].slice(0, 5));
 
-          if (settingsRef.current.chatSoundEnabled) {
-            playNotificationSound();
-          }
-
-          for (const m of newMsgs) {
-            seenIdsRef.current.add(m.id);
-          }
-
-          // Prevent unbounded memory growth — keep only the most recent 200 IDs
-          if (seenIdsRef.current.size > 500) {
-            const entries = Array.from(seenIdsRef.current);
-            seenIdsRef.current = new Set(entries.slice(entries.length - 200));
-          }
+        if (settingsRef.current.chatSoundEnabled) {
+          playNotificationSound();
         }
 
-        // Update since to latest message time
-        if (data.messages.length > 0) {
-          const latest = data.messages[0]!;
-          sinceRef.current = latest.createdAt;
+        for (const m of newMsgs) {
+          seenIdsRef.current.add(m.id);
         }
-      } catch {
-        /* silent */
+
+        // Prevent unbounded memory growth — keep only the most recent 200 IDs
+        if (seenIdsRef.current.size > 500) {
+          const entries = Array.from(seenIdsRef.current);
+          seenIdsRef.current = new Set(entries.slice(entries.length - 200));
+        }
       }
-    };
 
-    const interval = setInterval(() => void poll(), POLL_INTERVAL);
-    return () => clearInterval(interval);
+      // Update since to latest message time
+      if (data.messages.length > 0) {
+        const latest = data.messages[0]!;
+        sinceRef.current = latest.createdAt;
+      }
+    } catch {
+      /* silent */
+    }
   }, []);
+
+  useVisibleInterval(() => void poll(), POLL_INTERVAL);
 
   if (toasts.length === 0) return null;
 

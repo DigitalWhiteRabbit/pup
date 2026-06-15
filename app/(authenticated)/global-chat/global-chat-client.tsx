@@ -3,6 +3,7 @@
 import { formatFileSize } from "@/lib/utils";
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useVisibleInterval } from "@/lib/hooks/use-visible-interval";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 import {
@@ -87,12 +88,31 @@ export function GlobalChatClient({
 
   /* ── Data fetching ── */
 
+  // Messages refetch on (a) local mutations (send/react/edit/delete already
+  // invalidate ["global-chat"]) and (b) a cheap version-probe below — NOT on a
+  // blind 3s interval. So idle polling is ~50 bytes (the probe), not ~30KB.
   const { data } = useQuery<{ data: Msg[] }>({
     queryKey: ["global-chat"],
     queryFn: () => fetch("/api/global-chat").then((r) => r.json()),
-    refetchInterval: 3000,
   });
   const msgs = data?.data ?? [];
+
+  // Poll the tiny change-signature every 3s (paused while the tab is hidden).
+  // Only when it changes do we refetch the full message list.
+  const lastSigRef = useRef<string | null>(null);
+  useVisibleInterval(() => {
+    void fetch("/api/global-chat/version")
+      .then((r) => r.json())
+      .then((v: { sig?: string }) => {
+        if (!v?.sig) return;
+        const first = lastSigRef.current === null;
+        if (v.sig !== lastSigRef.current) {
+          lastSigRef.current = v.sig;
+          if (!first) void qc.invalidateQueries({ queryKey: ["global-chat"] });
+        }
+      })
+      .catch(() => {});
+  }, 3000);
 
   const { data: allUsers = [] } = useQuery<ChatUser[]>({
     queryKey: ["users", "all"],

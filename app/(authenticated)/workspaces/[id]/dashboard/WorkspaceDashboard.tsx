@@ -9,10 +9,53 @@ import { TaskModal } from "@/components/board/TaskModal";
 import { WorkspaceLogo } from "@/components/ui/workspace-logo";
 import type { WorkspaceBoard } from "@/lib/services/workspace.service";
 
-async function fetchWorkspace(id: string): Promise<WorkspaceBoard> {
-  const res = await fetch(`/api/workspaces/${id}`);
-  if (!res.ok) throw new Error("Failed to fetch workspace");
-  return res.json() as Promise<WorkspaceBoard>;
+// Lightweight aggregates from /api/workspaces/[id]/dashboard-stats (mirrors
+// DashboardStats in lib/services/dashboard.service — kept local to avoid
+// importing the server-only service into this client component).
+type DashboardStats = {
+  totalTasks: number;
+  inProgressCount: number;
+  doneCount: number;
+  myTasksCount: number;
+  columns: { id: string; name: string; position: number; taskCount: number }[];
+  myTasks: { id: string; title: string; columnName: string }[];
+};
+
+async function fetchDashboardStats(id: string): Promise<DashboardStats> {
+  const res = await fetch(`/api/workspaces/${id}/dashboard-stats`);
+  if (!res.ok) throw new Error("Failed to fetch dashboard stats");
+  return res.json() as Promise<DashboardStats>;
+}
+
+/** First-paint stats from the already-server-loaded board (no extra request).
+ *  inProgress starts at 0 — the board doesn't carry it; the first poll fills it. */
+function deriveStatsFromBoard(
+  ws: WorkspaceBoard,
+  currentUserId: string,
+): DashboardStats {
+  const all = ws.columns.flatMap((c) =>
+    c.tasks.map((t) => ({ ...t, columnName: c.name })),
+  );
+  const myTasks = all.filter(
+    (t) =>
+      t.assignees.some((a) => a.id === currentUserId) &&
+      !isDoneColumn(t.columnName),
+  );
+  return {
+    totalTasks: all.length,
+    inProgressCount: 0,
+    doneCount: all.filter((t) => isDoneColumn(t.columnName)).length,
+    myTasksCount: myTasks.length,
+    columns: ws.columns.map((c) => ({
+      id: c.id,
+      name: c.name,
+      position: c.position,
+      taskCount: c.tasks.length,
+    })),
+    myTasks: myTasks
+      .slice(0, 50)
+      .map((t) => ({ id: t.id, title: t.title, columnName: t.columnName })),
+  };
 }
 
 type Props = {
@@ -60,29 +103,22 @@ export function WorkspaceDashboard({
 }: Props) {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 
-  const { data: workspace } = useQuery({
-    queryKey: ["workspace", initialWorkspace.id],
-    queryFn: () => fetchWorkspace(initialWorkspace.id),
-    initialData: initialWorkspace,
+  const initialStats = useMemo(
+    () => deriveStatsFromBoard(initialWorkspace, currentUserId),
+    [initialWorkspace, currentUserId],
+  );
+
+  // Poll the LIGHT aggregates endpoint (was: refetch the entire board every 5s).
+  const { data: stats } = useQuery({
+    queryKey: ["dashboard-stats", initialWorkspace.id],
+    queryFn: () => fetchDashboardStats(initialWorkspace.id),
+    initialData: initialStats,
     refetchInterval: 5000,
   });
 
-  const allTasks = useMemo(
-    () =>
-      workspace.columns.flatMap((c) =>
-        c.tasks.map((t) => ({ ...t, columnName: c.name })),
-      ),
-    [workspace],
-  );
-
-  const totalTasks = allTasks.length;
-  const inProgressTasks = allTasks.filter((t) => t.isInProgress);
-  const doneTasks = allTasks.filter((t) => isDoneColumn(t.columnName));
-  const myTasks = allTasks.filter(
-    (t) =>
-      t.assignees.some((a) => a.id === currentUserId) &&
-      !isDoneColumn(t.columnName),
-  );
+  const workspace = initialWorkspace; // header/logo/members (static-ish)
+  const totalTasks = stats.totalTasks;
+  const myTasks = stats.myTasks;
 
   return (
     <div className="p-4 md:p-6 space-y-4 md:space-y-6">
@@ -134,7 +170,7 @@ export function WorkspaceDashboard({
                 <Clock className="h-4 w-4 text-blue-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold">{inProgressTasks.length}</p>
+                <p className="text-2xl font-bold">{stats.inProgressCount}</p>
                 <p className="text-xs text-muted-foreground">В работе сейчас</p>
               </div>
             </div>
@@ -148,7 +184,7 @@ export function WorkspaceDashboard({
                 <CheckSquare className="h-4 w-4 text-green-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold">{doneTasks.length}</p>
+                <p className="text-2xl font-bold">{stats.doneCount}</p>
                 <p className="text-xs text-muted-foreground">Готово</p>
               </div>
             </div>
@@ -162,7 +198,7 @@ export function WorkspaceDashboard({
                 <TrendingUp className="h-4 w-4 text-orange-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold">{myTasks.length}</p>
+                <p className="text-2xl font-bold">{stats.myTasksCount}</p>
                 <p className="text-xs text-muted-foreground">Мои задачи</p>
               </div>
             </div>
@@ -178,7 +214,7 @@ export function WorkspaceDashboard({
             <CardTitle className="text-sm font-semibold">Мои задачи</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
-            {myTasks.length === 0 ? (
+            {stats.myTasksCount === 0 ? (
               <p className="text-xs text-muted-foreground py-4 text-center">
                 Нет назначенных задач
               </p>
@@ -198,9 +234,9 @@ export function WorkspaceDashboard({
                 </button>
               ))
             )}
-            {myTasks.length > 8 && (
+            {stats.myTasksCount > 8 && (
               <p className="text-xs text-muted-foreground text-center pt-1">
-                +{myTasks.length - 8} ещё
+                +{stats.myTasksCount - 8} ещё
               </p>
             )}
           </CardContent>
@@ -212,19 +248,19 @@ export function WorkspaceDashboard({
             <CardTitle className="text-sm font-semibold">По колонкам</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
-            {workspace.columns
+            {stats.columns
               .slice()
               .sort((a, b) => a.position - b.position)
               .map((col) => {
                 const pct =
                   totalTasks > 0
-                    ? Math.round((col.tasks.length / totalTasks) * 100)
+                    ? Math.round((col.taskCount / totalTasks) * 100)
                     : 0;
                 return (
                   <div key={col.id} className="space-y-1">
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-muted-foreground">{col.name}</span>
-                      <span className="font-medium">{col.tasks.length}</span>
+                      <span className="font-medium">{col.taskCount}</span>
                     </div>
                     <div className="h-1.5 rounded-full bg-muted overflow-hidden">
                       <div

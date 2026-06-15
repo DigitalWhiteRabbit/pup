@@ -18,6 +18,7 @@ import {
 import { format, formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { MessageInput } from "./message-input";
+import { useVisibleInterval } from "@/lib/hooks/use-visible-interval";
 import {
   priorityColorClass,
   PRIORITY_LABELS,
@@ -157,14 +158,17 @@ export function ChatInterface({
     if (activeTicketId) void fetchTicketDetail();
   }, [activeTicketId, fetchTicketDetail]);
 
-  useEffect(() => {
-    if (!activeTicketId) return;
-    const interval = setInterval(() => {
+  // Poll the active ticket every 2s — but PAUSE while the tab is hidden so a
+  // backgrounded embedded widget (on a customer's site) doesn't keep hitting
+  // the server every 2s.
+  useVisibleInterval(
+    () => {
       void fetchTicketDetail();
       void fetchTickets();
-    }, 2000);
-    return () => clearInterval(interval);
-  }, [activeTicketId, fetchTicketDetail, fetchTickets]);
+    },
+    2000,
+    { enabled: !!activeTicketId },
+  );
 
   useEffect(() => {
     const count = activeTicket?.messages.length ?? 0;
