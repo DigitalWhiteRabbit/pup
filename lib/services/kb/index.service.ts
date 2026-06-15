@@ -6,6 +6,7 @@ import {
   embeddingToJson,
   EMBEDDING_MODEL,
 } from "./embedding.service";
+import { invalidateKbChunkCache } from "./vector-search.service";
 
 /**
  * KB vector indexing (KB-vector step 2): chunk + embed article/file content into
@@ -38,7 +39,11 @@ async function indexSource(params: {
   }
 
   const chunks = chunkText(text ?? "");
-  if (chunks.length === 0) return { chunks: 0 };
+  if (chunks.length === 0) {
+    // The delete above changed this workspace's chunk set — bust the cache.
+    invalidateKbChunkCache(workspaceId);
+    return { chunks: 0 };
+  }
 
   // embedPassages batches internally (8) and applies the e5 "passage: " prefix.
   const embeddings = await embedPassages(chunks);
@@ -57,6 +62,8 @@ async function indexSource(params: {
     })),
   });
 
+  // New chunk vectors → invalidate so the next search reloads this workspace.
+  invalidateKbChunkCache(workspaceId);
   return { chunks: chunks.length };
 }
 
