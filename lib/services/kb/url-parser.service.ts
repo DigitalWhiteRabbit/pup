@@ -107,6 +107,39 @@ export async function parseUrl(
     )
     .remove();
 
+  // Defense-in-depth sanitization of the UNTRUSTED page HTML BEFORE Turndown.
+  // Turndown keeps unknown/inline tags as raw HTML, so a malicious page could
+  // smuggle <img onerror=…>, <iframe>, or javascript:/data: links into the
+  // imported markdown. Strip executable surfaces here; the render layer
+  // (MarkdownPreview → rehype-sanitize) is the primary guard.
+  mainEl
+    .find(
+      "iframe, object, embed, form, svg, math, link, meta, base, script, style",
+    )
+    .remove();
+  mainEl.find("*").each((_, el) => {
+    if (!("attribs" in el) || !el.attribs) return;
+    for (const name of Object.keys(el.attribs)) {
+      const lower = name.toLowerCase();
+      // Drop all inline event handlers (onclick, onerror, onload, …).
+      if (lower.startsWith("on")) {
+        $(el).removeAttr(name);
+        continue;
+      }
+      // Drop dangerous URL schemes on href/src/xlink:href.
+      if (lower === "href" || lower === "src" || lower === "xlink:href") {
+        const v = el.attribs[name]?.replace(/\s+/g, "").toLowerCase() ?? "";
+        if (
+          v.startsWith("javascript:") ||
+          v.startsWith("data:") ||
+          v.startsWith("vbscript:")
+        ) {
+          $(el).removeAttr(name);
+        }
+      }
+    }
+  });
+
   const mainHtml = mainEl.html() ?? "";
   const content = turndown.turndown(mainHtml);
 

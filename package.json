@@ -80,6 +80,7 @@
     "react-dom": "^18",
     "react-hook-form": "^7.75.0",
     "react-markdown": "^10.1.0",
+    "rehype-sanitize": "^6.0.0",
     "remark-gfm": "^4.0.1",
     "resend": "^6.12.3",
     "server-only": "^0.0.1",
