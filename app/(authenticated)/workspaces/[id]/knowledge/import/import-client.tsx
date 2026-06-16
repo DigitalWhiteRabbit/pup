@@ -15,17 +15,10 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Card, CardContent } from "@/components/ui/card";
 import { MarkdownPreview } from "@/components/kb/MarkdownPreview";
+import { KbCategoryTagPicker } from "@/components/kb/KbCategoryTagPicker";
 import { toastSuccess, toastApiError } from "@/lib/toast";
 import type { KbCategoryWithCount } from "@/lib/services/kb/category.service";
 import type { KbTagItem } from "@/lib/services/kb/tag.service";
@@ -34,16 +27,18 @@ import type { KbArticleSummary } from "@/lib/services/kb/article.service";
 const ACCEPTED_TYPES = ".pdf,.docx,.xlsx,.txt,.md";
 const ACCEPTED_LABEL = "PDF, DOCX, XLSX, TXT, MD";
 
-// Radix <Select> forbids an empty-string <SelectItem> value (reserved for
-// "clear"). Use a sentinel for "no category" and map it back to "" in state,
-// so downstream logic (categoryId || undefined) is unchanged.
-const NONE_CATEGORY = "__none__";
-
 type Props = {
   workspaceId: string;
   categories: KbCategoryWithCount[];
   tags: KbTagItem[];
 };
+
+/** Char + word counter for collected content (preview volume hint). */
+function countText(text: string): { chars: number; words: number } {
+  const chars = text.length;
+  const words = text.trim() ? text.trim().split(/\s+/).length : 0;
+  return { chars, words };
+}
 
 // ─── File Tab ─────────────────────────────────────────────────────────────────
 
@@ -190,61 +185,15 @@ function FileTab({
       {/* Options */}
       {file && (
         <>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <label className="text-sm font-medium">Категория</label>
-              <Select
-                value={categoryId || NONE_CATEGORY}
-                onValueChange={(v) =>
-                  setCategoryId(v === NONE_CATEGORY ? "" : v)
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Без категории" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NONE_CATEGORY}>Без категории</SelectItem>
-                  {categories.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <label className="text-sm font-medium">Теги</label>
-              <div className="flex flex-wrap gap-1 p-2 border rounded-md min-h-[36px]">
-                {tags.map((tag) => {
-                  const selected = selectedTagIds.includes(tag.id);
-                  return (
-                    <Badge
-                      key={tag.id}
-                      variant={selected ? "default" : "outline"}
-                      className="cursor-pointer text-xs"
-                      style={
-                        selected ? { backgroundColor: tag.color } : undefined
-                      }
-                      onClick={() =>
-                        setSelectedTagIds((prev) =>
-                          selected
-                            ? prev.filter((id) => id !== tag.id)
-                            : [...prev, tag.id],
-                        )
-                      }
-                    >
-                      {tag.name}
-                    </Badge>
-                  );
-                })}
-                {!tags.length && (
-                  <span className="text-xs text-muted-foreground">
-                    Нет тегов
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
+          <KbCategoryTagPicker
+            workspaceId={workspaceId}
+            categories={categories}
+            tags={tags}
+            categoryId={categoryId}
+            onCategoryChange={setCategoryId}
+            selectedTagIds={selectedTagIds}
+            onTagsChange={setSelectedTagIds}
+          />
 
           <Button onClick={handleImport} disabled={loading} className="w-full">
             {loading ? (
@@ -357,6 +306,8 @@ function UrlTab({
     }
   };
 
+  const counts = preview ? countText(preview.content) : null;
+
   return (
     <div className="space-y-4">
       <div className="flex gap-2">
@@ -398,72 +349,28 @@ function UrlTab({
                   <ExternalLink className="h-4 w-4 text-muted-foreground hover:text-primary" />
                 </a>
               </div>
-              <div className="max-h-48 overflow-y-auto text-sm border rounded-md p-3 bg-muted/30">
-                <MarkdownPreview
-                  source={
-                    preview.content.slice(0, 500) +
-                    (preview.content.length > 500 ? "…" : "")
-                  }
-                />
+              {counts && (
+                <p className="text-xs text-muted-foreground">
+                  Собрано: {counts.chars.toLocaleString("ru")} символов · ~
+                  {counts.words.toLocaleString("ru")} слов
+                </p>
+              )}
+              {/* Full collected content, scrollable (no truncation). */}
+              <div className="max-h-[28rem] overflow-y-auto text-sm border rounded-md p-3 bg-muted/30">
+                <MarkdownPreview source={preview.content} />
               </div>
             </CardContent>
           </Card>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <label className="text-sm font-medium">Категория</label>
-              <Select
-                value={categoryId || NONE_CATEGORY}
-                onValueChange={(v) =>
-                  setCategoryId(v === NONE_CATEGORY ? "" : v)
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Без категории" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NONE_CATEGORY}>Без категории</SelectItem>
-                  {categories.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <label className="text-sm font-medium">Теги</label>
-              <div className="flex flex-wrap gap-1 p-2 border rounded-md min-h-[36px]">
-                {tags.map((tag) => {
-                  const selected = selectedTagIds.includes(tag.id);
-                  return (
-                    <Badge
-                      key={tag.id}
-                      variant={selected ? "default" : "outline"}
-                      className="cursor-pointer text-xs"
-                      style={
-                        selected ? { backgroundColor: tag.color } : undefined
-                      }
-                      onClick={() =>
-                        setSelectedTagIds((prev) =>
-                          selected
-                            ? prev.filter((id) => id !== tag.id)
-                            : [...prev, tag.id],
-                        )
-                      }
-                    >
-                      {tag.name}
-                    </Badge>
-                  );
-                })}
-                {!tags.length && (
-                  <span className="text-xs text-muted-foreground">
-                    Нет тегов
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
+          <KbCategoryTagPicker
+            workspaceId={workspaceId}
+            categories={categories}
+            tags={tags}
+            categoryId={categoryId}
+            onCategoryChange={setCategoryId}
+            selectedTagIds={selectedTagIds}
+            onTagsChange={setSelectedTagIds}
+          />
 
           <Button
             onClick={handleImport}
@@ -615,55 +522,15 @@ function CrawlTab({
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-1">
-          <label className="text-sm font-medium">Категория</label>
-          <Select
-            value={categoryId || NONE_CATEGORY}
-            onValueChange={(v) => setCategoryId(v === NONE_CATEGORY ? "" : v)}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Без категории" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={NONE_CATEGORY}>Без категории</SelectItem>
-              {categories.map((c) => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1">
-          <label className="text-sm font-medium">Теги</label>
-          <div className="flex flex-wrap gap-1 p-2 border rounded-md min-h-[36px]">
-            {tags.map((tag) => {
-              const selected = selectedTagIds.includes(tag.id);
-              return (
-                <Badge
-                  key={tag.id}
-                  variant={selected ? "default" : "outline"}
-                  className="cursor-pointer text-xs"
-                  style={selected ? { backgroundColor: tag.color } : undefined}
-                  onClick={() =>
-                    setSelectedTagIds((prev) =>
-                      selected
-                        ? prev.filter((id) => id !== tag.id)
-                        : [...prev, tag.id],
-                    )
-                  }
-                >
-                  {tag.name}
-                </Badge>
-              );
-            })}
-            {!tags.length && (
-              <span className="text-xs text-muted-foreground">Нет тегов</span>
-            )}
-          </div>
-        </div>
-      </div>
+      <KbCategoryTagPicker
+        workspaceId={workspaceId}
+        categories={categories}
+        tags={tags}
+        categoryId={categoryId}
+        onCategoryChange={setCategoryId}
+        selectedTagIds={selectedTagIds}
+        onTagsChange={setSelectedTagIds}
+      />
 
       <Button
         onClick={handleStart}
