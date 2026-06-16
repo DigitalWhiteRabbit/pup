@@ -56,8 +56,6 @@ export function CrawlProgressClient({
   workspaceId: string;
 }) {
   const router = useRouter();
-  const isActive =
-    initialCrawl.status === "RUNNING" || initialCrawl.status === "PENDING";
 
   const { data: crawl = initialCrawl } = useQuery<CrawlFull>({
     queryKey: ["crawl", initialCrawl.id],
@@ -65,9 +63,18 @@ export function CrawlProgressClient({
       const r = await fetch(`/api/kb/crawls/${initialCrawl.id}`);
       return r.json() as Promise<CrawlFull>;
     },
-    refetchInterval: isActive ? 2000 : false,
+    // Poll while the LIVE status is active (not the initial snapshot), and keep
+    // polling in the background/unfocused tab. Stops on COMPLETED/FAILED/CANCELLED.
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status === "RUNNING" || status === "PENDING" ? 2000 : false;
+    },
+    refetchIntervalInBackground: true,
     initialData: initialCrawl,
   });
+
+  // Derive from the live crawl so the UI reacts when polling sees completion.
+  const isActive = crawl.status === "RUNNING" || crawl.status === "PENDING";
 
   const cancelMut = useMutation({
     mutationFn: () =>
@@ -178,7 +185,7 @@ export function CrawlProgressClient({
 
       {/* Actions */}
       <div className="flex gap-2">
-        {(crawl.status === "RUNNING" || crawl.status === "PENDING") && (
+        {isActive && (
           <Button
             variant="destructive"
             size="sm"

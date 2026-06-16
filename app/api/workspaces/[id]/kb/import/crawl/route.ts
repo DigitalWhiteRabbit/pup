@@ -11,6 +11,10 @@ const schema = z.object({
   timeoutMs: z.number().int().min(60000).max(3600000).optional(),
   categoryId: z.string().optional(),
   tagIds: z.array(z.string()).optional(),
+  // Path prefixes to skip during the crawl (e.g. ["/de","/fr"]) — used to
+  // exclude unwanted locales/sections. Plain strings (segment-prefix match in
+  // the crawler), not regex; bounded to avoid abuse.
+  excludePaths: z.array(z.string().max(200)).max(100).optional(),
 });
 
 export async function POST(

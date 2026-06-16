@@ -66,6 +66,29 @@ function sameOrigin(a: string, b: string): boolean {
   }
 }
 
+/**
+ * True if the URL's path is under one of the excluded path prefixes (segment
+ * boundary aware: "/de" excludes /de and /de/x but NOT /design). Used to skip
+ * unwanted locales/sections during a crawl. Safe prefix matching — no regex.
+ */
+function pathIsExcluded(url: string, excludePaths?: string[]): boolean {
+  if (!excludePaths || excludePaths.length === 0) return false;
+  let pathname: string;
+  try {
+    pathname = new URL(url).pathname;
+  } catch {
+    return false;
+  }
+  for (const raw of excludePaths) {
+    let p = raw.trim();
+    if (!p) continue;
+    if (!p.startsWith("/")) p = "/" + p;
+    if (p.length > 1 && p.endsWith("/")) p = p.slice(0, -1);
+    if (pathname === p || pathname.startsWith(p + "/")) return true;
+  }
+  return false;
+}
+
 // ─── startCrawl ───────────────────────────────────────────────────────────────
 
 export async function startCrawl(
@@ -77,6 +100,7 @@ export async function startCrawl(
     timeoutMs?: number;
     categoryId?: string;
     tagIds?: string[];
+    excludePaths?: string[];
   },
   userId: string,
   userRole: "ADMIN" | "USER",
@@ -127,6 +151,7 @@ export async function startCrawl(
   void runCrawl(crawl.id, input.workspaceId, userId, userRole, {
     categoryId: input.categoryId,
     tagIds: input.tagIds,
+    excludePaths: input.excludePaths,
   });
 
   return { crawlId: crawl.id };
@@ -139,7 +164,7 @@ async function runCrawl(
   workspaceId: string,
   userId: string,
   userRole: "ADMIN" | "USER",
-  opts: { categoryId?: string; tagIds?: string[] },
+  opts: { categoryId?: string; tagIds?: string[]; excludePaths?: string[] },
 ): Promise<void> {
   const crawlRecord = await db.kbCrawl.findUnique({ where: { id: crawlId } });
   if (!crawlRecord) return;
@@ -214,6 +239,7 @@ async function runCrawl(
       if (!normUrl) continue;
       if (visited.has(normUrl)) continue;
       if (!sameOrigin(normUrl, startUrl)) continue;
+      if (pathIsExcluded(normUrl, opts.excludePaths)) continue;
       visited.add(normUrl);
 
       maxDepthReached = Math.max(maxDepthReached, item.depth);
@@ -240,6 +266,24 @@ async function runCrawl(
       // Fetch and parse
       try {
         const result = await parseUrl(normUrl, { timeout: 15000 });
+
+        // Re-check cancellation after the (slow) fetch so a cancel mid-page is
+        // responsive and we don't create an article for an aborted crawl.
+        // return (not break) — must not overwrite CANCELLED with COMPLETED.
+        const midStatus = await db.kbCrawl.findUnique({
+          where: { id: crawlId },
+          select: { status: true },
+        });
+        if (
+          midStatus?.status === "CANCELLED" ||
+          midStatus?.status === "FAILED"
+        ) {
+          await db.kbCrawlPage.update({
+            where: { id: page.id },
+            data: { status: "skipped", fetchedAt: new Date() },
+          });
+          return;
+        }
 
         // Check duplicate by sourceUrl (including newly discovered in this run)
         if (existingUrls.has(normUrl)) {
@@ -283,7 +327,12 @@ async function runCrawl(
         if (item.depth < maxDepth && queue.length < maxPages * 3) {
           for (const link of result.links) {
             const norm = normalizeUrl(link, startUrl);
-            if (norm && sameOrigin(norm, startUrl) && !visited.has(norm)) {
+            if (
+              norm &&
+              sameOrigin(norm, startUrl) &&
+              !visited.has(norm) &&
+              !pathIsExcluded(norm, opts.excludePaths)
+            ) {
               queue.push({ url: norm, depth: item.depth + 1 });
               if (queue.length >= maxPages * 3) break;
             }
