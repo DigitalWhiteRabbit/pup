@@ -40,6 +40,37 @@ function countText(text: string): { chars: number; words: number } {
   return { chars, words };
 }
 
+/**
+ * Read a human-readable error from a non-OK response WITHOUT assuming JSON. A
+ * cold-start/proxy/timeout can return an HTML error page; blindly calling
+ * res.json() then threw "… is not valid JSON". Falls back to a clean message.
+ */
+async function readResponseError(
+  res: Response,
+  fallback: string,
+): Promise<string> {
+  try {
+    if ((res.headers.get("content-type") ?? "").includes("application/json")) {
+      const data = (await res.json()) as { error?: string };
+      return data.error ?? `${fallback} (HTTP ${res.status})`;
+    }
+  } catch {
+    /* non-JSON body — fall through */
+  }
+  return `${fallback} (HTTP ${res.status})`;
+}
+
+/** Parse a JSON success body, throwing a clean error if it isn't JSON. */
+async function parseJsonOrThrow<T>(
+  res: Response,
+  fallback: string,
+): Promise<T> {
+  if (!(res.headers.get("content-type") ?? "").includes("application/json")) {
+    throw new Error(`${fallback} (HTTP ${res.status})`);
+  }
+  return (await res.json()) as T;
+}
+
 // ─── File Tab ─────────────────────────────────────────────────────────────────
 
 function FileTab({
@@ -82,10 +113,12 @@ function FileTab({
         body: formData,
       });
       if (!res.ok) {
-        const data = (await res.json()) as { error?: string };
-        throw new Error(data.error ?? "Ошибка импорта");
+        throw new Error(await readResponseError(res, "Ошибка импорта"));
       }
-      const article = (await res.json()) as KbArticleSummary;
+      const article = await parseJsonOrThrow<KbArticleSummary>(
+        res,
+        "Ошибка импорта",
+      );
       setResult(article);
       toastSuccess(`Статья «${article.title}» создана`);
     } catch (err) {
@@ -263,14 +296,13 @@ function UrlTab({
         },
       );
       if (!res.ok) {
-        const data = (await res.json()) as { error?: string };
-        throw new Error(data.error ?? "Ошибка загрузки URL");
+        throw new Error(await readResponseError(res, "Ошибка загрузки URL"));
       }
-      const data = (await res.json()) as {
+      const data = await parseJsonOrThrow<{
         title: string;
         content: string;
         finalUrl: string;
-      };
+      }>(res, "Ошибка загрузки URL");
       setPreview(data);
     } catch (err) {
       toastApiError(err);
@@ -293,10 +325,12 @@ function UrlTab({
         }),
       });
       if (!res.ok) {
-        const data = (await res.json()) as { error?: string };
-        throw new Error(data.error ?? "Ошибка импорта");
+        throw new Error(await readResponseError(res, "Ошибка импорта"));
       }
-      const article = (await res.json()) as KbArticleSummary;
+      const article = await parseJsonOrThrow<KbArticleSummary>(
+        res,
+        "Ошибка импорта",
+      );
       toastSuccess(`Статья «${article.title}» импортирована`);
       router.push(`/workspaces/${workspaceId}/knowledge/${article.id}`);
     } catch (err) {
@@ -413,6 +447,7 @@ function CrawlTab({
   const [timeoutMin, setTimeoutMin] = useState(15);
   const [categoryId, setCategoryId] = useState<string>("");
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+  const [excludePathsRaw, setExcludePathsRaw] = useState("");
   const [showLimits, setShowLimits] = useState(false);
   const [loading, setLoading] = useState(false);
   const [urlError, setUrlError] = useState("");
@@ -432,6 +467,10 @@ function CrawlTab({
     if (!validateUrl(startUrl)) return;
     setLoading(true);
     try {
+      const excludePaths = excludePathsRaw
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
       const res = await fetch(
         `/api/workspaces/${workspaceId}/kb/import/crawl`,
         {
@@ -444,14 +483,17 @@ function CrawlTab({
             timeoutMs: timeoutMin * 60 * 1000,
             categoryId: categoryId || undefined,
             tagIds: selectedTagIds.length ? selectedTagIds : undefined,
+            excludePaths: excludePaths.length ? excludePaths : undefined,
           }),
         },
       );
       if (!res.ok) {
-        const data = (await res.json()) as { error?: string };
-        throw new Error(data.error ?? "Ошибка запуска");
+        throw new Error(await readResponseError(res, "Ошибка запуска"));
       }
-      const { crawlId } = (await res.json()) as { crawlId: string };
+      const { crawlId } = await parseJsonOrThrow<{ crawlId: string }>(
+        res,
+        "Ошибка запуска",
+      );
       toastSuccess("Crawl запущен");
       router.push(`/workspaces/${workspaceId}/knowledge/crawls/${crawlId}`);
     } catch (err) {
@@ -518,6 +560,18 @@ function CrawlTab({
               value={timeoutMin}
               onChange={(e) => setTimeoutMin(Number(e.target.value))}
             />
+          </div>
+          <div className="space-y-1 col-span-3">
+            <label className="text-xs font-medium">Исключить пути</label>
+            <Input
+              placeholder="/de, /fr, /tr"
+              value={excludePathsRaw}
+              onChange={(e) => setExcludePathsRaw(e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">
+              Через запятую. Пропустить лишние локали/разделы (например
+              /de,/fr,/tr) — оставить только нужные (корень = EN, /ru).
+            </p>
           </div>
         </div>
       )}
