@@ -17,6 +17,24 @@ turndown.use(gfm);
 // Remove noisy HTML elements (tag names only — TurndownService accepts tag names)
 turndown.remove(["script", "style", "nav", "footer", "aside", "header"]);
 
+// Leading "Back"/"Назад" line (plain text or a markdown link, optionally with a
+// leading arrow glyph / list-quote marker) that some layouts emit above the body.
+const LEADING_BACK_RE =
+  /^[\s>#*-]*\[?\s*(?:←|⟵|<|»|«|→|⬅)?\s*(?:back|назад)\s*\]?(?:\([^)]*\))?\s*$/i;
+
+/** Drop leading blank/"Back"/"Назад" lines that leak in above the article body. */
+function stripLeadingChrome(markdown: string): string {
+  const lines = markdown.split("\n");
+  let i = 0;
+  while (
+    i < lines.length &&
+    (lines[i]!.trim() === "" || LEADING_BACK_RE.test(lines[i]!.trim()))
+  ) {
+    i++;
+  }
+  return lines.slice(i).join("\n").trim();
+}
+
 export type UrlParseResult = {
   url: string;
   finalUrl: string;
@@ -93,12 +111,28 @@ export async function parseUrl(
     $('meta[name="description"]').attr("content") ||
     $('meta[property="og:description"]').attr("content");
 
-  // Find main content area
-  let mainEl = $("main").first();
-  if (!mainEl.length) mainEl = $("article").first();
-  if (!mainEl.length) mainEl = $("#main").first();
-  if (!mainEl.length) mainEl = $("#content").first();
-  if (!mainEl.length) mainEl = $("body");
+  // Find main content area. Prefer the NARROWEST article-body container first
+  // (WordPress/Elementor sites often have no semantic <main>, and their
+  // <article>/<main> still wraps chrome like a leading "Back" link). Falling
+  // back progressively to broader containers, then <body>.
+  const CONTENT_SELECTORS = [
+    ".article-post__content", // atlas-system.io (custom WP theme) article body
+    ".entry-content",
+    ".post-content",
+    ".elementor-widget-theme-post-content",
+    "main",
+    "article",
+    "#main",
+    "#content",
+  ];
+  let mainEl = $("body").first();
+  for (const sel of CONTENT_SELECTORS) {
+    const el = $(sel).first();
+    if (el.length) {
+      mainEl = el as typeof mainEl;
+      break;
+    }
+  }
 
   // Remove noisy elements from the selected content area
   mainEl
@@ -140,8 +174,27 @@ export async function parseUrl(
     }
   });
 
+  // Strip page chrome that leaks into the body on non-semantic WP layouts:
+  // nav/banner/contentinfo regions, breadcrumbs, and back links by role/aria.
+  mainEl
+    .find(
+      '[role="navigation"], [role="banner"], [role="contentinfo"], ' +
+        '[class*="breadcrumb" i], [aria-label*="back" i], [aria-label*="назад" i]',
+    )
+    .remove();
+
+  // Remove image-only anchors (header/footer logo bars & grids): an <a> whose
+  // only visible content is an <img> (no text). This kills the atlas-system
+  // logo grid (a.home-project__item > img) without touching real body links.
+  mainEl.find("a").each((_, el) => {
+    const $a = $(el);
+    if ($a.text().replace(/\s+/g, "") === "" && $a.find("img").length > 0) {
+      $a.remove();
+    }
+  });
+
   const mainHtml = mainEl.html() ?? "";
-  const content = turndown.turndown(mainHtml);
+  const content = stripLeadingChrome(turndown.turndown(mainHtml));
 
   // Extract all links and make them absolute
   const linksSet = new Set<string>();
