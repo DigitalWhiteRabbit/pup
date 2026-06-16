@@ -6,16 +6,9 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
-import { Plus, ChevronLeft } from "lucide-react";
+import { ChevronLeft } from "lucide-react";
 import { MarkdownEditor } from "@/components/kb/MarkdownEditor";
+import { KbCategoryTagPicker } from "@/components/kb/KbCategoryTagPicker";
 import { toastSuccess, toastApiError } from "@/lib/toast";
 import { trackAction } from "@/lib/services/action-tracker";
 import type { KbCategoryWithCount } from "@/lib/services/kb/category.service";
@@ -34,29 +27,10 @@ export function NewArticleClient({ workspaceId, categories, tags }: Props) {
 
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
-  const [categoryId, setCategoryId] = useState<string>("__none__");
+  // "" = no category (sentinel mapping lives inside KbCategoryTagPicker).
+  const [categoryId, setCategoryId] = useState<string>("");
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [isPublished, setIsPublished] = useState(true);
-  // New tag creation inline
-  const [newTagName, setNewTagName] = useState("");
-  const [newTagColor, setNewTagColor] = useState("#8b5cf6");
-  const [localTags, setLocalTags] = useState(tags);
-
-  const createTagMut = useMutation({
-    mutationFn: (data: { name: string; color: string }) =>
-      fetch(`/api/workspaces/${workspaceId}/kb/tags`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      }).then((r) => r.json()),
-    onSuccess: (tag: KbTagItem) => {
-      setLocalTags((prev) => [...prev, tag]);
-      setSelectedTagIds((prev) => [...prev, tag.id]);
-      setNewTagName("");
-      void qc.invalidateQueries({ queryKey: ["kb-tags", workspaceId] });
-    },
-    onError: toastApiError,
-  });
 
   const createMut = useMutation({
     mutationFn: (data: {
@@ -90,16 +64,10 @@ export function NewArticleClient({ workspaceId, categories, tags }: Props) {
     createMut.mutate({
       title: title.trim(),
       content,
-      categoryId: categoryId === "__none__" ? null : categoryId || null,
+      categoryId: categoryId || null,
       tagIds: selectedTagIds,
       isPublished,
     });
-  }
-
-  function toggleTag(id: string) {
-    setSelectedTagIds((prev) =>
-      prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id],
-    );
   }
 
   return (
@@ -130,87 +98,16 @@ export function NewArticleClient({ workspaceId, categories, tags }: Props) {
           />
         </div>
 
-        {/* Category */}
-        <div className="space-y-1.5">
-          <Label>Категория</Label>
-          <Select value={categoryId} onValueChange={setCategoryId}>
-            <SelectTrigger className="w-64">
-              <SelectValue placeholder="Без категории" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__none__">Без категории</SelectItem>
-              {categories.map((c) => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        {/* Tags */}
-        <div className="space-y-2">
-          <Label>Теги</Label>
-          <div className="flex flex-wrap gap-2">
-            {localTags.map((tag) => (
-              <Badge
-                key={tag.id}
-                variant={
-                  selectedTagIds.includes(tag.id) ? "default" : "outline"
-                }
-                className="cursor-pointer select-none"
-                style={
-                  selectedTagIds.includes(tag.id)
-                    ? { backgroundColor: tag.color, border: "none" }
-                    : { borderColor: tag.color, color: tag.color }
-                }
-                onClick={() => toggleTag(tag.id)}
-              >
-                {tag.name}
-              </Badge>
-            ))}
-          </div>
-          <div className="flex items-center gap-2">
-            <input
-              type="color"
-              value={newTagColor}
-              onChange={(e) => setNewTagColor(e.target.value)}
-              className="w-7 h-7 rounded cursor-pointer border-0 p-0"
-            />
-            <Input
-              placeholder="Новый тег..."
-              value={newTagName}
-              onChange={(e) => setNewTagName(e.target.value)}
-              className="h-7 w-40 text-sm"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  if (newTagName.trim())
-                    createTagMut.mutate({
-                      name: newTagName.trim(),
-                      color: newTagColor,
-                    });
-                }
-              }}
-            />
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-7 text-xs"
-              disabled={!newTagName.trim() || createTagMut.isPending}
-              onClick={() => {
-                if (newTagName.trim())
-                  createTagMut.mutate({
-                    name: newTagName.trim(),
-                    color: newTagColor,
-                  });
-              }}
-            >
-              <Plus className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-        </div>
+        {/* Category + Tags */}
+        <KbCategoryTagPicker
+          workspaceId={workspaceId}
+          categories={categories}
+          tags={tags}
+          categoryId={categoryId}
+          onCategoryChange={setCategoryId}
+          selectedTagIds={selectedTagIds}
+          onTagsChange={setSelectedTagIds}
+        />
 
         {/* Content */}
         <div className="space-y-1.5">
