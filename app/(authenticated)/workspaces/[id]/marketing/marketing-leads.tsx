@@ -62,6 +62,11 @@ import {
   leadStatusColor,
 } from "./marketing-shared";
 
+// Radix <Select> forbids an empty-string <SelectItem> value. Use a sentinel for
+// the "all / no filter" option and map it back to "" in state, so the
+// `if (filter) params.set(...)` query logic is unchanged.
+const ALL_FILTER = "__all__";
+
 export function LeadsSection({ workspaceId }: MarketingSectionProps) {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
@@ -201,9 +206,9 @@ export function LeadsSection({ workspaceId }: MarketingSectionProps) {
               />
             </div>
             <Select
-              value={sourceFilter}
+              value={sourceFilter || ALL_FILTER}
               onValueChange={(v) => {
-                setSourceFilter(v);
+                setSourceFilter(v === ALL_FILTER ? "" : v);
                 setPage(1);
               }}
             >
@@ -211,7 +216,7 @@ export function LeadsSection({ workspaceId }: MarketingSectionProps) {
                 <SelectValue placeholder="Все источники" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">Все источники</SelectItem>
+                <SelectItem value={ALL_FILTER}>Все источники</SelectItem>
                 {SOURCES.map((s) => (
                   <SelectItem key={s.key} value={s.key}>
                     {s.name}
@@ -220,9 +225,9 @@ export function LeadsSection({ workspaceId }: MarketingSectionProps) {
               </SelectContent>
             </Select>
             <Select
-              value={statusFilter}
+              value={statusFilter || ALL_FILTER}
               onValueChange={(v) => {
-                setStatusFilter(v);
+                setStatusFilter(v === ALL_FILTER ? "" : v);
                 setPage(1);
               }}
             >
@@ -230,7 +235,7 @@ export function LeadsSection({ workspaceId }: MarketingSectionProps) {
                 <SelectValue placeholder="Все статусы" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">Все статусы</SelectItem>
+                <SelectItem value={ALL_FILTER}>Все статусы</SelectItem>
                 <SelectItem value="new">new</SelectItem>
                 <SelectItem value="enriched">enriched</SelectItem>
                 <SelectItem value="qualified">qualified</SelectItem>
@@ -240,9 +245,9 @@ export function LeadsSection({ workspaceId }: MarketingSectionProps) {
               </SelectContent>
             </Select>
             <Select
-              value={scoreFilter}
+              value={scoreFilter || ALL_FILTER}
               onValueChange={(v) => {
-                setScoreFilter(v);
+                setScoreFilter(v === ALL_FILTER ? "" : v);
                 setPage(1);
               }}
             >
@@ -250,7 +255,7 @@ export function LeadsSection({ workspaceId }: MarketingSectionProps) {
                 <SelectValue placeholder="AI-скоринг" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">AI-скоринг</SelectItem>
+                <SelectItem value={ALL_FILTER}>AI-скоринг</SelectItem>
                 <SelectItem value="high">High</SelectItem>
                 <SelectItem value="medium">Medium</SelectItem>
                 <SelectItem value="low">Low</SelectItem>
