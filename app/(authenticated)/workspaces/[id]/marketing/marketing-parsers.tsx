@@ -49,6 +49,10 @@ import {
   SOURCES,
 } from "./marketing-shared";
 
+// Radix <Select> forbids an empty-string <SelectItem> value. Use a sentinel for
+// "any country" and map it back to "" in form state (backend treats "" as any).
+const ANY_COUNTRY = "__any__";
+
 export function ParsersSection({ workspaceId }: MarketingSectionProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -385,16 +389,19 @@ export function ParsersSection({ workspaceId }: MarketingSectionProps) {
                     Страна
                   </label>
                   <Select
-                    value={newTaskForm.country}
+                    value={newTaskForm.country || ANY_COUNTRY}
                     onValueChange={(v) =>
-                      setNewTaskForm((p) => ({ ...p, country: v }))
+                      setNewTaskForm((p) => ({
+                        ...p,
+                        country: v === ANY_COUNTRY ? "" : v,
+                      }))
                     }
                   >
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">Любая</SelectItem>
+                      <SelectItem value={ANY_COUNTRY}>Любая</SelectItem>
                       <SelectItem value="RU">Россия</SelectItem>
                       <SelectItem value="US">США</SelectItem>
                       <SelectItem value="UK">Великобритания</SelectItem>
@@ -669,16 +676,19 @@ export function ParsersSection({ workspaceId }: MarketingSectionProps) {
                     Страна
                   </label>
                   <Select
-                    value={quickForm.country}
+                    value={quickForm.country || ANY_COUNTRY}
                     onValueChange={(v) =>
-                      setQuickForm((p) => ({ ...p, country: v }))
+                      setQuickForm((p) => ({
+                        ...p,
+                        country: v === ANY_COUNTRY ? "" : v,
+                      }))
                     }
                   >
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">Любая</SelectItem>
+                      <SelectItem value={ANY_COUNTRY}>Любая</SelectItem>
                       <SelectItem value="RU">Россия</SelectItem>
                       <SelectItem value="US">США</SelectItem>
                       <SelectItem value="UK">Великобритания</SelectItem>

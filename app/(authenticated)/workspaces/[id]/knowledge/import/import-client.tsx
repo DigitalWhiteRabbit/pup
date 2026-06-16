@@ -34,6 +34,11 @@ import type { KbArticleSummary } from "@/lib/services/kb/article.service";
 const ACCEPTED_TYPES = ".pdf,.docx,.xlsx,.txt,.md";
 const ACCEPTED_LABEL = "PDF, DOCX, XLSX, TXT, MD";
 
+// Radix <Select> forbids an empty-string <SelectItem> value (reserved for
+// "clear"). Use a sentinel for "no category" and map it back to "" in state,
+// so downstream logic (categoryId || undefined) is unchanged.
+const NONE_CATEGORY = "__none__";
+
 type Props = {
   workspaceId: string;
   categories: KbCategoryWithCount[];
@@ -188,12 +193,17 @@ function FileTab({
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
               <label className="text-sm font-medium">Категория</label>
-              <Select value={categoryId} onValueChange={setCategoryId}>
+              <Select
+                value={categoryId || NONE_CATEGORY}
+                onValueChange={(v) =>
+                  setCategoryId(v === NONE_CATEGORY ? "" : v)
+                }
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Без категории" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Без категории</SelectItem>
+                  <SelectItem value={NONE_CATEGORY}>Без категории</SelectItem>
                   {categories.map((c) => (
                     <SelectItem key={c.id} value={c.id}>
                       {c.name}
@@ -402,12 +412,17 @@ function UrlTab({
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
               <label className="text-sm font-medium">Категория</label>
-              <Select value={categoryId} onValueChange={setCategoryId}>
+              <Select
+                value={categoryId || NONE_CATEGORY}
+                onValueChange={(v) =>
+                  setCategoryId(v === NONE_CATEGORY ? "" : v)
+                }
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Без категории" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Без категории</SelectItem>
+                  <SelectItem value={NONE_CATEGORY}>Без категории</SelectItem>
                   {categories.map((c) => (
                     <SelectItem key={c.id} value={c.id}>
                       {c.name}
@@ -603,12 +618,15 @@ function CrawlTab({
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1">
           <label className="text-sm font-medium">Категория</label>
-          <Select value={categoryId} onValueChange={setCategoryId}>
+          <Select
+            value={categoryId || NONE_CATEGORY}
+            onValueChange={(v) => setCategoryId(v === NONE_CATEGORY ? "" : v)}
+          >
             <SelectTrigger>
               <SelectValue placeholder="Без категории" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">Без категории</SelectItem>
+              <SelectItem value={NONE_CATEGORY}>Без категории</SelectItem>
               {categories.map((c) => (
                 <SelectItem key={c.id} value={c.id}>
                   {c.name}
