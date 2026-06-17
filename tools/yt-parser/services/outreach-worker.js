@@ -1558,6 +1558,7 @@ async function _processFollowUpsForWs(wsId) {
           history,
           row.dlg_channel,
           attempt,
+          wsId,
         );
         if (!reply || !reply.body) {
           log("WARN", `Follow-up empty for lead ${lead.id}`);

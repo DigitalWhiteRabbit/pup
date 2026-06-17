@@ -398,6 +398,53 @@ async function searchKnowledge(
   return scored.slice(0, topK);
 }
 
+// ─── Общая БЗ проекта (PUP KbChunk) для аутрич-агента ──────────────
+// Цель: единая БЗ во всех модулях. Аутрич грундится на тех же KbChunk, что и
+// чат/тикет-агент PUP (та же модель Xenova/multilingual-e5-small, 384-dim,
+// query:/passage:, cosine → векторы кросс-совместимы, переэмбеддинг не нужен).
+const SHARED_KB_THRESHOLD = parseFloat(
+  process.env.KB_VECTOR_THRESHOLD || "0.75",
+); // == PUP KB_VECTOR_THRESHOLD
+const _sharedKbCache = new Map(); // workspaceId -> { at, items:[{chunk_text,title,vec}] }
+
+function invalidateSharedKbCache() {
+  _sharedKbCache.clear();
+}
+
+// Кэш per workspaceId (~60с). Чанки одного воркспейса не текут в другой.
+async function loadSharedKbChunks(workspaceId) {
+  const hit = _sharedKbCache.get(workspaceId);
+  if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.items;
+  const rows = await store.getKbChunksForWorkspace(workspaceId);
+  const items = rows.map((r) => ({
+    chunk_text: r.chunk_text,
+    title: r.title,
+    vec: jsonToEmbedding(r.embedding),
+  }));
+  _sharedKbCache.set(workspaceId, { at: Date.now(), items });
+  return items;
+}
+
+// Семантический поиск по ОБЩЕЙ БЗ PUP (KbChunk), строго в пределах workspaceId.
+// Возвращает [{ title, chunk_text, score }] выше порога 0.75 (как PUP). Пусто,
+// если воркспейс не резолвится / нет чанков / ничего не прошло порог (не падать).
+async function searchSharedKb(workspaceId, queryText, topK = TOP_K) {
+  if (!workspaceId) return [];
+  if (!queryText || !String(queryText).trim()) return [];
+  const items = await loadSharedKbChunks(workspaceId);
+  if (items.length === 0) return [];
+  const [qvec] = await embed([String(queryText).slice(0, 2000)], "query: ");
+  return items
+    .map((it) => ({
+      title: it.title,
+      chunk_text: it.chunk_text,
+      score: cosineSim(qvec, it.vec),
+    }))
+    .filter((h) => h.score >= SHARED_KB_THRESHOLD)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, topK);
+}
+
 module.exports = {
   MODEL_NAME,
   CHUNK_SIZE,
@@ -416,7 +463,9 @@ module.exports = {
   cosineSim,
   indexDocument,
   searchKnowledge,
+  searchSharedKb,
   invalidateCache,
+  invalidateSharedKbCache,
   getEmbedder,
   isEmbedderReady,
   warmup,

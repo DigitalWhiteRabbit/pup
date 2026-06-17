@@ -2455,6 +2455,29 @@ async function getChunksForProject(workspaceId, projectId) {
   }));
 }
 
+// Общая БЗ проекта (PUP KbChunk) — для аутрич-агента. STROГО workspace-scoped:
+// только чанки этого воркспейса, никогда не кросс-workspace. embedding — JSON
+// (парсинг в Float32 на стороне сервиса), форма строк зеркалит getChunksForProject.
+async function getKbChunksForWorkspace(workspaceId) {
+  if (!workspaceId) return [];
+  const rows = await prisma.kbChunk.findMany({
+    where: { workspaceId, embedding: { not: null } },
+    select: {
+      chunkText: true,
+      sourceKind: true,
+      embedding: true,
+      article: { select: { title: true } },
+      file: { select: { originalName: true } },
+    },
+  });
+  return rows.map((c) => ({
+    chunk_text: c.chunkText,
+    source_kind: c.sourceKind,
+    title: c.article?.title ?? c.file?.originalName ?? "",
+    embedding: c.embedding, // JSON-строка
+  }));
+}
+
 // зеркало stmts.knowledgeStats.get({project_id})
 async function knowledgeStats(workspaceId, projectId) {
   const where = { workspaceId, ...projectOrNullFilter(projectId) };
@@ -2654,6 +2677,7 @@ module.exports = {
   deleteChunksByDoc,
   insertKnowledgeChunks,
   getChunksForProject,
+  getKbChunksForWorkspace,
   knowledgeStats,
   // tags
   listTags,
