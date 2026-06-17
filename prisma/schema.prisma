@@ -851,6 +851,11 @@ model KbArticle {
   sourceFile   KbFile?      @relation("ArticleSourceFile", fields: [sourceFileId], references: [id], onDelete: SetNull)
   lastSyncedAt DateTime?
 
+  // Dedup (exact-duplicate detection, workspace-scoped):
+  // normalizedUrl = canonicalized sourceUrl; contentHash = sha256 of normalized content.
+  normalizedUrl String?
+  contentHash   String?
+
   // Search (KB-1c)
   searchText          String?
   searchTextUpdatedAt DateTime?
@@ -880,6 +885,8 @@ model KbArticle {
   @@index([categoryId])
   @@index([authorId])
   @@index([sourceFileId])
+  @@index([workspaceId, contentHash])
+  @@index([workspaceId, normalizedUrl])
 }
 
 model KbArticleTag {
@@ -924,6 +931,9 @@ model KbFile {
   extractedAt     DateTime?
   extractionError String?
 
+  // Dedup: sha256 of normalized extractedText (workspace-scoped).
+  contentHash String?
+
   uploadedAt DateTime @default(now())
 
   workspace  Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -933,6 +943,7 @@ model KbFile {
 
   @@index([workspaceId, uploadedAt])
   @@index([uploadedById])
+  @@index([workspaceId, contentHash])
 }
 
 // KB vector chunks (KB-vector step 1). Chunk-level embeddings (Xenova e5-small,
