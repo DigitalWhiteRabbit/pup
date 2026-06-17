@@ -8,6 +8,11 @@ import type { KbSourceType } from "@prisma/client";
 import { diffLines } from "diff";
 import { buildSearchText } from "./utils";
 import { queueArticleIndex } from "./index.service";
+import {
+  normalizeUrl,
+  computeContentHash,
+  findDuplicate,
+} from "./dedup.service";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -126,6 +131,60 @@ const articleInclude = {
 
 // ─── createArticle ────────────────────────────────────────────────────────────
 
+/**
+ * Dedup helper: a re-collection matched an existing article by normalized URL,
+ * so update it in place (version snapshot + content/hash refresh + re-index)
+ * instead of creating a duplicate. Returns the updated article summary.
+ */
+async function updateExistingFromIngest(
+  articleId: string,
+  input: {
+    workspaceId: string;
+    title: string;
+    content: string;
+    lastSyncedAt?: Date;
+  },
+  userId: string,
+  normalizedUrl: string | null,
+  contentHash: string | null,
+): Promise<KbArticleSummary> {
+  const searchText = buildSearchText(input.title, input.content);
+  const updated = await db.$transaction(async (tx) => {
+    const cur = await tx.kbArticle.findUnique({ where: { id: articleId } });
+    if (cur && cur.content !== input.content) {
+      await tx.kbArticleVersion.create({
+        data: {
+          articleId,
+          title: cur.title,
+          content: cur.content,
+          editedById: userId,
+          reason: "Пере-сбор из источника (дедуп)",
+        },
+      });
+    }
+    return tx.kbArticle.update({
+      where: { id: articleId },
+      data: {
+        title: input.title,
+        content: input.content,
+        searchText,
+        searchTextUpdatedAt: new Date(),
+        normalizedUrl,
+        contentHash,
+        lastSyncedAt: input.lastSyncedAt ?? new Date(),
+        lastEditedById: userId,
+      },
+      include: articleInclude,
+    });
+  });
+
+  queueArticleIndex(input.workspaceId, {
+    id: articleId,
+    content: input.content,
+  });
+  return mapArticleSummary(updated);
+}
+
 export async function createArticle(
   input: {
     workspaceId: string;
@@ -145,6 +204,45 @@ export async function createArticle(
   const _m1 = await checkMembership(input.workspaceId, userId);
   if (!_m1 && userRole !== "ADMIN")
     throw new ApiError("Нет доступа", "FORBIDDEN", 403);
+
+  // Dedup fields (always stored for audit). Detection runs only for ingest
+  // paths (URL/CRAWL/FILE) — manual authoring is never blocked/merged.
+  const normalizedUrl = normalizeUrl(input.sourceUrl);
+  const contentHash = computeContentHash(input.content);
+  const isIngest = (input.sourceType ?? "MANUAL") !== "MANUAL";
+
+  if (isIngest) {
+    const dup = await findDuplicate(input.workspaceId, {
+      normalizedUrl,
+      contentHash,
+    });
+    if (dup?.match === "url") {
+      // Re-collection of the same source → update the existing article,
+      // never create a second one.
+      console.log(
+        `[kb.dedup] re-collect same URL → update existing=${dup.article.id} ws=${input.workspaceId}`,
+      );
+      return updateExistingFromIngest(
+        dup.article.id,
+        input,
+        userId,
+        normalizedUrl,
+        contentHash,
+      );
+    }
+    if (dup?.match === "content") {
+      // Same content at a different URL → do not create a duplicate.
+      console.log(
+        `[kb.dedup] skip content-duplicate ws=${input.workspaceId} existing=${dup.article.id} altUrl=${input.sourceUrl ?? ""}`,
+      );
+      const existing = await db.kbArticle.findUnique({
+        where: { id: dup.article.id },
+        include: articleInclude,
+      });
+      if (existing) return mapArticleSummary(existing);
+      // Fall through to create if the existing row vanished (race).
+    }
+  }
 
   const slug = await generateUniqueSlug(input.workspaceId, input.title);
   const searchText = buildSearchText(input.title, input.content);
@@ -166,6 +264,8 @@ export async function createArticle(
         sourceUrl: input.sourceUrl ?? null,
         sourceFileId: input.sourceFileId ?? null,
         lastSyncedAt: input.lastSyncedAt ?? null,
+        normalizedUrl,
+        contentHash,
         tags: input.tagIds?.length
           ? { create: input.tagIds.map((tagId) => ({ tagId })) }
           : undefined,
@@ -273,7 +373,10 @@ export async function updateArticle(
       where: { id: articleId },
       data: {
         ...(data.title !== undefined && { title: data.title, slug: newSlug }),
-        ...(data.content !== undefined && { content: data.content }),
+        ...(data.content !== undefined && {
+          content: data.content,
+          contentHash: computeContentHash(data.content),
+        }),
         ...(data.categoryId !== undefined && { categoryId: data.categoryId }),
         ...(data.isPublished !== undefined && {
           isPublished: data.isPublished,
@@ -609,6 +712,8 @@ export async function refreshFromUrl(
           lastSyncedAt: new Date(),
           searchText: buildSearchText(fetched.title, fetched.content),
           searchTextUpdatedAt: new Date(),
+          normalizedUrl: normalizeUrl(article.sourceUrl),
+          contentHash: computeContentHash(fetched.content),
         },
         include: articleInclude,
       });
