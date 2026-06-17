@@ -635,7 +635,11 @@ async function generateInitialPitch(
   try {
     const kn = require("./knowledge");
     const query = `первый питч для канала ${lead.channel_name || ""} (ниша: ${lead.keyword || "?"}); проект ${project.name || ""}: позиционирование, оффер, для кого подходит, преимущества`;
-    const hits = await kn.searchKnowledge(workspaceId, project.id, query, 6);
+    // Общая БЗ проекта (PUP KbChunk), строго по workspaceId кампании.
+    const hits = await kn.searchSharedKb(workspaceId, query, 6);
+    console.log(
+      `[knowledge] pitch grounding=shared-kb hits=${hits ? hits.length : 0} ws=${workspaceId || "none"}`,
+    );
     if (hits && hits.length) {
       knowledgeContext =
         "═══ РЕЛЕВАНТНЫЕ ЗНАНИЯ ПО ПРОЕКТУ ═══\n" +
@@ -983,7 +987,11 @@ async function generateReply(
     const query = lastIn
       ? String(lastIn.content).slice(0, 1500)
       : `первый питч для канала ${lead.channel_name || ""} (${lead.keyword || ""}); проект ${project.name || ""}`;
-    const hits = await kn.searchKnowledge(workspaceId, project.id, query, 6);
+    // Общая БЗ проекта (PUP KbChunk), строго по workspaceId кампании.
+    const hits = await kn.searchSharedKb(workspaceId, query, 6);
+    console.log(
+      `[knowledge] reply grounding=shared-kb hits=${hits ? hits.length : 0} ws=${workspaceId || "none"}`,
+    );
     if (hits && hits.length) {
       knowledgeContext =
         "═══ РЕЛЕВАНТНЫЕ ЗНАНИЯ ПО ПРОЕКТУ ═══\n" +
@@ -1083,7 +1091,14 @@ async function generateReply(
 
 // ─── Follow-up (блогер молчит N дней) ─────────────────────────────
 
-async function generateFollowUp(lead, project, history, channel, attempt = 1) {
+async function generateFollowUp(
+  lead,
+  project,
+  history,
+  channel,
+  attempt = 1,
+  workspaceId = null,
+) {
   const daysSilent = (() => {
     const lastOut = [...history].reverse().find((m) => m.direction === "out");
     if (!lastOut) return "?";
@@ -1103,7 +1118,7 @@ async function generateFollowUp(lead, project, history, channel, attempt = 1) {
         `Напиши короткое сообщение, мягко завершающее переписку: «если не актуально — всё ок, возможно вернёмся позже». ` +
         `НЕ давить, НЕ просить. Одна-две фразы.`;
 
-  return generateReply(lead, project, history, channel, directive);
+  return generateReply(lead, project, history, channel, directive, workspaceId);
 }
 
 // ─── Generate content summary (channel description) ──────────────
