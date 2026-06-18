@@ -121,6 +121,23 @@ function toDateInputValue(iso: string | null): string {
   return iso.slice(0, 10);
 }
 
+/**
+ * Auto-grow a textarea to fit its content: min via CSS (min-h), grows up to
+ * ~50vh, then scrolls inside. Re-runs on `value` change — including the first
+ * render / when an existing description loads — so long text expands at once.
+ */
+function useAutoResizeTextarea(value: string) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    const maxPx = Math.floor(window.innerHeight * 0.5);
+    el.style.height = `${Math.min(el.scrollHeight, maxPx)}px`;
+  }, [value]);
+  return ref;
+}
+
 export function TaskModal({ taskId, workspaceId, members, onClose }: Props) {
   const queryClient = useQueryClient();
   const { data: session } = useSession();
@@ -138,6 +155,7 @@ export function TaskModal({ taskId, workspaceId, members, onClose }: Props) {
 
   const [editTitle, setEditTitle] = useState("");
   const [editDesc, setEditDesc] = useState("");
+  const descRef = useAutoResizeTextarea(editDesc);
   const [editAssigneeIds, setEditAssigneeIds] = useState<string[]>([]);
   const [editPriority, setEditPriority] = useState("NONE");
   const [editStartDate, setEditStartDate] = useState("");
@@ -268,7 +286,7 @@ export function TaskModal({ taskId, workspaceId, members, onClose }: Props) {
         if (!v) onClose();
       }}
     >
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Карточка задачи</DialogTitle>
         </DialogHeader>
@@ -297,10 +315,11 @@ export function TaskModal({ taskId, workspaceId, members, onClose }: Props) {
             <div className="space-y-1">
               <Label>Описание</Label>
               <Textarea
+                ref={descRef}
                 value={editDesc}
                 onChange={(e) => setEditDesc(e.target.value)}
-                rows={3}
                 placeholder="Описание задачи..."
+                className="min-h-[180px] max-h-[50vh] resize-none overflow-y-auto"
               />
             </div>
 
