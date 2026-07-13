@@ -249,12 +249,18 @@ router.post("/promote", async (req, res) => {
       .json({ success: false, error: "channel_id required" });
 
   const now = new Date().toISOString();
+  // Опциональный целевой статус: 'pending' — создать/оставить кандидатом (для «Анализ»
+  // до решения), по умолчанию 'ready' («→ В работу», прежнее поведение).
+  const targetStatus = row.status === "pending" ? "pending" : "ready";
   try {
     // Проверяем существует ли лид
     const existing = await store.getLeadByChannelId(req.wsId, row.channel_id);
     if (existing) {
-      // Обновляем статус
-      await store.updateLeadStatus(req.wsId, "ready", now, existing.id);
+      // Для «В работу» — ставим ready. Для «Анализ» (pending) не трогаем статус
+      // существующего лида, чтобы не понизить уже активный.
+      if (targetStatus === "ready") {
+        await store.updateLeadStatus(req.wsId, "ready", now, existing.id);
+      }
       const lead = await store.getLead(req.wsId, existing.id);
       return res.json({ success: true, lead, created: false });
     }
@@ -303,8 +309,8 @@ router.post("/promote", async (req, res) => {
     // Привязываем к проекту
     if (projectId)
       await store.updateLeadProject(req.wsId, projectId, now, result.id);
-    // Сразу ставим ready
-    await store.updateLeadStatus(req.wsId, "ready", now, result.id);
+    // Ставим целевой статус (ready для «В работу», pending для «Анализ» до решения)
+    await store.updateLeadStatus(req.wsId, targetStatus, now, result.id);
     // Сохраняем snapshot контента (видео + about + новые поля enrichment) для качественной сводки
     try {
       const erFlagsStr = Array.isArray(row.er_flags)

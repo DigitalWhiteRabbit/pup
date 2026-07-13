@@ -3076,7 +3076,7 @@ function renderKnDocRow(d) {
       <div style="font-size:18px;flex-shrink:0">${knKindIcon(d.kind)}</div>
       <div style="flex:1;min-width:0">
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <a href="#" onclick="knPreview(${d.id});return false" style="font-weight:600;color:var(--text);font-size:13px">${escapeHtml(d.title)}</a>
+          <a href="#" onclick="knPreview('${d.id}');return false" style="font-weight:600;color:var(--text);font-size:13px">${escapeHtml(d.title)}</a>
           ${knStatusPill(d.status)}
         </div>
         ${src}
@@ -3086,9 +3086,9 @@ function renderKnDocRow(d) {
         ${err}
       </div>
       <div style="display:flex;gap:6px;flex-shrink:0">
-        <button class="btn-primary btn-sm" onclick="knPreview(${d.id})" title="Что агент знает из этого документа">Посмотреть</button>
-        <button class="btn-secondary btn-sm" onclick="knReindex(${d.id})" title="Переиндексировать">↻</button>
-        <button class="btn-danger btn-sm" onclick="knDelete(${d.id})" title="Удалить">✕</button>
+        <button class="btn-primary btn-sm" onclick="knPreview('${d.id}')" title="Что агент знает из этого документа">Посмотреть</button>
+        <button class="btn-secondary btn-sm" onclick="knReindex('${d.id}')" title="Переиндексировать">↻</button>
+        <button class="btn-danger btn-sm" onclick="knDelete('${d.id}')" title="Удалить">✕</button>
       </div>
     </div>`;
 }
@@ -3510,7 +3510,7 @@ async function knPreview(id) {
       </div>
       <div class="summary-modal-foot">
         <button class="btn-secondary btn-sm" onclick="navigator.clipboard.writeText(${JSON.stringify(content)}); toast('Скопировано','success')">Копировать текст</button>
-        <button class="btn-secondary btn-sm" onclick="knReindex(${id})">⟳ Переиндексировать</button>
+        <button class="btn-secondary btn-sm" onclick="knReindex('${id}')">⟳ Переиндексировать</button>
       </div>`);
     // Переключатель «читабельно / сырой»
     setTimeout(() => {
@@ -4477,7 +4477,10 @@ function renderTable(){
           sp.textContent = `${vEmoji} ${row.analysis_score ?? ''}`;
           sp.onclick = () => showDashboardAnalysisDrawer(row);
           td.appendChild(sp);
-        } else if (row.lead_id) {
+        } else {
+          // Кнопка анализа доступна для любого распарсенного канала (даже до перевода
+          // в лид): анализ ДО решения «В работу»/«Отклонить». Лид создаётся фоном в
+          // статусе pending при клике (см. analyzeDashboardChannel).
           const btn = document.createElement('button');
           btn.className = 'btn-xs';
           btn.style.cssText = 'cursor:pointer;color:var(--accent);font-size:12px;white-space:nowrap;background:none;border:none;padding:0';
@@ -4485,8 +4488,6 @@ function renderTable(){
           btn.textContent = '🔍 Анализ';
           btn.onclick = () => analyzeDashboardChannel(row);
           td.appendChild(btn);
-        } else {
-          td.innerHTML = '<span style="color:var(--text-dim);font-size:11px">—</span>';
         }
 
       }else if(col.key==='_lead_status'){
@@ -4904,7 +4905,7 @@ function renderLeadsTable() {
       sent: new Set(lead.channels_sent || []),
     };
     tdContacts.innerHTML = '<div class="contact-icons">' + buildContactIcons(contactRow, chanStatusCtx) +
-      `<button class="contact-icon" onclick="openAddContact(${lead.id})" title="Добавить контакт" style="background:rgba(99,102,241,.15);color:var(--accent);font-weight:700;cursor:pointer;border:none;font-size:13px">+</button>` +
+      `<button class="contact-icon" onclick="openAddContact('${lead.id}')" title="Добавить контакт" style="background:rgba(99,102,241,.15);color:var(--accent);font-weight:700;cursor:pointer;border:none;font-size:13px">+</button>` +
       '</div>';
     tr.appendChild(tdContacts);
 
@@ -4933,9 +4934,9 @@ function renderLeadsTable() {
     if (lead.content_summary && lead.content_summary.trim()) {
       const viewed = isSummaryViewed(lead.id, lead.content_summary);
       const cls = viewed ? 'btn-secondary' : 'btn-summary-new';
-      tdSum.innerHTML = `<button id="sumBtn_${lead.id}" class="${cls} btn-sm" onclick="showLeadSummary(${lead.id})" title="Посмотреть сводку">Посмотреть</button>`;
+      tdSum.innerHTML = `<button id="sumBtn_${lead.id}" class="${cls} btn-sm" onclick="showLeadSummary('${lead.id}')" title="Посмотреть сводку">Посмотреть</button>`;
     } else {
-      tdSum.innerHTML = `<span class="btn-xs" style="cursor:pointer;color:var(--accent)" onclick="genLeadSummary(${lead.id})" title="Сгенерировать">⟳ Сгенерировать</span>`;
+      tdSum.innerHTML = `<span class="btn-xs" style="cursor:pointer;color:var(--accent)" onclick="genLeadSummary('${lead.id}')" title="Сгенерировать">⟳ Сгенерировать</span>`;
     }
     tr.appendChild(tdSum);
 
@@ -4950,9 +4951,9 @@ function renderLeadsTable() {
     if (lead.analysis_verdict) {
       const vEmoji = {green:'🟢',yellow:'🟡',red:'🔴'}[lead.analysis_verdict] || '⚪';
       const vColor = {green:'#22c55e',yellow:'#eab308',red:'#ef4444'}[lead.analysis_verdict] || '#888';
-      tdAnalysis.innerHTML = `<span id="analysisBadge_${lead.id}" style="cursor:pointer;display:inline-flex;align-items:center;gap:3px;padding:3px 7px;border-radius:6px;font-size:12px;font-weight:700;background:${vColor}20;color:${vColor};border:1px solid ${vColor}40" onclick="showAnalysisDrawer(${lead.id})" title="Нажми для подробностей">${vEmoji} ${lead.analysis_score ?? ''}</span>`;
+      tdAnalysis.innerHTML = `<span id="analysisBadge_${lead.id}" style="cursor:pointer;display:inline-flex;align-items:center;gap:3px;padding:3px 7px;border-radius:6px;font-size:12px;font-weight:700;background:${vColor}20;color:${vColor};border:1px solid ${vColor}40" onclick="showAnalysisDrawer('${lead.id}')" title="Нажми для подробностей">${vEmoji} ${lead.analysis_score ?? ''}</span>`;
     } else {
-      tdAnalysis.innerHTML = `<button id="analyzeBtn_${lead.id}" class="btn-xs" style="cursor:pointer;color:var(--accent);font-size:12px;white-space:nowrap;background:none;border:none;padding:0" onclick="analyzeLeadChannel(${lead.id})" title="Анализировать канал (YouTube API + AI)">🔍 Анализ</button>`;
+      tdAnalysis.innerHTML = `<button id="analyzeBtn_${lead.id}" class="btn-xs" style="cursor:pointer;color:var(--accent);font-size:12px;white-space:nowrap;background:none;border:none;padding:0" onclick="analyzeLeadChannel('${lead.id}')" title="Анализировать канал (YouTube API + AI)">🔍 Анализ</button>`;
     }
     tr.appendChild(tdAnalysis);
 
@@ -4961,21 +4962,21 @@ function renderLeadsTable() {
     let actionsHtml = '';
     tdAct.style.whiteSpace = 'nowrap';
     if (lead.lead_status === 'pending') {
-      actionsHtml = `<button class="btn-primary btn-sm" onclick="setLeadStatus(${lead.id},'ready')" title="Перевести в ready">В работу</button><button class="btn-danger btn-sm" onclick="setLeadStatus(${lead.id},'rejected')" title="Отклонить">✕</button>`;
+      actionsHtml = `<button class="btn-primary btn-sm" onclick="setLeadStatus('${lead.id}','ready')" title="Перевести в ready">В работу</button><button class="btn-danger btn-sm" onclick="setLeadStatus('${lead.id}','rejected')" title="Отклонить">✕</button>`;
     } else if (lead.lead_status === 'rejected') {
-      actionsHtml = `<button class="btn-secondary btn-sm" onclick="setLeadStatus(${lead.id},'pending')" title="Восстановить">↺</button><button class="btn-danger btn-sm" onclick="deleteLead(${lead.id})" title="Удалить">🗑</button>`;
+      actionsHtml = `<button class="btn-secondary btn-sm" onclick="setLeadStatus('${lead.id}','pending')" title="Восстановить">↺</button><button class="btn-danger btn-sm" onclick="deleteLead('${lead.id}')" title="Удалить">🗑</button>`;
     } else {
       // ready / in_work / прочие активные статусы.
       // «Запустить» — пока есть хотя бы один доступный неотправленный канал (даже в in_work);
       // «Диалог» — если есть переписка. Кнопки могут соседствовать.
       const parts = [];
       if (leadHasUnsentChannel(lead)) {
-        parts.push(`<button class="btn-primary btn-sm" onclick="runLead(${lead.id})" title="Запустить AI-агента для этого лида">Запустить</button>`);
+        parts.push(`<button class="btn-primary btn-sm" onclick="runLead('${lead.id}')" title="Запустить AI-агента для этого лида">Запустить</button>`);
       }
       if (lead.has_dialogue) {
-        parts.push(`<button class="btn-secondary btn-sm" onclick="openLeadDialog(${lead.id})" title="Открыть диалог">Диалог</button>`);
+        parts.push(`<button class="btn-secondary btn-sm" onclick="openLeadDialog('${lead.id}')" title="Открыть диалог">Диалог</button>`);
       }
-      parts.push(`<button class="btn-danger btn-sm" onclick="deleteLead(${lead.id})" title="Удалить">🗑</button>`);
+      parts.push(`<button class="btn-danger btn-sm" onclick="deleteLead('${lead.id}')" title="Удалить">🗑</button>`);
       actionsHtml = parts.join('');
     }
     tdAct.innerHTML = `<div style="display:inline-flex;gap:6px">${actionsHtml}</div>`;
@@ -5359,7 +5360,7 @@ function showLeadSummary(leadId) {
             placeholder="@username">
         </div>
       </div>
-      <button onclick="saveLeadContacts(${leadId})"
+      <button onclick="saveLeadContacts('${leadId}')"
         style="margin-top:8px;padding:5px 14px;background:var(--accent);color:#fff;border:none;border-radius:6px;font-size:11px;font-weight:500;cursor:pointer;transition:background .15s"
         onmouseover="this.style.background='var(--accent-hover)'" onmouseout="this.style.background='var(--accent)'">
         Сохранить контакты
@@ -5378,8 +5379,8 @@ function showLeadSummary(leadId) {
       ${contactsHtml}
       <div class="summary-modal-body">${renderSummaryBody(raw)}</div>
       <div class="summary-modal-foot">
-        <button class="btn-secondary btn-sm" onclick="deepLeadSummary(${leadId}, this)">🔬 Углубить анализ</button>
-        <button class="btn-secondary btn-sm" onclick="regenLeadSummary(${leadId}, this)">⟳ Перегенерировать</button>
+        <button class="btn-secondary btn-sm" onclick="deepLeadSummary('${leadId}', this)">🔬 Углубить анализ</button>
+        <button class="btn-secondary btn-sm" onclick="regenLeadSummary('${leadId}', this)">⟳ Перегенерировать</button>
         <button class="btn-secondary btn-sm" onclick="navigator.clipboard.writeText(${JSON.stringify(raw)}); toast('Скопировано','success')">Копировать JSON</button>
       </div>
     </div>`;
@@ -5683,7 +5684,7 @@ function showAnalysisDrawer(id) {
     reasoning: lead.analysis_reasoning,
     metrics,
     analyzedAt: lead.analyzed_at,
-    onReanalyze: `analyzeLeadChannel(${id}, true)`,
+    onReanalyze: `analyzeLeadChannel('${id}', true)`,
   }));
 }
 function closeAnalysisDrawer() {
@@ -5713,9 +5714,24 @@ function reanalyzeDashboardFromDrawer() {
   if (_dashboardDrawerRow) analyzeDashboardChannel(_dashboardDrawerRow, true);
 }
 async function analyzeDashboardChannel(row, force) {
-  const leadId = row.lead_id;
-  if (!leadId) { toast('Канал не в лидах — сначала нажми «→ В работу»', 'warning'); return; }
+  let leadId = row.lead_id;
   const chId = getChannelId(row);
+  // Анализ ДО решения: если канал ещё не лид — создаём лид в статусе pending (кандидат,
+  // НЕ «в работу»), затем анализируем. Решение «В работу»/«Отклонить» — уже после анализа.
+  if (!leadId) {
+    try {
+      const pr = await fetch('/api/leads/promote', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...row, status: 'pending' }),
+      });
+      const pj = await pr.json();
+      if (!pr.ok || !pj.success || !pj.lead) { toast('Не удалось создать лид для анализа: ' + (pj.error || 'unknown'), 'error'); return; }
+      leadId = pj.lead.id;
+      row.lead_id = leadId;
+      const t0 = allData.find(d => getChannelId(d) === chId);
+      if (t0) { t0.lead_id = leadId; t0.lead_status = pj.lead.lead_status || 'pending'; }
+    } catch (e) { toast('Ошибка создания лида: ' + e.message, 'error'); return; }
+  }
   try {
     const url = `/api/leads/${leadId}/analyze${force ? '?force=1' : ''}`;
     const r = await fetch(url, { method: 'POST' });
@@ -5941,9 +5957,9 @@ async function loadCampaigns() {
           <div style="color:var(--text-dim);font-size:11px">Бюджет: ${p.budget_min||0}–${p.budget_max||0} ₽ · Язык: ${p.language||'?'}</div>
         </div>
         <div style="display:flex;flex-direction:column;gap:6px">
-          ${p.is_active ? '' : `<button class="btn-primary btn-sm" onclick="activateCampaign(${p.id})">Активировать</button>`}
-          <button class="btn-secondary btn-sm" onclick="editCampaign(${p.id})">Редактировать</button>
-          <button class="btn-danger btn-sm" onclick="deleteCampaign(${p.id})">Удалить</button>
+          ${p.is_active ? '' : `<button class="btn-primary btn-sm" onclick="activateCampaign('${p.id}')">Активировать</button>`}
+          <button class="btn-secondary btn-sm" onclick="editCampaign('${p.id}')">Редактировать</button>
+          <button class="btn-danger btn-sm" onclick="deleteCampaign('${p.id}')">Удалить</button>
         </div>
       </div>
     `).join('');
@@ -6140,7 +6156,7 @@ async function loadDialogues() {
       return;
     }
     list.innerHTML = dialogues.map(d => `
-      <div class="dlg-item ${currentDialogueId===d.id?'active':''}" onclick="openDialogue(${d.id})">
+      <div class="dlg-item ${currentDialogueId===d.id?'active':''}" onclick="openDialogue('${d.id}')">
         <div class="dlg-item-name">
           <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(d.channel_name||'?')}</span>
           ${d.notes && d.notes.trim() ? `<span title="${escapeHtml(d.notes)}" style="flex:none">📝</span>` : ''}
@@ -6199,7 +6215,7 @@ async function openDialogue(id) {
         const sib = siblings.find(d => d.channel === ch);
         const accId = (ch === dlg.channel) ? dlg.account_id : (sib && sib.account_id);
         const accLabel = (ch === 'telegram' && accId) ? `<span class="tab-acc">${escapeHtml(tgAccountLabel(accId))}</span>` : '';
-        return `<div class="dlg-chan-tab${active}" onclick="openDialogue(${repId})">${channelIcon(ch)} ${escapeHtml(ch)}${accLabel}</div>`;
+        return `<div class="dlg-chan-tab${active}" onclick="openDialogue('${repId}')">${channelIcon(ch)} ${escapeHtml(ch)}${accLabel}</div>`;
       }).join('') + `</div>`;
     }
 
@@ -6223,8 +6239,8 @@ async function openDialogue(id) {
         <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
           ${j.lead.dialogue_stage === 'moved_to_tg'
             ? `<span class="dialogue-stage-pill accent" title="AI-агент не пишет этому лиду">🤖 AI на паузе · Перешли в ТГ</span>
-               <button class="btn-secondary btn-sm" onclick="resumeAiForLead(${j.lead.id})" title="Вернуть лида в работу AI-агента">↩ Вернуть AI</button>`
-            : `<button class="btn-secondary btn-sm" onclick="moveLeadToTg(${j.lead.id})" title="Перевести в статус «Перешли в ТГ» и поставить AI-агента на паузу для этого лида">→ Перешли в ТГ</button>`}
+               <button class="btn-secondary btn-sm" onclick="resumeAiForLead('${j.lead.id}')" title="Вернуть лида в работу AI-агента">↩ Вернуть AI</button>`
+            : `<button class="btn-secondary btn-sm" onclick="moveLeadToTg('${j.lead.id}')" title="Перевести в статус «Перешли в ТГ» и поставить AI-агента на паузу для этого лида">→ Перешли в ТГ</button>`}
           <a href="${escapeHtml(j.lead.channel_url||'#')}" target="_blank" class="btn-secondary btn-sm" style="text-decoration:none">Канал ↗</a>
         </div>
       </div>
@@ -6234,7 +6250,7 @@ async function openDialogue(id) {
         <input id="dlgNote" value="${escapeHtml(j.lead.notes||'')}"
           placeholder="Заметка по лиду (напр.: связаться в WhatsApp)…"
           onkeydown="if(event.key==='Enter')this.blur()"
-          onchange="saveDialogNote(${j.lead.id}, this.value, this)"
+          onchange="saveDialogNote('${j.lead.id}', this.value, this)"
           style="flex:1;font-size:12px;padding:6px 10px;border-radius:7px;border:1px solid var(--border);background:var(--bg-elev);color:var(--text)">
       </div>
       <div class="dlg-messages" id="dlgMessages"></div>
@@ -6412,8 +6428,8 @@ async function loadDeals() {
           </div>
           ${!d.admin_decision ? `
             <div style="display:flex;flex-direction:column;gap:6px">
-              <button class="btn-primary btn-sm" onclick="approveDeal(${d.id})">✓ Approve</button>
-              <button class="btn-danger btn-sm" onclick="rejectDeal(${d.id})">✕ Reject</button>
+              <button class="btn-primary btn-sm" onclick="approveDeal('${d.id}')">✓ Approve</button>
+              <button class="btn-danger btn-sm" onclick="rejectDeal('${d.id}')">✕ Reject</button>
             </div>
           ` : `
             <span class="lead-status-pill ${d.admin_decision === 'approved' ? 'done' : 'rejected'}">${d.admin_decision}</span>
@@ -6458,7 +6474,7 @@ async function loadConsultations() {
           <div style="font-size:12px;margin-bottom:8px"><strong style="color:var(--yellow)">❓ Вопрос:</strong> ${escapeHtml(c.question)}</div>
           ${context ? `<div style="font-size:11px;color:var(--text-dim);background:rgba(255,255,255,0.02);padding:8px;border-radius:6px;margin-bottom:8px;white-space:pre-wrap;font-family:'JetBrains Mono',monospace">${escapeHtml(context)}</div>` : ''}
           <textarea id="consultAns_${c.id}" placeholder="Ответ для агента..." style="height:60px;margin-bottom:6px"></textarea>
-          <button class="btn-blue btn-sm" onclick="answerConsultation(${c.id})">Отправить агенту</button>
+          <button class="btn-blue btn-sm" onclick="answerConsultation('${c.id}')">Отправить агенту</button>
         </div>
       `;
     }).join('');
@@ -6540,8 +6556,8 @@ function renderPendingReplyCard(it) {
           <div>
             <div style="display:flex;align-items:center;gap:10px">
               <span style="font-weight:700;font-size:15px;color:var(--text)">${escapeHtml(it.channel_name || 'Без лида')}</span>
-              <button class="btn-secondary btn-sm" style="font-size:10px;padding:3px 10px;border-radius:6px" onclick="showLeadContext(${it.id})" title="Что AI знает о блогере">📋 Сводка</button>
-              <button class="btn-secondary btn-sm" style="font-size:10px;padding:3px 10px;border-radius:6px" onclick="showConversationHistory(${it.id})" title="Вся история переписки (оригинал + перевод)">📜 История</button>
+              <button class="btn-secondary btn-sm" style="font-size:10px;padding:3px 10px;border-radius:6px" onclick="showLeadContext('${it.id}')" title="Что AI знает о блогере">📋 Сводка</button>
+              <button class="btn-secondary btn-sm" style="font-size:10px;padding:3px 10px;border-radius:6px" onclick="showConversationHistory('${it.id}')" title="Вся история переписки (оригинал + перевод)">📜 История</button>
               ${it.channel_url ? `<a href="${escapeHtml(it.channel_url)}" target="_blank" rel="noopener" class="btn-secondary btn-sm" style="font-size:10px;padding:3px 10px;border-radius:6px;text-decoration:none" title="Открыть YouTube-канал блогера">▶ Канал</a>` : ''}
             </div>
             <div style="font-size:12px;color:var(--text-dim);margin-top:2px">
@@ -6565,7 +6581,7 @@ function renderPendingReplyCard(it) {
           <div style="margin-bottom:10px">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
               <label style="font-size:10px;font-weight:600;color:var(--text-dim);text-transform:uppercase">Тема</label>
-              <button class="btn-secondary btn-sm" style="font-size:9px;padding:2px 8px;border-radius:5px" onclick="regenField(${it.id},'subject')">🔄 Тему</button>
+              <button class="btn-secondary btn-sm" style="font-size:9px;padding:2px 8px;border-radius:5px" onclick="regenField('${it.id}','subject')">🔄 Тему</button>
             </div>
             <input id="prSubj_${it.id}" value="${escapeHtml(it.subject || '')}" style="font-size:13px;font-weight:500;padding:8px 10px;border-radius:7px;border:1px solid var(--border);background:var(--bg-elev);color:var(--text);width:100%;box-sizing:border-box">
           </div>
@@ -6573,9 +6589,9 @@ function renderPendingReplyCard(it) {
           <div>
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
               <label style="font-size:10px;font-weight:600;color:var(--text-dim);text-transform:uppercase">Сообщение</label>
-              <button class="btn-secondary btn-sm" style="font-size:9px;padding:2px 8px;border-radius:5px" onclick="regenField(${it.id},'body')">🔄 Текст</button>
+              <button class="btn-secondary btn-sm" style="font-size:9px;padding:2px 8px;border-radius:5px" onclick="regenField('${it.id}','body')">🔄 Текст</button>
             </div>
-            <textarea id="prBody_${it.id}" style="min-height:200px;padding:10px;border-radius:7px;border:1px solid var(--border);background:var(--bg-elev);color:var(--text);font-family:'Inter',sans-serif;font-size:12px;line-height:1.6;width:100%;box-sizing:border-box;resize:vertical" oninput="translatePending(${it.id})">${escapeHtml(it.body)}</textarea>
+            <textarea id="prBody_${it.id}" style="min-height:200px;padding:10px;border-radius:7px;border:1px solid var(--border);background:var(--bg-elev);color:var(--text);font-family:'Inter',sans-serif;font-size:12px;line-height:1.6;width:100%;box-sizing:border-box;resize:vertical" oninput="translatePending('${it.id}')">${escapeHtml(it.body)}</textarea>
           </div>
         </div>
         <!-- RIGHT: Russian translation (read-only) -->
@@ -6598,7 +6614,7 @@ function renderPendingReplyCard(it) {
       <div style="display:flex;gap:10px;flex-wrap:wrap;padding-top:14px;border-top:1px solid var(--border);margin-top:14px;align-items:center">
         ${it.send_after && it.status === 'approved' && new Date(it.send_after) > new Date()
           ? `<div style="font-size:12px;color:var(--yellow)">⏱ Через ${Math.round((new Date(it.send_after) - new Date()) / 60000)} мин</div>
-             <button class="btn-primary btn-sm" style="padding:6px 14px;font-size:12px;border-radius:7px" onclick="forceSendNow(${it.id})">⚡ Отправить сейчас</button>`
+             <button class="btn-primary btn-sm" style="padding:6px 14px;font-size:12px;border-radius:7px" onclick="forceSendNow('${it.id}')">⚡ Отправить сейчас</button>`
           : it.send_after && it.status === 'approved'
             ? `<div style="font-size:12px;color:var(--green)">✅ Таймер истёк</div>`
             : ''}
@@ -6611,13 +6627,13 @@ function renderPendingReplyCard(it) {
           : ''}
         ${it.status === 'failed'
           ? `<div style="font-size:12px;color:var(--red);max-width:420px" title="${escapeHtml(it.admin_notes || '')}">⚠ Ошибка отправки${it.admin_notes ? ': ' + escapeHtml(String(it.admin_notes).slice(0, 140)) : ''}</div>
-             <button class="btn-primary btn-sm" style="padding:8px 18px;font-size:13px;border-radius:8px" onclick="retryPendingReply(${it.id})">↻ Отправить повторно</button>`
+             <button class="btn-primary btn-sm" style="padding:8px 18px;font-size:13px;border-radius:8px" onclick="retryPendingReply('${it.id}')">↻ Отправить повторно</button>`
           : ''}
-        ${it.status === 'pending' ? `<button class="btn-primary btn-sm" style="padding:8px 20px;font-size:13px;border-radius:8px" onclick="approvePendingReply(${it.id})">✅ Одобрить и отправить</button>` : ''}
-        ${it.status === 'pending' ? `<button class="btn-secondary btn-sm" style="padding:8px 14px;font-size:13px;border-radius:8px" onclick="moveToTgFromReview(${it.id})" title="Снять письмо с очереди и пометить лида «Перешли в ТГ». В рассылку НЕ вернётся, AI перестанет ему писать.">📲 Перешли в ТГ</button>` : ''}
-        ${it.status === 'pending' ? `<button class="btn-danger btn-sm" style="padding:8px 14px;font-size:13px;border-radius:8px" onclick="rejectPendingReply(${it.id})">✕ Отклонить</button>` : ''}
-        <button class="btn-secondary btn-sm" style="padding:8px 14px;font-size:12px;border-radius:7px" onclick="regenField(${it.id},'both')">🔄 Перегенерировать всё</button>
-        <button class="btn-secondary btn-sm" style="padding:8px 10px;font-size:12px;border-radius:7px;margin-left:auto" onclick="deletePendingReply(${it.id})" title="Удалить">🗑</button>
+        ${it.status === 'pending' ? `<button class="btn-primary btn-sm" style="padding:8px 20px;font-size:13px;border-radius:8px" onclick="approvePendingReply('${it.id}')">✅ Одобрить и отправить</button>` : ''}
+        ${it.status === 'pending' ? `<button class="btn-secondary btn-sm" style="padding:8px 14px;font-size:13px;border-radius:8px" onclick="moveToTgFromReview('${it.id}')" title="Снять письмо с очереди и пометить лида «Перешли в ТГ». В рассылку НЕ вернётся, AI перестанет ему писать.">📲 Перешли в ТГ</button>` : ''}
+        ${it.status === 'pending' ? `<button class="btn-danger btn-sm" style="padding:8px 14px;font-size:13px;border-radius:8px" onclick="rejectPendingReply('${it.id}')">✕ Отклонить</button>` : ''}
+        <button class="btn-secondary btn-sm" style="padding:8px 14px;font-size:12px;border-radius:7px" onclick="regenField('${it.id}','both')">🔄 Перегенерировать всё</button>
+        <button class="btn-secondary btn-sm" style="padding:8px 10px;font-size:12px;border-radius:7px;margin-left:auto" onclick="deletePendingReply('${it.id}')" title="Удалить">🗑</button>
       </div>
     </div>
   `;
@@ -7237,10 +7253,10 @@ function renderApiKeyPool(keys) {
       </td>
       <td style="padding:8px;text-align:center">${wsNames}</td>
       <td style="padding:8px;text-align:center">
-        <span style="color:${k.is_active?'var(--green)':'var(--red)'};cursor:pointer" onclick="toggleApiKey(${k.id},${k.is_active?0:1})">${k.is_active?'● Активен':'○ Выкл'}</span>
+        <span style="color:${k.is_active?'var(--green)':'var(--red)'};cursor:pointer" onclick="toggleApiKey('${k.id}',${k.is_active?0:1})">${k.is_active?'● Активен':'○ Выкл'}</span>
       </td>
       <td style="padding:8px;text-align:center">
-        <button class="btn-danger btn-sm" style="padding:2px 8px;font-size:10px" onclick="deleteApiKey(${k.id})">✕</button>
+        <button class="btn-danger btn-sm" style="padding:2px 8px;font-size:10px" onclick="deleteApiKey('${k.id}')">✕</button>
       </td>
     </tr>`;
   }
@@ -7459,14 +7475,14 @@ function renderTgAccounts(list) {
         <label style="font-size:11px">SMS-код для ${escapeHtml(a.label||a.phone||('acc#'+a.id))}</label>
         <div style="display:flex;gap:8px;margin-top:4px">
           <input type="text" id="tgCode_${a.id}" placeholder="12345" inputmode="numeric" autocomplete="off">
-          <button class="btn-blue btn-sm" onclick="tgSubmitCode(${a.id})">Отправить</button>
+          <button class="btn-blue btn-sm" onclick="tgSubmitCode('${a.id}')">Отправить</button>
         </div></div>`;
     } else if (a.loginInProgress && a.waitingFor === 'password') {
       loginStep = `<div class="tg-acc-login-step">
         <label style="font-size:11px">2FA-пароль для ${escapeHtml(a.label||a.phone||('acc#'+a.id))}</label>
         <div style="display:flex;gap:8px;margin-top:4px">
           <input type="password" id="tgPass_${a.id}" placeholder="••••••••" autocomplete="off">
-          <button class="btn-blue btn-sm" onclick="tgSubmitPassword(${a.id})">Отправить</button>
+          <button class="btn-blue btn-sm" onclick="tgSubmitPassword('${a.id}')">Отправить</button>
         </div></div>`;
     } else if (a.loginInProgress) {
       loginStep = `<div class="tg-acc-login-step" style="font-size:11px;color:var(--blue)">⏳ Логин… ждём ответа Telegram</div>`;
@@ -7488,12 +7504,12 @@ function renderTgAccounts(list) {
       ${loginStep}${err}
       <div class="tg-acc-actions">
         ${a.ready
-          ? `<button class="btn-secondary btn-sm" onclick="tgLogout(${a.id})">Logout</button>`
+          ? `<button class="btn-secondary btn-sm" onclick="tgLogout('${a.id}')">Logout</button>`
           : a.hasSession
             ? `<span style="font-size:11px;color:var(--text-dim)" title="Сессия уже есть (импорт/прошлый логин) — подключится при старте сервера через прокси">↻ сессия загружена · коннект при старте</span>`
-            : `<button class="btn-primary btn-sm" onclick="tgLogin(${a.id})"${a.loginInProgress?' disabled':''}>▶ Login</button>`}
-        <button class="btn-secondary btn-sm" onclick="tgToggleEdit(${a.id})">✎ Прокси/лимит</button>
-        <button class="btn-danger btn-sm" onclick="tgDeleteAccount(${a.id})">🗑</button>
+            : `<button class="btn-primary btn-sm" onclick="tgLogin('${a.id}')"${a.loginInProgress?' disabled':''}>▶ Login</button>`}
+        <button class="btn-secondary btn-sm" onclick="tgToggleEdit('${a.id}')">✎ Прокси/лимит</button>
+        <button class="btn-danger btn-sm" onclick="tgDeleteAccount('${a.id}')">🗑</button>
       </div>
       <div class="tg-acc-edit" id="tgEdit_${a.id}">
         <div style="display:flex;flex-direction:column;gap:8px">
@@ -7505,7 +7521,7 @@ function renderTgAccounts(list) {
               ${['active','disabled','banned','needs_proxy'].map(s=>`<option value="${s}"${a.status===s?' selected':''}>${s}</option>`).join('')}
             </select></div>
           </div>
-          <div><button class="btn-primary btn-sm" onclick="tgSaveEdit(${a.id})">Сохранить</button></div>
+          <div><button class="btn-primary btn-sm" onclick="tgSaveEdit('${a.id}')">Сохранить</button></div>
         </div>
       </div>
     </div>`;
@@ -7831,7 +7847,7 @@ function tgProfileCardHtml(acc) {
       <div style="font-weight:700;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${label}</div>
       <div id="tgPSubtitle_${id}" style="font-size:12px;color:${statusColor}">${escapeHtml(acc.status || '')}</div>
     </div>
-    <button class="btn-secondary btn-sm" onclick="tgPToggleEditor(${id})" id="tgPToggleBtn_${id}">✎ Профиль</button>
+    <button class="btn-secondary btn-sm" onclick="tgPToggleEditor('${id}')" id="tgPToggleBtn_${id}">✎ Профиль</button>
   </div>
   <div id="tgPEditor_${id}" style="display:none;margin-top:16px;border-top:1px solid var(--border);padding-top:16px">
     ${tgProfileEditorHtml(id)}
@@ -7853,9 +7869,9 @@ function tgProfileEditorHtml(id) {
   <!-- Username -->
   <div style="display:flex;gap:8px;margin-bottom:10px;align-items:flex-end">
     <div style="flex:1"><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:3px">Username (@)</label>
-      <input id="tgPUsername_${id}" class="input-field" style="width:100%" placeholder="username_5to32" oninput="tgPClearUsernameHint(${id})">
+      <input id="tgPUsername_${id}" class="input-field" style="width:100%" placeholder="username_5to32" oninput="tgPClearUsernameHint('${id}')">
     </div>
-    <button class="btn-secondary btn-sm" style="flex-shrink:0;margin-bottom:1px" onclick="tgPCheckUsername(${id})" title="Проверить доступность">Проверить</button>
+    <button class="btn-secondary btn-sm" style="flex-shrink:0;margin-bottom:1px" onclick="tgPCheckUsername('${id}')" title="Проверить доступность">Проверить</button>
   </div>
   <div id="tgPUsernameHint_${id}" style="font-size:11px;margin-bottom:10px;display:none"></div>
   <!-- Bio -->
@@ -7864,7 +7880,7 @@ function tgProfileEditorHtml(id) {
       <label style="font-size:11px;color:var(--text-dim)">Bio (макс 70 символов)</label>
       <span id="tgPBioCount_${id}" style="font-size:11px;color:var(--text-dim)">0/70</span>
     </div>
-    <textarea id="tgPBio_${id}" class="input-field" rows="2" style="width:100%;resize:vertical" maxlength="70" placeholder="Краткое описание" oninput="tgPBioCount(${id})"></textarea>
+    <textarea id="tgPBio_${id}" class="input-field" rows="2" style="width:100%;resize:vertical" maxlength="70" placeholder="Краткое описание" oninput="tgPBioCount('${id}')"></textarea>
     <div id="tgPBioRu_${id}" style="font-size:11px;color:var(--text-dim);margin-top:3px;min-height:14px"></div>
   </div>
   <!-- Privacy -->
@@ -7886,10 +7902,10 @@ function tgProfileEditorHtml(id) {
     <div style="font-size:11px;color:var(--text-dim);margin-bottom:6px">Аватар</div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       <img id="tgPAvatarPreview_${id}" src="" style="width:56px;height:56px;border-radius:50%;object-fit:cover;border:2px solid var(--border);display:none">
-      <button class="btn-secondary btn-sm" onclick="tgPGenAvatar(${id})">🎲 AI-аватар</button>
+      <button class="btn-secondary btn-sm" onclick="tgPGenAvatar('${id}')">🎲 AI-аватар</button>
       <label class="btn-secondary btn-sm" style="cursor:pointer;margin:0">
         ↑ Загрузить
-        <input type="file" accept="image/*" style="display:none" onchange="tgPUploadAvatar(${id}, this)">
+        <input type="file" accept="image/*" style="display:none" onchange="tgPUploadAvatar('${id}', this)">
       </label>
     </div>
   </div>
@@ -7912,13 +7928,13 @@ function tgProfileEditorHtml(id) {
       <label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="tgPGenKeepFirst_${id}"> Сохранить имя</label>
       <label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="tgPGenKeepLast_${id}"> Сохранить фамилию</label>
     </div>
-    <button class="btn-secondary btn-sm" onclick="tgPGenIdentity(${id})">✨ Сгенерировать личность</button>
+    <button class="btn-secondary btn-sm" onclick="tgPGenIdentity('${id}')">✨ Сгенерировать личность</button>
     <div id="tgPGenStatus_${id}" style="font-size:11px;color:var(--text-dim);margin-top:6px;display:none"></div>
   </div>
   <!-- Action buttons -->
   <div style="display:flex;gap:8px;flex-wrap:wrap">
-    <button class="btn-secondary btn-sm" onclick="tgPSave(${id})">💾 Сохранить</button>
-    <button class="btn-primary btn-sm" onclick="tgPApply(${id})">▶ Применить в TG</button>
+    <button class="btn-secondary btn-sm" onclick="tgPSave('${id}')">💾 Сохранить</button>
+    <button class="btn-primary btn-sm" onclick="tgPApply('${id}')">▶ Применить в TG</button>
     <div id="tgPApplyStatus_${id}" style="font-size:12px;color:var(--text-dim);align-self:center;display:none"></div>
   </div>
 </div>`;
