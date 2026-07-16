@@ -1762,6 +1762,7 @@ model MktLead {
   projectId   String?
   agreedPrice Int?
   notes       String?
+  manualContacts String? // JSON {channel: ISO-date} — блогеру написали ВРУЧНУЮ (не агент)
   optedOut    Boolean @default(false)
 
   // yt-parser unification

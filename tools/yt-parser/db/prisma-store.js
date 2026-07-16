@@ -139,6 +139,7 @@ function leadToLegacy(l) {
     project_id: l.projectId,
     agreed_price: l.agreedPrice,
     notes: l.notes,
+    manual_contacts: l.manualContacts,
     created_at: iso(l.createdAt),
     updated_at: iso(l.updatedAt),
     locked_until: l.lockedUntil ? l.lockedUntil.getTime() : null,
@@ -592,6 +593,30 @@ async function updateLeadNotes(workspaceId, notes, _updatedAt, id) {
     where: { id, workspaceId },
     data: { notes: notes ?? null },
   });
+}
+
+// Отметить/снять «написал сам» по каналу. Хранится JSON {channel: ISO-date} в manualContacts.
+// Возвращает актуальный объект отметок (или null, если лид не найден).
+async function setManualContact(workspaceId, id, channel, on) {
+  const lead = await prisma.mktLead.findFirst({
+    where: { id, workspaceId },
+    select: { manualContacts: true },
+  });
+  if (!lead) return null;
+  let obj = {};
+  try {
+    obj = lead.manualContacts ? JSON.parse(lead.manualContacts) : {};
+  } catch {
+    obj = {};
+  }
+  if (on) obj[channel] = new Date().toISOString();
+  else delete obj[channel];
+  const json = Object.keys(obj).length ? JSON.stringify(obj) : null;
+  await prisma.mktLead.updateMany({
+    where: { id, workspaceId },
+    data: { manualContacts: json },
+  });
+  return obj;
 }
 
 // зеркало stmts.updateLeadContacts.run({email, telegram, updated_at, id})
@@ -2611,6 +2636,7 @@ module.exports = {
   updateLeadStage,
   updateLeadProject,
   updateLeadNotes,
+  setManualContact,
   updateLeadContacts,
   updateLeadEnrichment,
   updateLeadSummary,

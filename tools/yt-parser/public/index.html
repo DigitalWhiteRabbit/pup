@@ -1036,6 +1036,18 @@ td a:hover { text-decoration:underline; }
   display:flex; align-items:center; justify-content:center; font-weight:800;
 }
 .contact-icon.ch-unavail { opacity:.32; filter:grayscale(.6); }
+.contact-icon.ch-manual { position:relative; box-shadow:0 0 0 1.5px rgba(34,197,94,.75) inset; cursor:pointer; }
+.contact-icon.ch-manual::after {
+  content:'✓'; position:absolute; bottom:-5px; right:-5px; font-size:8px; line-height:1;
+  background:#22c55e; color:#fff; border-radius:50%; width:11px; height:11px;
+  display:flex; align-items:center; justify-content:center; font-weight:800;
+}
+.lead-note-input {
+  width:130px; max-width:150px; font-size:11px; padding:4px 7px; border-radius:6px;
+  background:var(--input,#0d1117); color:var(--text,#e6edf3); border:1px solid var(--border,#30363d);
+}
+.lead-note-input::placeholder { color:var(--text-dim); }
+.lead-note-input:focus { border-color:var(--accent); outline:none; }
 
 /* ─── Dialogue channel tabs ────────────────────────────── */
 .dlg-chan-tabs { display:flex; gap:6px; padding:8px 18px 0; border-bottom:1px solid var(--border); }
@@ -2011,6 +2023,7 @@ window.fetch = function(url, opts) {
               <th>Dialogue stage</th>
               <th>Сводка</th>
               <th>Тег</th>
+              <th>Заметка</th>
               <th>Анализ</th>
               <th>Действия</th>
             </tr></thead>
@@ -2810,31 +2823,40 @@ function buildContactIcons(row, statusCtx) {
   // когда вызвано из списка лидов со statusCtx { available:{...}, sent:Set }.
   const sentSet = statusCtx && statusCtx.sent ? statusCtx.sent : null;
   const avail = statusCtx && statusCtx.available ? statusCtx.available : null;
+  const manualSet = statusCtx && statusCtx.manual ? statusCtx.manual : null;
+  const leadIdCtx = statusCtx && statusCtx.leadId ? statusCtx.leadId : null;
   const chanState = (field) => {
-    if (!statusCtx || (field !== 'email' && field !== 'telegram')) return { cls:'', tip:'' };
-    if (sentSet && sentSet.has(field)) return { cls:' ch-sent', tip:' · отправлено ✓' };
-    if (avail && avail[field] === false) return { cls:' ch-unavail', tip:field==='telegram' ? ' · нет живого аккаунта' : ' · недоступно' };
-    if (avail && avail[field] === true) return { cls:'', tip:' · доступно' };
-    return { cls:'', tip:'' };
+    let cls = '', tip = '';
+    if (statusCtx && (field === 'email' || field === 'telegram')) {
+      if (sentSet && sentSet.has(field)) { cls += ' ch-sent'; tip += ' · отправлено ✓'; }
+      else if (avail && avail[field] === false) { cls += ' ch-unavail'; tip += field === 'telegram' ? ' · нет живого аккаунта' : ' · недоступно'; }
+      else if (avail && avail[field] === true) { tip += ' · доступно'; }
+    }
+    if (manualSet && manualSet.has(field)) { cls += ' ch-manual'; tip += ' · написал сам ✓'; }
+    return { cls, tip };
   };
 
   const add = (field, cls, label, urlFn) => {
     const st = chanState(field);
     const fullCls = (cls + st.cls);
+    const manualAttrs = leadIdCtx
+      ? ` data-lead-id="${escapeHtml(leadIdCtx)}" data-chan="${escapeHtml(field)}" onclick="return toggleManualContact(event, this)"`
+      : '';
+    const manualHint = leadIdCtx ? '\nклик: отметить «написал сам»; Cmd/Ctrl+клик: открыть' : '';
     // Приоритет: detailed со source/trust → плоский row[field]
     const detailedArr = detailed && detailed[field === 'email' ? 'emails' : field === 'website' ? 'websites' : field];
     if (detailedArr && detailedArr.length) {
       const v = detailedArr[0].value;
       const url = urlFn ? urlFn(v) : '#';
       const tipLines = detailedArr.map(x => `${x.value}${trustBadge(x.trust)} — ${contactSourceLabel(x.source)}`);
-      icons.push(`<a class="contact-icon ${escapeHtml(fullCls)}" href="${escapeHtml(url)}" target="_blank" rel="noopener" title="${escapeHtml(label + st.tip + ':\n' + tipLines.join('\n'))}">${escapeHtml(label.slice(0,2).toUpperCase())}</a>`);
+      icons.push(`<a class="contact-icon ${escapeHtml(fullCls)}" href="${escapeHtml(url)}" target="_blank" rel="noopener"${manualAttrs} title="${escapeHtml(label + st.tip + ':\n' + tipLines.join('\n') + manualHint)}">${escapeHtml(label.slice(0,2).toUpperCase())}</a>`);
       return;
     }
     if (!row[field] || !row[field].trim()) return;
     const vals = row[field].split(';').filter(Boolean);
     const v = vals[0];
     const url = urlFn ? urlFn(v) : '#';
-    icons.push(`<a class="contact-icon ${escapeHtml(fullCls)}" href="${escapeHtml(url)}" target="_blank" rel="noopener" title="${escapeHtml(label + st.tip + ': ' + vals.join(', '))}">${escapeHtml(label.slice(0,2).toUpperCase())}</a>`);
+    icons.push(`<a class="contact-icon ${escapeHtml(fullCls)}" href="${escapeHtml(url)}" target="_blank" rel="noopener"${manualAttrs} title="${escapeHtml(label + st.tip + ': ' + vals.join(', ') + manualHint)}">${escapeHtml(label.slice(0,2).toUpperCase())}</a>`);
   };
   add('email', 'email', 'Email', v => 'mailto:'+v);
   add('telegram', 'tg', 'TG', v => 'https://t.me/'+v);
@@ -2846,6 +2868,34 @@ function buildContactIcons(row, statusCtx) {
   add('whatsapp', 'wa', 'WA', v => 'https://wa.me/'+v);
   add('website', 'web', 'Web', v => v.startsWith('http') ? v : 'https://'+v);
   return icons.join('');
+}
+
+// Тоггл «написал сам» по каналу (клик по чипу контакта в таблице лидов).
+// Cmd/Ctrl/средний клик оставляем на открытие профиля (ссылка), обычный клик — отметка.
+async function toggleManualContact(event, el) {
+  if (event.metaKey || event.ctrlKey || event.shiftKey || event.button === 1) return true;
+  event.preventDefault();
+  const leadId = el.dataset.leadId, chan = el.dataset.chan;
+  if (!leadId || !chan) return false;
+  const on = !el.classList.contains('ch-manual');
+  try {
+    const r = await fetch('/api/leads/' + leadId + '/manual-contact', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ channel: chan, on })
+    });
+    const j = await r.json();
+    if (!j.success) throw new Error(j.error || ('HTTP ' + r.status));
+    el.classList.toggle('ch-manual', on);
+    if (typeof leadsData !== 'undefined') {
+      const lead = leadsData.find(x => x.id === leadId);
+      if (lead) lead.manual_contacts = Object.keys(j.manual_contacts || {}).length ? JSON.stringify(j.manual_contacts) : null;
+    }
+    toast(on ? 'Отмечено: написал сам (' + chan + ')' : 'Отметка снята (' + chan + ')', 'success');
+  } catch (e) {
+    toast('Ошибка: ' + e.message, 'error');
+  }
+  return false;
 }
 
 const columns=[
@@ -4862,7 +4912,7 @@ function renderLeadsTable() {
     const msg = leadsData.length === 0
       ? 'Нет лидов. Запусти парсер или нажми "Импорт из CSV".'
       : 'Нет лидов с выбранным фильтром.';
-    tbody.innerHTML = `<tr><td colspan="11" style="text-align:center;color:var(--text-dim);padding:30px">${msg}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="12" style="text-align:center;color:var(--text-dim);padding:30px">${msg}</td></tr>`;
     return;
   }
   rows.forEach(lead => {
@@ -4900,9 +4950,13 @@ function renderLeadsTable() {
       telegram: lead.telegram || '',
       whatsapp: lead.whatsapp || '',
     };
+    let manualSet = new Set();
+    try { const mc = lead.manual_contacts ? JSON.parse(lead.manual_contacts) : null; if (mc) manualSet = new Set(Object.keys(mc)); } catch {}
     const chanStatusCtx = {
       available: lead.channels_available || null,
       sent: new Set(lead.channels_sent || []),
+      manual: manualSet,
+      leadId: lead.id,
     };
     tdContacts.innerHTML = '<div class="contact-icons">' + buildContactIcons(contactRow, chanStatusCtx) +
       `<button class="contact-icon" onclick="openAddContact('${lead.id}')" title="Добавить контакт" style="background:rgba(99,102,241,.15);color:var(--accent);font-weight:700;cursor:pointer;border:none;font-size:13px">+</button>` +
@@ -4944,6 +4998,19 @@ function renderLeadsTable() {
     const tdTag = document.createElement('td');
     tdTag.appendChild(buildTagSelect(tagKey(lead)));
     tr.appendChild(tdTag);
+
+    // Note (free-form, autosave to lead.notes)
+    const tdNote = document.createElement('td');
+    const noteInput = document.createElement('input');
+    noteInput.type = 'text';
+    noteInput.value = lead.notes || '';
+    noteInput.placeholder = 'заметка…';
+    noteInput.className = 'lead-note-input';
+    noteInput.title = 'Свободная заметка по лиду (сохраняется автоматически)';
+    noteInput.onkeydown = (e) => { if (e.key === 'Enter') noteInput.blur(); };
+    noteInput.onchange = () => { const l = leadsData.find(x => x.id === lead.id); if (l) l.notes = noteInput.value; saveDialogNote(lead.id, noteInput.value, noteInput); };
+    tdNote.appendChild(noteInput);
+    tr.appendChild(tdNote);
 
     // Analysis
     const tdAnalysis = document.createElement('td');

@@ -173,6 +173,33 @@ router.patch("/:id", async (req, res) => {
   res.json({ success: true, lead });
 });
 
+// POST /api/leads/:id/manual-contact  { channel, on } — отметить/снять «написал сам» по каналу
+const MANUAL_CONTACT_CHANNELS = [
+  "email",
+  "telegram",
+  "instagram",
+  "twitter",
+  "tiktok",
+  "vk",
+  "discord",
+  "whatsapp",
+  "website",
+];
+router.post("/:id/manual-contact", async (req, res) => {
+  if (!requireWsId(req, res)) return;
+  const id = req.params.id; // cuid-строка
+  const channel = String(req.body.channel || "").trim();
+  const on = req.body.on !== false; // по умолчанию отметить
+  if (!MANUAL_CONTACT_CHANNELS.includes(channel)) {
+    return res.status(400).json({ success: false, error: "invalid channel" });
+  }
+  const map = await store.setManualContact(req.wsId, id, channel, on);
+  if (map === null) {
+    return res.status(404).json({ success: false, error: "not found" });
+  }
+  res.json({ success: true, manual_contacts: map });
+});
+
 // POST /api/leads/bulk-status  { ids: [], lead_status: '' }
 router.post("/bulk-status", async (req, res) => {
   if (!requireWsId(req, res)) return;
