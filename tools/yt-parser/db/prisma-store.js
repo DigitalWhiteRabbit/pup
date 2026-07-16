@@ -2268,24 +2268,31 @@ async function deleteTag(workspaceId, id) {
 
 // зеркало: SELECT channel_id, tag_id FROM channel_tags
 async function listChannelTags(workspaceId) {
-  const rows = await prisma.mktLead.findMany({
-    where: { workspaceId, tagId: { not: null } },
+  const rows = await prisma.mktChannelTag.findMany({
+    where: { workspaceId },
     select: { channelId: true, tagId: true },
   });
   return rows.map((r) => ({ channel_id: r.channelId, tag_id: r.tagId }));
 }
 
-// зеркало: INSERT INTO channel_tags ... ON CONFLICT(channel_id) DO UPDATE
+// channel_tags — отдельная таблица MktChannelTag (тег живёт независимо от лида,
+// поэтому теги не-лидов больше не теряются). Пишем туда И зеркалим на лид,
+// если он уже существует, для консистентности lead.tagId.
 async function setChannelTag(workspaceId, channelId, tagId) {
-  return prisma.mktLead.updateMany({
+  await prisma.mktChannelTag.upsert({
+    where: { workspaceId_channelId: { workspaceId, channelId } },
+    create: { workspaceId, channelId, tagId },
+    update: { tagId },
+  });
+  await prisma.mktLead.updateMany({
     where: { workspaceId, channelId },
     data: { tagId },
   });
 }
 
-// зеркало: DELETE FROM channel_tags WHERE channel_id = ?
 async function removeChannelTag(workspaceId, channelId) {
-  return prisma.mktLead.updateMany({
+  await prisma.mktChannelTag.deleteMany({ where: { workspaceId, channelId } });
+  await prisma.mktLead.updateMany({
     where: { workspaceId, channelId },
     data: { tagId: null },
   });

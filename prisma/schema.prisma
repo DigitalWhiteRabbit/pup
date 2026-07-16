@@ -180,6 +180,7 @@ model Workspace {
   mktDailyCounters MktDailyCounter[]
   mktSettings      MktSetting[]
   mktTags          MktTag[]
+  mktChannelTags   MktChannelTag[]
   mktTgAccounts    MktTgAccount[]
 
   // Member activity tracking
@@ -1872,6 +1873,7 @@ model MktTag {
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   leads     MktLead[]
+  channelTags MktChannelTag[]
 
   @@index([workspaceId])
 }
@@ -2333,4 +2335,19 @@ model ContentCardHistory {
   user User        @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([cardId, createdAt])
+}
+
+model MktChannelTag {
+  id          String   @id @default(cuid())
+  workspaceId String
+  channelId   String
+  tagId       String
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  tag       MktTag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, channelId])
+  @@index([workspaceId])
+  @@index([tagId])
 }
