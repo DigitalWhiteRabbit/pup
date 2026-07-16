@@ -213,6 +213,11 @@ async function _processWorkspaceOutreach(currentWsId) {
   const project = await store.getActiveProject(currentWsId);
   if (!project) return; // активный проект мог пропасть между enum и обработкой
 
+  // Автопилот НЕ инициирует первый контакт сам: первый питч уходит ТОЛЬКО по явному
+  // «Запустить» (runLeadNow/runLeadsNow). Иначе любой промоутнутый в «Лиды» лид
+  // (READY+NOT_CONTACTED = «в очереди») авто-рассылался бы пачкой. Авто-режим: auto_outreach=1.
+  if (!(await isAutoOutreachStore(currentWsId))) return;
+
   const counts = await store.getDailyCounts(currentWsId, todayKey());
   if (counts.sent_email >= DAILY_CAP_EMAIL && counts.sent_tg >= DAILY_CAP_TG) {
     log(
@@ -247,6 +252,19 @@ async function isReviewModeStore(wsId) {
     if (row && row.value) return row.value === "1" || row.value === "true";
   } catch {}
   return process.env.REVIEW_MODE === "true" || process.env.REVIEW_MODE === "1";
+}
+
+// Автопилот исходящей: инициировать ли ПЕРВЫЙ контакт самому (без явного «Запустить»).
+// По умолчанию ВЫКЛЮЧЕН — первый питч уходит только через runLeadNow/runLeadsNow
+// (кнопка «Запустить» с выбором канала). Включить: настройка auto_outreach=1 на воркспейс.
+async function isAutoOutreachStore(wsId) {
+  try {
+    const row = await store.getSetting(wsId, "auto_outreach");
+    if (row && row.value) return row.value === "1" || row.value === "true";
+  } catch {}
+  return (
+    process.env.AUTO_OUTREACH === "true" || process.env.AUTO_OUTREACH === "1"
+  );
 }
 
 // store-версия resolveChannels: доступные ∩ запрошенные − уже_отправленные − в_очереди
