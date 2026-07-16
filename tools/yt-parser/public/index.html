@@ -4395,7 +4395,7 @@ function getFilteredData(){
 
   let data=allData;
   if(currentTab==='active') {
-    data=data.filter(d=>!deletedIds.has(getChannelId(d)));
+    data=data.filter(d=>!deletedIds.has(getChannelId(d)) && !d.lead_id && !promotedChannelIds.has(getChannelId(d)));
   } else {
     data=data.filter(d=>deletedIds.has(getChannelId(d)));
   }

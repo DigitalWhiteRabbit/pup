@@ -26,6 +26,14 @@
 const { google } = require("googleapis");
 const Anthropic = require("@anthropic-ai/sdk");
 
+// Удаляем одиночные суррогаты (например от .slice, разрезавшего эмодзи).
+// Иначе тело запроса к Anthropic — невалидный JSON: 400 "no low surrogate in string".
+function stripLoneSurrogates(s) {
+  return String(s == null ? "" : s)
+    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/g, "")
+    .replace(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "");
+}
+
 const YT_KEY = process.env.YT_API_KEY || process.env.YOUTUBE_API_KEY;
 const AI_KEY = process.env.ANTHROPIC_API_KEY;
 const N_VIDEOS = parseInt(process.env.CA_VIDEOS || "25", 10);
@@ -325,8 +333,8 @@ ${sample.join("\n")}
     model: SCAN_MODEL,
     max_tokens: 900,
     temperature: 0.2,
-    system: sys,
-    messages: [{ role: "user", content: user }],
+    system: stripLoneSurrogates(sys),
+    messages: [{ role: "user", content: stripLoneSurrogates(user) }],
   });
   const txt = resp.content.find((b) => b.type === "text")?.text || "";
   let p = {};
@@ -445,8 +453,8 @@ async function synthesize(channel, metrics, commentScan, opts = {}) {
     model: VERDICT_MODEL,
     max_tokens: 1500,
     temperature: 0.2,
-    system: sys,
-    messages: [{ role: "user", content: user }],
+    system: stripLoneSurrogates(sys),
+    messages: [{ role: "user", content: stripLoneSurrogates(user) }],
   });
   const txt = resp.content.find((b) => b.type === "text")?.text || "";
   let p = {};
