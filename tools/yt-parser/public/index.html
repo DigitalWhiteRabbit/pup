@@ -1391,6 +1391,31 @@ button:hover:not(:disabled) { transform: translateY(-1px); }
   100% { left: 100%; }
 }
 
+/* Подпись текущего действия рядом с полосой загрузки */
+#nprogress-label {
+  position: fixed; top: 10px; left: 50%;
+  transform: translateX(-50%) translateY(-8px);
+  z-index: 10003; pointer-events: none;
+  display: inline-flex; align-items: center; gap: 8px; max-width: 70vw;
+  background: rgba(18,18,22,.94); color: var(--text, #e6edf3);
+  border: 1px solid var(--border, #30363d); border-radius: 999px;
+  padding: 5px 13px; font-size: 12px; font-weight: 600;
+  box-shadow: 0 6px 20px rgba(0,0,0,.45);
+  opacity: 0; transition: opacity .2s ease, transform .2s ease;
+}
+#nprogress-label.active { opacity: 1; transform: translateX(-50%) translateY(0); }
+#nprogress-label .np-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#nprogress-label .np-count {
+  background: var(--accent); color: #fff; border-radius: 999px;
+  padding: 1px 7px; font-size: 11px; font-weight: 800;
+}
+#nprogress-label .np-spin {
+  width: 11px; height: 11px; flex: none; border-radius: 50%;
+  border: 2px solid var(--accent); border-right-color: transparent;
+  animation: npspin .7s linear infinite;
+}
+@keyframes npspin { to { transform: rotate(360deg); } }
+
 /* prefers-reduced-motion */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
@@ -7851,20 +7876,128 @@ async function runTestPitch() {
     setTimeout(()=>ripple.remove(), 600);
   });
 
-  // --- NProgress ---
+  // --- NProgress + описание текущего действия ---
   const bar = document.createElement('div');
   bar.id = 'nprogress-bar';
   document.body.appendChild(bar);
-  let activeCount = 0;
+  const npLabel = document.createElement('div');
+  npLabel.id = 'nprogress-label';
+  npLabel.innerHTML = '<span class="np-spin"></span><span class="np-text"></span><span class="np-count"></span>';
+  document.body.appendChild(npLabel);
+  const npTextEl = npLabel.querySelector('.np-text');
+  const npCountEl = npLabel.querySelector('.np-count');
+
+  let npItems = [];   // активные запросы: {id, label, sticky}
+  let npSeq = 0;
+  let npHideTimer = null;
+
+  function npRenderLabel(){
+    const labeled = npItems.filter(x => x.label);
+    if (!labeled.length) return; // скрытие делает таймер в done()
+    const cur = labeled[labeled.length - 1];
+    npTextEl.textContent = cur.label;
+    if (labeled.length > 1){ npCountEl.textContent = '+' + (labeled.length - 1); npCountEl.style.display = ''; }
+    else { npCountEl.style.display = 'none'; }
+    if (npHideTimer){ clearTimeout(npHideTimer); npHideTimer = null; }
+    npLabel.classList.add('active');
+  }
+
   window.nprogress = {
-    start(){ activeCount++; bar.classList.add('active'); },
-    done(){ activeCount = Math.max(0, activeCount-1); if (activeCount === 0) bar.classList.remove('active'); }
+    // desc: {text, sticky} | null. Возвращает handle для done().
+    start(desc){
+      const id = ++npSeq;
+      const label = desc && desc.text ? desc.text : null;
+      const sticky = !!(desc && desc.sticky);
+      npItems.push({ id, label, sticky });
+      bar.classList.add('active');
+      if (label) npRenderLabel();
+      return { id, sticky };
+    },
+    // Явная длительная задача (не привязана к одному fetch). Верни handle, вызови .end().
+    task(text){
+      const h = this.start({ text: text, sticky: true });
+      return { update: (t) => { const it = npItems.find(x => x.id === h.id); if (it){ it.label = t; npRenderLabel(); } }, end: () => this.done(h) };
+    },
+    done(h){
+      let removed = null;
+      if (h && h.id != null){ const i = npItems.findIndex(x => x.id === h.id); if (i >= 0) removed = npItems.splice(i, 1)[0]; }
+      else { removed = npItems.pop() || null; }
+      if (npItems.length === 0) bar.classList.remove('active');
+      const stillLabeled = npItems.filter(x => x.label);
+      if (stillLabeled.length){
+        npRenderLabel();
+      } else {
+        // «Липкие» (опрос статуса bulk) держим дольше, чтобы подпись не мигала
+        // между тиками опроса (~2с); разовые действия прячем быстро.
+        const delay = (removed && removed.sticky) ? 2600 : 500;
+        if (npHideTimer) clearTimeout(npHideTimer);
+        npHideTimer = setTimeout(() => {
+          if (npItems.filter(x => x.label).length === 0) npLabel.classList.remove('active');
+        }, delay);
+      }
+    }
   };
+
+  // URL -> человекочитаемое описание действия (или null — не показывать текст).
+  function npDescribe(url, method){
+    try {
+      const path = String(url || '').split('?')[0];
+      const m = (method || 'GET').toUpperCase();
+      // Долгие фоновые операции (опрос статуса) — «липкая» подпись держится весь процесс.
+      if (/\/api\/leads\/bulk-summary\/status$/.test(path)) return { text: 'Генерация сводок…', sticky: true };
+      if (/\/api\/leads\/bulk-analyze\/status$/.test(path)) return { text: 'Анализ каналов…', sticky: true };
+      if (/\/api\/leads\/bulk-enrich\/status$/.test(path)) return { text: 'Обогащение данных…', sticky: true };
+      if (/\/api\/knowledge\/crawl\/status$/.test(path)) return { text: 'Индексация базы знаний…', sticky: true };
+      // Прочие опросы статуса/бейджей/потоки — молча.
+      if (/\/status$/.test(path) || /\/(events|stream)(\/|$)/.test(path)) return null;
+      // Разовые осмысленные действия.
+      const R = [
+        [/\/api\/leads\/[^/]+\/analyze$/, 'Анализ канала'],
+        [/\/api\/leads\/bulk-analyze$/, 'Запуск массового анализа'],
+        [/\/api\/leads\/[^/]+\/deep-summary$/, 'Глубокая сводка'],
+        [/\/api\/leads\/[^/]+\/summary$/, 'Генерация сводки'],
+        [/\/api\/leads\/bulk-summary$/, 'Запуск генерации сводок'],
+        [/\/api\/leads\/[^/]+\/enrich$/, 'Обогащение канала'],
+        [/\/api\/leads\/bulk-enrich$/, 'Запуск обогащения'],
+        [/\/api\/leads\/[^/]+\/run$/, 'Запуск диалога'],
+        [/\/api\/leads\/bulk-run$/, 'Запуск диалогов'],
+        [/\/api\/leads\/promote$/, 'Добавление в Лиды'],
+        [/\/api\/leads\/[^/]+\/manual-contact$/, 'Отметка контакта'],
+        [/\/api\/leads\/[^/]+\/contacts$/, 'Поиск контактов'],
+        [/\/api\/leads\/[^/]+\/score$/, 'Скоринг лида'],
+        [/\/api\/leads\/score-all$/, 'Массовый скоринг'],
+        [/\/api\/leads\/import-from-csv$/, 'Импорт из CSV'],
+        [/\/api\/leads\/create-manual$/, 'Создание лида'],
+        [/\/api\/tags\/assign$/, 'Назначение тега'],
+        [/\/api\/pending-replies\/[^/]+\/approve$/, 'Одобрение письма'],
+        [/\/api\/pending-replies\/[^/]+\/reject$/, 'Отклонение письма'],
+        [/\/api\/parse$/, 'Парсинг YouTube']
+      ];
+      for (const rule of R){ if (rule[0].test(path)) return { text: rule[1], sticky: false }; }
+      // Изменение/удаление одного лида.
+      if (/\/api\/leads\/all$/.test(path) && m === 'DELETE') return { text: 'Очистка лидов', sticky: false };
+      if (/\/api\/leads\/[^/]+$/.test(path)){
+        if (m === 'PATCH') return { text: 'Сохранение лида', sticky: false };
+        if (m === 'DELETE') return { text: 'Удаление лида', sticky: false };
+      }
+      if (/\/api\/tags(\/[^/]+)?$/.test(path) && m !== 'GET') return { text: 'Изменение тегов', sticky: false };
+      if (/\/api\/pending-replies\/[^/]+$/.test(path) && m === 'DELETE') return { text: 'Удаление из очереди', sticky: false };
+      // Остальное (загрузка списков, бейджи, любые GET) — без текста.
+      return null;
+    } catch { return null; }
+  }
+
   // Monkey-patch fetch
   const origFetch = window.fetch;
-  window.fetch = function(){
-    window.nprogress.start();
-    return origFetch.apply(this, arguments).finally(()=>window.nprogress.done());
+  window.fetch = function(input, init){
+    let url = '', method = 'GET';
+    try {
+      if (typeof input === 'string') url = input;
+      else if (input && typeof input === 'object'){ url = input.url || ''; method = input.method || method; }
+      if (init && init.method) method = init.method;
+    } catch {}
+    const h = window.nprogress.start(npDescribe(url, method));
+    return origFetch.apply(this, arguments).finally(() => window.nprogress.done(h));
   };
 
 })();
