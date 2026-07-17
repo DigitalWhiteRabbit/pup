@@ -77,16 +77,43 @@ export async function addUserToGeneralChannel(
   workspaceId: string,
   userId: string,
 ): Promise<void> {
-  const general = await db.chatChannel.findFirst({
-    where: { workspaceId, type: "GENERAL" },
-    select: { id: true },
-  });
-  if (!general) return;
+  // Ensure the General channel exists first (it is created lazily on first chat
+  // open). Creating it snapshots current members; the upsert then covers the
+  // case where the channel already existed. No more silent no-op.
+  const channelId = await ensureGeneralChannel(workspaceId);
 
   await db.chatChannelMember.upsert({
-    where: { channelId_userId: { channelId: general.id, userId } },
-    create: { channelId: general.id, userId },
+    where: { channelId_userId: { channelId, userId } },
+    create: { channelId, userId },
     update: {},
+  });
+}
+
+// ─── Reconcile: every workspace member must be in the General channel ────────
+
+async function reconcileGeneralMembership(
+  workspaceId: string,
+  generalChannelId: string,
+): Promise<void> {
+  const [wsMembers, chMembers] = await Promise.all([
+    db.workspaceMember.findMany({
+      where: { workspaceId },
+      select: { userId: true },
+    }),
+    db.chatChannelMember.findMany({
+      where: { channelId: generalChannelId },
+      select: { userId: true },
+    }),
+  ]);
+  const present = new Set(chMembers.map((r) => r.userId));
+  const missing = wsMembers.filter((r) => !present.has(r.userId));
+  if (missing.length === 0) return;
+  await db.chatChannelMember.createMany({
+    data: missing.map((m) => ({
+      channelId: generalChannelId,
+      userId: m.userId,
+    })),
+    skipDuplicates: true,
   });
 }
 
@@ -101,8 +128,11 @@ export async function listChannels(
   if (!m && userRole !== "ADMIN")
     throw new ApiError("Нет доступа", "FORBIDDEN", 403);
 
-  // Ensure general exists
-  await ensureGeneralChannel(workspaceId);
+  // Ensure the General channel exists AND that every current workspace member
+  // is in it. This self-heals any member who was added while the add hook could
+  // not run, and back-fills historical gaps on the next chat open.
+  const generalId = await ensureGeneralChannel(workspaceId);
+  await reconcileGeneralMembership(workspaceId, generalId);
 
   const channels = await db.chatChannel.findMany({
     where: {

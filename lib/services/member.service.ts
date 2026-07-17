@@ -90,19 +90,18 @@ export async function addMember(
     data: { workspaceId, userId: user.id, role: "MEMBER" },
   });
 
-  // Auto-add to General chat channel (hidden from webpack)
-  void (
-    Function(
-      "p",
-      "return import(p)",
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    )("./chat-internal/channel.service") as Promise<any>
-  )
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    .then(({ addUserToGeneralChannel }: any) =>
-      addUserToGeneralChannel(workspaceId, user.id),
-    )
-    .catch(() => {});
+  // Add the new member to the workspace General chat channel. Best-effort (a
+  // chat failure must not fail the member add), but AWAITED and logged so it
+  // actually runs and errors surface instead of being silently swallowed.
+  // (channel.service does not pull the telegram/mailparser chain, so a normal
+  // dynamic import is safe here — unlike logger/notification below.)
+  try {
+    const { addUserToGeneralChannel } =
+      await import("./chat-internal/channel.service");
+    await addUserToGeneralChannel(workspaceId, user.id);
+  } catch (e) {
+    console.error("[addMember] add to General chat channel failed:", e);
+  }
 
   await (
     await getNotifier()
@@ -180,6 +179,13 @@ export async function removeMember(
       userId: targetUserId,
       task: { workspaceId },
     },
+  });
+
+  // Remove the user from all chat channels in this workspace (symmetric with
+  // add — otherwise a removed member lingers in the General/other channels and
+  // keeps receiving realtime messages and unread counts).
+  await db.chatChannelMember.deleteMany({
+    where: { userId: targetUserId, channel: { workspaceId } },
   });
 
   await db.workspaceMember.delete({
