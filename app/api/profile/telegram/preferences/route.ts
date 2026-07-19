@@ -15,6 +15,7 @@ const preferencesSchema = z.object({
   tgNotifyWorkspaceDeleted: z.boolean().optional(),
   tgNotifyRoleChanged: z.boolean().optional(),
   tgNotifyDeploy: z.boolean().optional(),
+  tgNotifyMarketing: z.boolean().optional(),
 });
 
 export async function PATCH(req: NextRequest) {
@@ -39,6 +40,7 @@ export async function PATCH(req: NextRequest) {
         tgNotifyWorkspaceDeleted: true,
         tgNotifyRoleChanged: true,
         tgNotifyDeploy: true,
+        tgNotifyMarketing: true,
       },
     });
 

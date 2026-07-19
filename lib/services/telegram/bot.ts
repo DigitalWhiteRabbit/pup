@@ -146,6 +146,58 @@ async function sendTaskCard(bot: TelegramBot, chatId: string, taskId: string) {
 
 // ─── Setup ──────────────────────────────────────────────────────────────────
 
+// Ответ на консультацию AI-агента из Telegram (reply на сообщение бота).
+// Сообщения консультации рассылаются нескольким маркетинг-получателям (admin-bot
+// в yt-parser), связь message_id → консультация хранится в MktConsultation.tgMessageIds.
+// Отвечать может любой получатель; первый ответ выигрывает (updateMany по status).
+async function tryAnswerConsultation(
+  bot: TelegramBot,
+  chatId: string,
+  replyToMessageId: number,
+  answer: string,
+  userMessageId: number,
+): Promise<boolean> {
+  const db = await getDb();
+  const pending = await db.mktConsultation.findMany({
+    where: { status: "pending", tgMessageIds: { not: null } },
+    select: { id: true, tgMessageIds: true },
+  });
+  let targetId: string | null = null;
+  for (const c of pending) {
+    try {
+      const pairs = JSON.parse(c.tgMessageIds ?? "[]") as Array<{
+        chatId: string;
+        messageId: number;
+      }>;
+      if (
+        pairs.some(
+          (p) =>
+            String(p.chatId) === String(chatId) &&
+            Number(p.messageId) === Number(replyToMessageId),
+        )
+      ) {
+        targetId = c.id;
+        break;
+      }
+    } catch {
+      // malformed tgMessageIds — skip
+    }
+  }
+  if (!targetId) return false;
+  const res = await db.mktConsultation.updateMany({
+    where: { id: targetId, status: "pending" },
+    data: { adminResponse: answer, status: "answered", answeredAt: new Date() },
+  });
+  await bot.sendMessage(
+    chatId,
+    res.count === 1
+      ? "\u2705 Ответ сохранён, агент использует его в следующем сообщении."
+      : "Эта консультация уже была отвечена.",
+    { reply_to_message_id: userMessageId },
+  );
+  return true;
+}
+
 function setupHandlers(bot: TelegramBot): void {
   // ─── /start <code> — link Telegram account ────────────────────────────
   bot.onText(/\/start (.+)/, async (msg, match) => {
@@ -454,6 +506,18 @@ function setupHandlers(bot: TelegramBot): void {
     const chatId = String(msg.chat.id);
     const text = msg.text?.trim();
     if (!text || text.startsWith("/")) return;
+
+    // Ответ на консультацию агента (reply в TG) — до pendingActions.
+    if (msg.reply_to_message) {
+      const handled = await tryAnswerConsultation(
+        bot,
+        chatId,
+        msg.reply_to_message.message_id,
+        text,
+        msg.message_id,
+      );
+      if (handled) return;
+    }
 
     const action = pendingActions.get(chatId);
     if (!action) return;

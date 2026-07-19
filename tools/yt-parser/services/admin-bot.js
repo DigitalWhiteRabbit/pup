@@ -52,13 +52,9 @@ async function resolveRecipients() {
   try {
     const now = Date.now();
     if (now - _recipCache.at > 60000) {
-      const logins = (process.env.ADMIN_NOTIFY_LOGINS || "")
-        .split(",")
-        .map((x) => x.trim())
-        .filter(Boolean);
       _recipCache = {
         at: now,
-        ids: await store.getTelegramChatIdsByLogins(logins),
+        ids: await store.getMarketingNotifyChatIds(),
       };
     }
     for (const id of _recipCache.ids) ids.add(String(id));
@@ -287,11 +283,20 @@ async function askConsultation(consultation, lead) {
     `\n\n<i>Reply на это сообщение чтобы ответить агенту.</i>`;
 
   try {
-    const sent = await safeSend(adminChatId, text, {
-      reply_markup: { force_reply: true, selective: true },
-    });
-    if (sent?.message_id)
-      consultationByMessage.set(sent.message_id, consultation.id);
+    // Рассылаем всем маркетинг-получателям; связь message_id → консультация пишем
+    // в БД, чтобы reply из любого чата обработал основной бот (общий токен).
+    const recips = await resolveRecipients();
+    const pairs = [];
+    for (const chatId of recips) {
+      const sent = await safeSend(chatId, text, {
+        reply_markup: { force_reply: true, selective: true },
+      });
+      if (sent?.message_id) {
+        pairs.push({ chatId: String(chatId), messageId: sent.message_id });
+      }
+    }
+    if (pairs.length)
+      await store.setConsultationTgMessages(consultation.id, pairs);
   } catch (e) {
     console.error("[admin-bot] Failed to send consultation:", e.message);
   }

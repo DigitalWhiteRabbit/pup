@@ -23,6 +23,7 @@ export async function GET() {
         tgNotifyWorkspaceDeleted: true,
         tgNotifyRoleChanged: true,
         tgNotifyDeploy: true,
+        tgNotifyMarketing: true,
       },
     });
 
@@ -38,6 +39,7 @@ export async function GET() {
       tgNotifyWorkspaceDeleted: user?.tgNotifyWorkspaceDeleted ?? false,
       tgNotifyRoleChanged: user?.tgNotifyRoleChanged ?? false,
       tgNotifyDeploy: user?.tgNotifyDeploy ?? true,
+      tgNotifyMarketing: user?.tgNotifyMarketing ?? false,
     });
   });
 }

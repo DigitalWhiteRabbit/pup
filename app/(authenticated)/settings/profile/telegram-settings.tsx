@@ -26,6 +26,7 @@ type Preferences = {
   tgNotifyWorkspaceDeleted: boolean;
   tgNotifyRoleChanged: boolean;
   tgNotifyDeploy: boolean;
+  tgNotifyMarketing: boolean;
 };
 
 type Props = {
@@ -45,6 +46,8 @@ const PREF_LABELS: Record<keyof Preferences, string> = {
   tgNotifyWorkspaceDeleted: "Удаление workspace",
   tgNotifyRoleChanged: "Изменение моей роли",
   tgNotifyDeploy: "Уведомления о деплое",
+  tgNotifyMarketing:
+    "Маркетинг: письма на проверку, сделки, консультации агента",
 };
 
 const PREF_GROUPS: Record<string, Array<keyof Preferences>> = {
@@ -62,6 +65,7 @@ const PREF_GROUPS: Record<string, Array<keyof Preferences>> = {
   ],
   "Контент-план": ["tgNotifyContent"],
   "Деплой (только для админов)": ["tgNotifyDeploy"],
+  Маркетинг: ["tgNotifyMarketing"],
 };
 
 export function TelegramSettings({
@@ -102,6 +106,7 @@ export function TelegramSettings({
         tgNotifyWorkspaceDeleted: statusData.tgNotifyWorkspaceDeleted ?? false,
         tgNotifyRoleChanged: statusData.tgNotifyRoleChanged ?? false,
         tgNotifyDeploy: statusData.tgNotifyDeploy ?? true,
+        tgNotifyMarketing: statusData.tgNotifyMarketing ?? false,
       }
     : initialPrefs;
 

@@ -2578,6 +2578,24 @@ async function getTelegramChatIdsByLogins(logins) {
   return users.map((u) => u.telegramChatId).filter(Boolean);
 }
 
+// Chat id'ы пользователей, включивших маркетинг-уведомления (тумблер tgNotifyMarketing
+// в настройках профиля основного ПУП; бот общий).
+async function getMarketingNotifyChatIds() {
+  const users = await prisma.user.findMany({
+    where: { tgNotifyMarketing: true, telegramChatId: { not: null } },
+    select: { telegramChatId: true },
+  });
+  return users.map((u) => u.telegramChatId).filter(Boolean);
+}
+
+// Сохранить связь Telegram-сообщений консультации (для reply-ответа из TG основным ботом).
+async function setConsultationTgMessages(consultationId, pairs) {
+  return prisma.mktConsultation.updateMany({
+    where: { id: consultationId },
+    data: { tgMessageIds: JSON.stringify(pairs || []) },
+  });
+}
+
 module.exports = {
   prisma,
   // tg accounts (encrypted)
@@ -2708,6 +2726,8 @@ module.exports = {
   upsertSetting,
   getSetting,
   getTelegramChatIdsByLogins,
+  getMarketingNotifyChatIds,
+  setConsultationTgMessages,
   syncLeadEmails,
   // consultations / deals listing
   listConsultations,

@@ -56,6 +56,7 @@ export default async function ProfileSettingsPage() {
       tgNotifyWorkspaceDeleted: true,
       tgNotifyRoleChanged: true,
       tgNotifyDeploy: true,
+      tgNotifyMarketing: true,
       chatSoundEnabled: true,
       chatDesktopNotify: true,
     },
@@ -153,6 +154,7 @@ export default async function ProfileSettingsPage() {
               tgNotifyWorkspaceDeleted: user.tgNotifyWorkspaceDeleted,
               tgNotifyRoleChanged: user.tgNotifyRoleChanged,
               tgNotifyDeploy: user.tgNotifyDeploy,
+              tgNotifyMarketing: user.tgNotifyMarketing,
             }}
           />
         </SectionColumns>

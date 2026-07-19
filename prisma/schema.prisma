@@ -80,6 +80,8 @@ model User {
 
   // Deploy notifications (admin only)
   tgNotifyDeploy Boolean @default(true)
+  // Маркетинг (yt-parser admin-bot): письма на проверку, сделки, консультации агента
+  tgNotifyMarketing Boolean @default(false)
 
   // Chat
   tgNotifyChat           Boolean             @default(true)
@@ -1986,6 +1988,7 @@ model MktConsultation {
   context       String?
   adminResponse String?
   status        String  @default("pending") // pending | answered
+  tgMessageIds  String? // JSON [{chatId,messageId}] — сообщения консультации у получателей (reply-ответ из TG)
 
   createdAt  DateTime  @default(now())
   answeredAt DateTime?
