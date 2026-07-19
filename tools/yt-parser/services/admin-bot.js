@@ -40,6 +40,49 @@ function isReady() {
   return !!bot;
 }
 
+// ─── Получатели уведомлений ────────────────────────────────────────
+// Помимо основного ADMIN_TG_CHAT_ID (владелец) уведомления идут доп. людям,
+// перечисленным по логину в ADMIN_NOTIFY_LOGINS (через запятую). Их chat id
+// берётся из User.telegramChatId (бот общий с ПУП) и активируется автоматически,
+// как только человек привяжет Telegram в основном приложении. Кэш 60с.
+let _recipCache = { at: 0, ids: [] };
+async function resolveRecipients() {
+  const ids = new Set();
+  if (adminChatId) ids.add(String(adminChatId));
+  try {
+    const now = Date.now();
+    if (now - _recipCache.at > 60000) {
+      const logins = (process.env.ADMIN_NOTIFY_LOGINS || "")
+        .split(",")
+        .map((x) => x.trim())
+        .filter(Boolean);
+      _recipCache = {
+        at: now,
+        ids: await store.getTelegramChatIdsByLogins(logins),
+      };
+    }
+    for (const id of _recipCache.ids) ids.add(String(id));
+  } catch (e) {
+    console.error("[admin-bot] resolveRecipients:", e.message);
+  }
+  return [...ids];
+}
+
+// Доп. получатели без основного admin (для info-копий интерактивных сообщений).
+async function extraRecipients() {
+  return (await resolveRecipients()).filter(
+    (id) => String(id) !== String(adminChatId),
+  );
+}
+
+// Разослать информационное уведомление всем получателям.
+async function broadcast(text, options = {}) {
+  const recips = await resolveRecipients();
+  for (const chatId of recips) {
+    await safeSend(chatId, text, options);
+  }
+}
+
 // ─── Escaping (HTML parse_mode) ────────────────────────────────────
 
 function escapeHtml(text) {
@@ -213,6 +256,10 @@ async function sendDealNotification(deal) {
         ],
       },
     });
+    // Доп. получателям — инфо-копия без кнопок (approve/reject делает владелец).
+    for (const chatId of await extraRecipients()) {
+      await safeSend(chatId, text);
+    }
   } catch (e) {
     console.error("[admin-bot] Failed to send deal notification:", e.message);
   }
@@ -253,7 +300,7 @@ async function askConsultation(consultation, lead) {
 async function notifyText(text) {
   if (!bot || !adminChatId) return;
   try {
-    await safeSend(adminChatId, escapeHtml(text));
+    await broadcast(escapeHtml(text));
   } catch (e) {
     console.error("[admin-bot] notify failed:", e.message);
   }
@@ -284,7 +331,7 @@ async function notifyPendingReply(pr) {
       (pr.subject ? `<b>Тема:</b> ${escapeHtml(pr.subject)}\n` : "") +
       `\n<pre>${escapeHtml(String(pr.body || "").slice(0, 600))}</pre>\n` +
       `\n<i>Открой веб-интерфейс «На проверке» чтобы одобрить/отредактировать.</i>`;
-    await safeSend(adminChatId, text);
+    await broadcast(text);
   } catch (e) {
     console.error("[admin-bot] notifyPendingReply failed:", e.message);
   }

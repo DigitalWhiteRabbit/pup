@@ -2566,6 +2566,18 @@ async function syncLeadEmails(workspaceId, leadId, emailField) {
   return { changes: 1 };
 }
 
+// Chat id'ы Telegram по списку логинов (для доп. получателей admin-bot уведомлений).
+// Бот общий с основным ПУП, поэтому User.telegramChatId заполняется, когда человек
+// привязывает Telegram в основном приложении.
+async function getTelegramChatIdsByLogins(logins) {
+  if (!Array.isArray(logins) || logins.length === 0) return [];
+  const users = await prisma.user.findMany({
+    where: { login: { in: logins }, telegramChatId: { not: null } },
+    select: { telegramChatId: true },
+  });
+  return users.map((u) => u.telegramChatId).filter(Boolean);
+}
+
 module.exports = {
   prisma,
   // tg accounts (encrypted)
@@ -2695,6 +2707,7 @@ module.exports = {
   deleteProject,
   upsertSetting,
   getSetting,
+  getTelegramChatIdsByLogins,
   syncLeadEmails,
   // consultations / deals listing
   listConsultations,
