@@ -75,7 +75,12 @@ async function extraRecipients() {
 async function broadcast(text, options = {}) {
   const recips = await resolveRecipients();
   for (const chatId of recips) {
-    await safeSend(chatId, text, options);
+    try {
+      await safeSend(chatId, text, options);
+    } catch (e) {
+      // Один заблокировавший бота получатель не должен рвать рассылку остальным.
+      console.error("[admin-bot] broadcast to " + chatId + ":", e.message);
+    }
   }
 }
 
@@ -254,7 +259,11 @@ async function sendDealNotification(deal) {
     });
     // Доп. получателям — инфо-копия без кнопок (approve/reject делает владелец).
     for (const chatId of await extraRecipients()) {
-      await safeSend(chatId, text);
+      try {
+        await safeSend(chatId, text);
+      } catch (e) {
+        console.error("[admin-bot] deal copy to " + chatId + ":", e.message);
+      }
     }
   } catch (e) {
     console.error("[admin-bot] Failed to send deal notification:", e.message);
@@ -288,11 +297,16 @@ async function askConsultation(consultation, lead) {
     const recips = await resolveRecipients();
     const pairs = [];
     for (const chatId of recips) {
-      const sent = await safeSend(chatId, text, {
-        reply_markup: { force_reply: true, selective: true },
-      });
-      if (sent?.message_id) {
-        pairs.push({ chatId: String(chatId), messageId: sent.message_id });
+      try {
+        const sent = await safeSend(chatId, text, {
+          reply_markup: { force_reply: true, selective: true },
+        });
+        if (sent?.message_id) {
+          pairs.push({ chatId: String(chatId), messageId: sent.message_id });
+        }
+      } catch (e) {
+        // Пропускаем сбойного получателя, остальные всё равно получат и смогут ответить.
+        console.error("[admin-bot] consultation to " + chatId + ":", e.message);
       }
     }
     if (pairs.length)
