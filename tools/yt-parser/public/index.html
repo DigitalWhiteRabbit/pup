@@ -4082,24 +4082,33 @@ async function loadPresets(){
 }
 async function savePreset(){
   const name=prompt('Название пресета:');if(!name)return;
+  // Сохраняем значение поля как есть (.value). Пустое числовое поле означает
+  // «без фильтра» (реальный дефолт бэка — undefined), поэтому подставлять
+  // placeholder-подсказку НЕЛЬЗЯ: иначе пресет молча добавит фильтр, который не задавали.
+  const raw=(id)=>{const el=document.getElementById(id);return el?(el.value||''):'';};
   const params={
-    keywords:document.getElementById('fKeywords').value,
-    hashtags:document.getElementById('fHashtags').value,
-    minSubs:document.getElementById('fMinSubs').value,
-    maxSubs:document.getElementById('fMaxSubs').value,
-    minEng:document.getElementById('fMinEng').value,
-    country:document.getElementById('fCountry').value,
-    activeDays:document.getElementById('fActiveDays').value,
-    limit:document.getElementById('fLimit').value,
-    category:document.getElementById('fCategory').value,
-    sortBy:document.getElementById('fSortBy').value,
-    language:document.getElementById('fLanguage').value,
-    publishedAfter:document.getElementById('fPublishedAfter').value,
-    videoDuration:document.getElementById('fVideoDuration').value,
-    requireContacts:document.getElementById('fRequireContactType').value !== 'none',
-    contactFilter:document.getElementById('fRequireContactType').value,
+    keywords:raw('fKeywords'),
+    hashtags:raw('fHashtags'),
+    minSubs:raw('fMinSubs'),
+    maxSubs:raw('fMaxSubs'),
+    minEng:raw('fMinEng'),
+    country:raw('fCountry'),
+    activeDays:raw('fActiveDays'),
+    limit:raw('fLimit'),
+    category:raw('fCategory'),
+    sortBy:raw('fSortBy'),
+    language:raw('fLanguage'),
+    publishedAfter:raw('fPublishedAfter'),
+    videoDuration:raw('fVideoDuration'),
+    requireContacts:raw('fRequireContactType') !== 'none',
+    contactFilter:raw('fRequireContactType'),
   };
-  await fetch('/api/presets',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,params})});
+  try{
+    const r=await fetch('/api/presets',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,params})});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const filled=Object.entries(params).filter(([k,v])=>k!=='requireContacts'&&v!=='').length;
+    toast('Пресет «'+name+'» сохранён ('+filled+' полей)','success');
+  }catch(e){ toast('Ошибка сохранения пресета: '+e.message,'error'); }
   loadPresets();
 }
 function applyPreset(p){
@@ -4119,6 +4128,7 @@ function applyPreset(p){
   if(p.contactFilter) document.getElementById('fRequireContactType').value=p.contactFilter;
   else if(p.requireContacts===false) document.getElementById('fRequireContactType').value='none';
   else document.getElementById('fRequireContactType').value='any';
+  toast('Пресет применён','success');
 }
 
 // ─── Delete / Restore ─────────────────────────────────
