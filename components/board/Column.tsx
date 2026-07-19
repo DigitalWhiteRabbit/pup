@@ -134,6 +134,7 @@ export function Column({ column, workspaceId, members }: Props) {
 
   // ─── Add task ──────────────────────────────────────────────────────────────
   const [showAddTask, setShowAddTask] = useState(false);
+  const [addAtTop, setAddAtTop] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [addingTask, setAddingTask] = useState(false);
 
@@ -151,6 +152,7 @@ export function Column({ column, workspaceId, members }: Props) {
       trackAction("crm:task:create", `crm:task:create`, title);
       setNewTaskTitle("");
       setShowAddTask(false);
+      setAddAtTop(false);
       await queryClient.invalidateQueries({
         queryKey: ["workspace", workspaceId],
       });
@@ -167,6 +169,46 @@ export function Column({ column, workspaceId, members }: Props) {
   // ─── Render ────────────────────────────────────────────────────────────────
   const sortedTasks = [...column.tasks].sort((a, b) => a.position - b.position);
   const hasTasks = column.tasks.length > 0;
+
+  const cancelAddTask = () => {
+    setShowAddTask(false);
+    setAddAtTop(false);
+    setNewTaskTitle("");
+  };
+
+  const addTaskForm = (
+    <div className="space-y-1.5">
+      <Input
+        value={newTaskTitle}
+        onChange={(e) => setNewTaskTitle(e.target.value)}
+        placeholder="Название задачи"
+        autoFocus
+        onKeyDown={(e) => {
+          if (e.key === "Enter") void handleAddTask();
+          if (e.key === "Escape") cancelAddTask();
+        }}
+        className="h-8 text-sm"
+      />
+      <div className="flex gap-1">
+        <Button
+          size="sm"
+          className="h-7 text-xs"
+          onClick={() => void handleAddTask()}
+          disabled={addingTask || !newTaskTitle.trim()}
+        >
+          {addingTask ? "..." : "Добавить"}
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 text-xs"
+          onClick={cancelAddTask}
+        >
+          Отмена
+        </Button>
+      </div>
+    </div>
+  );
 
   return (
     <>
@@ -239,6 +281,19 @@ export function Column({ column, workspaceId, members }: Props) {
                 variant="ghost"
                 size="icon"
                 className="h-6 w-6 shrink-0"
+                onClick={() => {
+                  setAddAtTop(true);
+                  setShowAddTask(true);
+                }}
+                title="Добавить задачу"
+                aria-label="Добавить задачу"
+              >
+                <Plus className="h-3 w-3" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 shrink-0"
                 onClick={startRename}
                 title="Переименовать"
                 aria-label="Переименовать колонку"
@@ -268,6 +323,11 @@ export function Column({ column, workspaceId, members }: Props) {
           )}
         </div>
 
+        {/* ── Add task (from header, appears at top) ── */}
+        {showAddTask && addAtTop && (
+          <div className="p-2 border-b">{addTaskForm}</div>
+        )}
+
         {/* ── Task list ── */}
         <SortableContext
           items={sortedTasks.map((t) => t.id)}
@@ -287,50 +347,17 @@ export function Column({ column, workspaceId, members }: Props) {
 
         {/* ── Add task ── */}
         <div className="p-2 border-t">
-          {showAddTask ? (
-            <div className="space-y-1.5">
-              <Input
-                value={newTaskTitle}
-                onChange={(e) => setNewTaskTitle(e.target.value)}
-                placeholder="Название задачи"
-                autoFocus
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") void handleAddTask();
-                  if (e.key === "Escape") {
-                    setShowAddTask(false);
-                    setNewTaskTitle("");
-                  }
-                }}
-                className="h-8 text-sm"
-              />
-              <div className="flex gap-1">
-                <Button
-                  size="sm"
-                  className="h-7 text-xs"
-                  onClick={() => void handleAddTask()}
-                  disabled={addingTask || !newTaskTitle.trim()}
-                >
-                  {addingTask ? "..." : "Добавить"}
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 text-xs"
-                  onClick={() => {
-                    setShowAddTask(false);
-                    setNewTaskTitle("");
-                  }}
-                >
-                  Отмена
-                </Button>
-              </div>
-            </div>
+          {showAddTask && !addAtTop ? (
+            addTaskForm
           ) : (
             <Button
               variant="ghost"
               size="sm"
               className="w-full h-8 text-xs text-muted-foreground justify-start"
-              onClick={() => setShowAddTask(true)}
+              onClick={() => {
+                setAddAtTop(false);
+                setShowAddTask(true);
+              }}
             >
               <Plus className="mr-1 h-3 w-3" />
               Добавить задачу
