@@ -41,6 +41,14 @@ app.use((req, res, next) => {
   next();
 });
 
+// Resend delivery webhook (публичный, gated Svix-подписью). RAW body — ДО глобального
+// express.json, иначе верификация подписи невозможна (нужны точные байты тела).
+app.use(
+  "/api/webhooks",
+  express.raw({ type: "*/*", limit: "2mb" }),
+  require("./routes/webhooks"),
+);
+
 app.use(express.json({ limit: "2mb" }));
 
 // Auth routes (открытые) — до gate

@@ -387,6 +387,7 @@ async function _sendInitialOnChannelStore(
     sender: "agent",
     content: pitch.body,
     metadata: JSON.stringify(metadata),
+    resend_id: metadata.resend_id ?? null,
     created_at: now,
     tracking_id: trackingId,
   });
@@ -980,6 +981,7 @@ async function processOneLeadReply(wsId, lead, project) {
       sender: "agent",
       content: reply.body,
       metadata: JSON.stringify(metadata),
+      resend_id: metadata.resend_id ?? null,
       created_at: now,
       tracking_id: trackingId,
     });
@@ -1113,6 +1115,7 @@ async function _processDecidedDealsForWs(wsId) {
             ...metadata,
             deal_decision: deal.admin_decision,
           }),
+          resend_id: metadata.resend_id ?? null,
           created_at: now,
           tracking_id: trackingId,
         });
@@ -1245,6 +1248,7 @@ async function _processAnsweredConsultationsForWs(wsId) {
           sender: "agent",
           content: reply.body,
           metadata: JSON.stringify(metadata),
+          resend_id: metadata.resend_id ?? null,
           created_at: now,
           tracking_id: trackingId,
         });
@@ -1439,6 +1443,7 @@ async function sendApprovedPendingReply(wsId, item) {
       sender: "agent",
       content: body,
       metadata: JSON.stringify({ ...sendMeta, pending_reply_id: item.id }),
+      resend_id: sendMeta.resend_id ?? null,
       created_at: now,
       tracking_id: trackingId,
     });
@@ -1468,6 +1473,7 @@ async function sendApprovedPendingReply(wsId, item) {
         ...metaExtra,
         pending_reply_id: item.id,
       }),
+      resend_id: sendMeta.resend_id ?? null,
       created_at: now,
       tracking_id: trackingId,
     });
@@ -1659,6 +1665,7 @@ async function _processFollowUpsForWs(wsId) {
           sender: "agent",
           content: reply.body,
           metadata: JSON.stringify(metadata),
+          resend_id: metadata.resend_id ?? null,
           created_at: now,
           tracking_id: trackingId,
         });

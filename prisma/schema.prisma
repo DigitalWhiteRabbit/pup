@@ -1939,6 +1939,11 @@ model MktMessage {
   openedAt   DateTime?
   openCount  Int       @default(0)
 
+  // Delivery tracking (Resend webhooks)
+  deliveryStatus String? // sent | delivered | bounced | complained | delayed
+  deliveredAt    DateTime?
+  bouncedAt      DateTime?
+
   // A/B testing
   abVariantId String? // "A", "B", etc. — tracks which variant generated this message
 
@@ -1949,6 +1954,19 @@ model MktMessage {
   @@index([dialogueId, createdAt])
   @@index([resendId])
   @@index([trackingId])
+}
+
+// Сырые события доставки Resend (webhook). Дедуп повторных доставок по svixId.
+model MktEmailEvent {
+  id         String   @id @default(cuid())
+  svixId     String   @unique
+  resendId   String?
+  type       String
+  occurredAt DateTime @default(now())
+  payload    String?
+  createdAt  DateTime @default(now())
+
+  @@index([resendId])
 }
 
 // ─── Deals ──────────────────────────────

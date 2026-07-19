@@ -205,6 +205,9 @@ body.sb-collapsed .sidebar-toggle .chev { transform:rotate(180deg); }
 .msg-open-badge { display:inline-flex; align-items:center; gap:4px; font-size:10px; padding:2px 6px; border-radius:4px; }
 .msg-open-badge.is-opened { background:rgba(59,130,246,0.1); color:var(--blue); border:1px solid rgba(59,130,246,0.2); }
 .msg-open-badge.is-sent { background:rgba(255,255,255,0.04); color:var(--text-dim); }
+.msg-open-badge.is-delivered { background:rgba(34,197,94,0.1); color:#22c55e; border:1px solid rgba(34,197,94,0.22); }
+.msg-open-badge.is-bounced { background:rgba(239,68,68,0.1); color:#ef4444; border:1px solid rgba(239,68,68,0.25); }
+.msg-open-badge.is-delayed { background:rgba(234,179,8,0.1); color:#eab308; border:1px solid rgba(234,179,8,0.22); }
 
 /* ─── Lead dropdown selectors ────────────────────────── */
 .lead-status-select, .dialogue-stage-select {
@@ -6377,11 +6380,23 @@ async function openDialogue(id) {
           readReceipt = ' <span class="msg-open-badge is-sent" title="Отправлено">&#10003;</span>';
         }
       }
+      // Delivery status (Resend webhook): доставлено / отскок / жалоба / задержка
+      let deliveryBadge = '';
+      if (m.direction === 'out' && m.delivery_status) {
+        const dmap = {
+          delivered: ['is-delivered', '&#10003; доставлено', m.delivered_at ? 'Доставлено ' + new Date(m.delivered_at).toLocaleString('ru') : 'Доставлено'],
+          bounced:   ['is-bounced', '&#9888; отскок', m.bounced_at ? 'Отскок (bounce) ' + new Date(m.bounced_at).toLocaleString('ru') : 'Письмо не доставлено (bounce)'],
+          complained:['is-bounced', '&#9888; жалоба', 'Получатель пожаловался на спам'],
+          delayed:   ['is-delayed', '&#8987; задержка', 'Доставка задерживается'],
+        };
+        const d = dmap[m.delivery_status];
+        if (d) deliveryBadge = ` <span class="msg-open-badge ${d[0]}" title="${d[2]}">${d[1]}</span>`;
+      }
       return `
         <div class="dlg-msg ${cls}">
           ${meta.subject ? `<div class="dlg-msg-subject">${escapeHtml(meta.subject)}</div>` : ''}
           <div>${escapeHtml(m.content)}</div>
-          <div class="dlg-msg-meta">${senderLabel} · ${new Date(m.created_at).toLocaleString('ru')}${readReceipt}</div>
+          <div class="dlg-msg-meta">${senderLabel} · ${new Date(m.created_at).toLocaleString('ru')}${deliveryBadge}${readReceipt}</div>
         </div>
       `;
     }).join('');

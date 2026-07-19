@@ -213,6 +213,9 @@ function messageToLegacy(m) {
     open_ua: null,
     tracking_id: m.trackingId,
     resend_id: m.resendId,
+    delivery_status: m.deliveryStatus,
+    delivered_at: iso(m.deliveredAt),
+    bounced_at: iso(m.bouncedAt),
   };
 }
 
@@ -813,12 +816,106 @@ async function insertMessage(workspaceId, p) {
       contentRu: p.content_ru ?? null,
       subject: p.subject ?? null,
       metadata: p.metadata ?? null,
+      resendId: p.resend_id ?? null,
       trackingId: p.tracking_id ?? null,
       createdAt: toDate(p.created_at) ?? undefined,
     },
     select: { id: true },
   });
   return { changes: 1, id: m.id };
+}
+
+// Записать событие доставки Resend (идемпотентно по svixId) и обновить статус письма.
+// Возвращает { changes, duplicate }.
+async function recordEmailEvent({
+  svixId,
+  resendId,
+  type,
+  occurredAt,
+  payload,
+}) {
+  const at = toDate(occurredAt);
+  try {
+    await prisma.mktEmailEvent.create({
+      data: {
+        svixId,
+        resendId: resendId ?? null,
+        type: String(type || ""),
+        occurredAt: at ?? undefined,
+        payload: payload ?? null,
+      },
+    });
+  } catch (e) {
+    if (e && e.code === "P2002") return { changes: 0, duplicate: true };
+    throw e;
+  }
+  if (!resendId) return { changes: 0, duplicate: false };
+
+  // opened → инкремент, дата первого открытия
+  if (type === "email.opened") {
+    const msg = await prisma.mktMessage.findFirst({
+      where: { resendId },
+      select: { id: true, openedAt: true },
+    });
+    if (msg) {
+      await prisma.mktMessage.update({
+        where: { id: msg.id },
+        data: {
+          openedAt: msg.openedAt ?? at ?? undefined,
+          openCount: { increment: 1 },
+        },
+      });
+      return { changes: 1, duplicate: false };
+    }
+    return { changes: 0, duplicate: false };
+  }
+
+  // Финальные статусы пишем всегда; sent/delayed — только если статус ещё не проставлен,
+  // чтобы поздний sent/delayed не затёр delivered/bounced.
+  if (type === "email.delivered") {
+    // deliveredAt пишем всегда (факт доставки); статус НЕ понижаем с bounced/complained,
+    // если такое пришло раньше (порядок вебхуков не гарантирован).
+    const r = await prisma.mktMessage.updateMany({
+      where: {
+        resendId,
+        OR: [
+          { deliveryStatus: null },
+          { deliveryStatus: { notIn: ["bounced", "complained", "delivered"] } },
+        ],
+      },
+      data: { deliveryStatus: "delivered", deliveredAt: at ?? undefined },
+    });
+    if (r.count === 0) {
+      // всё же зафиксировать дату доставки, не трогая финальный статус
+      await prisma.mktMessage.updateMany({
+        where: { resendId, deliveredAt: null },
+        data: { deliveredAt: at ?? undefined },
+      });
+    }
+    return { changes: r.count, duplicate: false };
+  }
+  if (type === "email.bounced") {
+    const r = await prisma.mktMessage.updateMany({
+      where: { resendId },
+      data: { deliveryStatus: "bounced", bouncedAt: at ?? undefined },
+    });
+    return { changes: r.count, duplicate: false };
+  }
+  if (type === "email.complained") {
+    const r = await prisma.mktMessage.updateMany({
+      where: { resendId },
+      data: { deliveryStatus: "complained" },
+    });
+    return { changes: r.count, duplicate: false };
+  }
+  if (type === "email.delivery_delayed") {
+    const r = await prisma.mktMessage.updateMany({
+      where: { resendId, deliveryStatus: null },
+      data: { deliveryStatus: "delayed" },
+    });
+    return { changes: r.count, duplicate: false };
+  }
+  return { changes: 0, duplicate: false };
 }
 
 // зеркало inline-запроса routes/tracking.js: первое открытие + инкремент счётчика
@@ -2696,6 +2793,7 @@ module.exports = {
   incrementDialogueMsgCount,
   // ── write: messages
   insertMessage,
+  recordEmailEvent,
   recordMessageOpen,
   // ── write: pending replies
   insertPendingReply,
