@@ -367,6 +367,8 @@ async function listAllDialogues(workspaceId) {
           leadStatus: true,
           dialogueStage: true,
           notes: true,
+          email: true, // поиск по списку диалогов
+          telegram: true,
         },
       },
       // tiebreaker id ASC: SQLite-подзапрос (ORDER BY created_at DESC LIMIT 1)
@@ -389,6 +391,8 @@ async function listAllDialogues(workspaceId) {
         d.lead.dialogueStage,
       ),
       notes: d.lead.notes,
+      email: d.lead.email,
+      telegram: d.lead.telegram,
       last_message: last ? last.content : null,
       last_message_at: last ? iso(last.createdAt) : null,
       message_count: d.messages.length,
