@@ -1903,12 +1903,12 @@ window.fetch = function(url, opts) {
             </div>
             <div>
               <label>Задержка ответа от (мин)</label>
-              <input type="number" id="cReplyDelayMin" value="30" min="0" max="1440" placeholder="30">
-              <div style="font-size:10px;color:var(--text-dim);margin-top:3px">Минимальная пауза перед отправкой ответа после approve</div>
+              <input type="number" id="cReplyDelayMin" value="1" min="0" max="1440" placeholder="1">
+              <div style="font-size:10px;color:var(--text-dim);margin-top:3px">Минимальная пауза перед отправкой после approve. Действует на все письма, включая первый питч</div>
             </div>
             <div>
               <label>Задержка ответа до (мин)</label>
-              <input type="number" id="cReplyDelayMax" value="90" min="0" max="1440" placeholder="90">
+              <input type="number" id="cReplyDelayMax" value="10" min="0" max="1440" placeholder="10">
               <div style="font-size:10px;color:var(--text-dim);margin-top:3px">Максимальная пауза. Реальная = рандом между мин и макс</div>
             </div>
             <div class="full"><label>Идеальный профиль канала (кому шлём) *</label><textarea id="cIdealProfile" rows="3" placeholder="Нарезчики Shorts/Reels, ниши, подписчики, гео — чем детальнее, тем точнее фильтр"></textarea></div>
@@ -6099,8 +6099,8 @@ function getCampaignFormData() {
     agent_persona: document.getElementById('cAgentPersona').value.trim() || null,
     admin_directive: document.getElementById('cAdminDirective').value.trim() || null,
     system_prompt: document.getElementById('cSystemPrompt').value.trim() || null,
-    reply_delay_min: parseInt(document.getElementById('cReplyDelayMin')?.value) || 30,
-    reply_delay_max: parseInt(document.getElementById('cReplyDelayMax')?.value) || 90,
+    reply_delay_min: parseInt(document.getElementById('cReplyDelayMin')?.value) || 1,
+    reply_delay_max: parseInt(document.getElementById('cReplyDelayMax')?.value) || 10,
   };
 }
 
@@ -6146,8 +6146,8 @@ function editCampaign(id) {
     document.getElementById('cStopWords').value = p.stop_words || '';
     document.getElementById('cAgentPersona').value = p.agent_persona || '';
     document.getElementById('cAdminDirective').value = p.admin_directive || '';
-    if (document.getElementById('cReplyDelayMin')) document.getElementById('cReplyDelayMin').value = p.reply_delay_min ?? 30;
-    if (document.getElementById('cReplyDelayMax')) document.getElementById('cReplyDelayMax').value = p.reply_delay_max ?? 90;
+    if (document.getElementById('cReplyDelayMin')) document.getElementById('cReplyDelayMin').value = p.reply_delay_min ?? 1;
+    if (document.getElementById('cReplyDelayMax')) document.getElementById('cReplyDelayMax').value = p.reply_delay_max ?? 10;
     // Load system prompt — use project's custom or fetch default
     loadSystemPromptForProject(p);
     document.getElementById('campaignFormTitle').textContent = 'Редактирование: ' + p.name;
@@ -6361,7 +6361,7 @@ async function openDialogue(id) {
       <div class="dlg-messages" id="dlgMessages"></div>
       <div class="dlg-input-row">
         <textarea id="dlgAdminInput" placeholder="Написать сообщение от своего имени (ручная отправка)..."></textarea>
-        <button class="btn-blue btn-sm" onclick="sendAdminMessage()">Отправить</button>
+        <button class="btn-blue btn-sm" id="dlgAdminSendBtn" onclick="sendAdminMessage()">Отправить</button>
       </div>
     `;
     const msgs = document.getElementById('dlgMessages');
@@ -6404,17 +6404,41 @@ async function openDialogue(id) {
   } catch(e) { console.error(e); }
 }
 
+let adminSendInFlight = false;
 async function sendAdminMessage() {
   if (!currentDialogueId) return;
   const ta = document.getElementById('dlgAdminInput');
   const content = ta.value.trim();
   if (!content) return;
-  await fetch('/api/dialogues/'+currentDialogueId+'/admin-message', {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ content })
-  });
-  ta.value = '';
+  // Отправка идёт синхронно и может занять секунды (ретраи Resend) или до
+  // полутора минут (пейсинг TG). Без замка второй клик отправит письмо дважды.
+  if (adminSendInFlight) return;
+  adminSendInFlight = true;
+  const btn = document.getElementById('dlgAdminSendBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Отправка…'; }
+  try {
+    const r = await fetch('/api/dialogues/'+currentDialogueId+'/admin-message', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ content })
+    });
+    const j = await r.json().catch(() => ({}));
+    // Ошибку отправки НЕ проглатываем: текст остаётся в поле, чтобы не потерять
+    // его и не думать, что письмо ушло.
+    if (!r.ok || !j.success) {
+      toast(j.error || 'Не удалось отправить', 'error');
+      return;
+    }
+    toast(j.dryRun ? 'DRY_RUN: записано без отправки' : 'Отправлено', 'success');
+    ta.value = '';
+  } catch (e) {
+    toast(e.message || 'Не удалось отправить', 'error');
+    return;
+  } finally {
+    adminSendInFlight = false;
+    if (btn) { btn.disabled = false; btn.textContent = 'Отправить'; }
+  }
   openDialogue(currentDialogueId);
+  if (typeof loadDialogues === 'function') loadDialogues();
 }
 
 // Перевод лида в «Перешли в ТГ» (ставит AI-агента на паузу для этого лида)
@@ -6611,6 +6635,35 @@ async function answerConsultation(id) {
 
 // ─── Review mode: pending replies queue ────────────────
 
+// Обратный отсчёт до отправки одобренного письма (MM:SS).
+function formatCountdown(sendAfter) {
+  const left = new Date(sendAfter) - new Date();
+  if (!(left > 0)) return '00:00';
+  const total = Math.round(left / 1000);
+  const mm = String(Math.floor(total / 60)).padStart(2, '0');
+  const ss = String(total % 60).padStart(2, '0');
+  return mm + ':' + ss;
+}
+
+// Один общий тикер на страницу: перерисовывает все видимые счётчики.
+let _lastCountdownRefresh = 0;
+setInterval(() => {
+  const els = document.querySelectorAll('.send-countdown');
+  if (!els.length) return;
+  let expired = false;
+  els.forEach(el => {
+    const left = new Date(el.dataset.sendAfter) - new Date();
+    el.textContent = formatCountdown(el.dataset.sendAfter);
+    if (left <= 0) expired = true;
+  });
+  // Таймер истёк — подтягиваем реальный статус. Воркер тикает раз в 20 с,
+  // поэтому опрашиваем не чаще, чем раз в 10 с, а не каждую секунду.
+  if (expired && Date.now() - _lastCountdownRefresh > 10000) {
+    _lastCountdownRefresh = Date.now();
+    if (typeof loadPendingReplies === 'function') loadPendingReplies();
+  }
+}, 1000);
+
 let _pendingFilter = 'pending';
 async function loadPendingReplies(filterOverride) {
   if (filterOverride) _pendingFilter = filterOverride;
@@ -6627,7 +6680,7 @@ async function loadPendingReplies(filterOverride) {
     if (filtersEl) {
       const filters = [
         { key: 'pending', label: '⏳ Ждут', count: counts.pending||0 },
-        { key: 'approved', label: '✅ Одобрены', count: counts.approved||0 },
+        { key: 'approved', label: '🕒 Ожидают отправки', count: counts.approved||0 },
         { key: 'sent', label: '📤 Отправлены', count: counts.sent||0 },
         { key: 'rejected', label: '❌ Отклонены', count: counts.rejected||0 },
         { key: 'failed', label: '⚠️ Ошибки', count: counts.failed||0 },
@@ -6730,11 +6783,12 @@ function renderPendingReplyCard(it) {
       <!-- Actions -->
       <div style="display:flex;gap:10px;flex-wrap:wrap;padding-top:14px;border-top:1px solid var(--border);margin-top:14px;align-items:center">
         ${it.send_after && it.status === 'approved' && new Date(it.send_after) > new Date()
-          ? `<div style="font-size:12px;color:var(--yellow)">⏱ Через ${Math.round((new Date(it.send_after) - new Date()) / 60000)} мин</div>
+          ? `<div style="font-size:12px;color:var(--yellow)">🕒 Ожидает отправки · через <span class="send-countdown" data-send-after="${it.send_after}">${formatCountdown(it.send_after)}</span> (в ${new Date(it.send_after).toLocaleTimeString('ru', {hour:'2-digit', minute:'2-digit'})})</div>
              <button class="btn-primary btn-sm" style="padding:6px 14px;font-size:12px;border-radius:7px" onclick="forceSendNow('${it.id}')">⚡ Отправить сейчас</button>`
-          : it.send_after && it.status === 'approved'
-            ? `<div style="font-size:12px;color:var(--green)">✅ Таймер истёк</div>`
+          : it.status === 'approved'
+            ? `<div style="font-size:12px;color:var(--green)">✅ Одобрено, уходит ближайшим тиком</div>`
             : ''}
+        ${it.status === 'sending' ? `<div style="font-size:12px;color:var(--blue)">📨 Отправляется…</div>` : ''}
         ${it.status === 'sent'
           ? `<div style="font-size:12px;color:var(--green)">📤 Отправлено ${it.sent_at ? new Date(it.sent_at).toLocaleString('ru') : ''}</div>${
               it.msg_opened_at
@@ -7052,7 +7106,9 @@ async function approvePendingReply(id) {
     });
     const j = await r.json();
     if (j.success) {
-      const msg = j.delay_minutes ? `Одобрено — отправится через ~${j.delay_minutes} мин` : 'Одобрено — отправляется';
+      const msg = j.send_after
+        ? `Одобрено — в очереди, отправка в ${new Date(j.send_after).toLocaleTimeString('ru', {hour:'2-digit', minute:'2-digit'})}`
+        : 'Одобрено — отправляется';
       toast(msg, 'success');
       loadPendingReplies();
     }

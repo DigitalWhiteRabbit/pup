@@ -79,7 +79,7 @@ model User {
   tgNotifyTicketSlaBreached Boolean @default(true)
 
   // Deploy notifications (admin only)
-  tgNotifyDeploy Boolean @default(true)
+  tgNotifyDeploy    Boolean @default(true)
   // Маркетинг (yt-parser admin-bot): письма на проверку, сделки, консультации агента
   tgNotifyMarketing Boolean @default(false)
 
@@ -1761,11 +1761,11 @@ model MktLead {
   longAvgViews     Int?
 
   // Relations
-  projectId   String?
-  agreedPrice Int?
-  notes       String?
+  projectId      String?
+  agreedPrice    Int?
+  notes          String?
   manualContacts String? // JSON {channel: ISO-date} — блогеру написали ВРУЧНУЮ (не агент)
-  optedOut    Boolean @default(false)
+  optedOut       Boolean @default(false)
 
   // yt-parser unification
   keyword   String? // поисковый ключ, по которому найден лид
@@ -1874,8 +1874,8 @@ model MktTag {
   color       String   @default("#3b82f6")
   createdAt   DateTime @default(now())
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  leads     MktLead[]
+  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  leads       MktLead[]
   channelTags MktChannelTag[]
 
   @@index([workspaceId])
@@ -2049,12 +2049,14 @@ model MktPendingReply {
   decidedAt DateTime?
   sentAt    DateTime?
   sendAfter DateTime? // отложенная отправка (yt-parser send_after)
+  sendingAt DateTime? // момент claim approved→sending; по нему реанимируются зависшие
 
   lead     MktLead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
   dialogue MktDialogue? @relation(fields: [dialogueId], references: [id], onDelete: SetNull)
 
   @@index([status])
   @@index([leadId])
+  @@index([status, sendAfter]) // горячая выборка очереди отправки (тик раз в 20 с)
 }
 
 // ─── Search Tasks & Runs ────────────────

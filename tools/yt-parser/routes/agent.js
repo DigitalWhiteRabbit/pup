@@ -43,6 +43,7 @@ router.post("/tick", adminAuth, async (req, res) => {
   try {
     await worker.processOutreachQueue();
     await worker.processInbox();
+    await worker.processApprovedQueue();
     res.json({ success: true, ...worker.status() });
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });

@@ -971,6 +971,10 @@ app.listen(PORT, async () => {
   // Auto-start outreach worker (inbox polling, follow-ups, deal processing)
   try {
     const worker = require("./services/outreach-worker");
+    // Очередь одобренных писем разбирается всегда, независимо от того, поднят ли
+    // outreach-воркер (нет IMAP_HOST) и не остановлен ли он из UI: письма туда
+    // кладёт человек кнопкой «Одобрить», и они обязаны уйти.
+    worker.startSendQueueDispatcher();
     if (process.env.RESEND_API_KEY && process.env.IMAP_HOST) {
       worker.start();
       console.log(

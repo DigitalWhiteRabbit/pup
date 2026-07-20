@@ -1908,6 +1908,42 @@ function start() {
   setTimeout(processApprovedQueue, 7000);
 }
 
+// ─── Диспетчер очереди отправки ──────────────────────────────────────
+// Одобренные письма ждут своего send_after и уходят отсюда. Живёт ОТДЕЛЬНО от
+// start()/stop(): очередь наполняет человек кнопкой «Одобрить», и письмо обязано
+// уйти даже если outreach-воркер не поднят (нет IMAP_HOST) или остановлен из UI.
+// Иначе письма молча копятся в APPROVED навсегда.
+let sendQueueInterval = null;
+const SEND_QUEUE_TICK_MS = 20_000;
+// Критерий «зависло» — claim от ПРОШЛОГО процесса, а не просто давний.
+// По времени тут судить нельзя: TG-пейсинг (глобальная очередь, до 90 с на
+// сообщение) легально держит запись в SENDING десятки минут, и порог по возрасту
+// вернул бы в очередь письмо, которое прямо сейчас отправляется, — блогер получил
+// бы дубль. Всё, что заклеймлено до старта текущего процесса, отправиться уже не
+// может: тот процесс мёртв.
+const PROCESS_START_ISO = new Date().toISOString();
+
+function startSendQueueDispatcher() {
+  if (sendQueueInterval) return;
+  const tick = async () => {
+    try {
+      const revived = await store.resetStaleSendingReplies(PROCESS_START_ISO);
+      if (revived > 0)
+        log("INFO", `send-queue: возвращено из sending в очередь: ${revived}`);
+    } catch (e) {
+      log("ERR", `send-queue sweep: ${e.message}`);
+    }
+    try {
+      await processApprovedQueue();
+    } catch (e) {
+      log("ERR", `send-queue tick: ${e.message}`);
+    }
+  };
+  sendQueueInterval = setInterval(tick, SEND_QUEUE_TICK_MS);
+  setTimeout(tick, 5000);
+  log("INFO", "Send queue dispatcher started");
+}
+
 function stop() {
   if (!workerState.running) return;
   workerState.running = false;
@@ -1963,6 +1999,7 @@ async function status() {
 module.exports = {
   start,
   stop,
+  startSendQueueDispatcher,
   status,
   getLogs,
   processOutreachQueue,

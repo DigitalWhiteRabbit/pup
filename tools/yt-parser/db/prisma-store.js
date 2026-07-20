@@ -999,7 +999,7 @@ async function rejectPendingReply(workspaceId, adminNotes, decidedAt, id) {
 async function markPendingReplySent(workspaceId, sentAt, id) {
   return prisma.mktPendingReply.updateMany({
     where: { id, lead: { workspaceId } },
-    data: { status: "SENT", sentAt: toDate(sentAt) },
+    data: { status: "SENT", sentAt: toDate(sentAt), sendingAt: null },
   });
 }
 
@@ -1007,7 +1007,7 @@ async function markPendingReplySent(workspaceId, sentAt, id) {
 async function markPendingReplyFailed(workspaceId, adminNotes, id) {
   return prisma.mktPendingReply.updateMany({
     where: { id, lead: { workspaceId } },
-    data: { status: "FAILED", adminNotes: adminNotes ?? null },
+    data: { status: "FAILED", adminNotes: adminNotes ?? null, sendingAt: null },
   });
 }
 
@@ -2050,14 +2050,26 @@ async function listAnsweredConsultations(workspaceId) {
   return out;
 }
 
-// Approved pending replies (review-mode очередь отправки), по decided_at.
+// Approved pending replies (review-mode очередь отправки): только те, чей таймер
+// уже истёк, в порядке наступления send_after. Фильтр обязателен — тик берёт
+// всего MAX_REPLIES_PER_TICK штук, и без него письма с длинным таймером в
+// голове очереди задерживают все остальные.
 async function pickApprovedPendingReplies(workspaceId, limit) {
   const rows = await prisma.mktPendingReply.findMany({
-    where: { status: "APPROVED", lead: { workspaceId } },
+    where: {
+      status: "APPROVED",
+      lead: { workspaceId },
+      OR: [{ sendAfter: null }, { sendAfter: { lte: new Date() } }],
+    },
     include: {
       lead: { select: { email: true, telegram: true, channelName: true } },
     },
-    orderBy: { decidedAt: "asc" },
+    // nulls first: без таймера (force-send/retry) — вперёд; в Postgres ASC по
+    // умолчанию даёт NULLS LAST.
+    orderBy: [
+      { sendAfter: { sort: "asc", nulls: "first" } },
+      { decidedAt: "asc" },
+    ],
     take: limit,
   });
   return rows.map((pr) => ({
@@ -2068,11 +2080,31 @@ async function pickApprovedPendingReplies(workspaceId, limit) {
   }));
 }
 
+// Реанимация зависших sending → approved (процесс упал между claim и отметкой
+// sent/failed). Без этого запись не подберёт ни одна выборка и письмо потеряется.
+// olderThanIso — момент старта текущего процесса: всё, что заклеймлено раньше,
+// принадлежит мёртвому процессу. Порог по возрасту здесь опасен, см. коммент
+// у PROCESS_START_ISO в outreach-worker.js.
+// Кросс-воркспейсный: вызывается диспетчером очереди без ws-скоупа.
+async function resetStaleSendingReplies(olderThanIso) {
+  const cutoff = toDate(olderThanIso);
+  const r = await prisma.mktPendingReply.updateMany({
+    where: {
+      status: "SENDING",
+      // sendingAt пуст только у записей, заклеймленных до появления колонки —
+      // их тоже возвращаем в очередь.
+      OR: [{ sendingAt: { lt: cutoff } }, { sendingAt: null }],
+    },
+    data: { status: "APPROVED", sendingAt: null },
+  });
+  return r.count;
+}
+
 // Атомарный claim approved → sending (count===1). Защита от гонки тиков.
 async function claimApprovedPendingReply(workspaceId, id) {
   const r = await prisma.mktPendingReply.updateMany({
     where: { id, lead: { workspaceId }, status: "APPROVED" },
-    data: { status: "SENDING" },
+    data: { status: "SENDING", sendingAt: new Date() },
   });
   return r.count === 1;
 }
@@ -2080,7 +2112,7 @@ async function claimApprovedPendingReply(workspaceId, id) {
 async function unclaimApprovedPendingReply(workspaceId, id) {
   return prisma.mktPendingReply.updateMany({
     where: { id, lead: { workspaceId }, status: "SENDING" },
-    data: { status: "APPROVED" },
+    data: { status: "APPROVED", sendingAt: null },
   });
 }
 
@@ -2735,6 +2767,7 @@ module.exports = {
   listAnsweredConsultations,
   pickApprovedPendingReplies,
   claimApprovedPendingReply,
+  resetStaleSendingReplies,
   unclaimApprovedPendingReply,
   getLastOutResendId,
   pickFollowUpCandidates,

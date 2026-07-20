@@ -8,6 +8,11 @@ const worker = require("../services/outreach-worker");
 
 const router = express.Router();
 
+// Дефолтное окно случайной задержки одобренного письма (минуты). Перекрывается
+// настройками кампании reply_delay_min/max.
+const DEFAULT_DELAY_MIN = 1;
+const DEFAULT_DELAY_MAX = 10;
+
 router.use((req, res, next) => {
   if (req.method === "GET" || req.method === "HEAD") return next();
   return adminAuth(req, res, next);
@@ -97,30 +102,29 @@ router.post("/:id/approve", async (req, res) => {
     id,
   );
 
-  // Calculate send_after delay from project settings (random between min-max minutes)
-  let ctx = {};
-  try {
-    ctx = JSON.parse(item.context || "{}");
-  } catch {}
-  const isInitial = ctx.type === "initial";
+  // Одобренное письмо не уходит сразу: у каждого свой случайный таймер из
+  // настроек кампании (reply_delay_min/max, по умолчанию 1-10 минут). Раньше
+  // первый питч (type=initial) шёл в обход очереди — теперь очередь общая для
+  // всех, иначе пачка одобрений уходит залпом с одного домена.
   const project = await store.getActiveProject(req.wsId);
-  const delayMin = project?.reply_delay_min ?? 30;
-  const delayMax = project?.reply_delay_max ?? 90;
+  const delayMin = Math.max(0, project?.reply_delay_min ?? DEFAULT_DELAY_MIN);
+  const delayMax = Math.max(
+    delayMin,
+    project?.reply_delay_max ?? DEFAULT_DELAY_MAX,
+  );
 
-  if (!isInitial && delayMin > 0) {
-    // Random delay between min and max minutes
+  if (delayMax > 0) {
     const delayMs =
       (delayMin + Math.random() * (delayMax - delayMin)) * 60 * 1000;
     const sendAfter = new Date(Date.now() + delayMs).toISOString();
     await store.setPendingReplySendAfter(req.wsId, sendAfter, id);
-    const delayMins = Math.round(delayMs / 60000);
     res.json({
       success: true,
       send_after: sendAfter,
-      delay_minutes: delayMins,
+      delay_minutes: Math.round(delayMs / 60000),
     });
   } else {
-    // Initial pitch — send immediately (worker — легаси до 3.3c)
+    // Задержка отключена в настройках (min=max=0) — отдаём воркеру сразу.
     const wsId = req.workspaceId;
     setImmediate(() => {
       worker
