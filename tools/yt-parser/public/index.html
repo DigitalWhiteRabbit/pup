@@ -251,8 +251,20 @@ body.sb-collapsed .sidebar-toggle .chev { transform:rotate(180deg); }
 .dialogue-stage-select.k-danger { border-color: rgba(239,68,68,0.5); color: var(--red); }
 
 /* ─── Dialogues / chat ────────────────────────────── */
-.dlg-layout { display:grid; grid-template-columns:340px 1fr; gap:16px; height:calc(100vh - 200px); }
-@media(max-width:1100px) { .dlg-layout { grid-template-columns:1fr; height:auto; } }
+/* Высота не считается магическим calc(100vh - N): «обвязка» над списком
+   (шапка + карточка агента с flex-wrap) меняет высоту при узком окне и зуме,
+   layout вылезал за вьюпорт и давал скролл всей страницы. Тянем реальную
+   доступную высоту флексом от .content вниз. */
+.content:has(> #navDialogues.active) { display:flex; flex-direction:column; min-height:0; }
+#navDialogues.nav-section.active { display:flex; flex-direction:column; flex:1; min-height:0; }
+.dlg-layout { display:grid; grid-template-columns:340px 1fr; gap:16px; flex:1; min-height:0; }
+@media(max-width:1100px) {
+  /* Одна колонка: высоту вьюпорта не наследуем, но панели всё равно должны
+     скроллиться сами, иначе список чатов снова уезжает вместе с перепиской. */
+  .dlg-layout { grid-template-columns:1fr; flex:none; }
+  .dlg-list { max-height:50vh; }
+  .dlg-messages { max-height:60vh; }
+}
 /* min-height:0 — иначе grid/flex-элемент не сжимается ниже своего контента,
    внутренний overflow-y не срабатывает и вместо списка скроллится вся страница
    (список чатов уезжал вместе с окном сообщений). */
@@ -262,7 +274,7 @@ body.sb-collapsed .sidebar-toggle .chev { transform:rotate(180deg); }
 .dlg-filters input, .dlg-filters select { width:100%; font-size:12px; padding:7px 10px; border-radius:7px; border:1px solid var(--border); background:var(--bg); color:var(--text); }
 .dlg-filters input:focus, .dlg-filters select:focus { outline:none; border-color:var(--accent); }
 .dlg-filters-count { font-size:10px; color:var(--text-dim); padding:0 2px; }
-.dlg-list { background:var(--card); border:1px solid var(--border); border-radius:var(--radius); overflow-y:auto; padding:8px; flex:1; min-height:0; }
+.dlg-list { background:var(--card); border:1px solid var(--border); border-radius:var(--radius); overflow-y:auto; overscroll-behavior:contain; padding:8px; flex:1; min-height:0; }
 .dlg-item { padding:12px; border-radius:8px; cursor:pointer; margin-bottom:4px; transition:background .15s; border:1px solid transparent; }
 .dlg-item:hover { background:rgba(255,255,255,0.03); }
 .dlg-item.active { background:var(--accent-dim); border-color:var(--accent); }
@@ -273,7 +285,7 @@ body.sb-collapsed .sidebar-toggle .chev { transform:rotate(180deg); }
 .dlg-chat-header { padding:14px 18px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:12px; }
 .dlg-chat-header h3 { font-size:14px; font-weight:700; }
 .dlg-chat-header .meta { color:var(--text-dim); font-size:11px; margin-top:2px; }
-.dlg-messages { flex:1; min-height:0; padding:18px; overflow-y:auto; display:flex; flex-direction:column; gap:14px; }
+.dlg-messages { flex:1; min-height:0; padding:18px; overflow-y:auto; overscroll-behavior:contain; display:flex; flex-direction:column; gap:14px; }
 .dlg-msg { max-width:75%; padding:10px 14px; border-radius:14px; font-size:13px; line-height:1.55; word-wrap:break-word; white-space:pre-wrap; }
 .dlg-msg.in { background:rgba(255,255,255,0.05); align-self:flex-start; border-bottom-left-radius:4px; }
 .dlg-msg.out { background:var(--accent-dim); border:1px solid rgba(255,107,53,0.3); align-self:flex-end; border-bottom-right-radius:4px; }
@@ -6289,6 +6301,7 @@ function dialogueMatchesFilters(d) {
 }
 
 // Селект статусов строим по фактическим данным, чтобы не показывать пустые.
+let _dlgStageOptionsKey = '';
 function renderDialogueStageOptions() {
   const sel = document.getElementById('dlgStageFilter');
   if (!sel) return;
@@ -6298,8 +6311,20 @@ function renderDialogueStageOptions() {
     counts[k] = (counts[k] || 0) + 1;
   });
   const keys = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
+
+  // Выбранный статус мог исчезнуть из данных (последний диалог сменил стадию).
+  // Оставляем его в списке нулём, иначе селект показывает пусто, а фильтр
+  // продолжает работать — «Найдено: 0» без видимой причины.
+  if (_dlgStage && !(_dlgStage in counts)) keys.push(_dlgStage);
+
+  // Список диалогов поллится раз в 10 секунд. Перерисовываем селект только при
+  // реальном изменении, иначе открытый дропдаун захлопывается под курсором.
+  const key = allDialoguesCache.length + '|' + keys.map(k => k + ':' + (counts[k] || 0)).join(',');
+  if (key === _dlgStageOptionsKey) return;
+  _dlgStageOptionsKey = key;
+
   sel.innerHTML = `<option value="">Все статусы (${allDialoguesCache.length})</option>` +
-    keys.map(k => `<option value="${escapeHtml(k)}">${escapeHtml(DIALOGUE_STAGE_LABELS[k] || k)} (${counts[k]})</option>`).join('');
+    keys.map(k => `<option value="${escapeHtml(k)}">${escapeHtml(DIALOGUE_STAGE_LABELS[k] || k)} (${counts[k] || 0})</option>`).join('');
   sel.value = _dlgStage;
 }
 
@@ -6368,7 +6393,7 @@ async function ensureTgAccountsCache() {
 
 async function openDialogue(id) {
   currentDialogueId = id;
-  loadDialogues(); // re-render to highlight active
+  renderDialoguesList(); // подсветка активного — из кэша, без лишнего запроса
   await ensureTgAccountsCache();
   try {
     const r = await fetch('/api/dialogues/'+id+'/messages');
